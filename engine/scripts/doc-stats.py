@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -39,21 +40,32 @@ def _resolve_repo() -> Path:
         project on the machine, so the project is whatever Claude Code is working on;
       * per-project — a copy sits in the project's own scripts/.
 
-    Resolution order: CLAUDE_PROJECT_DIR (set by Claude Code for hooks) → the git
-    worktree containing the cwd → this file's parent directory. The last is the
-    legacy per-project layout and stays as the final fallback.
+    Resolution order: CLAUDE_PROJECT_DIR (set by Claude Code for hooks) → this file's
+    own project directory (scripts/..) when it lies inside the git worktree containing
+    the cwd → that git worktree → this file's own project directory.
+
+    The per-project check comes BEFORE the git worktree on purpose: in a monorepo the
+    worktree root is a level above the package that owns this copy of the script, and
+    it carries no `.claude-doc-stats.json` / `docs/LESSONS.md` of its own, so resolving
+    to it makes every pipeline script a silent no-op (doc-stats exits 0 with no config,
+    inject_lessons finds no entries). A script copy inside the worktree is by definition
+    the per-project layout, and its own package is the project.
     """
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and Path(env).is_dir():
         return Path(env).resolve()
+    here = Path(__file__).resolve().parent.parent
     try:
         out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, timeout=10)
         if out.returncode == 0 and out.stdout.strip():
-            return Path(out.stdout.strip()).resolve()
+            top = Path(out.stdout.strip()).resolve()
+            if here == top or top in here.parents:
+                return here
+            return top
     except Exception:
         pass
-    return Path(__file__).resolve().parent.parent
+    return here
 
 
 REPO = _resolve_repo()
@@ -63,7 +75,8 @@ _STARTER = {
     "$comment": (
         "doc-stats config. `counters` computes a number from source: `command` is run "
         "from the repo root (string = shell, list = argv) and `extract` is a regex whose "
-        "first capture group is the number. A counter whose command exits non-zero is "
+        "first capture group is the number; the token `{python}` in a command is replaced "
+        "by the interpreter running doc-stats. A counter whose command exits non-zero is "
         "skipped, not trusted — a failed command still prints, and a partial count is "
         "worse than none; set \"allow_nonzero\": true for a command like `grep -c` that "
         "exits non-zero as data. `claims` are the phrasings the docs use for "
@@ -128,12 +141,18 @@ def _compute_one(name: str, spec: dict) -> int | None:
     cmd = spec.get("command")
     if not cmd:
         return None
+    # `{python}` stands for the interpreter running doc-stats itself (the venv python the
+    # hook / test invoked it with), so a config never has to hardcode where the venv lives
+    # — a per-package `.venv/bin/python` stops existing the moment the package joins a
+    # monorepo with one shared venv at the worktree root.
     try:
         if isinstance(cmd, str):
+            cmd = cmd.replace("{python}", shlex.quote(sys.executable))
             proc = subprocess.run(cmd, cwd=REPO, shell=True, capture_output=True,
                                   text=True, timeout=spec.get("timeout", 180))
         else:
-            proc = subprocess.run([str(c) for c in cmd], cwd=REPO, capture_output=True,
+            argv = [sys.executable if str(c) == "{python}" else str(c) for c in cmd]
+            proc = subprocess.run(argv, cwd=REPO, capture_output=True,
                                   text=True, timeout=spec.get("timeout", 180))
     except (subprocess.SubprocessError, OSError) as exc:
         print(f"doc-stats: counter {name!r} did not run ({exc}) — not checked.", file=sys.stderr)

@@ -37,25 +37,39 @@ from pathlib import Path
 def _resolve_repo() -> Path:
     """The project this invocation is about.
 
-    Mirrors `scripts/doc-stats.py`'s `_resolve_repo` so this script behaves the same way in
-    both layouts the workflow template supports: host-global (one copy serving whichever
-    project Claude Code is working on) and per-project (a copy in the project's own
-    `scripts/`). Resolution order: `CLAUDE_PROJECT_DIR` (set by Claude Code for hooks) → the
-    git worktree containing the cwd → this file's parent directory.
+    The scripts run in two layouts and must work in both:
+      * host-global — one copy lives in the workflow template clone and serves every
+        project on the machine, so the project is whatever Claude Code is working on;
+      * per-project — a copy sits in the project's own scripts/.
+
+    Resolution order: CLAUDE_PROJECT_DIR (set by Claude Code for hooks) → this file's
+    own project directory (scripts/..) when it lies inside the git worktree containing
+    the cwd → that git worktree → this file's own project directory.
+
+    The per-project check comes BEFORE the git worktree on purpose: in a monorepo the
+    worktree root is a level above the package that owns this copy of the script, and
+    it carries no `.claude-doc-stats.json` / `docs/LESSONS.md` of its own, so resolving
+    to it makes every pipeline script a silent no-op (doc-stats exits 0 with no config,
+    inject_lessons finds no entries). A script copy inside the worktree is by definition
+    the per-project layout, and its own package is the project.
     """
     import os
 
     env = os.environ.get("CLAUDE_PROJECT_DIR")
     if env and Path(env).is_dir():
         return Path(env).resolve()
+    here = Path(__file__).resolve().parent.parent
     try:
         out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True, timeout=10)
         if out.returncode == 0 and out.stdout.strip():
-            return Path(out.stdout.strip()).resolve()
+            top = Path(out.stdout.strip()).resolve()
+            if here == top or top in here.parents:
+                return here
+            return top
     except Exception:
         pass
-    return Path(__file__).resolve().parent.parent
+    return here
 
 
 REPO = _resolve_repo()

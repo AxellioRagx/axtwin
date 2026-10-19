@@ -4,10 +4,14 @@
     "scripts/doc-stats.py computed before the workflow-template v7 upgrade replaced it",
     "with the generic, config-driven script (see docs/SESSION_STATE.md 2026-08-07).",
     "",
-    "Every `command` runs `.venv/bin/python` explicitly, never bare `python3`: the system",
-    "interpreter has no pytest and cannot import axrange, so a bare python3 would exit",
-    "non-zero and silently drop the counter. argv-list form (not a shell string) is used",
-    "throughout, so nothing here goes through a shell.",
+    "Every `command` runs `{python}` -- doc-stats substitutes the interpreter running it",
+    "(the venv python the hook / pytest invoked it with) -- never bare `python3`: the",
+    "system interpreter has no pytest and cannot import axrange, so a bare python3 would",
+    "exit non-zero and silently drop the counter. Not `.venv/bin/python` either (the",
+    "pre-2026-10-19 form): since the monorepo consolidation the one venv lives at the",
+    "worktree root, not in engine/, so a path relative to this package no longer resolves.",
+    "argv-list form (not a shell string) is used throughout, so nothing here goes through",
+    "a shell.",
     "",
     "`scenarios` is computed but deliberately has NO claim: the bespoke script counted it",
     "the same way and never policed it either, because no doc quotes a scenario TOTAL --",
@@ -38,7 +42,7 @@
   "counters": {
     "ops": {
       "command": [
-        ".venv/bin/python",
+        "{python}",
         "-c",
         "from axrange.ops import list_actions_and_waits, list_barriers; print(len(list_actions_and_waits()) + len(list_barriers()))"
       ],
@@ -46,7 +50,7 @@
     },
     "rules": {
       "command": [
-        ".venv/bin/python",
+        "{python}",
         "-c",
         "from axrange.validator import list_rules; print(len(list_rules()))"
       ],
@@ -54,7 +58,7 @@
     },
     "scenarios": {
       "command": [
-        ".venv/bin/python",
+        "{python}",
         "-c",
         "import pathlib; root = pathlib.Path('target-environments'); print(sum(1 for p in (sorted(root.iterdir()) if root.is_dir() else []) if (p / 'scenario.yaml').is_file()))"
       ],
