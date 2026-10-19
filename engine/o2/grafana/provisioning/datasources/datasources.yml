@@ -1,0 +1,72 @@
+# Grafana provisioned datasources — axRange observability (Phase 1).
+#
+# Provisioned (not click-configured) so the stack is reproducible from git.
+# URLs use the docker-compose service DNS names (grafana talks to loki /
+# prometheus over the compose network), so they are correct regardless of the
+# host-side ${LOKI_PORT}/${PROM_PORT} you publish.
+#
+# The SQLite datasource points at the orchestrator's state.db, bind-mounted
+# read-only into the Grafana container at ${STATE_DB_MOUNT} by docker-compose.
+
+apiVersion: 1
+
+datasources:
+  # ---- Loki: Suricata eve.json (shipped by Alloy on the network sensor) ----
+  - name: Loki
+    uid: axr-loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    jsonData:
+      # Keep modest; lab store.
+      maxLines: 2000
+    editable: false
+
+  # ---- Prometheus: capture health (via node_exporter textfile) ----
+  - name: Prometheus
+    uid: axr-prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 30s
+    editable: false
+
+  # ---- axRange API (Infinity) — kept as a telemetry source, no current consumer ----
+  # Exposes the Phase-2 control-plane API (axrange/api/ + `axrange serve`) to Grafana:
+  #   GET /api/deploys, GET /api/deploys/latest  (docs/DESIGN_BRIEF_api.md §3).
+  # The "Deploy / op status" dashboard that read it (the D2 fold-in) was deleted
+  # 2026-10-01 (`docs/reference/ui-consolidation/05-deletion-candidates.md`); none of
+  # the three kept dashboards (capture health, Suricata alerts, attack coverage) use
+  # this datasource. Left provisioned because the API remains a telemetry source for
+  # a future panel. ${AXRANGE_API_URL} is the API base reachable FROM the Grafana
+  # container (a host the container can route to; NOT 127.0.0.1, which is the
+  # container itself — use the host's LAN IP or the docker host gateway). A bearer
+  # token is sent only if AXRANGE_API_TOKEN is set (reads are open on a trusted
+  # bind, so it's usually blank). Requires the yesoreyeram-infinity-datasource
+  # plugin (GF_INSTALL_PLUGINS).
+  - name: axRange API
+    uid: axr-api
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    isDefault: false
+    jsonData:
+      # Base URL prepended to each panel's relative path (/api/deploys, ...).
+      # Empty by default → set AXRANGE_API_URL in observability.conf before use.
+      global_queries: []
+      auth_method: "none"
+      # Allow the configured API host (Infinity's allowed-hosts guard).
+      allowedHosts:
+        - ${AXRANGE_API_URL}
+      datasource_mode: "basic"
+    url: ${AXRANGE_API_URL}
+    # If a token is configured, send it as a bearer header on every request.
+    # (Grafana drops empty httpHeaderValue entries, so a blank token = no header.)
+    jsonData_httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: Bearer ${AXRANGE_API_TOKEN}
+    editable: false
+

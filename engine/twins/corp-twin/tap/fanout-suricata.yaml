@@ -1,0 +1,103 @@
+# corp-twin -- variant: the default's two mirror points, fanned out to BOTH
+# the CORP APCN analogue (XPress-SW-A) and the standing O2 suricata sensor --
+# the 0160712f shape (svc-engines' tap plan). Per-tap sensor routing gives
+# each (bridge, sensor) pair its own gretap port and GRE key, so the two
+# receive the same frames independently: the comparison the network sensor
+# (the device under test) is measured by.
+#
+# `mode: fanout` -- `exclusive` takes exactly one sensor by definition.
+#
+# **o2-suricata is STANDING, and sensor resolution is state-DB-LOCAL**
+# (GAP-069): it resolves from the o2 deploy row in the SAME state DB this plan
+# is applied with. It has been found dead before (GAP-067, recurred
+# 2026-09-21): confirm EXISTS + RUNNING + FRESH (LES-247), and read its
+# eve.json from a byte offset taken before traffic starts, never from the top.
+#
+# NOT bound, because the DEFAULT gate (DEPLOY_MIN_OCCUPANCY=0.8) leaves the
+# deployed twin without them and a binding on a missing segment is a
+# resolve-time error: the six off-map segments it gates (lab-10-110-240,
+# lab-10-112-140, lab-10-20-198, lab-10-21-161, lab-10-55-10, lab-10-64-7 --
+# occupancy 0.22-0.78). Deployed at a lower threshold? Add them. (vlan1,
+# vlan32 and vlan40 no longer vanish at the default gate: the switch VMs
+# carrying them keep them -- G14 closed, work order §8.)
+tap-plan:
+  target: corp-twin
+  bindings:
+    # ---- External TAP (WAN1 active, WAN2 standby) ------------------------
+    - selector: { scope: segment, target: wan1-isp }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: wan2-isp }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    # ---- MS120 SPAN: every port of the ms120 switch VM ---------------------
+    - selector: { scope: segment, target: vlan20 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: vlan1 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: sfp25 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: sfp26 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: t-ms120-sgs5240 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: t-ms120-axeprod }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: t-ms120-cos }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: t-ms120-labsw }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: t-ms120-3850 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: p17-hwlab2960s }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    # ---- MS120 SPAN: off-map subnets that survive the default gate --------
+    - selector: { scope: segment, target: lab-10-0-21 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-1-10 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-128-215 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-192 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-193 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-195 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-196 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-200 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-201 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-203 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-204 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-10-20-207 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout
+    - selector: { scope: segment, target: lab-172-16 }
+      sensors: [XPress-SW-A, o2-suricata]
+      mode: fanout

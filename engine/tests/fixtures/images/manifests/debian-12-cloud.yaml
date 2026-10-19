@@ -1,0 +1,30 @@
+manifest_schema_version: 1
+
+image:
+  id: debian-12-cloud
+  description: |
+    Debian 12 (Bookworm) generic-cloud template — Linux, cloud-init,
+    qemu-guest-agent. Matches the existing dtDataCenter template on the
+    pxtwin1 lab cluster (VMID 610).
+  os:
+    family: linux
+    distribution: debian
+    version: "12"
+    architecture: x86_64
+  versions:
+    - id: v1
+      released: 2026-04-28
+      status: current
+      provides:
+        - linux
+        - kernel:ebpf
+        - kernel:audit
+        - kernel:container-runtime
+      install_support:
+        pkg: [apt]
+        config: true
+        role: false
+        container: true
+        script: true
+      first_boot_budget: 120
+      size_estimate: 4Gi

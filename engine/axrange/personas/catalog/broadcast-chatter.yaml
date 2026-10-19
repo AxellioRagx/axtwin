@@ -1,0 +1,64 @@
+# The only BROADCAST/MULTICAST persona: every host on the segment hears every
+# frame, so one binding multiplies traffic at a `segment` tap point by the
+# host count rather than adding a single flow.
+#
+# This closes a real content gap rather than only adding volume.
+# `ad-domain-lab` / `purple-team-range` ship an LLMNR-poisoning step in their
+# Exercise-tier kill chain, but the twin carries NO benign LLMNR/NBNS chatter
+# for it to poison -- so the attack is detectable for the wrong reason (it is
+# the only name-resolution traffic on the wire). Binding this persona gives
+# the poisoning something to hide in, which is what makes the detection
+# exercise honest.
+#
+# Every peer_role here is a reserved segment-scoped token, so this persona
+# `requires` nothing and binds onto any twin.
+persona:
+  id: broadcast-chatter
+  os_family: windows
+  drive: scripted
+  emits:
+    # HSRP -- routers/L3 switches electing which of them owns a virtual gateway address. Added
+    # because aximprint infers its `network-device` role from a host DIALLING 1985/udp, while
+    # this persona (the one that role is assigned) emitted only LLMNR/NBNS/mDNS: the role could
+    # never be re-inferred from the traffic of a node built to have it (aximprint
+    # `docs/JOURNAL_corpapcn_fidelity.md` GAP-C8). It belongs here on the merits too -- HSRP IS
+    # periodic multicast announcement, which is what this persona models.
+    - proto: hsrp
+      ports: [1985]
+      peer_role: multicast
+      transport: udp
+      direction: EW
+      cadence: "cyclic:3s"
+      volume: low
+    - proto: llmnr
+      ports: [5355]
+      peer_role: multicast
+      direction: EW
+      cadence: "cyclic:15s"
+      volume: low
+    - proto: nbns
+      ports: [137]
+      peer_role: broadcast
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: low
+    - proto: mdns
+      ports: [5353]
+      peer_role: multicast
+      direction: EW
+      cadence: "cyclic:30s"
+      volume: low
+    - proto: ssdp
+      ports: [1900]
+      peer_role: multicast
+      direction: EW
+      cadence: "cyclic:60s"
+      volume: low
+    - proto: dhcp
+      ports: [67]
+      peer_role: broadcast
+      direction: EW
+      cadence: "cyclic:5m"
+      volume: low
+  requires: []
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

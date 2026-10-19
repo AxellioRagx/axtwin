@@ -1,0 +1,110 @@
+<title>corp-enterprise Topology</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f7f8f9; --surface:#fcfcfb; --ink:#14171a; --muted:#6b7280;
+  --border:rgba(20,23,26,0.22); --seg:#eef1f4; --o2:#f0f3f6;
+  --accent:#2a78d6; --accent-soft:#dbe9fb;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:#0e0f11; --surface:#191c1f; --ink:#e8eaed; --muted:#98a0aa;
+    --border:rgba(255,255,255,0.24); --seg:#1e2329; --o2:#1b2026;
+    --accent:#4f9bef; --accent-soft:#1d3a5f;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0e0f11; --surface:#191c1f; --ink:#e8eaed; --muted:#98a0aa;
+  --border:rgba(255,255,255,0.24); --seg:#1e2329; --o2:#1b2026;
+  --accent:#4f9bef; --accent-soft:#1d3a5f;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink);
+  font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1120px; margin:0 auto; padding:44px 24px 72px; }
+.eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); }
+h1 { margin:6px 0 6px; font-size:clamp(26px,3.6vw,36px); letter-spacing:-0.02em;
+  line-height:1.12; text-wrap:balance; }
+.sub { margin:0 0 26px; color:var(--muted); max-width:70ch; font-size:15.5px; }
+figure { margin:0; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:20px 20px 10px; }
+.figscroll { overflow-x:auto; }
+svg { width:100%; min-width:880px; height:auto; display:block; color:var(--ink); }
+figcaption { color:var(--muted); font-size:13px; margin-top:14px; padding-top:12px;
+  border-top:1px solid var(--border); }
+/* SVG element classes (defined here, applied to SVG nodes — none inside the svg fragment) */
+.cloud { fill:var(--surface); stroke:var(--muted); stroke-width:1.2; stroke-dasharray:5 3; }
+.router { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.6; }
+.seg { fill:var(--seg); stroke:var(--border); stroke-width:1.2; }
+.node { fill:var(--surface); stroke:var(--border); stroke-width:1.2; }
+.o2 { fill:var(--o2); stroke:var(--border); stroke-width:1.4; }
+.sink { fill:var(--surface); stroke:var(--muted); stroke-width:1.2; stroke-dasharray:4 3; }
+.sink-active { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.8; }
+.wire { stroke:currentColor; stroke-width:1.3; opacity:.55; fill:none; }
+.cap { stroke:var(--accent); stroke-width:2.1; fill:none; }
+.cap-dot { fill:var(--accent); stroke:none; }
+.muted { stroke:var(--muted); stroke-width:1.3; stroke-dasharray:4 3; fill:none; opacity:.8; }
+.ah { fill:currentColor; opacity:.6; }
+.ah-cap { fill:var(--accent); }
+text { font-family:var(--sans); }
+.lbl { fill:currentColor; font-size:13px; }
+.lbl-b { fill:currentColor; font-size:13px; font-weight:600; }
+.seg-name { fill:currentColor; font-size:13.5px; font-weight:700; letter-spacing:.02em; }
+.mono-s { fill:var(--muted); font-family:var(--mono); font-size:10.5px; }
+.cap-lbl { fill:var(--accent); font-size:11.5px; font-weight:600; }
+.leg { fill:var(--muted); font-size:11.5px; }
+.notes { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:14px; margin-top:22px; }
+.note { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:14px 16px; }
+.note h3 { margin:0 0 5px; font-size:13.5px; }
+.note p { margin:0; color:var(--muted); font-size:13px; }
+.inl { font-family:var(--mono); font-size:12px;
+  background:color-mix(in srgb, var(--ink) 7%, transparent); padding:1px 5px; border-radius:4px; }
+footer { color:var(--muted); font-size:12px; font-family:var(--mono);
+  margin-top:26px; padding-top:14px; border-top:1px solid var(--border); }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">dev45 · standing environment · 2026-08-14</div>
+  <h1>corp-enterprise twin &amp; the O2 surface</h1>
+  <p class="sub">The live topology of deploy <span class="inl">corp-enterprise-890c29b2</span>:
+  four VLAN segments behind one multi-homed router, every segment mirrored rx-only over an
+  isolated transport network to a single capture sink, beside the standing O2 observability nodes.</p>
+
+  <figure>
+    <div class="figscroll"><svg viewBox="0 0 1080 684" role="img" aria-label="Topology of the corp-enterprise digital twin and the O2 surface on dev45: four VLAN segments behind the multi-homed gw router, each mirrored rx-only over an isolated transport vnet to the XPress-SW-A capture sink, alongside the idle sinks, the o2-suricata IDS and the O2 services stack."><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker><marker id="caparrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-cap"/></marker></defs><rect x="64" y="44" width="150" height="40" rx="7" class="cloud"/><text x="139" y="62" text-anchor="middle" class="lbl-b">Internet / WAN</text><text x="139" y="76" text-anchor="middle" class="mono-s">vmbr0 uplink</text><rect x="330" y="112" width="420" height="48" rx="7" class="router"/><text x="540" y="132" text-anchor="middle" class="lbl-b">gw · router (kind: router) · vmid 184429</text><text x="540" y="148" text-anchor="middle" class="mono-s">.1 on every VLAN · WAN + NAT on vmbr0</text><polyline points="139,84 139,100 330,100 330,120" class="wire" fill="none" marker-end="url(#arrow)"/><text x="232" y="96" text-anchor="middle" class="mono-s">egress / NAT</text><rect x="62" y="196" width="188" height="46" rx="7" class="seg"/><text x="156" y="215" text-anchor="middle" class="seg-name">corp-lan</text><text x="156" y="231" text-anchor="middle" class="mono-s">10.62.0.0/24  · gw .1</text><line x1="382" y1="160" x2="156" y2="196" class="wire"/><line x1="156" y1="242" x2="156" y2="254" class="wire"/><rect x="62" y="254" width="188" height="42" rx="7" class="node"/><text x="156" y="272" text-anchor="middle" class="lbl">attacker</text><text x="156" y="287" text-anchor="middle" class="mono-s">.8  exr foothold · impacket</text><line x1="156" y1="296" x2="156" y2="309" class="wire"/><rect x="62" y="309" width="188" height="42" rx="7" class="node"/><text x="156" y="327" text-anchor="middle" class="lbl">corp-workstation ×6</text><text x="156" y="342" text-anchor="middle" class="mono-s">.2–.7  win11 · domain-joined</text><line x1="156" y1="351" x2="156" y2="408" class="wire"/><circle cx="156" cy="408" r="4" class="cap-dot"/><polyline points="156,408 156,494" class="cap" fill="none" marker-end="url(#caparrow)"/><rect x="308" y="196" width="188" height="46" rx="7" class="seg"/><text x="402" y="215" text-anchor="middle" class="seg-name">server-vlan</text><text x="402" y="231" text-anchor="middle" class="mono-s">10.62.10.0/24  · gw .1</text><line x1="488" y1="160" x2="402" y2="196" class="wire"/><line x1="402" y1="242" x2="402" y2="254" class="wire"/><rect x="308" y="254" width="188" height="42" rx="7" class="node"/><text x="402" y="272" text-anchor="middle" class="lbl">domain-controller</text><text x="402" y="287" text-anchor="middle" class="mono-s">.2  WS2022 · corp.axr.lab</text><line x1="402" y1="296" x2="402" y2="309" class="wire"/><rect x="308" y="309" width="188" height="42" rx="7" class="node"/><text x="402" y="327" text-anchor="middle" class="lbl">file-server</text><text x="402" y="342" text-anchor="middle" class="mono-s">.3  ubuntu · crown-jewel PII</text><line x1="402" y1="351" x2="402" y2="408" class="wire"/><circle cx="402" cy="408" r="4" class="cap-dot"/><polyline points="402,408 402,494" class="cap" fill="none" marker-end="url(#caparrow)"/><rect x="554" y="196" width="188" height="46" rx="7" class="seg"/><text x="648" y="215" text-anchor="middle" class="seg-name">dmz</text><text x="648" y="231" text-anchor="middle" class="mono-s">10.62.20.0/24  · gw .1</text><line x1="592" y1="160" x2="648" y2="196" class="wire"/><line x1="648" y1="242" x2="648" y2="254" class="wire"/><rect x="554" y="254" width="188" height="42" rx="7" class="node"/><text x="648" y="272" text-anchor="middle" class="lbl">mail-server</text><text x="648" y="287" text-anchor="middle" class="mono-s">.2  postfix</text><line x1="648" y1="296" x2="648" y2="309" class="wire"/><rect x="554" y="309" width="188" height="42" rx="7" class="node"/><text x="648" y="327" text-anchor="middle" class="lbl">egress-proxy</text><text x="648" y="342" text-anchor="middle" class="mono-s">.3  squid</text><line x1="648" y1="351" x2="648" y2="364" class="wire"/><rect x="554" y="364" width="188" height="42" rx="7" class="node"/><text x="648" y="382" text-anchor="middle" class="lbl">dmz-web</text><text x="648" y="397" text-anchor="middle" class="mono-s">.4  nginx</text><line x1="648" y1="406" x2="648" y2="408" class="wire"/><circle cx="648" cy="408" r="4" class="cap-dot"/><polyline points="648,408 648,494" class="cap" fill="none" marker-end="url(#caparrow)"/><rect x="800" y="196" width="188" height="46" rx="7" class="seg"/><text x="894" y="215" text-anchor="middle" class="seg-name">mgmt</text><text x="894" y="231" text-anchor="middle" class="mono-s">10.62.30.0/24  · gw .1</text><line x1="698" y1="160" x2="894" y2="196" class="wire"/><line x1="894" y1="242" x2="894" y2="254" class="wire"/><rect x="800" y="254" width="188" height="42" rx="7" class="node"/><text x="894" y="272" text-anchor="middle" class="lbl">monitoring-collector</text><text x="894" y="287" text-anchor="middle" class="mono-s">.2  prometheus</text><line x1="894" y1="296" x2="894" y2="408" class="wire"/><circle cx="894" cy="408" r="4" class="cap-dot"/><polyline points="894,408 894,494" class="cap" fill="none" marker-end="url(#caparrow)"/><text x="540" y="436" text-anchor="middle" class="cap-lbl">Capture plane · Option 1 · per-tap  tc  mirror (rx) → keyed gretap → flow-based sink</text><line x1="96" y1="494" x2="984" y2="494" class="cap"/><text x="96" y="485" text-anchor="start" class="cap-lbl">transport vnet  o2v7dc98 · 10.255.251.0/24 · isolated (no scenario traffic; PVE host .1)</text><line x1="188" y1="494" x2="188" y2="520" class="cap"/><rect x="90" y="520" width="196" height="50" rx="7" class="sink-active"/><text x="188" y="539" text-anchor="middle" class="lbl-b">XPress-SW-A</text><text x="188" y="554" text-anchor="middle" class="mono-s">vmid 104 · .21</text><text x="188" y="566" text-anchor="middle" class="cap-lbl">ACTIVE tap target · queues=8</text><line x1="424" y1="494" x2="424" y2="520" class="muted"/><rect x="326" y="520" width="196" height="50" rx="7" class="sink"/><text x="424" y="539" text-anchor="middle" class="lbl">XPress-SW</text><text x="424" y="554" text-anchor="middle" class="mono-s">vmid 103 · .20</text><text x="424" y="566" text-anchor="middle" class="mono-s">idle sink</text><line x1="654" y1="494" x2="654" y2="520" class="muted"/><rect x="556" y="520" width="196" height="50" rx="7" class="sink"/><text x="654" y="539" text-anchor="middle" class="lbl">Tcpdump-SW-A</text><text x="654" y="554" text-anchor="middle" class="mono-s">vmid 260 · .12</text><text x="654" y="566" text-anchor="middle" class="mono-s">idle sink</text><line x1="888" y1="494" x2="888" y2="520" class="muted"/><rect x="790" y="520" width="196" height="50" rx="7" class="sink"/><text x="888" y="539" text-anchor="middle" class="lbl">o2-suricata</text><text x="888" y="554" text-anchor="middle" class="mono-s">vmid 883610</text><text x="888" y="566" text-anchor="middle" class="mono-s">network IDS</text><rect x="300" y="606" width="480" height="54" rx="7" class="o2"/><text x="540" y="626" text-anchor="middle" class="lbl-b">O2 services · VM 102 · vmbr0</text><text x="540" y="643" text-anchor="middle" class="mono-s">Prometheus · Loki · Grafana · Caldera · Wazuh</text><polyline points="188,570 188,594 540,594 540,606" class="muted" fill="none" marker-end="url(#arrow)"/><text x="364" y="590" text-anchor="middle" class="mono-s">ship: pcap + IDS alerts → Loki / Prometheus</text><line x1="792" y1="92" x2="818" y2="92" class="cap"/><text x="824" y="96" text-anchor="start" class="leg">live capture / mirror path</text><line x1="792" y1="110" x2="818" y2="110" class="wire"/><text x="824" y="114" text-anchor="start" class="leg">production network</text><line x1="792" y1="128" x2="818" y2="128" class="muted"/><text x="824" y="132" text-anchor="start" class="leg">idle sink / management</text></svg></div>
+    <figcaption>Solid grey lines are the production network (SDN VLAN vnets behind the
+    <span class="inl">gw</span> router, which also NATs to the WAN on <span class="inl">vmbr0</span>).
+    The blue path is the live capture plane: a per-tap <span class="inl">tc</span> mirror on each
+    segment feeds a keyed gretap that carries frames over the isolated <span class="inl">o2v7dc98</span>
+    transport vnet to <span class="inl">XPress-SW-A</span> — the one sink the standing tap plan
+    (<span class="inl">tap-…-c9cab1c4</span>, all four segments) binds today. The other sinks sit on
+    the same transport net but are unbound; the O2 services VM collects telemetry over management.</figcaption>
+  </figure>
+
+  <div class="notes">
+    <div class="note"><h3>Production plane · the twin</h3><p>14 VMs: the
+    <span class="inl">gw</span> router multi-homed onto corp-lan / server-vlan / dmz / mgmt (a
+    <span class="inl">.1</span> leg on each) plus a WAN uplink. Windows AD domain
+    <span class="inl">corp.axr.lab</span> on the DC; 6 domain-joined workstations + a LAN attacker
+    foothold on corp-lan.</p></div>
+    <div class="note"><h3>Capture plane · Option 1</h3><p>Each segment's ports are mirrored
+    <em>rx-only</em> by <span class="inl">tc</span> into a per-(bridge,sensor) keyed gretap whose
+    qdisc is a deep FIFO (adapter-managed). All four converge on <span class="inl">XPress-SW-A</span>
+    at <span class="inl">10.255.251.21</span>, measured lossless to ~2.6&nbsp;Gbit/s.</p></div>
+    <div class="note"><h3>Traffic &amp; exercise (transient)</h3><p>A <span class="inl">tfc</span>
+    profile drives realistic personas on the hosts; the AD kill-chain <span class="inl">exr</span>
+    (recon → roast → DCSync) runs from the attacker against the DC when deployed. Both bind to this
+    twin and are torn down independently of it.</p></div>
+  </div>
+
+  <footer>Source: live <span style="font-family:var(--mono)">te inventory corp-enterprise-890c29b2</span>
+  + <span style="font-family:var(--mono)">qm config</span>, dev45, 2026-08-14. Workstation fleet
+  collapsed (×6). Transport IPs on o2v7dc98 (10.255.251.0/24).</footer>
+</div>

@@ -1,0 +1,167 @@
+scenario_schema_version: 1
+
+# =============================================================================
+# fabric-verify — minimal fabric live-verification rig (docs/FABRIC_VERIFICATION.md)
+# =============================================================================
+# The smallest topology that exercises EVERY fabric-slice feature, for first
+# live verification before the full OptraHealth twin:
+#   - IS-IS L2 underlay (2 spine x 2 leaf)
+#   - iBGP-EVPN (spines = route reflectors, leaves = clients) + VXLAN VTEP leaves
+#   - symmetric IRB (tenant VRF + L3VNI + anycast gateway) + per-VRF Type-5
+#   - BFD on the leaf underlay legs
+#   - eBGP to an external provider + border mutual redistribution
+#   - tenant-VRF egress (leaf default-leak -> WAN) — `ha` apt-installs to prove it
+#   - capture sensor over the tapped hosts
+# ha (va, leaf-1) <-> hb (vb, leaf-2) is the cross-leaf inter-segment IRB test.
+# ~10 VMs. VyOS-only. See the runbook for per-gate show commands.
+# =============================================================================
+
+scenario:
+  id: fabric-verify
+  version: 1
+  description: Minimal spine-leaf EVPN/VXLAN + IRB + eBGP rig for live fabric verification.
+  labels: { profile: range, focus: fabric-verify }
+
+fabric:
+  fabric_asn: 65010
+  tenant: { name: optra, l3vni: 10999, table: 1000 }
+  regions:
+    - { id: dc,  igp: isis, isis_area: "49.0001" }
+    - { id: wan, igp: none }
+
+layers:
+  infra:
+    networks:
+      - { id: vs1l1, cidr: 10.0.1.0/30, vlan: 11 }
+      - { id: vs1l2, cidr: 10.0.1.4/30, vlan: 12 }
+      - { id: vs2l1, cidr: 10.0.2.0/30, vlan: 13 }
+      - { id: vs2l2, cidr: 10.0.2.4/30, vlan: 14 }
+      - { id: vbl,   cidr: 10.0.3.0/30, vlan: 15 }
+      - { id: wan-core, cidr: 10.255.255.0/24, vlan: 16 }
+      - { id: va, cidr: 10.1.10.0/24, vlan: 20, vni: 10010, gateway: 10.1.10.254 }
+      - { id: vb, cidr: 10.1.20.0/24, vlan: 21, vni: 10020, gateway: 10.1.20.254 }
+    nodes:
+      - id: spine-1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: vs1l1, ip: 10.0.1.1 }
+          - { net: vs1l2, ip: 10.0.1.5 }
+        routing:
+          region: dc
+          role: spine
+          loopback: 10.255.0.1/32
+          isis: { net: "49.0001.0000.0000.0001.00" }
+          bgp: { asn: 65010, rr_server: true, evpn: true }
+      - id: spine-2
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: vs2l1, ip: 10.0.2.1 }
+          - { net: vs2l2, ip: 10.0.2.5 }
+        routing:
+          region: dc
+          role: spine
+          loopback: 10.255.0.2/32
+          isis: { net: "49.0001.0000.0000.0002.00" }
+          bgp: { asn: 65010, rr_server: true, evpn: true }
+      - id: leaf-1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: vs1l1, ip: 10.0.1.2 }
+          - { net: vs2l1, ip: 10.0.2.2 }
+          - { net: vbl,   ip: 10.0.3.1 }
+          - { net: va,    ip: 10.1.10.1 }
+        # Tapped: this leaf mediates the vbl<->va boundary (the leaf-to-border
+        # transit link vs. the tenant `va` access segment ha sits on).
+        routing:
+          region: dc
+          role: leaf
+          loopback: 10.255.0.3/32
+          isis: { net: "49.0001.0000.0000.0003.00" }
+          bgp: { asn: 65010, rr_clients_of: [spine-1, spine-2], evpn: true, vtep: true }
+          bfd: true
+      - id: leaf-2
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: vs1l2, ip: 10.0.1.6 }
+          - { net: vs2l2, ip: 10.0.2.6 }
+          - { net: vb,    ip: 10.1.20.1 }
+        # Tapped: this leaf mediates the vs1l2<->vb / vs2l2<->vb boundaries
+        # (underlay transit vs. the tenant `vb` access segment hb sits on).
+        routing:
+          region: dc
+          role: leaf
+          loopback: 10.255.0.4/32
+          isis: { net: "49.0001.0000.0000.0004.00" }
+          bgp: { asn: 65010, rr_clients_of: [spine-1, spine-2], evpn: true, vtep: true }
+          bfd: true
+      - id: border-1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: vbl,      ip: 10.0.3.2 }
+          - { net: wan-core, ip: 10.255.255.1 }
+        # Tapped: this border mediates the vbl<->wan-core boundary (DC fabric
+        # vs. the eBGP-peered provider network) -- `wan-core` is an ordinary
+        # declared network here, not axRange's synthetic `__wan__` uplink, so
+        # this boundary IS expressible/resolvable.
+        routing:
+          region: dc
+          role: border
+          loopback: 10.255.0.5/32
+          isis: { net: "49.0001.0000.0000.0005.00" }
+          bgp:
+            asn: 65010
+            ebgp_peers:
+              - { neighbor: 10.255.255.2, remote_asn: 65001 }
+            originate: [ 10.255.0.0/24 ]
+      - id: prov-1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: wan-core, ip: 10.255.255.2 }
+        routing:
+          region: wan
+          role: provider
+          loopback: 100.64.0.1/32
+          bgp:
+            asn: 65001
+            ebgp_peers:
+              - { neighbor: 10.255.255.1, remote_asn: 65010 }
+            originate: [ 100.64.1.0/24 ]
+      - id: ha
+        kind: host
+        nets: [ { net: va, ip: 10.1.10.10 } ]   # gw = anycast SVI 10.1.10.254
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      - id: hb
+        kind: host
+        nets: [ { net: vb, ip: 10.1.20.10 } ]   # gw = anycast SVI 10.1.20.254
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  # No apps: tenant-VRF internet egress is a follow-on (Finding C), so an apt-based
+  # probe can't run. The rig verifies the fabric control-plane + cross-leaf IRB
+  # (ha->hb) data-plane; egress re-tests when the VRF-egress design lands.
+  apps: []
+
+sensors:
+  - { id: pcap, type: tcpdump-sensor, primary: true }
+
+bindings: []

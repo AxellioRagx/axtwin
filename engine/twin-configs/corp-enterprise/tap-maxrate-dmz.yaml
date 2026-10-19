@@ -1,0 +1,28 @@
+# corp-enterprise -- max-capture-rate tap plan (dev45, 2026-08-13).
+#
+# Everything to the ONE sink under test, XPress-SW-A (vmid 104, transport
+# 10.255.251.21, declared in adapter.conf EXTERNAL_SENSORS). Deliberately a
+# single sensor: fan-out duplicates frames on the transport wire, which would
+# confound "what rate does the capture path carry" with "how many copies of
+# it are we making".
+#
+# Scope is `segment: dmz` because that is where the load mesh lives -- the
+# three Linux hosts (mail-server, egress-proxy, dmz-web) that the
+# tfc-maxrate-* profiles put in a shared `loadgen` role. A `segment` scope
+# resolves to EVERY port on the net including the router's own leg, and the
+# derived direction for a multi-port set is rx-only, so each frame is
+# captured exactly once rather than twice (the 2026-07-27 SPAN re-base).
+#
+# `target:` is the twin-config NAME, not a minted deploy id -- resolved to the
+# newest live te deploy at apply time. That is what keeps this file valid
+# across a redeploy instead of silently orphaning it (LES-072).
+#
+# verify-capture is intentionally loud-skipped for XPress-SW-A: QGA guest-exec
+# is disabled on the box by design, so axRange's own tooling has no channel
+# into it (LES-089/LES-092). Capture is confirmed out-of-band over SSH.
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: dmz }
+      sensors: [XPress-SW-A]
+      mode: exclusive

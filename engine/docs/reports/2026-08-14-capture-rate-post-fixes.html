@@ -1,0 +1,248 @@
+<title>Capture Ceiling Reclaimed</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+  --series-1:#2a78d6; --series-2:#eb6834;
+  --good:#0ca30c; --warning:#fab219; --critical:#d03b3b; --good-ink:#006300;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --series-1:#3987e5; --series-2:#d95926; --good-ink:#0ca30c;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+  --series-1:#3987e5; --series-2:#d95926; --good-ink:#0ca30c;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink); font-family:var(--sans);
+  line-height:1.55; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1000px; margin:0 auto; padding:48px 24px 80px; display:flex;
+  flex-direction:column; gap:34px; }
+header { display:flex; flex-direction:column; gap:10px; }
+.eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); }
+h1 { margin:0; font-size:clamp(30px,4.4vw,44px); line-height:1.1;
+  letter-spacing:-0.02em; text-wrap:balance; }
+.sub { margin:0; color:var(--ink-2); max-width:64ch; font-size:16px; }
+h2 { margin:0; font-size:19px; letter-spacing:-0.01em; }
+.note { margin:0; color:var(--ink-2); font-size:14px; max-width:78ch; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:22px 24px; display:flex; flex-direction:column; gap:14px; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; }
+.kpi { background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:18px 20px; display:flex; flex-direction:column; gap:5px; }
+.kpi .k { font-family:var(--mono); font-size:11px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--muted); }
+.kpi .v { font-size:32px; font-weight:600; letter-spacing:-0.02em; line-height:1.05; }
+.kpi .v small { font-size:15px; font-weight:500; color:var(--ink-2); margin-left:3px; }
+.kpi .d { font-size:13px; color:var(--ink-2); }
+.two { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:14px; }
+svg { width:100%; height:auto; display:block; overflow:visible; }
+.grid { stroke:var(--grid); stroke-width:1; }
+.axis { stroke:var(--axis); stroke-width:1; }
+.tick { font-family:var(--mono); font-size:11px; fill:var(--muted); }
+.ytick { text-anchor:end; } .xtick { text-anchor:middle; }
+.vlabel { font-family:var(--mono); font-size:11.5px; fill:var(--ink-2); text-anchor:middle; }
+.bar { transition:opacity .12s ease; }
+.bar:hover, .bar:focus { opacity:.78; outline:none; }
+.bar:focus-visible { stroke:var(--ink); stroke-width:2; }
+.legend { display:flex; gap:18px; font-size:13px; color:var(--ink-2); align-items:center; }
+.legend span { display:inline-flex; align-items:center; gap:7px; }
+.legend i { width:11px; height:11px; border-radius:3px; display:inline-block; }
+.tblwrap { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-size:13px; min-width:940px; }
+th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border);
+  white-space:nowrap; }
+thead th { font-family:var(--mono); font-size:10.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted); font-weight:500; }
+tbody th { font-family:var(--mono); font-weight:600; }
+td.n { font-family:var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
+.chip { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+  font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); }
+.chip::before { content:""; width:7px; height:7px; border-radius:50%; }
+.chip-good::before { background:var(--good); }
+.chip-warning::before { background:var(--warning); }
+.chip-critical::before { background:var(--critical); }
+.bl { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+.bl .card h3 { margin:0; font-size:15px; }
+.inline { font-family:var(--mono); font-size:12.5px;
+  background:color-mix(in srgb, var(--ink) 6%, transparent); padding:1px 5px;
+  border-radius:4px; }
+#tip { position:fixed; z-index:40; pointer-events:none; opacity:0;
+  transition:opacity .1s ease; background:var(--surface); color:var(--ink);
+  border:1px solid var(--border); border-radius:7px; padding:7px 10px;
+  font-family:var(--mono); font-size:11.5px; max-width:340px;
+  box-shadow:0 6px 22px rgba(0,0,0,.16); }
+footer { color:var(--muted); font-size:12.5px; font-family:var(--mono);
+  border-top:1px solid var(--border); padding-top:16px; }
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">dev45 · corp-enterprise twin · sink XPress-SW-A · 2026-08-14</div>
+  <h1>The capture plane after the fixes: 1.5 &rarr; 2.6 Gbit/s lossless</h1>
+  <p class="sub">The same seven-rung ramp re-measured with sink multiqueue active and the
+  gretap queueing discipline now asserted by the adapter itself &mdash; every rung on an
+  identical 120&nbsp;second window.</p>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><div class="k">Sustained, zero loss</div>
+    <div class="v">2,590<small>Mbit/s</small></div>
+    <div class="d">rung l5, 121s, 27,214,991 packets</div></div>
+  <div class="kpi"><div class="k">Packet rate</div>
+    <div class="v">224,482<small>pps</small></div>
+    <div class="d">zero at every capture counter</div></div>
+  <div class="kpi"><div class="k">vs. 2026-08-13</div>
+    <div class="v" style="color:var(--good-ink)">1.7&times;</div>
+    <div class="d">was 1,521 Mbit/s lossless</div></div>
+  <div class="kpi"><div class="k">Loss onset</div>
+    <div class="v">2,756<small>Mbit/s</small></div>
+    <div class="d">rung l7 &mdash; now the mirror, not the sink</div></div>
+</div>
+
+<section class="card">
+  <h2>Throughput and packet rate per rung</h2>
+  <p class="note">Two measures, two plots &mdash; never one chart with two y-scales.
+  Captured throughput tracks offered load to within 0.6% at every rung. The first two
+  rungs are deliberately tiny; they exist to prove the measurement chain reads a small
+  known load correctly before it is trusted with a large one.</p>
+  <div class="two">
+    <div><div class="eyebrow" style="margin-bottom:6px">Captured at gre-cap &mdash; Mbit/s</div><svg viewBox="0 0 430 250" role="group" aria-label="Captured throughput in Mbit per second, by rung" preserveAspectRatio="xMidYMid meet"><line class="grid" x1="62" y1="208.0" x2="422" y2="208.0"/><text class="tick ytick" x="52" y="211.5">0</text><line class="grid" x1="62" y1="162.5" x2="422" y2="162.5"/><text class="tick ytick" x="52" y="166.0">750</text><line class="grid" x1="62" y1="117.0" x2="422" y2="117.0"/><text class="tick ytick" x="52" y="120.5">1,500</text><line class="grid" x1="62" y1="71.5" x2="422" y2="71.5"/><text class="tick ytick" x="52" y="75.0">2,250</text><line class="grid" x1="62" y1="26.0" x2="422" y2="26.0"/><text class="tick ytick" x="52" y="29.5">3,000</text><line class="axis" x1="62" y1="208" x2="422" y2="208"/><path class="bar" style="fill:var(--series-1)" d="M74.3,208.0 L74.3,208.0 Q74.3,206.0 76.3,206.0 L99.1,206.0 Q101.1,206.0 101.1,208.0 L101.1,208.0 Z" tabindex="0" data-tip="l1 · 3 senders · high / 5s — captured 14 Mbit/s (offered 14), 1,237 pps over 121s"/><text class="vlabel" x="87.7" y="199.0">14</text><text class="tick xtick" x="87.7" y="226.0">l1</text><path class="bar" style="fill:var(--series-1)" d="M125.8,208.0 L125.8,208.0 Q125.8,206.0 127.8,206.0 L150.5,206.0 Q152.5,206.0 152.5,208.0 L152.5,208.0 Z" tabindex="0" data-tip="l2 · 3 senders · high / 1s — captured 23 Mbit/s (offered 23), 1,980 pps over 121s"/><text class="vlabel" x="139.1" y="199.0">23</text><text class="tick xtick" x="139.1" y="226.0">l2</text><path class="bar" style="fill:var(--series-1)" d="M177.2,208.0 L177.2,175.4 Q177.2,171.4 181.2,171.4 L199.9,171.4 Q203.9,171.4 203.9,175.4 L203.9,208.0 Z" tabindex="0" data-tip="l3 · 3 senders · bulk / 5s — captured 603 Mbit/s (offered 603), 52,265 pps over 121s"/><text class="vlabel" x="190.6" y="164.4">603</text><text class="tick xtick" x="190.6" y="226.0">l3</text><path class="bar" style="fill:var(--series-1)" d="M228.6,208.0 L228.6,119.5 Q228.6,115.5 232.6,115.5 L251.4,115.5 Q255.4,115.5 255.4,119.5 L255.4,208.0 Z" tabindex="0" data-tip="l4 · 3 senders · bulk / 1s — captured 1,524 Mbit/s (offered 1,525), 132,144 pps over 121s"/><text class="vlabel" x="242.0" y="108.5">1,524</text><text class="tick xtick" x="242.0" y="226.0">l4</text><path class="bar" style="fill:var(--series-1)" d="M280.1,208.0 L280.1,73.6 Q280.1,69.6 284.1,69.6 L302.8,69.6 Q306.8,69.6 306.8,73.6 L306.8,208.0 Z" tabindex="0" data-tip="l4b · 4 senders · bulk / 1s — captured 2,281 Mbit/s (offered 2,282), 197,737 pps over 121s"/><text class="vlabel" x="293.4" y="62.6">2,281</text><text class="tick xtick" x="293.4" y="226.0">l4b</text><path class="bar" style="fill:var(--series-1)" d="M331.5,208.0 L331.5,54.9 Q331.5,50.9 335.5,50.9 L354.2,50.9 Q358.2,50.9 358.2,54.9 L358.2,208.0 Z" tabindex="0" data-tip="l5 · 5 senders · bulk / 1s — captured 2,590 Mbit/s (offered 2,589), 224,482 pps over 121s"/><text class="vlabel" x="344.9" y="43.9">2,590</text><text class="tick xtick" x="344.9" y="226.0">l5</text><path class="bar" style="fill:var(--series-1)" d="M382.9,208.0 L382.9,44.8 Q382.9,40.8 386.9,40.8 L405.7,40.8 Q409.7,40.8 409.7,44.8 L409.7,208.0 Z" tabindex="0" data-tip="l7 · 12 senders · bulk / 1s — captured 2,756 Mbit/s (offered 2,771), 238,899 pps over 122s"/><text class="vlabel" x="396.3" y="33.8">2,756</text><text class="tick xtick" x="396.3" y="226.0">l7</text></svg></div>
+    <div><div class="eyebrow" style="margin-bottom:6px">Packet rate &mdash; pps</div><svg viewBox="0 0 430 250" role="group" aria-label="Packet rate in packets per second, by rung" preserveAspectRatio="xMidYMid meet"><line class="grid" x1="62" y1="208.0" x2="422" y2="208.0"/><text class="tick ytick" x="52" y="211.5">0k</text><line class="grid" x1="62" y1="162.5" x2="422" y2="162.5"/><text class="tick ytick" x="52" y="166.0">62k</text><line class="grid" x1="62" y1="117.0" x2="422" y2="117.0"/><text class="tick ytick" x="52" y="120.5">125k</text><line class="grid" x1="62" y1="71.5" x2="422" y2="71.5"/><text class="tick ytick" x="52" y="75.0">188k</text><line class="grid" x1="62" y1="26.0" x2="422" y2="26.0"/><text class="tick ytick" x="52" y="29.5">250k</text><line class="axis" x1="62" y1="208" x2="422" y2="208"/><path class="bar" style="fill:var(--series-1)" d="M74.3,208.0 L74.3,208.0 Q74.3,206.0 76.3,206.0 L99.1,206.0 Q101.1,206.0 101.1,208.0 L101.1,208.0 Z" tabindex="0" data-tip="l1 — 1,237 pps, 149,551 packets carried"/><text class="vlabel" x="87.7" y="199.0">1k</text><text class="tick xtick" x="87.7" y="226.0">l1</text><path class="bar" style="fill:var(--series-1)" d="M125.8,208.0 L125.8,208.0 Q125.8,206.0 127.8,206.0 L150.5,206.0 Q152.5,206.0 152.5,208.0 L152.5,208.0 Z" tabindex="0" data-tip="l2 — 1,980 pps, 239,905 packets carried"/><text class="vlabel" x="139.1" y="199.0">2k</text><text class="tick xtick" x="139.1" y="226.0">l2</text><path class="bar" style="fill:var(--series-1)" d="M177.2,208.0 L177.2,174.0 Q177.2,170.0 181.2,170.0 L199.9,170.0 Q203.9,170.0 203.9,174.0 L203.9,208.0 Z" tabindex="0" data-tip="l3 — 52,265 pps, 6,330,715 packets carried"/><text class="vlabel" x="190.6" y="163.0">52k</text><text class="tick xtick" x="190.6" y="226.0">l3</text><path class="bar" style="fill:var(--series-1)" d="M228.6,208.0 L228.6,115.8 Q228.6,111.8 232.6,111.8 L251.4,111.8 Q255.4,111.8 255.4,115.8 L255.4,208.0 Z" tabindex="0" data-tip="l4 — 132,144 pps, 16,025,697 packets carried"/><text class="vlabel" x="242.0" y="104.8">132k</text><text class="tick xtick" x="242.0" y="226.0">l4</text><path class="bar" style="fill:var(--series-1)" d="M280.1,208.0 L280.1,68.0 Q280.1,64.0 284.1,64.0 L302.8,64.0 Q306.8,64.0 306.8,68.0 L306.8,208.0 Z" tabindex="0" data-tip="l4b — 197,737 pps, 24,016,152 packets carried"/><text class="vlabel" x="293.4" y="57.0">198k</text><text class="tick xtick" x="293.4" y="226.0">l4b</text><path class="bar" style="fill:var(--series-1)" d="M331.5,208.0 L331.5,48.6 Q331.5,44.6 335.5,44.6 L354.2,44.6 Q358.2,44.6 358.2,48.6 L358.2,208.0 Z" tabindex="0" data-tip="l5 — 224,482 pps, 27,214,991 packets carried"/><text class="vlabel" x="344.9" y="37.6">224k</text><text class="tick xtick" x="344.9" y="226.0">l5</text><path class="bar" style="fill:var(--series-1)" d="M382.9,208.0 L382.9,38.1 Q382.9,34.1 386.9,34.1 L405.7,34.1 Q409.7,34.1 409.7,38.1 L409.7,208.0 Z" tabindex="0" data-tip="l7 — 238,899 pps, 29,211,965 packets carried"/><text class="vlabel" x="396.3" y="27.1">239k</text><text class="tick xtick" x="396.3" y="226.0">l7</text></svg></div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Before and after, at matched rungs</h2>
+  <p class="note">Capture loss as a share of packets carried, same rungs, same twin,
+  same sink. The two rungs that previously bled &mdash; <span class="inline">l4b</span> at
+  5,967 packets and <span class="inline">l5</span> at 31,735 &mdash; are now exactly
+  <strong>zero</strong>.</p>
+  <div class="legend">
+    <span><i style="background:var(--series-2)"></i> 2026-08-13, before</span>
+    <span><i style="background:var(--series-1)"></i> 2026-08-14, after</span>
+  </div>
+  <svg viewBox="0 0 880 260" role="group" aria-label="Capture loss percentage before and after the fixes, by rung" preserveAspectRatio="xMidYMid meet"><line class="grid" x1="62" y1="214.0" x2="872" y2="214.0"/><text class="tick ytick" x="52" y="217.5">0.00%</text><line class="grid" x1="62" y1="167.0" x2="872" y2="167.0"/><text class="tick ytick" x="52" y="170.5">0.04%</text><line class="grid" x1="62" y1="120.0" x2="872" y2="120.0"/><text class="tick ytick" x="52" y="123.5">0.08%</text><line class="grid" x1="62" y1="73.0" x2="872" y2="73.0"/><text class="tick ytick" x="52" y="76.5">0.12%</text><line class="grid" x1="62" y1="26.0" x2="872" y2="26.0"/><text class="tick ytick" x="52" y="29.5">0.16%</text><line class="axis" x1="62" y1="214" x2="872" y2="214"/><text class="vlabel" style="font-size:10px" x="109.5" y="208.0">0</text><text class="vlabel" style="font-size:10px" x="149.5" y="208.0">0</text><text class="tick xtick" x="129.5" y="232.0">l1</text><text class="tick xtick" x="129.5" y="246.0" style="font-size:10px">3 snd</text><text class="vlabel" style="font-size:10px" x="244.5" y="208.0">0</text><path class="bar" style="fill:var(--series-1)" d="M267.5,214.0 L267.5,214.0 Q267.5,212.0 269.5,212.0 L299.5,212.0 Q301.5,212.0 301.5,214.0 L301.5,214.0 Z" tabindex="0" data-tip="l2 after — 2 lost of 239,905 packets (0.00083%) over 121s"/><text class="vlabel" style="font-size:10px" x="284.5" y="206.0">~0</text><text class="tick xtick" x="264.5" y="232.0">l2</text><text class="tick xtick" x="264.5" y="246.0" style="font-size:10px">3 snd</text><text class="vlabel" style="font-size:10px" x="379.5" y="208.0">0</text><path class="bar" style="fill:var(--series-1)" d="M402.5,214.0 L402.5,214.0 Q402.5,212.0 404.5,212.0 L434.5,212.0 Q436.5,212.0 436.5,214.0 L436.5,214.0 Z" tabindex="0" data-tip="l3 after — 2 lost of 6,330,715 packets (0.00003%) over 121s"/><text class="vlabel" style="font-size:10px" x="419.5" y="206.0">~0</text><text class="tick xtick" x="399.5" y="232.0">l3</text><text class="tick xtick" x="399.5" y="246.0" style="font-size:10px">3 snd</text><path class="bar" style="fill:var(--series-2)" d="M497.5,214.0 L497.5,214.0 Q497.5,212.0 499.5,212.0 L529.5,212.0 Q531.5,212.0 531.5,214.0 L531.5,214.0 Z" tabindex="0" data-tip="l4 before — 10 lost of 31,714,254 packets (0.00003%) over 240s"/><text class="vlabel" style="font-size:10px" x="514.5" y="206.0">~0</text><path class="bar" style="fill:var(--series-1)" d="M537.5,214.0 L537.5,214.0 Q537.5,212.0 539.5,212.0 L569.5,212.0 Q571.5,212.0 571.5,214.0 L571.5,214.0 Z" tabindex="0" data-tip="l4 after — 2 lost of 16,025,697 packets (0.00001%) over 121s"/><text class="vlabel" style="font-size:10px" x="554.5" y="206.0">~0</text><text class="tick xtick" x="534.5" y="232.0">l4</text><text class="tick xtick" x="534.5" y="246.0" style="font-size:10px">3 snd</text><path class="bar" style="fill:var(--series-2)" d="M632.5,214.0 L632.5,189.9 Q632.5,185.9 636.5,185.9 L662.5,185.9 Q666.5,185.9 666.5,189.9 L666.5,214.0 Z" tabindex="0" data-tip="l4b before — 5,967 lost of 24,929,369 packets (0.02394%) over 121s"/><text class="vlabel" style="font-size:10px" x="649.5" y="179.9">0.024%</text><text class="vlabel" style="font-size:10px" x="689.5" y="208.0">0</text><text class="tick xtick" x="669.5" y="232.0">l4b</text><text class="tick xtick" x="669.5" y="246.0" style="font-size:10px">4 snd</text><path class="bar" style="fill:var(--series-2)" d="M767.5,214.0 L767.5,39.7 Q767.5,35.7 771.5,35.7 L797.5,35.7 Q801.5,35.7 801.5,39.7 L801.5,214.0 Z" tabindex="0" data-tip="l5 before — 31,735 lost of 20,909,210 packets (0.15178%) over 90s"/><text class="vlabel" style="font-size:10px" x="784.5" y="29.7">0.152%</text><text class="vlabel" style="font-size:10px" x="824.5" y="208.0">0</text><text class="tick xtick" x="804.5" y="232.0">l5</text><text class="tick xtick" x="804.5" y="246.0" style="font-size:10px">5 snd</text></svg>
+  <p class="note">The small trace at l2&ndash;l4 is <strong>2 packets</strong> in each case,
+  on the host's gretap transmit queue. It is not rate-correlated &mdash; 2 packets at
+  22&nbsp;Mbit/s and 2 at 1.5&nbsp;Gbit/s, while the two heaviest lossless rungs show none
+  at all &mdash; which argues against congestion and points at a per-frame property,
+  most likely occasional oversized frames from the twin's background AD traffic exceeding
+  the tunnel MTU. l2's percentage looks worse only because its denominator is small
+  (2 of 240k).</p>
+</section>
+
+<section class="card">
+  <h2>What moved the ceiling</h2>
+  <div class="bl">
+    <div class="card">
+      <h3>Sink NIC multiqueue</h3>
+      <p class="note">The capture NIC was single-queue, so a 32-core appliance ran every
+      mirrored frame through one virtio receive ring. <span class="inline">queues=8</span>
+      hot-applied with no reboot and no loss of the static transport address. The sink has
+      not dropped a packet since, at any rate this twin can produce &mdash; every
+      <span class="inline">vhost</span>, <span class="inline">nic&nbsp;rx</span> and
+      <span class="inline">decap&nbsp;rx</span> counter in the table below is zero.</p>
+    </div>
+    <div class="card">
+      <h3>Gretap qdisc, now adapter-managed</h3>
+      <p class="note">A new gretap inherited the node default, <span class="inline">fq_codel</span>
+      &mdash; an AQM that deliberately drops to hold latency down, which is precisely wrong
+      for a capture path. <span class="inline">attach-gre-tunnel</span> now asserts a deep
+      FIFO itself, in its idempotent section, so adopted gretaps heal too and no manual
+      re-assert is needed after a tap deploy.</p>
+    </div>
+  </div>
+  <p class="note"><strong>What limits it now:</strong> all 17 tapped ports mirror into
+  <em>one single-queue gretap netdev</em>. At rung l7 the <span class="inline">tc mirred</span>
+  action logged 123,260 overlimits &mdash; mirrored copies the tunnel could not
+  accept &mdash; while the sink stayed perfectly clean. Raising the ceiling further means
+  per-sensor gretap fan-out or a multiqueue-capable tunnel device, not more sink capacity.</p>
+</section>
+
+<section class="card">
+  <h2>Every measurement</h2>
+  <p class="note">Offered is read at the twin's VM tap interfaces; captured at the sink's
+  <span class="inline">gre-cap</span> decap device. Loss sums the capture-relevant counters
+  only: tc dropped and overlimits, gretap tx, sink vhost tx, sink NIC rx, decap
+  <em>rx</em>. <span class="inline">gre-cap</span>'s <em>transmit</em> drops are excluded
+  deliberately &mdash; it is a decap device, so its tx side is not on the capture path, and
+  counting it produced a false loss verdict at 14&nbsp;Mbit/s.</p>
+  <div class="tblwrap">
+  <table>
+    <thead><tr>
+      <th scope="col">Rung</th><th scope="col">Snd</th><th scope="col">Shape</th>
+      <th scope="col">Win s</th><th scope="col">Offered</th><th scope="col">Captured</th>
+      <th scope="col">pps</th><th scope="col">Packets</th><th scope="col">tc drop</th>
+      <th scope="col">tc ovl</th><th scope="col">gretap</th><th scope="col">vhost</th>
+      <th scope="col">nic rx</th><th scope="col">decap rx</th><th scope="col">Loss</th>
+      <th scope="col">State</th>
+    </tr></thead>
+    <tbody><tr><th scope="row">l1</th><td class="n">3</td><td>high / 5s</td><td class="n">121</td><td class="n">14.2</td><td class="n">14.2</td><td class="n">1,237</td><td class="n">149,551</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00000%</td><td><span class="chip chip-good">clean</span></td></tr>
+<tr><th scope="row">l2</th><td class="n">3</td><td>high / 1s</td><td class="n">121</td><td class="n">22.7</td><td class="n">22.7</td><td class="n">1,980</td><td class="n">239,905</td><td class="n">0</td><td class="n">0</td><td class="n">2</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00083%</td><td><span class="chip chip-warning">trace</span></td></tr>
+<tr><th scope="row">l3</th><td class="n">3</td><td>bulk / 5s</td><td class="n">121</td><td class="n">602.8</td><td class="n">602.9</td><td class="n">52,265</td><td class="n">6,330,715</td><td class="n">0</td><td class="n">0</td><td class="n">2</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00003%</td><td><span class="chip chip-warning">trace</span></td></tr>
+<tr><th scope="row">l4</th><td class="n">3</td><td>bulk / 1s</td><td class="n">121</td><td class="n">1,524.6</td><td class="n">1,524.3</td><td class="n">132,144</td><td class="n">16,025,697</td><td class="n">0</td><td class="n">0</td><td class="n">2</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00001%</td><td><span class="chip chip-warning">trace</span></td></tr>
+<tr><th scope="row">l4b</th><td class="n">4</td><td>bulk / 1s</td><td class="n">121</td><td class="n">2,281.9</td><td class="n">2,281.0</td><td class="n">197,737</td><td class="n">24,016,152</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00000%</td><td><span class="chip chip-good">clean</span></td></tr>
+<tr><th scope="row">l5</th><td class="n">5</td><td>bulk / 1s</td><td class="n">121</td><td class="n">2,588.5</td><td class="n">2,589.5</td><td class="n">224,482</td><td class="n">27,214,991</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.00000%</td><td><span class="chip chip-good">clean</span></td></tr>
+<tr><th scope="row">l7</th><td class="n">12</td><td>bulk / 1s</td><td class="n">122</td><td class="n">2,771.5</td><td class="n">2,755.8</td><td class="n">238,899</td><td class="n">29,211,965</td><td class="n">0</td><td class="n">123,260</td><td class="n">4</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0.42196%</td><td><span class="chip chip-critical">loss</span></td></tr></tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Two corrections to how this was measured</h2>
+  <p class="note"><strong>Per-host timestamps.</strong> A sample makes three sequential SSH
+  round-trips. Stamping the whole sample once and dividing every stage by that single
+  interval silently inflates rates when one read stalls: a stalled sink connection made the
+  mirror stage report 588k&nbsp;pps against a gretap that had actually carried 138k. The
+  harness now timestamps each host read separately, and the stages agree to within 0.2%.</p>
+  <p class="note"><strong>Direction matters in a drop counter.</strong> Checking both
+  directions at every stage is right in general and wrong at the decap device: a
+  <span class="inline">gre-cap</span> tx_drop flagged "loss" on a 14&nbsp;Mbit/s rung that
+  had lost nothing. The loss column above is the directionally-correct subset.</p>
+  <p class="note">Both were found while producing this report, which is the argument for
+  re-measuring rather than reusing the earlier run's numbers: several of those were taken
+  mid-change, with the qdisc applied by hand and the sink connection intermittent.</p>
+</section>
+
+<footer>Harness: 6-stage drop accounting over /proc/net/dev and tc filter statistics.
+Twin corp-enterprise-890c29b2 (plan corp-enterprise-4fc62c80), tap-maxrate-all.yaml
+(4 segments / 17 ports) to XPress-SW-A, traffic tfc-maxrate-l1..l7. Specs, harness and
+generator in twin-configs/corp-enterprise-maxrate/.</footer>
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  var tip = document.getElementById('tip');
+  function show(e, t) {
+    tip.textContent = t; tip.style.opacity = '1';
+    var r = tip.getBoundingClientRect();
+    var x = Math.min(Math.max(8, e.clientX + 14), window.innerWidth - r.width - 8);
+    var y = Math.max(8, e.clientY - r.height - 12);
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  function hide() { tip.style.opacity = '0'; }
+  document.querySelectorAll('[data-tip]').forEach(function (el) {
+    el.addEventListener('mousemove', function (e) { show(e, el.dataset.tip); });
+    el.addEventListener('mouseleave', hide);
+    el.addEventListener('focus', function () {
+      var b = el.getBoundingClientRect();
+      show({clientX: b.left + b.width / 2, clientY: b.top}, el.dataset.tip);
+    });
+    el.addEventListener('blur', hide);
+  });
+})();
+</script>

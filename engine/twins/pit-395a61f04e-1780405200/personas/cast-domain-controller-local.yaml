@@ -1,0 +1,113 @@
+persona:
+  id: cast-domain-controller-local
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: dns
+    ports:
+    - 53
+    peer_role: internet-sink-8
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: rdp
+    ports:
+    - 3389
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: http
+    ports:
+    - 80
+    peer_role: internet-sink-4
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: nbns
+    ports:
+    - 137
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: udp
+    ports:
+    - 138
+    peer_role: internet-sink-2
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: tcp
+    ports:
+    - 135
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: udp
+    ports:
+    - 68
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

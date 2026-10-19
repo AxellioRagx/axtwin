@@ -1,0 +1,63 @@
+# corp-enterprise -- full SPAN of the `gw` SNAT router: all five of its ports
+# mirrored to the XPress-SW-A packetXpress sink.
+#
+# Five `perimeter` bindings -- one per net gw is attached to, plus the twin's
+# external edge. `perimeter` is the scope that means "every ROUTER port
+# attached to this net, both directions" (axrange/planner/tappoints.py), which
+# is exactly a switch SPAN session on the router's five ports:
+#
+#   perimeter: corp-lan     -> gw .1 on vlan 10
+#   perimeter: server-vlan  -> gw .1 on vlan 20
+#   perimeter: dmz          -> gw .1 on vlan 30
+#   perimeter: mgmt         -> gw .1 on vlan 40
+#   perimeter: wan          -> gw's WAN uplink on vmbr0. `wan` is the
+#                              author-facing alias for the `__wan__` sentinel
+#                              (axrange/o2control/taps.py `_resolve_wan_alias`);
+#                              it is a net id like any other, so the twin's
+#                              external edge needs no special scope.
+#
+# DIRECTION IS DERIVED, NEVER AUTHORED (`direction_for_scope`). `perimeter` is
+# a single-port-per-target scope, so each of the five gets `both` (tx + rx) --
+# a true SPAN, not the rx-only that a multi-port `segment` binding is forced
+# to use. That is correct here rather than merely permitted: each router port
+# is the sole entry/exit for its own net, so mirroring both directions cannot
+# double-count a frame on the SAME port.
+#
+# `mode: exclusive` is safe because the five targets are five DISJOINT
+# interfaces. It would NOT be safe alongside a `segment` binding on any of
+# these nets: gw's leg belongs to both sets, and exclusivity is enforced
+# across the whole plan -- any overlap is a hard TapPlanError, even when both
+# bindings name the same sensor. To run both views at once, drop `mode:` from
+# every binding (a 1-element `sensors:` list is already exclusive in effect)
+# and let `_union_direction` promote gw's shared legs from `rx` to `both`.
+#
+# WHAT THIS SEES: every routed packet -- inter-segment traffic and everything
+# to or from the internet -- captured twice, once as rx on its ingress leg and
+# once as tx on its egress leg (inherent to SPANning both sides of a router).
+#
+# WHAT THIS DOES NOT SEE: intra-segment east-west traffic, which never reaches
+# the router. In particular the tfc-maxrate-* DMZ mesh (mail-server /
+# egress-proxy / dmz-web talking to each other on vlan 30) is invisible to this
+# plan. Use tap-maxrate-all.yaml for that view.
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: perimeter, target: corp-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+
+    - selector: { scope: perimeter, target: server-vlan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+
+    - selector: { scope: perimeter, target: dmz }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+
+    - selector: { scope: perimeter, target: mgmt }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+
+    - selector: { scope: perimeter, target: wan }
+      sensors: [XPress-SW-A]
+      mode: exclusive

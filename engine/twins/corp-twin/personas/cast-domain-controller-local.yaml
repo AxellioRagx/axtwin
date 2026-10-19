@@ -1,0 +1,117 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): DNS 64 B, HTTP low.
+persona:
+  id: cast-domain-controller-local
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+    bytes: 64
+  - proto: dns
+    ports:
+    - 53
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+    bytes: 64
+  - proto: rdp
+    ports:
+    - 3389
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: http
+    ports:
+    - 80
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: nbns
+    ports:
+    - 137
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: udp
+    ports:
+    - 138
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: tcp
+    ports:
+    - 135
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  - proto: udp
+    ports:
+    - 68
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:5s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

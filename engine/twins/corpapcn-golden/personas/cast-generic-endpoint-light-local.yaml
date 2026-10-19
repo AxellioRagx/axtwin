@@ -1,0 +1,29 @@
+persona:
+  id: cast-generic-endpoint-light-local
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:512s
+    volume: low
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:512s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

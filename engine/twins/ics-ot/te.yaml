@@ -1,0 +1,102 @@
+# Twin config: ics-ot (docs/DESIGN_BRIEF_twin_model.md §6.2)
+#
+# Purdue-model OT/ICS twin. Zones compressed to four segments (a documented
+# simplification of the brief's five-zone description, matching how the
+# hand-written `target-environments/ot-ics-range` archetype already merges
+# L0-2 into one `ot`-equivalent zone): `cell` (L0-2: PLCs + HMI), `ops`
+# (L3: historian, engineering workstation), `idmz` (L3.5: protocol gateway,
+# bastion jump), `corp` (L4: a small corp-enterprise slice). A single
+# multi-homed `conduit` router joins all four -- the highest-value capture
+# point in the catalog per brief §6.2.
+twin_config:
+  id: ics-ot
+  description: |
+    Purdue-model OT/ICS twin: a control-cell zone (PLCs + HMI), an ops zone
+    (historian + engineering workstation), an industrial DMZ (protocol
+    gateway + bastion jump), and a small corp-enterprise slice, joined by
+    one multi-homed conduit router. Expanded from twin-config 'ics-ot'
+    (docs/WORK_ORDER_twin_configs.md).
+
+    No tap-related content here (`docs/WORK_ORDER_tap_eligibility.md`,
+    Authority: user, 2026-07-28) -- a standalone tap plan can address the
+    idmz<->corp boundary (the IT/OT boundary, the highest-value capture
+    point in the catalog) or the `cell` segment against this twin's
+    published topology once deployed.
+
+  params:
+    OT_PROTOCOL: modbus  # informational only (modbus|dnp3|opcua) -- no
+                         # topology/op difference at the IR level today
+    N_PLC: 2
+
+  segments:
+    - { name: cell, cidr: 10.81.0.0/24,  zone_type: vlan }   # L0-2 control cell (PLCs + HMI)
+    - { name: ops,  cidr: 10.81.10.0/24, zone_type: vlan }   # L3 operations (historian, eng ws)
+    - { name: idmz, cidr: 10.81.15.0/24, zone_type: vlan }   # L3.5 industrial DMZ
+    - { name: corp, cidr: 10.81.20.0/24, zone_type: vlan }   # L4 corp slice
+
+  nodes:
+    - name: conduit
+      role: conduit
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: cell }
+        - { segment: ops }
+        - { segment: idmz }
+        - { segment: corp }
+
+    - name: plc
+      role: plc
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: "${N_PLC:2}"
+      net: cell
+      install: [{ pkg: python3-pip }]
+
+    - name: hmi
+      role: hmi
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 10Gi }
+      net: cell
+      install: [{ pkg: nodejs }]
+
+    - name: historian
+      role: historian
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: ops
+      install: [{ pkg: mosquitto }]
+
+    - name: engineering-ws
+      role: engineering-ws
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      net: ops
+
+    - name: protocol-gateway
+      role: protocol-gateway
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: idmz
+      install: [{ pkg: mosquitto-clients }]
+
+    - name: bastion-jump
+      role: bastion-jump
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: idmz
+
+    - name: corp-ws
+      role: corp-ws
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: corp

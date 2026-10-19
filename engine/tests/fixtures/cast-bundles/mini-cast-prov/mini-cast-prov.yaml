@@ -1,0 +1,99 @@
+# `mini-cast` with a CANONICAL provenance sidecar beside it
+# (`docs/WORK_ORDER_fidelity_scorecard.md` §8.1's future state, ruled
+# 2026-09-05). Identical content to `mini-cast/` except the id, so the two
+# differ in EXACTLY the thing under test: whether the per-fact evidence
+# classes in rows 1-3 are read from the producer (`evidence_source:
+# "sidecar fields"`) or re-derived by axRange from the topology export.
+#
+# The sidecar is written in the REAL compiler shape (`schema:
+# "axr-cast-provenance/1"`, `fields` keyed by twin-config path), not the
+# Track-C normalized shape `axrange/api/imprints.py` reads -- the two
+# disagree, and the whole point of `evidence_source` is that reading one as
+# the other must never happen silently.
+twin_config:
+  id: mini-cast-prov
+  description: Miniature cast bundle fixture for the fidelity scorecard.
+  default_agents: false
+
+  params:
+    DEPLOY_MIN_OCCUPANCY: 0.8
+
+  segments:
+    - name: seg-corp
+      cidr: 10.90.0.0/24
+      zone_type: simple
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0}
+    - name: seg-data
+      cidr: 10.90.1.0/24
+      zone_type: simple
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0}
+    # Gated out at 0.8 -- with its only occupant, `thin-endpoint`.
+    - name: seg-thin
+      cidr: 10.90.2.0/24
+      zone_type: simple
+      observation: {windows_seen: 2, windows_total: 5, occupancy: 0.4}
+    # Synthetic: no observed counterpart at all. Reported `compiler`.
+    - name: internet-sink
+      cidr: 10.90.254.0/24
+      zone_type: simple
+
+  conduits:
+    - from: seg-corp
+      to: seg-data
+    - from: seg-corp
+      to: seg-thin
+    - from: seg-corp
+      to: internet-sink
+
+  nodes:
+    # Compiler-invented plumbing: never gated out, legs EVERY segment, and is
+    # never occupancy evidence (LES-210).
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      role: gw
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      nets:
+        - {segment: seg-corp, ip: 10.90.0.1}
+        - {segment: seg-data, ip: 10.90.1.1}
+        - {segment: seg-thin, ip: 10.90.2.1}
+        - {segment: internet-sink, ip: 10.90.254.1}
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0, role_confidence: 1.0}
+
+    - name: web-tier
+      image: debian-12-cloud@v1
+      role: web-tier
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-corp
+      count: 2
+      install:
+        - {pkg: nginx}
+        - {script: scripts/responder-web.sh}
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0, role_confidence: 0.9}
+
+    # count: 1 against TWO above-bar observed hosts in the same group.
+    - name: db-tier
+      image: debian-12-cloud@v1
+      role: db-tier
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-data
+      count: 1
+      observation: {windows_seen: 4, windows_total: 5, occupancy: 0.8, role_confidence: 0.8}
+
+    - name: thin-endpoint
+      image: debian-12-cloud@v1
+      role: generic-endpoint
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-thin
+      observation: {windows_seen: 2, windows_total: 5, occupancy: 0.4, role_confidence: 0.5}
+
+    - name: sink
+      image: debian-12-cloud@v1
+      role: internet-sink
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: internet-sink

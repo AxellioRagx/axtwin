@@ -1,0 +1,1512 @@
+# Twin config: corp-twin -- the corporate network CORP APCN captures, as ONE
+# contained twin shaped by the real device/VLAN plan and populated by the
+# axquery discovery cast. The first `twins/<id>/` citizen
+# (docs/WORK_ORDER_twin_consolidation.md §2). Design, sources, reconciliation
+# and every gap: docs/WORK_ORDER_corp_twin.md -- read §4 before "fixing" the
+# single router below.
+#
+# **Two sources, one precedence** (design/14: asserted > observed > imputed):
+#   * the DEVICE/VLAN skeleton is the topology diagram (MX85 HQ-MX edge ->
+#     MS120-24P core -> access switches + 3850 -> 9K01/9K02 TOR pair ->
+#     eng-8325h VSX pair). Every HQ VLAN segment below exists because the
+#     diagram ASSERTS it, so it carries NO `observation:` of its own. vlan1,
+#     vlan32 and vlan40 (only transient hosts observed) USED to vanish at the
+#     default 0.8 (G14); the switch VMs carrying them now keep them.
+#   * the HOSTS, roles, listen sets, server recipes and traffic are the
+#     `twin-configs-cast/corpapcn-disco/` cast (2026-09-08, 9 windows, the
+#     newest of the three casts of this network). Node names are the cast's,
+#     unchanged -- they encode the real /24 each host was seen on. Each keeps
+#     its `observation:` block, so `DEPLOY_MIN_OCCUPANCY` still selects.
+#
+# **The devices are VMs -- Debian ones** (work order §4.1, device-parity round
+# 2026-09-26; an implementation substitution for the ruled VyOS, §12 D1):
+#   * ONE Debian router, `hq-mx`, is the MX85's L3 engine: every VLAN's
+#     gateway, the only WAN NIC, the only `egress:` carrier (containment lives
+#     on one box). `mx-sw` is the MX85's switch side.
+#   * The MS120, access switches, 3850 and 8325h pair are `kind: host` bridge
+#     VMs (scripts/serve-l2switch.sh: VLAN-aware bridge, 802.1Q trunks with the
+#     real VLAN IDs, kernel STP -- SFP26 blocks -- and the admin-down P17).
+#   * 9K01/9K02 are `kind: host` L3 VMs running keepalived VRRP
+#     (scripts/serve-vrrp-l3.sh); VLAN953 sits behind them, and hq-mx reaches
+#     it through one static route (scripts/serve-hq-mx-routes.sh).
+#   * Each VLAN is two segments with one subnet: `mx-vlanN` (hq-mx <-> mx-sw,
+#     the anchor, gateway .1) and `vlanN` (`isolated: true`, the hosts' access
+#     segment behind the bridges). Trunks carry no address.
+#
+# **Addressing** (work order §6): relocated off the real 10.80.0.0/16 that
+# dev45 and the orchestrator live in, by a READABLE rule that keeps host
+# parts: 10.80.X.Y -> 10.180.X.Y; other 10.A.B.0/24 -> 10.(A+100).B.0/24;
+# 172.16 -> 10.172.16; 192.168 -> 10.192.168; the WAN /28 50.209.234.64 ->
+# 10.250.234.64 (WAN2 on 10.251.234.64). No observed address falls in any of
+# those ranges; none overlaps svc-engines (10.66/16) or the transport.
+twin_config:
+  id: corp-twin
+  description: |
+    The corporate HQ network as one contained twin: an MX85-shaped edge
+    router (`hq-mx`) gatewaying the twelve real VLANs (1, 20, 32, 40, 48, 52,
+    64, 192, 880, 1010 at the MX; 935, 953 at the 9K TOR pair), the lab and
+    remote subnets the discovery saw routed through HQ, two ISP uplinks
+    (WAN1 active to an any-IP sink standing in for Comcast and the internet,
+    WAN2 present and idle), the network devices as VMs (MS120 core, access
+    switches, 3850, a 9K01/9K02 VRRP pair, the 8325h VSX pair -- 802.1Q
+    trunks, STP, a down port), and the ~133 hosts the axquery discovery cast
+    observed above the deploy gate -- a real AD DS DC, 16 joined Windows
+    workstations, bind9/nginx/Samba servers, and Linux endpoints -- driven by
+    the cast's own personas.
+
+  # A measurement subject (like the cast): node-exporter scrapes and
+  # wazuh-agent enrollment are twin-only traffic with no counterpart in the
+  # capture this twin is compared against.
+  default_agents: false
+
+  # ---- CONTAINMENT (GAP-101; work order §8/§11) ---------------------------
+  # `provision`, deliberately -- the same call svc-engines makes and for the
+  # same reason: the servers apt-install bind9/nginx/samba/isc-dhcp and the
+  # sink apt-installs Caddy/bind9/chrony at deploy time, and the sink
+  # impersonates the observed internet, not the Debian archive. The block's
+  # job is to make the phase a DECLARED, INSTALLED, one-command-flippable
+  # fact on `hq-mx` (`/usr/local/sbin/axr-egress-phase.sh`, `sink_ip`
+  # resolved from the one `role: sink` node below and baked in).
+  #
+  # **Before ANY tap or traffic run: flip it** (runbook §11 step 2):
+  #     axr-egress-phase.sh measure        # on hq-mx
+  # and `axrange te info <deploy>` must say `measure -- CONTAINED`. A
+  # capture window that ran in `provision` is uncontained and is not scored.
+  # twin.yaml's `containment: contained` is CHECKED against this block by the
+  # manifest loader -- it is a claim, not a second copy of the phase.
+  egress:
+    phase: provision
+
+  params:
+    # The cast's gate, unchanged. Do NOT drop it below ~0.7: every surviving
+    # off-map segment is one more `hq-mx` NIC, and at 0 the router needs 34
+    # (PVE's ceiling is 32, net0-net31) -- work order §6 / gap G10.
+    DEPLOY_MIN_OCCUPANCY: 0.8
+
+  segments:
+    # ---- the ISP side of the MX85: where the External TAP sits -------------
+    # WAN1 (active). The real uplink is 50.209.234.65/28 on Comcast; here the
+    # /28 is relocated and the "ISP + internet" is the any-IP sink. `hq-mx`'s
+    # leg is deliberately UNPINNED (GAP-078): auto-assign gives network+1 =
+    # 10.250.234.65 -- the real WAN1 host part -- AND records the gateway the
+    # sink replies through.
+    - { name: wan1-isp, cidr: 10.250.234.64/28, zone_type: simple }
+    # WAN2 (ready/standby). Its own segment because it is its own physical
+    # uplink through its own tap; the router leg is pinned at .78 (the real
+    # WAN2 host part). Pinning skips the gateway record (GAP-078) -- harmless
+    # here, nothing on this segment needs one. Nothing routes over it: that
+    # IS standby (gap G6: no failover behaviour).
+    - { name: wan2-isp, cidr: 10.251.234.64/28, zone_type: simple }
+
+    # ---- the MX85's per-VLAN ports (hq-mx's L3 legs <-> mx-sw's access ports)
+    # Each HQ VLAN's subnet is ANCHORED here: `mx-vlanN` is the segment between
+    # the MX85's routing engine (`hq-mx`, the gateway, auto .1) and its own
+    # switch side (`mx-sw`). The hosts sit on the `vlanN` ACCESS segments
+    # further down -- the same subnet, `isolated: true`, on the far side of the
+    # MS120/access-switch bridges -- so the name every tfc/tap file used
+    # (`vlan64`, ...) still names the segment the hosts are on.
+    # Real subnet evidence per VLAN is in the work order §5.1 table; the
+    # anchors are VLAN32 = .32.0/21 (diagram) and VLAN64 = 10.80.64.0/20 (the
+    # orchestrator's own DHCP lease, 10.80.72.52/20). The rest is the one
+    # contiguous reading that places every observed 10.80 /24 in exactly one
+    # listed VLAN (inferred), plus three imputed ranges for the VLANs nothing
+    # was observed on.
+    - { name: mx-vlan1, cidr: 10.180.0.0/20, zone_type: simple }      # inferred
+    - { name: mx-vlan20, cidr: 10.180.16.0/20, zone_type: simple }    # inferred -- the DC, 10.80.20 workstations
+    # VLAN32 is ASSERTED as .32.0/21 (9K SVI + HSRP) -- narrowed to /23 HERE
+    # because the real /21 contains VLAN953's asserted 10.80.34.0/25 and the
+    # validator refuses overlapping networks (NET-010). Conflict C1.
+    - { name: mx-vlan32, cidr: 10.180.32.0/23, zone_type: simple }
+    - { name: mx-vlan40, cidr: 10.180.40.0/21, zone_type: simple }    # inferred
+    - { name: mx-vlan48, cidr: 10.180.48.0/21, zone_type: simple }    # inferred
+    - { name: mx-vlan52, cidr: 10.180.56.0/21, zone_type: simple }    # imputed range (C3)
+    - { name: mx-vlan64, cidr: 10.180.64.0/20, zone_type: simple }    # inferred, anchored -- the office
+    - { name: mx-vlan192, cidr: 10.192.168.0/24, zone_type: simple }  # inferred (ID <-> 192.168)
+    - { name: mx-vlan880, cidr: 10.180.88.0/24, zone_type: simple }   # imputed, no host observed
+    - { name: mx-vlan1010, cidr: 10.180.101.0/24, zone_type: simple } # imputed, no host observed
+    # VLAN935: the MX85 <-> 9K pair transit (imputed, no host observed).
+    # 10.180.93.254 is the 9K pair's VLAN935 VRRP VIP (scripts/serve-vrrp-l3.sh), no
+    # node's leg: reserved so the allocator never hands it to one.
+    - { name: mx-vlan935, cidr: 10.180.93.0/24, zone_type: simple, reserved: [10.180.93.254] }
+
+    # ---- 802.1Q trunks (L2 only: every leg is `l2: true`) -------------------
+    # A segment needs a CIDR to validate; these carry no address at all, so
+    # each gets a placeholder /29 from 10.199.0.0/24 (no observed address,
+    # svc-engines or transport range is near it). The VLANs a trunk carries are
+    # the recipe's port table (scripts/serve-l2switch.sh), not this file.
+    # SFP25 forwards, SFP26 is the redundant link STP BLOCKS (at the MS120).
+    - { name: sfp25, cidr: 10.199.0.0/29, zone_type: simple }
+    - { name: sfp26, cidr: 10.199.0.8/29, zone_type: simple }
+    - { name: t-ms120-sgs5240, cidr: 10.199.0.16/29, zone_type: simple }
+    - { name: t-ms120-axeprod, cidr: 10.199.0.24/29, zone_type: simple }
+    - { name: t-ms120-cos, cidr: 10.199.0.32/29, zone_type: simple }
+    - { name: t-ms120-labsw, cidr: 10.199.0.40/29, zone_type: simple }
+    - { name: t-ms120-3850, cidr: 10.199.0.48/29, zone_type: simple }
+
+    # ---- ACCESS segments (the hosts' side; same subnet as the anchor) -------
+    # `isolated: true` = a separate broadcast domain carrying its anchor's
+    # subnet (the one NET-010 exemption a twin config may use): the gateway is
+    # inherited from `mx-vlanN`, addresses are allocated from ONE pool per
+    # subnet. Each is one access switch's host-facing port group.
+    - { name: vlan1, cidr: 10.180.0.0/20, zone_type: simple, isolated: true }     # MS120 native VLAN
+    - { name: vlan20, cidr: 10.180.16.0/20, zone_type: simple, isolated: true }   # MS120 access
+    - { name: vlan32, cidr: 10.180.32.0/23, zone_type: simple, isolated: true }   # hwlab2960s access
+    # MS120 port P17 -> hwlab2960s, VLAN32 access, administratively DOWN.
+    - { name: p17-hwlab2960s, cidr: 10.180.32.0/23, zone_type: simple, isolated: true }
+    - { name: vlan40, cidr: 10.180.40.0/21, zone_type: simple, isolated: true }   # cos-sw-r32e01 access
+    - { name: vlan48, cidr: 10.180.48.0/21, zone_type: simple, isolated: true }   # AxeProdSW access
+    - { name: vlan52, cidr: 10.180.56.0/21, zone_type: simple, isolated: true }   # AxeProdSW access
+    - { name: vlan64, cidr: 10.180.64.0/20, zone_type: simple, isolated: true }   # SGS-5240 access -- the office
+    - { name: vlan192, cidr: 10.192.168.0/24, zone_type: simple, isolated: true } # labswitch access
+    # 3850 -> 9K01 / 9K02: the vPC analogue, two VLAN935 access links.
+    - { name: x3850-9k01, cidr: 10.180.93.0/24, zone_type: simple, isolated: true }
+    - { name: x3850-9k02, cidr: 10.180.93.0/24, zone_type: simple, isolated: true }
+
+    # ---- VLAN953: routed by the 9K01/9K02 VRRP pair, L2 on the 8325h pair ---
+    # 10.80.34.0/25 is ASSERTED (servers/ESX; the cast's 10.80.34 web tier).
+    # The GATEWAY is the pair's VRRP VIP .1 (not hq-mx -- hq-mx has no leg
+    # here any more; it routes the /25 to the VLAN935 VIP, scripts/
+    # serve-hq-mx-routes.sh). 9K01/9K02 are pinned .2/.3. See vlan32's C1 note.
+    - { name: vlan953, cidr: 10.180.34.0/25, zone_type: simple, gateway: 10.180.34.1 }
+    - { name: x9k01-8325l, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }
+    - { name: x9k02-8325r, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }
+    - { name: isl-8325, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }   # the VSX ISL
+
+    # ---- off-map subnets: observed at the HQ vantage, on no listed VLAN ------
+    # Lab/remote networks reached through HQ (the lab TORs or AutoVPN -- the
+    # diagram does not say which). Their only evidence is traffic, so they keep
+    # the cast's `observation:` and the gate selects them. Each is its own
+    # `hq-mx` leg so their routed flows cross the MS120-SPAN mirror, as they
+    # did in the capture. Relocated 10.A.B.0/24 -> 10.(A+100).B.0/24.
+    - name: lab-10-0-21
+      cidr: 10.100.21.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-1-10
+      cidr: 10.101.10.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-110-240
+      cidr: 10.210.240.0/24
+      zone_type: simple
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222 }
+    - name: lab-10-112-140
+      cidr: 10.212.140.0/24
+      zone_type: simple
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222 }
+    - name: lab-10-128-215
+      cidr: 10.228.215.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-192
+      cidr: 10.120.192.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-193
+      cidr: 10.120.193.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-195
+      cidr: 10.120.195.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-196
+      cidr: 10.120.196.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-198
+      cidr: 10.120.198.0/24
+      zone_type: simple
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444 }
+    - name: lab-10-20-200
+      cidr: 10.120.200.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-201
+      cidr: 10.120.201.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-203
+      cidr: 10.120.203.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-204
+      cidr: 10.120.204.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-20-207
+      cidr: 10.120.207.0/24
+      zone_type: simple
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+    - name: lab-10-21-161
+      cidr: 10.121.161.0/24
+      zone_type: simple
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778 }
+    - name: lab-10-55-10
+      cidr: 10.155.10.0/24
+      zone_type: simple
+      observation: { windows_seen: 6, windows_total: 9, occupancy: 0.6666666666666666 }
+    - name: lab-10-64-7
+      cidr: 10.164.7.0/24
+      zone_type: simple
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778 }
+    - name: lab-172-16
+      cidr: 10.172.16.0/24
+      zone_type: simple
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888 }
+
+  nodes:
+    # ======================================================================
+    # hq-mx -- the MX85 "HQ-MX": L3 gateway for every VLAN, WAN1 + WAN2
+    # ======================================================================
+    # Debian/nftables, not VyOS: the containment posture above is enforced ON
+    # THIS ROUTER, and pass1_emit refuses a VyOS router in a twin that declares
+    # one (work order §4, finding 1). Its VLAN legs are on the `mx-vlanN`
+    # anchors (the MX85's own switch side, `mx-sw`, is on the other end), NOT
+    # on the hosts' `vlanN` access segments. Legs UNPINNED except wan2
+    # (GAP-078: an unpinned leg auto-assigns network+1 AND records the segment
+    # gateway -- which the `vlanN` extensions inherit). Its engine-added WAN NIC on vmbr0 is the provisioning uplink
+    # only -- in `measure` it forwards nothing (the drop counters prove it).
+    - name: hq-mx
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 10Gi }
+      nets:
+        - { segment: wan1-isp }
+        - { segment: wan2-isp, ip: 10.251.234.78 }
+        - { segment: mx-vlan1 }
+        - { segment: mx-vlan20 }
+        - { segment: mx-vlan32 }
+        - { segment: mx-vlan40 }
+        - { segment: mx-vlan48 }
+        - { segment: mx-vlan52 }
+        - { segment: mx-vlan64 }
+        - { segment: mx-vlan192 }
+        - { segment: mx-vlan880 }
+        - { segment: mx-vlan1010 }
+        - { segment: mx-vlan935 }
+        - { segment: lab-10-0-21 }
+        - { segment: lab-10-1-10 }
+        - { segment: lab-10-110-240 }
+        - { segment: lab-10-112-140 }
+        - { segment: lab-10-128-215 }
+        - { segment: lab-10-20-192 }
+        - { segment: lab-10-20-193 }
+        - { segment: lab-10-20-195 }
+        - { segment: lab-10-20-196 }
+        - { segment: lab-10-20-198 }
+        - { segment: lab-10-20-200 }
+        - { segment: lab-10-20-201 }
+        - { segment: lab-10-20-203 }
+        - { segment: lab-10-20-204 }
+        - { segment: lab-10-20-207 }
+        - { segment: lab-10-21-161 }
+        - { segment: lab-10-55-10 }
+        - { segment: lab-10-64-7 }
+        - { segment: lab-172-16 }
+      # VLAN953 (10.180.34.0/25) sits behind the 9K pair: one static route
+      # via the pair's VLAN935 VIP. A recipe, not an engine field -- the
+      # Debian configure-router installs no static routes (work order §12).
+      install:
+        - { script: scripts/serve-hq-mx-routes.sh }
+
+    # ======================================================================
+    # sink -- "Comcast + the internet": the E2 any-IP responder on WAN1
+    # ======================================================================
+    # svc-engines' sink, unchanged in kind: ONE host that impersonates every
+    # external server the cast observed (bind9 authoritative for '.', Caddy
+    # h1/h2/h3 with per-SNI lab-CA certs, chrony, a generic TCP/UDP
+    # responder). ONE, not the cast's four `internet-sink-N` groups: `egress:`
+    # resolves `sink_ip` from the twin's unique `role: sink` node and refuses
+    # two. The twin-local personas were rewritten to dial `peer_role: sink`
+    # accordingly (work order §7, gap G7).
+    #
+    # Its payload is GENERATED: `scripts/build-sink-payload.sh` concatenates
+    # the corpus built from the disco cast's topology.json with
+    # `twins/_shared/scripts/serve-sink.sh` (run-script delivers ONE
+    # script per app). Regenerate after either changes; `te plan` fails loud
+    # if it is missing. `pkg:` mirrors the recipe's list so apt runs in
+    # provision-app, over the provisioning phase's NAT (svc-engines' reasoning).
+    - name: sink
+      role: sink
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      nets: [{ segment: wan1-isp, ip: 10.250.234.66 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-dnsutils }
+        - { pkg: caddy }
+        - { pkg: chrony }
+        - { pkg: socat }
+        - { pkg: nftables }
+        - { pkg: openssl }
+        - { pkg: curl }
+        - { pkg: ca-certificates }
+        - { script: scripts/provision-sink.sh }
+      listen:
+        - { port: 22, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+        - { port: 443, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 9099, proto: tcp }   # generic TCP responder (redirect target)
+        - { port: 9098, proto: udp }   # generic UDP responder (redirect target)
+
+    # ======================================================================
+    # the network DEVICES -- Debian `kind: host` VMs running role recipes
+    # ======================================================================
+    # Implementation substitution (work order §12, D1 still open): the ruling
+    # asked for VyOS; an internal VyOS router needs a no-WAN router mode and
+    # bridge/VRRP inputs on configure-router -- locked IR_SCHEMA/OP_CATALOG
+    # changes. So every device is a small Debian VM whose recipe builds the
+    # device: `scripts/serve-l2switch.sh` (VLAN-aware bridge, 802.1Q trunks,
+    # kernel STP, admin-down ports -- ONE script, a per-device port table
+    # keyed by hostname) and `scripts/serve-vrrp-l3.sh` (keepalived VRRP).
+    # Being `kind: host`, none gets a WAN NIC -- hq-mx stays the ONLY exit.
+    # Leg ORDER is load-bearing: it must match the device's port table in
+    # serve-l2switch.sh (tests pin the two against each other). Legs are
+    # `l2: true` (pure L2 bridge ports) except the MS120's management leg and
+    # the 9Ks' routed legs. No `observation:` -- never gated; a device that
+    # carries a segment keeps it alive through the gate (G14 closed).
+
+    # MX85 switch side: one untagged port per VLAN (to hq-mx's legs) + the
+    # SFP25/SFP26 uplinks. STP root.
+    - name: mx-sw
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: mx-vlan1, l2: true }
+        - { segment: mx-vlan20, l2: true }
+        - { segment: mx-vlan32, l2: true }
+        - { segment: mx-vlan40, l2: true }
+        - { segment: mx-vlan48, l2: true }
+        - { segment: mx-vlan52, l2: true }
+        - { segment: mx-vlan64, l2: true }
+        - { segment: mx-vlan192, l2: true }
+        - { segment: mx-vlan880, l2: true }
+        - { segment: mx-vlan1010, l2: true }
+        - { segment: mx-vlan935, l2: true }
+        - { segment: sfp25, l2: true }
+        - { segment: sfp26, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+
+    # MS120-24P "Telstar-Switch": core. Management 10.180.16.15 (the real
+    # 10.80.16.15, conflict C2) on its first leg -- the recipe moves it onto a
+    # VLAN20 SVI. SFP26 blocks here; P17 (hwlab2960s) is admin-down.
+    - name: ms120
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: vlan20, ip: 10.180.16.15 }
+        - { segment: sfp25, l2: true }
+        - { segment: sfp26, l2: true }
+        - { segment: t-ms120-sgs5240, l2: true }
+        - { segment: t-ms120-axeprod, l2: true }
+        - { segment: t-ms120-cos, l2: true }
+        - { segment: t-ms120-labsw, l2: true }
+        - { segment: t-ms120-3850, l2: true }
+        - { segment: p17-hwlab2960s, l2: true }
+        - { segment: vlan1, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+
+    # Access switches. Which VLAN hangs off which switch is IMPUTED (the
+    # diagram names the switches, not their port maps) -- work order §5.3.
+    - name: sgs-5240
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-sgs5240, l2: true }
+        - { segment: vlan64, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+    - name: axeprodsw
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-axeprod, l2: true }
+        - { segment: vlan48, l2: true }
+        - { segment: vlan52, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+    - name: cos-sw-r32e01
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-cos, l2: true }
+        - { segment: vlan40, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+    - name: labswitch
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-labsw, l2: true }
+        - { segment: vlan192, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+    # hwlab2960s: present, but its uplink (MS120 P17) is DOWN -- anything on
+    # vlan32 is cut off, as in the diagram.
+    - name: hwlab2960s
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: p17-hwlab2960s, l2: true }
+        - { segment: vlan32, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+
+    # Catalyst 3850: distribution for the TOR pair (one link to each 9K).
+    - name: sw-3850
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-3850, l2: true }
+        - { segment: x3850-9k01, l2: true }
+        - { segment: x3850-9k02, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+
+    # 9K01 / 9K02: the L3 TOR pair (HSRP analogue: keepalived VRRP, one sync
+    # group, VIPs 10.180.93.254 + 10.180.34.1). First leg VLAN935 (default via
+    # hq-mx .1 -- the planner's first-leg gateway rule), second leg VLAN953.
+    - name: 9k01
+      role: l3-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 4Gi }
+      nets:
+        - { segment: x3850-9k01, ip: 10.180.93.2 }
+        - { segment: x9k01-8325l, ip: 10.180.34.2 }
+      install:
+        - { script: scripts/serve-vrrp-l3.sh }
+    - name: 9k02
+      role: l3-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 4Gi }
+      nets:
+        - { segment: x3850-9k02, ip: 10.180.93.3 }
+        - { segment: x9k02-8325r, ip: 10.180.34.3 }
+      install:
+        - { script: scripts/serve-vrrp-l3.sh }
+
+    # eng-8325h left/right: the VSX pair, L2 for VLAN953, joined by the ISL.
+    # The servers (vlan953) hang off the left member.
+    - name: 8325h-l
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: x9k01-8325l, l2: true }
+        - { segment: isl-8325, l2: true }
+        - { segment: vlan953, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+    - name: 8325h-r
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: x9k02-8325r, l2: true }
+        - { segment: isl-8325, l2: true }
+      install:
+        - { script: scripts/serve-l2switch.sh }
+
+    # ======================================================================
+    # the observed hosts -- the disco cast's nodes, moved onto §5's segments
+    # ======================================================================
+    # Everything below is the cast's own node list (image, resources, install,
+    # listen, joins, provides, observation) verbatim except `net:`, which maps
+    # the cast's per-/24 segment onto the VLAN (or off-map /24) that holds it.
+    # Server recipes are the cast's generated `serve-*.sh`, copied into
+    # `scripts/`; the one address literal they held (the 10-20-196 resolver's
+    # DHCP scope) was rewritten to this twin's addressing. Hosts are
+    # auto-addressed inside each VLAN (gap G8).
+
+    - name: dns-resolver-10-0-21-core
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      net: lab-10-0-21
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns-resolver-10-0-21-core.sh }
+      listen:
+        - { port: 53, proto: udp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-1-10-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-1-10
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-1-10-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-1-10
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-110-240-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-110-240
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-112-140-transient
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-112-140
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222 }
+
+    - name: generic-endpoint-heavy-10-128-215-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-128-215
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-128-215-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-128-215
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: generic-endpoint-heavy-10-20-192-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-192
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: dns-resolver-10-20-193-core
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns-resolver-10-20-193-core.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 636, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-20-193-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 8
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-10-20-193-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-20-193-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      install:
+        - { script: scripts/serve-generic-endpoint-heavy-10-20-193-core.sh }
+      listen:
+        - { port: 5601, proto: tcp }
+        - { port: 9200, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-20-193-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-20-193-regular
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-20-193-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 4
+      observation: { windows_seen: 1, windows_total: 9, occupancy: 0.1111111111111111, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-20-193-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-193
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: web-tier-10-20-193-core
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: lab-10-20-193
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-10-20-193-core.sh }
+      listen:
+        - { port: 443, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.6 }
+
+    - name: generic-endpoint-heavy-10-20-195-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-195
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: dns-resolver-10-20-196-core
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      net: lab-10-20-196
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { pkg: chrony }
+        - { pkg: isc-dhcp-server }
+        - { script: scripts/serve-dns-resolver-10-20-196-core.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 67, proto: udp }
+        - { port: 123, proto: udp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-20-196-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-196
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-20-196-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-196
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-20-196-regular
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-196
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 6, windows_total: 9, occupancy: 0.6666666666666666, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-20-198-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-198
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: generic-endpoint-10-20-200-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-200
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 8
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-20-200-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-200
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 4
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-20-200-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-200
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 1, windows_total: 9, occupancy: 0.1111111111111111, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-20-201-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-201
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-10-20-203-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-203
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-20-204-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-204
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-20-204-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-204
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-20-204-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-204
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: unroled-endpoint-10-20-204-regular
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-204
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 5, windows_total: 9, occupancy: 0.5555555555555556 }
+
+    - name: generic-endpoint-10-20-207-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-207
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-20-207-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-207
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-20-207-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-20-207
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888 }
+
+    - name: dns-resolver-light-10-21-161-regular
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      net: lab-10-21-161
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns-resolver-light-10-21-161-regular.sh }
+      listen:
+        - { port: 53, proto: udp }
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778, role_confidence: 0.7 }
+
+    - name: unroled-endpoint-10-55-10-regular
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-55-10
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 6, windows_total: 9, occupancy: 0.6666666666666666 }
+
+    - name: unroled-endpoint-10-64-7-regular
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-10-64-7
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778 }
+
+    - name: generic-endpoint-light-10-80-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan1
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-80-16-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: corp-workstation-10-80-20-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan20
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      count: 6
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+        - { port: 3389, proto: tcp }
+        - { port: 7680, proto: tcp }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.7 }
+
+    - name: corp-workstation-heavy-10-80-20-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan20
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: domain-controller-10-80-20-core
+      role: domain-controller
+      image: windows-server-2022@v1
+      net: vlan20
+      resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+      install:
+        - { role: adds }
+      provides:
+        - { domain: corp.axr.lab }
+      listen:
+        - { port: 53, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 67, proto: udp }
+        - { port: 88, proto: tcp }
+        - { port: 88, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 135, proto: tcp }
+        - { port: 389, proto: tcp }
+        - { port: 389, proto: udp }
+        - { port: 445, proto: tcp }
+        - { port: 3268, proto: tcp }
+        - { port: 49667, proto: tcp }
+        - { port: 49669, proto: tcp }
+        - { port: 49677, proto: tcp }
+        - { port: 49680, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.9 }
+
+    - name: generic-endpoint-10-80-20-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 4
+      install:
+        - { script: scripts/serve-generic-endpoint-10-80-20-core.sh }
+      listen:
+        - { port: 9358, proto: udp }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-20-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 4
+      install:
+        - { script: scripts/serve-generic-endpoint-heavy-10-80-20-core.sh }
+      listen:
+        - { port: 51252, proto: udp }
+        - { port: 54689, proto: udp }
+        - { port: 61478, proto: udp }
+        - { port: 62619, proto: udp }
+        - { port: 65489, proto: udp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-20-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-80-20-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: unroled-endpoint-10-80-20-transient
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      count: 3
+      observation: { windows_seen: 1, windows_total: 9, occupancy: 0.1111111111111111 }
+
+    - name: web-tier-light-10-80-20-regular
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: vlan20
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-light-10-80-20-regular.sh }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 161, proto: udp }
+        - { port: 443, proto: tcp }
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778, role_confidence: 0.6 }
+
+    - name: unroled-endpoint-10-80-31-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan20
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: generic-endpoint-light-10-80-32-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan32
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-34-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan953
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: web-tier-10-80-34-core
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: vlan953
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      count: 3
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-10-80-34-core.sh }
+      listen:
+        - { port: 443, proto: tcp }
+        - { port: 9080, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.6 }
+
+    - name: generic-endpoint-light-10-80-40-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan40
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: corp-workstation-10-80-48-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan48
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      count: 2
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+        - { port: 3389, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-light-10-80-48-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan48
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-80-63-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan52
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888 }
+
+    - name: corp-workstation-light-10-80-64-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 3389, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.75 }
+
+    - name: dns-resolver-10-80-64-core
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns-resolver-10-80-64-core.sh }
+      listen:
+        - { port: 53, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 135, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-80-64-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-64-regular
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 5, windows_total: 9, occupancy: 0.5555555555555556, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-64-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-80-64-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-80-64-regular
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778, role_confidence: 0.3 }
+
+    - name: unroled-endpoint-10-80-64-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: generic-endpoint-10-80-65-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-65-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      install:
+        - { script: scripts/serve-generic-endpoint-heavy-10-80-65-core.sh }
+      listen:
+        - { port: 3000, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-65-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: corp-workstation-10-80-72-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 3389, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.75 }
+
+    - name: generic-endpoint-10-80-72-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 6
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-72-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 10
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-72-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 9
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-72-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-light-10-80-72-regular
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 7, windows_total: 9, occupancy: 0.7777777777777778, role_confidence: 0.3 }
+
+    - name: web-tier-10-80-72-core
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      count: 3
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-10-80-72-core.sh }
+      listen:
+        - { port: 443, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.6 }
+
+    - name: generic-endpoint-10-80-73-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-73-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-73-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-74-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-74-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-74-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 1, windows_total: 9, occupancy: 0.1111111111111111, role_confidence: 0.35 }
+
+    - name: corp-workstation-10-80-75-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      listen:
+        - { port: 7680, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: file-server-10-80-75-core
+      role: file-server
+      image: ubuntu-server-22@v5
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 100Gi }
+      install:
+        - { pkg: samba }
+        - { script: scripts/serve-file-server-10-80-75-core.sh }
+      listen:
+        - { port: 139, proto: tcp }
+        - { port: 445, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-80-75-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-75-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 6
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-75-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-75-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: web-tier-10-80-75-core
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      count: 2
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-10-80-75-core.sh }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.5 }
+
+    - name: generic-endpoint-heavy-10-80-76-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-10-80-76-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.3 }
+
+    - name: generic-endpoint-10-80-77-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-heavy-10-80-77-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: corp-workstation-light-10-80-78-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 3389, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.75 }
+
+    - name: generic-endpoint-light-10-80-78-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: corp-workstation-light-10-80-79-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan64
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      joins: corp.axr.lab
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-10-80-79-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888, role_confidence: 0.35 }
+
+    - name: generic-endpoint-10-80-79-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      observation: { windows_seen: 4, windows_total: 9, occupancy: 0.4444444444444444, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-10-80-79-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: unroled-endpoint-10-80-79-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: vlan64
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0 }
+
+    - name: unroled-endpoint-172-16-core
+      role: unroled-endpoint
+      image: debian-12-cloud@v1
+      net: lab-172-16
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      observation: { windows_seen: 8, windows_total: 9, occupancy: 0.8888888888888888 }
+
+    - name: corp-workstation-192-168-core
+      role: corp-workstation
+      image: win11-finance@v4
+      net: vlan192
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      count: 2
+      joins: corp.axr.lab
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+        - { port: 3389, proto: tcp }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.7 }
+
+    - name: generic-endpoint-192-168-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan192
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.3 }
+
+    - name: generic-endpoint-heavy-192-168-core
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan192
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      observation: { windows_seen: 9, windows_total: 9, occupancy: 1.0, role_confidence: 0.35 }
+
+    - name: generic-endpoint-light-192-168-transient
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      net: vlan192
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 2
+      install:
+        - { script: scripts/serve-generic-endpoint-light-192-168-transient.sh }
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+      observation: { windows_seen: 2, windows_total: 9, occupancy: 0.2222222222222222, role_confidence: 0.3 }
+
+  # The cast's inter-segment conduits, re-expressed on this twin's segments.
+  # Conduits whose two ends now share one VLAN were dropped -- that traffic is
+  # L2-local here, as it is on the real /20-/21 VLANs (17 of 40). Documentation
+  # plus a cross-check: expand.py errors if no router joins both ends -- so a
+  # VLAN end names its ROUTED side, the `mx-vlanN` anchor hq-mx has a leg on
+  # (the hosts' `vlanN` access segment is behind the bridges), and VLAN953's
+  # end is `mx-vlan935`, the hop hq-mx routes the /25 through (to the 9K VIP).
+  conduits:
+    - { from: lab-10-0-21, to: lab-10-20-200 }
+    - { from: lab-10-112-140, to: mx-vlan20 }
+    - { from: lab-10-128-215, to: lab-10-20-200 }
+    - { from: lab-10-20-193, to: lab-10-20-196 }
+    - { from: lab-10-20-193, to: lab-10-20-207 }
+    - { from: lab-10-20-193, to: mx-vlan20 }
+    - { from: lab-10-20-193, to: mx-vlan935 }
+    - { from: lab-10-20-193, to: mx-vlan192 }
+    - { from: lab-10-20-196, to: lab-10-20-200 }
+    - { from: lab-10-20-196, to: lab-10-20-203 }
+    - { from: lab-10-20-196, to: lab-10-20-204 }
+    - { from: lab-10-20-196, to: lab-10-20-207 }
+    - { from: lab-10-20-196, to: lab-10-21-161 }
+    - { from: lab-10-20-196, to: lab-172-16 }
+    - { from: lab-10-20-203, to: mx-vlan935 }
+    - { from: lab-10-20-204, to: mx-vlan20 }
+    - { from: lab-10-55-10, to: mx-vlan20 }
+    - { from: lab-10-64-7, to: mx-vlan64 }
+    - { from: mx-vlan20, to: mx-vlan48 }
+    - { from: mx-vlan20, to: mx-vlan64 }
+    - { from: mx-vlan192, to: mx-vlan20 }
+    - { from: mx-vlan48, to: mx-vlan52 }
+    - { from: mx-vlan192, to: mx-vlan64 }
+
+  # The cast's identity block, verbatim: LAB defaults, all imputed (the realm
+  # is the lab realm by ruling D4, 2026-09-04 -- the observed AXELLIO.DOM is
+  # recorded, never reproduced). Nothing observed carries a password or an OU.
+  identity:
+    domain: corp.axr.lab
+    users:
+      - { id: alice, groups: [Domain Users], ou: Finance }
+      - { id: bob-admin, groups: [Domain Admins], ou: IT }
+      - { id: svc-sql, groups: [Domain Users], spn: "MSSQLSvc/sql01.corp.axr.lab:1433", password: "Summer2024!", ou: Service Accounts }
+      - { id: jsmith, groups: [Domain Users], asrep_roastable: true, password: Password123, ou: Finance }

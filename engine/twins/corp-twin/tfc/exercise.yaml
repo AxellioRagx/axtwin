@@ -1,0 +1,25 @@
+# corp-twin -- variant: drive the client roles AT the twin's own servers, the
+# discovery loop's Iteration-3 profile (twin-configs-cast/corpapcn-disco/
+# tfc-exercise.yaml), retargeted to the twin NAME (LES-072).
+#
+# Why it exists: the cast personas are mostly northbound (to the sink), so the
+# internal listeners -- web-tier 80/443, resolvers 53/123, the DC's 88/389/
+# 445/3268, the file server's 445, the workstations' 135/3389 -- are declared
+# but rarely dialled. `disco-exercise` (Linux) and `disco-exercise-win`
+# (native PowerShell on the joined workstations) dial them east-west.
+#
+# **Known limit, carried from the discovery loop:** Windows Firewall refuses
+# inbound RPC 135 from other subnets. Iteration 3 opened it by hand with a
+# scoped rule (`axr-disco-rpc-135`, inbound TCP 135 from the twin range) on
+# each Windows host; this twin authors no such rule, so expect the Linux ->
+# Windows RPC emits to be refused unless the operator applies the equivalent
+# (inbound TCP 135 from 10.0.0.0/8 -- the twin's relocated ranges).
+#
+# Contain first (runbook §11 step 2).
+traffic-profile:
+  target: corp-twin
+  assignments:
+    - { role: generic-endpoint, persona: disco-exercise }
+    - { role: unroled-endpoint, persona: disco-exercise }
+    - { role: web-tier, persona: disco-exercise }
+    - { role: corp-workstation, persona: disco-exercise-win }

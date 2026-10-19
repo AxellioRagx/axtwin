@@ -1,0 +1,35 @@
+# docs/DESIGN_BRIEF_twin_model.md §5.2 — high-value target.
+persona:
+  id: vip-exec
+  os_family: windows
+  drive: scripted
+  emits:
+    - proto: smtp
+      ports: [587]
+      peer_role: mail-server
+      direction: EW
+      cadence: diurnal
+      volume: med
+    - proto: imap
+      ports: [993]
+      peer_role: mail-server
+      direction: EW
+      cadence: diurnal
+      volume: med
+    - proto: ike
+      ports: [500, 4500]
+      peer_role: vpn-concentrator
+      # Occasional remote-access VPN use -- not every twin stands up a
+      # dedicated VPN concentrator; optional, resolve-if-present.
+      optional: true
+      direction: NS
+      cadence: "cyclic:2h"
+      volume: low
+    - proto: https
+      ports: [443]
+      peer_role: egress-proxy
+      direction: NS
+      cadence: diurnal
+      volume: med
+  requires: [mail-server, egress-proxy]
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true }

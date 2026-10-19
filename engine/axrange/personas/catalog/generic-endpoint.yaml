@@ -1,0 +1,94 @@
+# The background-noise persona (aximprint `docs/JOURNAL_corpapcn_fidelity.md` GAP-C3).
+#
+# Counterpart to aximprint's lowest-confidence role, which means only "this host consumes
+# services and serves none". On a real corporate capture that describes the MAJORITY of hosts --
+# 124 of 141 placed hosts on CorpAPCN -- so a twin without it reproduces a small fraction of the
+# network's traffic no matter how well the named roles are modelled.
+#
+# The emit mix is taken from what those hosts were MEASURED dialling, in proportion:
+#   443/tcp (282 host-windows) . 123/udp (190) . 53/udp (184) . 22/tcp (80)
+# rather than from any notion of what an endpoint "should" do.
+#
+# Every peer_role here is one the same capture's twin actually carries. `ntp` and `ssh` are
+# `optional: true` because they target roles a smaller twin may legitimately lack, and a hard
+# peer would fail the whole assignment rather than skip one emit.
+persona:
+  id: generic-endpoint
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: https
+      ports: [443]
+      peer_role: web-tier
+      # `peer_scope: all` -- the fan-out lever the maxrate loadgen family used. Measured against
+      # the CorpAPCN source (`aximprint docs/JOURNAL_corpapcn_fidelity.md` iteration 4): the twin's
+      # fan-out distribution had an EMPTY 6-20-peer bucket and everything piled at 2-5, because
+      # every endpoint dialled exactly one peer per emit while the real network has a long tail of
+      # hosts talking to many. Fanning the infrastructure emits across all holders is what
+      # reproduces that tail, and it is free here -- the capture path is running at ~335 pps
+      # against a measured 132,000 pps lossless ceiling.
+      peer_scope: all
+      transport: tcp
+      direction: NS
+      cadence: "cyclic:20s"
+      volume: med
+    - proto: http
+      ports: [80]
+      peer_role: web-tier
+      # 80 ALONGSIDE 443, not instead of it. The twin's web tier installs nginx, which serves 80
+      # and not 443, so the 443 emit above is refused -- 2 packets, no listener proven, and
+      # therefore no `web-tier` role inferable from the twin's own traffic and no
+      # generic-endpoint->web-tier edge at either end (GAP-C6). This emit is the one that
+      # actually completes a connection, so the role and the edge come back; 443 is kept because
+      # the source network genuinely carries it and dropping it would erase a real signature.
+      peer_scope: all
+      transport: tcp
+      direction: NS
+      cadence: "cyclic:20s"
+      volume: med
+    - proto: dns
+      ports: [53]
+      peer_role: dns-resolver
+      # Resolvers are the canonical many-to-many: every host talks to every resolver it knows.
+      peer_scope: all
+      transport: udp
+      direction: EW
+      cadence: "cyclic:30s"
+      volume: low
+    - proto: ntp
+      ports: [123]
+      peer_role: dns-resolver
+      optional: true
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1m"
+      volume: low
+    - proto: ssh
+      ports: [22]
+      peer_role: hypervisor
+      optional: true
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:2m"
+      volume: low
+    # Link-local discovery. aximprint infers `generic-endpoint` from dialling 1900/5353 among
+    # others -- signatures taken from what CorpAPCN's endpoints were measured doing -- so the
+    # persona has to actually produce them or the role cannot survive a round trip (GAP-C8).
+    # `broadcast`/`multicast` are reserved peer roles the driver resolves to literal wire
+    # addresses, which is what makes segment-local chatter expressible at all.
+    - proto: ssdp
+      ports: [1900]
+      peer_role: multicast
+      transport: udp
+      direction: EW
+      cadence: "cyclic:45s"
+      volume: low
+    - proto: mdns
+      ports: [5353]
+      peer_role: multicast
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1m"
+      volume: low
+  requires: [web-tier, dns-resolver]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

@@ -1,0 +1,135 @@
+# Twin config: datacenter (docs/DESIGN_BRIEF_twin_model.md §6.2)
+#
+# Multi-tier hosting: edge/dmz, app-vlan, db-vlan, storage-vlan, mgmt/oob,
+# with an optional spine/leaf fabric slice gated behind the `FABRIC` param
+# (opt-in, per docs/WORK_ORDER_twin_configs.md §2). The fabric add-on is a
+# deliberately MINIMAL two-router OSPF pair (not a full BGP-EVPN spine-leaf
+# like `target-environments/fabric-verify`) -- it exists to exercise the
+# fabric slice's opt-in wiring (FAB-0xx validator rules, `fabric:` +
+# `routing:`), not to re-author the full fabric-verify rig as a config.
+twin_config:
+  id: datacenter
+  description: |
+    Multi-tier hosting datacenter twin: edge/app-vlan/db-vlan/storage-vlan/
+    mgmt-oob, an edge<->app-vlan boundary at the gateway router, and an
+    OPT-IN spine/leaf fabric slice behind `FABRIC`. Expanded from
+    twin-config 'datacenter' (docs/WORK_ORDER_twin_configs.md).
+
+  params:
+    N_APP: 3
+    REPLICATION: false
+    FABRIC: false
+
+  segments:
+    - { name: edge,         cidr: 10.63.0.0/24,  zone_type: vlan }   # edge/DMZ (load balancer north side)
+    - { name: app-vlan,     cidr: 10.63.10.0/24, zone_type: vlan }   # application tier
+    - { name: db-vlan,      cidr: 10.63.20.0/24, zone_type: vlan }   # database tier
+    - { name: storage-vlan, cidr: 10.63.30.0/24, zone_type: vlan }   # NAS/storage tier
+    - { name: mgmt-oob,     cidr: 10.63.40.0/24, zone_type: vlan }   # management/OOB
+    # Fabric add-on (FABRIC-gated): the spine<->leaf transit link, a p2p link
+    # between two minimal OSPF-only routers. No `gateway:` -- a router<->router
+    # transit segment has no gateway concept (expand.py's IP allocator handles this).
+    - { name: fab-link, cidr: 10.63.99.0/30, zone_type: vlan, ospf_area: 1, when: FABRIC }
+
+  nodes:
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: edge }
+        - { segment: app-vlan }
+        - { segment: db-vlan }
+        - { segment: storage-vlan }
+        - { segment: mgmt-oob }
+
+    # Load balancer -- north side on `edge`. No persona yet: `load-balancer`
+    # is an "open extension slot" in the persona catalog (docs/
+    # DESIGN_BRIEF_twin_model.md §5.2), not yet a delivered persona.
+    - name: lb
+      role: lb
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: edge
+      install: [{ pkg: nginx }]
+
+    - name: web-tier
+      role: web-tier
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      count: "${N_APP:3}"
+      net: app-vlan
+      install: [{ pkg: nginx }]
+
+    - name: db-primary
+      role: db-primary
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      net: db-vlan
+      install: [{ pkg: postgresql }]
+
+    - name: db-replica
+      role: db-replica
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      net: db-vlan
+      when: REPLICATION
+      install: [{ pkg: postgresql }]
+
+    # NAS/storage -- closest delivered persona is `file-server`
+    # (`nas-storage` is also an open extension slot, not yet delivered).
+    - name: nas-storage
+      role: nas-storage
+      image: ubuntu-server-22@v5
+      requires: [linux, kernel:container-runtime]
+      resources: { cpu: 2, ram: 2Gi, disk: 100Gi }
+      net: storage-vlan
+      install: [{ pkg: samba }]
+
+    - name: monitoring-collector
+      role: monitoring-collector
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: mgmt-oob
+      install: [{ pkg: prometheus }]
+
+    # --- Fabric add-on (FABRIC-gated): a minimal 2-router OSPF pair -------
+    - name: fab-r1
+      role: fab-r1
+      kind: router
+      image: vyos@1.5
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: fab-link
+      when: FABRIC
+      routing:
+        region: dc-fab
+        role: area
+        loopback: 10.255.9.1/32
+        ospf: { router_id: 10.255.9.1 }
+
+    - name: fab-r2
+      role: fab-r2
+      kind: router
+      image: vyos@1.5
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: fab-link
+      when: FABRIC
+      routing:
+        region: dc-fab
+        role: area
+        loopback: 10.255.9.2/32
+        ospf: { router_id: 10.255.9.2 }
+
+  fabric:
+    regions:
+      - { id: dc-fab, igp: ospf }
+  fabric_when: FABRIC

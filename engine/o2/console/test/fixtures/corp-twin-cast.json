@@ -1,0 +1,2012 @@
+{
+ "id": "corp-twin",
+ "bundle_dir": "twins/corp-twin",
+ "twin_config_id": "corp-twin",
+ "description": "The corporate HQ network as one contained twin: an MX85-shaped edge\nrouter (`hq-mx`) gatewaying the twelve real VLANs (1, 20, 32, 40, 48, 52,\n64, 192, 880, 1010 at the MX; 935, 953 at the 9K TOR pair), the lab and\nremote subnets the discovery saw routed through HQ, two ISP uplinks\n(WAN1 active to an any-IP sink standing in for Comcast and the internet,\nWAN2 present and idle), the network devices as VMs (MS120 core, access\nswitches, 3850, a 9K01/9K02 VRRP pair, the 8325h VSX pair -- 802.1Q\ntrunks, STP, a down port), and the ~133 hosts the axquery discovery cast\nobserved above the deploy gate -- a real AD DS DC, 16 joined Windows\nworkstations, bind9/nginx/Samba servers, and Linux endpoints -- driven by\nthe cast's own personas.\n",
+ "pit_id": null,
+ "bundle_schema": null,
+ "topology_schema_version": null,
+ "code_fingerprint": null,
+ "bundle_fingerprint": "4bb4c0845747ada5",
+ "params": {
+  "DEPLOY_MIN_OCCUPANCY": 0.8
+ },
+ "deploy_min_occupancy": 0.8,
+ "deploy_min_occupancy_source": "declared",
+ "segments": 54,
+ "node_specs": 118,
+ "vms": 204,
+ "hosts": 203,
+ "conduits": 23,
+ "observed_nodes": 0,
+ "observed_edges": 0,
+ "observed_segments": 0,
+ "census": {},
+ "has_provenance": false,
+ "has_topology_export": false,
+ "has_assertions": false,
+ "has_layout": false,
+ "provenance_schema": null,
+ "provenance_path": null,
+ "sidecar_shape": "absent",
+ "evidence_source": "re-derived from topology export",
+ "warnings": [
+  "cast bundle twins/corp-twin: no corp-twin.topology.json -- the OBSERVED side is unavailable, so rows 1/2/5 cannot be scored",
+  "provenance sidecar absent (this bundle was installed before the installer copied the sidecar, or was produced by an older cast) -- evidence classes are RE-DERIVED by axRange from the topology export, not read from the producer (docs/WORK_ORDER_console_canvas.md S1.4)"
+ ],
+ "conduit_roster": [
+  {
+   "from": "lab-10-0-21",
+   "to": "lab-10-20-200"
+  },
+  {
+   "from": "lab-10-112-140",
+   "to": "mx-vlan20"
+  },
+  {
+   "from": "lab-10-128-215",
+   "to": "lab-10-20-200"
+  },
+  {
+   "from": "lab-10-20-193",
+   "to": "lab-10-20-196"
+  },
+  {
+   "from": "lab-10-20-193",
+   "to": "lab-10-20-207"
+  },
+  {
+   "from": "lab-10-20-193",
+   "to": "mx-vlan20"
+  },
+  {
+   "from": "lab-10-20-193",
+   "to": "mx-vlan935"
+  },
+  {
+   "from": "lab-10-20-193",
+   "to": "mx-vlan192"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-10-20-200"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-10-20-203"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-10-20-204"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-10-20-207"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-10-21-161"
+  },
+  {
+   "from": "lab-10-20-196",
+   "to": "lab-172-16"
+  },
+  {
+   "from": "lab-10-20-203",
+   "to": "mx-vlan935"
+  },
+  {
+   "from": "lab-10-20-204",
+   "to": "mx-vlan20"
+  },
+  {
+   "from": "lab-10-55-10",
+   "to": "mx-vlan20"
+  },
+  {
+   "from": "lab-10-64-7",
+   "to": "mx-vlan64"
+  },
+  {
+   "from": "mx-vlan20",
+   "to": "mx-vlan48"
+  },
+  {
+   "from": "mx-vlan20",
+   "to": "mx-vlan64"
+  },
+  {
+   "from": "mx-vlan192",
+   "to": "mx-vlan20"
+  },
+  {
+   "from": "mx-vlan48",
+   "to": "mx-vlan52"
+  },
+  {
+   "from": "mx-vlan192",
+   "to": "mx-vlan64"
+  }
+ ],
+ "routers": [
+  {
+   "name": "hq-mx",
+   "segments": [
+    "wan1-isp",
+    "wan2-isp",
+    "mx-vlan1",
+    "mx-vlan20",
+    "mx-vlan32",
+    "mx-vlan40",
+    "mx-vlan48",
+    "mx-vlan52",
+    "mx-vlan64",
+    "mx-vlan192",
+    "mx-vlan880",
+    "mx-vlan1010",
+    "mx-vlan935",
+    "lab-10-0-21",
+    "lab-10-1-10",
+    "lab-10-110-240",
+    "lab-10-112-140",
+    "lab-10-128-215",
+    "lab-10-20-192",
+    "lab-10-20-193",
+    "lab-10-20-195",
+    "lab-10-20-196",
+    "lab-10-20-198",
+    "lab-10-20-200",
+    "lab-10-20-201",
+    "lab-10-20-203",
+    "lab-10-20-204",
+    "lab-10-20-207",
+    "lab-10-21-161",
+    "lab-10-55-10",
+    "lab-10-64-7",
+    "lab-172-16"
+   ]
+  }
+ ],
+ "segment_roster": [
+  {
+   "name": "wan1-isp",
+   "cidr": "10.250.234.64/28",
+   "zone_type": "simple"
+  },
+  {
+   "name": "wan2-isp",
+   "cidr": "10.251.234.64/28",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan1",
+   "cidr": "10.180.0.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan20",
+   "cidr": "10.180.16.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan32",
+   "cidr": "10.180.32.0/23",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan40",
+   "cidr": "10.180.40.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan48",
+   "cidr": "10.180.48.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan52",
+   "cidr": "10.180.56.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan64",
+   "cidr": "10.180.64.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan192",
+   "cidr": "10.192.168.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan880",
+   "cidr": "10.180.88.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan1010",
+   "cidr": "10.180.101.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "mx-vlan935",
+   "cidr": "10.180.93.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "sfp25",
+   "cidr": "10.199.0.0/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "sfp26",
+   "cidr": "10.199.0.8/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "t-ms120-sgs5240",
+   "cidr": "10.199.0.16/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "t-ms120-axeprod",
+   "cidr": "10.199.0.24/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "t-ms120-cos",
+   "cidr": "10.199.0.32/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "t-ms120-labsw",
+   "cidr": "10.199.0.40/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "t-ms120-3850",
+   "cidr": "10.199.0.48/29",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan1",
+   "cidr": "10.180.0.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan20",
+   "cidr": "10.180.16.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan32",
+   "cidr": "10.180.32.0/23",
+   "zone_type": "simple"
+  },
+  {
+   "name": "p17-hwlab2960s",
+   "cidr": "10.180.32.0/23",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan40",
+   "cidr": "10.180.40.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan48",
+   "cidr": "10.180.48.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan52",
+   "cidr": "10.180.56.0/21",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan64",
+   "cidr": "10.180.64.0/20",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan192",
+   "cidr": "10.192.168.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "x3850-9k01",
+   "cidr": "10.180.93.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "x3850-9k02",
+   "cidr": "10.180.93.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "vlan953",
+   "cidr": "10.180.34.0/25",
+   "zone_type": "simple"
+  },
+  {
+   "name": "x9k01-8325l",
+   "cidr": "10.180.34.0/25",
+   "zone_type": "simple"
+  },
+  {
+   "name": "x9k02-8325r",
+   "cidr": "10.180.34.0/25",
+   "zone_type": "simple"
+  },
+  {
+   "name": "isl-8325",
+   "cidr": "10.180.34.0/25",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-0-21",
+   "cidr": "10.100.21.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-1-10",
+   "cidr": "10.101.10.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-110-240",
+   "cidr": "10.210.240.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-112-140",
+   "cidr": "10.212.140.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-128-215",
+   "cidr": "10.228.215.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-192",
+   "cidr": "10.120.192.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-193",
+   "cidr": "10.120.193.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-195",
+   "cidr": "10.120.195.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-196",
+   "cidr": "10.120.196.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-198",
+   "cidr": "10.120.198.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-200",
+   "cidr": "10.120.200.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-201",
+   "cidr": "10.120.201.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-203",
+   "cidr": "10.120.203.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-204",
+   "cidr": "10.120.204.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-20-207",
+   "cidr": "10.120.207.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-21-161",
+   "cidr": "10.121.161.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-55-10",
+   "cidr": "10.155.10.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-10-64-7",
+   "cidr": "10.164.7.0/24",
+   "zone_type": "simple"
+  },
+  {
+   "name": "lab-172-16",
+   "cidr": "10.172.16.0/24",
+   "zone_type": "simple"
+  }
+ ],
+ "node_roster": [
+  {
+   "name": "hq-mx",
+   "kind": "router",
+   "role": "gw",
+   "count": 1,
+   "segments": [
+    "wan1-isp",
+    "wan2-isp",
+    "mx-vlan1",
+    "mx-vlan20",
+    "mx-vlan32",
+    "mx-vlan40",
+    "mx-vlan48",
+    "mx-vlan52",
+    "mx-vlan64",
+    "mx-vlan192",
+    "mx-vlan880",
+    "mx-vlan1010",
+    "mx-vlan935",
+    "lab-10-0-21",
+    "lab-10-1-10",
+    "lab-10-110-240",
+    "lab-10-112-140",
+    "lab-10-128-215",
+    "lab-10-20-192",
+    "lab-10-20-193",
+    "lab-10-20-195",
+    "lab-10-20-196",
+    "lab-10-20-198",
+    "lab-10-20-200",
+    "lab-10-20-201",
+    "lab-10-20-203",
+    "lab-10-20-204",
+    "lab-10-20-207",
+    "lab-10-21-161",
+    "lab-10-55-10",
+    "lab-10-64-7",
+    "lab-172-16"
+   ],
+   "node_ids": [
+    "hq-mx"
+   ]
+  },
+  {
+   "name": "sink",
+   "kind": "host",
+   "role": "sink",
+   "count": 1,
+   "segments": [
+    "wan1-isp"
+   ],
+   "node_ids": [
+    "sink"
+   ]
+  },
+  {
+   "name": "mx-sw",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "mx-vlan1",
+    "mx-vlan20",
+    "mx-vlan32",
+    "mx-vlan40",
+    "mx-vlan48",
+    "mx-vlan52",
+    "mx-vlan64",
+    "mx-vlan192",
+    "mx-vlan880",
+    "mx-vlan1010",
+    "mx-vlan935",
+    "sfp25",
+    "sfp26"
+   ],
+   "node_ids": [
+    "mx-sw"
+   ]
+  },
+  {
+   "name": "ms120",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "vlan20",
+    "sfp25",
+    "sfp26",
+    "t-ms120-sgs5240",
+    "t-ms120-axeprod",
+    "t-ms120-cos",
+    "t-ms120-labsw",
+    "t-ms120-3850",
+    "p17-hwlab2960s",
+    "vlan1"
+   ],
+   "node_ids": [
+    "ms120"
+   ]
+  },
+  {
+   "name": "sgs-5240",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "t-ms120-sgs5240",
+    "vlan64"
+   ],
+   "node_ids": [
+    "sgs-5240"
+   ]
+  },
+  {
+   "name": "axeprodsw",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "t-ms120-axeprod",
+    "vlan48",
+    "vlan52"
+   ],
+   "node_ids": [
+    "axeprodsw"
+   ]
+  },
+  {
+   "name": "cos-sw-r32e01",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "t-ms120-cos",
+    "vlan40"
+   ],
+   "node_ids": [
+    "cos-sw-r32e01"
+   ]
+  },
+  {
+   "name": "labswitch",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "t-ms120-labsw",
+    "vlan192"
+   ],
+   "node_ids": [
+    "labswitch"
+   ]
+  },
+  {
+   "name": "hwlab2960s",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "p17-hwlab2960s",
+    "vlan32"
+   ],
+   "node_ids": [
+    "hwlab2960s"
+   ]
+  },
+  {
+   "name": "sw-3850",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "t-ms120-3850",
+    "x3850-9k01",
+    "x3850-9k02"
+   ],
+   "node_ids": [
+    "sw-3850"
+   ]
+  },
+  {
+   "name": "9k01",
+   "kind": "host",
+   "role": "l3-switch",
+   "count": 1,
+   "segments": [
+    "x3850-9k01",
+    "x9k01-8325l"
+   ],
+   "node_ids": [
+    "9k01"
+   ]
+  },
+  {
+   "name": "9k02",
+   "kind": "host",
+   "role": "l3-switch",
+   "count": 1,
+   "segments": [
+    "x3850-9k02",
+    "x9k02-8325r"
+   ],
+   "node_ids": [
+    "9k02"
+   ]
+  },
+  {
+   "name": "8325h-l",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "x9k01-8325l",
+    "isl-8325",
+    "vlan953"
+   ],
+   "node_ids": [
+    "8325h-l"
+   ]
+  },
+  {
+   "name": "8325h-r",
+   "kind": "host",
+   "role": "l2-switch",
+   "count": 1,
+   "segments": [
+    "x9k02-8325r",
+    "isl-8325"
+   ],
+   "node_ids": [
+    "8325h-r"
+   ]
+  },
+  {
+   "name": "dns-resolver-10-0-21-core",
+   "kind": "host",
+   "role": "dns-resolver",
+   "count": 1,
+   "segments": [
+    "lab-10-0-21"
+   ],
+   "node_ids": [
+    "dns-resolver-10-0-21-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-1-10-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-1-10"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-1-10-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-1-10-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-1-10"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-1-10-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-110-240-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-110-240"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-110-240-transient"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-112-140-transient",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-112-140"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-112-140-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-128-215-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-128-215"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-128-215-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-128-215-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-128-215"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-128-215-core01",
+    "unroled-endpoint-10-128-215-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-192-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-192"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-192-core"
+   ]
+  },
+  {
+   "name": "dns-resolver-10-20-193-core",
+   "kind": "host",
+   "role": "dns-resolver",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "dns-resolver-10-20-193-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-193-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 8,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-193-core01",
+    "generic-endpoint-10-20-193-core02",
+    "generic-endpoint-10-20-193-core03",
+    "generic-endpoint-10-20-193-core04",
+    "generic-endpoint-10-20-193-core05",
+    "generic-endpoint-10-20-193-core06",
+    "generic-endpoint-10-20-193-core07",
+    "generic-endpoint-10-20-193-core08"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-193-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-193-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-193-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-193-core01",
+    "generic-endpoint-heavy-10-20-193-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-193-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-193-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-193-regular",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-193-regular"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-193-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 4,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-193-transient01",
+    "generic-endpoint-light-10-20-193-transient02",
+    "generic-endpoint-light-10-20-193-transient03",
+    "generic-endpoint-light-10-20-193-transient04"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-20-193-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-20-193-core"
+   ]
+  },
+  {
+   "name": "web-tier-10-20-193-core",
+   "kind": "host",
+   "role": "web-tier",
+   "count": 1,
+   "segments": [
+    "lab-10-20-193"
+   ],
+   "node_ids": [
+    "web-tier-10-20-193-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-195-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-195"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-195-core"
+   ]
+  },
+  {
+   "name": "dns-resolver-10-20-196-core",
+   "kind": "host",
+   "role": "dns-resolver",
+   "count": 1,
+   "segments": [
+    "lab-10-20-196"
+   ],
+   "node_ids": [
+    "dns-resolver-10-20-196-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-196-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-196"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-196-core01",
+    "generic-endpoint-10-20-196-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-196-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-196"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-196-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-196-regular",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-196"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-196-regular01",
+    "generic-endpoint-light-10-20-196-regular02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-198-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-198"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-198-transient01",
+    "generic-endpoint-light-10-20-198-transient02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-200-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 8,
+   "segments": [
+    "lab-10-20-200"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-200-core01",
+    "generic-endpoint-10-20-200-core02",
+    "generic-endpoint-10-20-200-core03",
+    "generic-endpoint-10-20-200-core04",
+    "generic-endpoint-10-20-200-core05",
+    "generic-endpoint-10-20-200-core06",
+    "generic-endpoint-10-20-200-core07",
+    "generic-endpoint-10-20-200-core08"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-200-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 4,
+   "segments": [
+    "lab-10-20-200"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-200-core01",
+    "generic-endpoint-heavy-10-20-200-core02",
+    "generic-endpoint-heavy-10-20-200-core03",
+    "generic-endpoint-heavy-10-20-200-core04"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-200-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-200"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-200-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-201-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-201"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-201-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-203-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-203"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-203-core01",
+    "generic-endpoint-10-20-203-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-204-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-204"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-204-core01",
+    "generic-endpoint-10-20-204-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-20-204-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-204"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-20-204-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-20-204-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-204"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-20-204-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-20-204-regular",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-204"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-20-204-regular"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-20-207-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "lab-10-20-207"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-20-207-core01",
+    "generic-endpoint-10-20-207-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-20-207-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-207"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-20-207-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-20-207-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-20-207"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-20-207-core"
+   ]
+  },
+  {
+   "name": "dns-resolver-light-10-21-161-regular",
+   "kind": "host",
+   "role": "dns-resolver",
+   "count": 1,
+   "segments": [
+    "lab-10-21-161"
+   ],
+   "node_ids": [
+    "dns-resolver-light-10-21-161-regular"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-55-10-regular",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-55-10"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-55-10-regular"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-64-7-regular",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-10-64-7"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-64-7-regular"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan1"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-16-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-16-transient"
+   ]
+  },
+  {
+   "name": "corp-workstation-10-80-20-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 6,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "corp-workstation-10-80-20-core01",
+    "corp-workstation-10-80-20-core02",
+    "corp-workstation-10-80-20-core03",
+    "corp-workstation-10-80-20-core04",
+    "corp-workstation-10-80-20-core05",
+    "corp-workstation-10-80-20-core06"
+   ]
+  },
+  {
+   "name": "corp-workstation-heavy-10-80-20-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "corp-workstation-heavy-10-80-20-core"
+   ]
+  },
+  {
+   "name": "domain-controller-10-80-20-core",
+   "kind": "host",
+   "role": "domain-controller",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "domain-controller-10-80-20-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-20-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 4,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-20-core01",
+    "generic-endpoint-10-80-20-core02",
+    "generic-endpoint-10-80-20-core03",
+    "generic-endpoint-10-80-20-core04"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-20-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 4,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-20-core01",
+    "generic-endpoint-heavy-10-80-20-core02",
+    "generic-endpoint-heavy-10-80-20-core03",
+    "generic-endpoint-heavy-10-80-20-core04"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-20-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-20-transient"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-20-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-20-core01",
+    "unroled-endpoint-10-80-20-core02"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-20-transient",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 3,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-20-transient01",
+    "unroled-endpoint-10-80-20-transient02",
+    "unroled-endpoint-10-80-20-transient03"
+   ]
+  },
+  {
+   "name": "web-tier-light-10-80-20-regular",
+   "kind": "host",
+   "role": "web-tier",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "web-tier-light-10-80-20-regular"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-31-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan20"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-31-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-32-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan32"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-32-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-34-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan953"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-34-core"
+   ]
+  },
+  {
+   "name": "web-tier-10-80-34-core",
+   "kind": "host",
+   "role": "web-tier",
+   "count": 3,
+   "segments": [
+    "vlan953"
+   ],
+   "node_ids": [
+    "web-tier-10-80-34-core01",
+    "web-tier-10-80-34-core02",
+    "web-tier-10-80-34-core03"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-40-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan40"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-40-transient"
+   ]
+  },
+  {
+   "name": "corp-workstation-10-80-48-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 2,
+   "segments": [
+    "vlan48"
+   ],
+   "node_ids": [
+    "corp-workstation-10-80-48-core01",
+    "corp-workstation-10-80-48-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-48-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan48"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-48-transient"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-63-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan52"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-63-core"
+   ]
+  },
+  {
+   "name": "corp-workstation-light-10-80-64-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "corp-workstation-light-10-80-64-core"
+   ]
+  },
+  {
+   "name": "dns-resolver-10-80-64-core",
+   "kind": "host",
+   "role": "dns-resolver",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "dns-resolver-10-80-64-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-64-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-64-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-64-regular",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-64-regular01",
+    "generic-endpoint-10-80-64-regular02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-64-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-64-core01",
+    "generic-endpoint-heavy-10-80-64-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-64-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-64-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-64-regular",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-64-regular01",
+    "generic-endpoint-light-10-80-64-regular02"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-64-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-64-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-65-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-65-transient01",
+    "generic-endpoint-10-80-65-transient02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-65-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-65-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-65-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-65-core"
+   ]
+  },
+  {
+   "name": "corp-workstation-10-80-72-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "corp-workstation-10-80-72-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-72-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 6,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-72-core01",
+    "generic-endpoint-10-80-72-core02",
+    "generic-endpoint-10-80-72-core03",
+    "generic-endpoint-10-80-72-core04",
+    "generic-endpoint-10-80-72-core05",
+    "generic-endpoint-10-80-72-core06"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-72-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 10,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-72-transient01",
+    "generic-endpoint-10-80-72-transient02",
+    "generic-endpoint-10-80-72-transient03",
+    "generic-endpoint-10-80-72-transient04",
+    "generic-endpoint-10-80-72-transient05",
+    "generic-endpoint-10-80-72-transient06",
+    "generic-endpoint-10-80-72-transient07",
+    "generic-endpoint-10-80-72-transient08",
+    "generic-endpoint-10-80-72-transient09",
+    "generic-endpoint-10-80-72-transient10"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-72-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 9,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-72-core01",
+    "generic-endpoint-heavy-10-80-72-core02",
+    "generic-endpoint-heavy-10-80-72-core03",
+    "generic-endpoint-heavy-10-80-72-core04",
+    "generic-endpoint-heavy-10-80-72-core05",
+    "generic-endpoint-heavy-10-80-72-core06",
+    "generic-endpoint-heavy-10-80-72-core07",
+    "generic-endpoint-heavy-10-80-72-core08",
+    "generic-endpoint-heavy-10-80-72-core09"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-72-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-72-core01",
+    "generic-endpoint-light-10-80-72-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-72-regular",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-72-regular"
+   ]
+  },
+  {
+   "name": "web-tier-10-80-72-core",
+   "kind": "host",
+   "role": "web-tier",
+   "count": 3,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "web-tier-10-80-72-core01",
+    "web-tier-10-80-72-core02",
+    "web-tier-10-80-72-core03"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-73-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-73-core01",
+    "generic-endpoint-10-80-73-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-73-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-73-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-73-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-73-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-74-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-74-transient"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-74-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-74-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-74-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-74-transient"
+   ]
+  },
+  {
+   "name": "corp-workstation-10-80-75-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "corp-workstation-10-80-75-core"
+   ]
+  },
+  {
+   "name": "file-server-10-80-75-core",
+   "kind": "host",
+   "role": "file-server",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "file-server-10-80-75-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-75-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-75-core01",
+    "generic-endpoint-10-80-75-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-75-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 6,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-75-transient01",
+    "generic-endpoint-10-80-75-transient02",
+    "generic-endpoint-10-80-75-transient03",
+    "generic-endpoint-10-80-75-transient04",
+    "generic-endpoint-10-80-75-transient05",
+    "generic-endpoint-10-80-75-transient06"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-75-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-75-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-75-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-75-core"
+   ]
+  },
+  {
+   "name": "web-tier-10-80-75-core",
+   "kind": "host",
+   "role": "web-tier",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "web-tier-10-80-75-core01",
+    "web-tier-10-80-75-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-76-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-76-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-76-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-76-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-77-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-77-core01",
+    "generic-endpoint-10-80-77-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-77-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-77-core"
+   ]
+  },
+  {
+   "name": "corp-workstation-light-10-80-78-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "corp-workstation-light-10-80-78-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-10-80-78-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-10-80-78-core"
+   ]
+  },
+  {
+   "name": "corp-workstation-light-10-80-79-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "corp-workstation-light-10-80-79-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-79-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-79-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-10-80-79-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-10-80-79-transient01",
+    "generic-endpoint-10-80-79-transient02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-10-80-79-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-10-80-79-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-10-80-79-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan64"
+   ],
+   "node_ids": [
+    "unroled-endpoint-10-80-79-core"
+   ]
+  },
+  {
+   "name": "unroled-endpoint-172-16-core",
+   "kind": "host",
+   "role": "unroled-endpoint",
+   "count": 1,
+   "segments": [
+    "lab-172-16"
+   ],
+   "node_ids": [
+    "unroled-endpoint-172-16-core"
+   ]
+  },
+  {
+   "name": "corp-workstation-192-168-core",
+   "kind": "host",
+   "role": "corp-workstation",
+   "count": 2,
+   "segments": [
+    "vlan192"
+   ],
+   "node_ids": [
+    "corp-workstation-192-168-core01",
+    "corp-workstation-192-168-core02"
+   ]
+  },
+  {
+   "name": "generic-endpoint-192-168-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan192"
+   ],
+   "node_ids": [
+    "generic-endpoint-192-168-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-heavy-192-168-core",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 1,
+   "segments": [
+    "vlan192"
+   ],
+   "node_ids": [
+    "generic-endpoint-heavy-192-168-core"
+   ]
+  },
+  {
+   "name": "generic-endpoint-light-192-168-transient",
+   "kind": "host",
+   "role": "generic-endpoint",
+   "count": 2,
+   "segments": [
+    "vlan192"
+   ],
+   "node_ids": [
+    "generic-endpoint-light-192-168-transient01",
+    "generic-endpoint-light-192-168-transient02"
+   ]
+  }
+ ],
+ "_provenance": "GET /api/imprints/corp-twin/cast, 2026-10-01: every field as served read-only by :8080 (dev45's standing Console), plus node_roster from the same twins/corp-twin bundle through this branch's API (the :8080 build predates the field)."
+}

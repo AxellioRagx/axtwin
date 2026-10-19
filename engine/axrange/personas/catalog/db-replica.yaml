@@ -1,0 +1,29 @@
+# Streaming replication: a constant low-level WAL/binlog flow with periodic
+# checkpoint bursts, and the only high-volume entry in this wave that needs
+# no driver work at all -- `real-service` asserts the twin's OWN daemon and
+# lets it generate the traffic, exactly like `db-tier`/`web-tier` already do.
+persona:
+  id: db-replica
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: postgres
+      ports: [5432]
+      peer_role: db-tier
+      direction: EW
+      cadence: "24x7"
+      volume: high
+    - proto: mysql
+      ports: [3306]
+      peer_role: db-tier
+      direction: EW
+      cadence: "24x7"
+      volume: med
+  requires: [db-tier]
+  # `real-service` fail-louds when neither is bound (a silently-absent daemon
+  # would otherwise mean zero traffic behind a green "started").
+  knobs:
+    intensity: 1.0
+    schedule: "24x7"
+    seed_jitter: false
+    service_name: postgresql

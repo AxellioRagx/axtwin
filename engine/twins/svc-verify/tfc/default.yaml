@@ -1,0 +1,27 @@
+# svc-verify -- the traffic profile for §9.2 step 5.
+#
+# One assignment: the `drive: command` persona onto the probe client. That is
+# the whole point of the step -- the same six-protocol picture the operator
+# produced by hand in step 3 has to appear UNATTENDED, from the persona's own
+# cadence, or the client half is not actually driving anything.
+#
+# **No `roles:` block and no `roles.yaml`.** The twin config already declares
+# a `role:` baseline on every node, and `build_twin_inventory` resolves role
+# as *tfc assignment -> clone-vm baseline -> none*
+# (`docs/WORK_ORDER_role_persona_tier.md` W1), so the baseline is what the
+# persona's `peer_role:` resolves against here. A shared role map is what
+# `roles_from:` exists for when several profiles of one twin need to agree on
+# it; one profile does not.
+#
+# `target:` is the twin-config NAME (LES-072/LES-175: name resolution is on
+# the apply AND destroy paths); `--target` overrides it.
+#
+# `seed:` is pinned so a re-apply reproduces the same jitter sequence -- a
+# replay of this step is comparable rather than merely similar.
+traffic-profile:
+  target: svc-verify
+  assignments:
+    - role: probe-client
+      persona: svc-verify-probe
+      schedule: 24x7
+      seed: 20260905

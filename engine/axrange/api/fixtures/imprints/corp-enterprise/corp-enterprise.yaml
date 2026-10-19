@@ -1,0 +1,118 @@
+# Learned-imprint FIXTURE (aximprint-integration Track C,
+# docs/WORK_ORDER_aximprint_console.md; sample values from
+# docs/design/aximprint-integration/Console.dc.html).
+#
+# This is a synthesized `twin_config` document standing in for aximprint's
+# real compiled output (`aximprint.synth.compiler.compile_twin` -- see the
+# reasoning trail in `axrange/api/imprints.py`'s module docstring). axRange
+# reads ONLY this file + its sidecar `corp-enterprise.provenance.json` --
+# never aximprint code (docs/design/aximprint-integration/WORK_ORDERS.md
+# §0's coupling rule).
+#
+# Shape note: every field here traces to a provenance entry in the sidecar
+# (evidence_class/confidence/signal/evidence) -- nothing here is invented.
+# One deliberate deviation from the console mock's literal text: `mgmt` is
+# sized `/28` here, not the mock's `/29` -- a /29 (6 usable, 1 taken by the
+# router's gateway leg) cannot actually hold `mgmt`'s 8 hosts, and the
+# fixture must both validate AND sum hosts (26+3+5+8) to the mock's
+# headline "Hosts: 42". See the code-writer hand-off for the full note.
+twin_config:
+  id: corp-enterprise
+  description: |
+    Learned imprint, compiled from a 10-day / 240-window Zeek conn.log
+    capture of a corp-enterprise network (store: imprint.duckdb, as-of
+    2026-08-14 09:00Z). 4 segments (corp-lan/dmz/db/mgmt) behind one
+    router (`gw`), 42 role-bearing hosts. Every `image`/`resources`
+    choice is a catalog default, not an observation -- see the
+    provenance sidecar for the evidence behind each learned field
+    (segment membership, host roles, persona assignment, tap vantage).
+
+  segments:
+    - { name: corp-lan, cidr: 10.91.10.0/24, zone_type: vlan }  # /24, 26 hosts, conf 0.91
+    - { name: dmz,       cidr: 10.91.20.0/28, zone_type: vlan }  # /28, 3 hosts, conf 0.88
+    - { name: db,        cidr: 10.91.30.0/28, zone_type: vlan }  # /28, 5 hosts, conf 0.79
+    - { name: mgmt,      cidr: 10.91.40.0/28, zone_type: vlan }  # 8 hosts, conf 0.83 (sized /28, see header note)
+
+  nodes:
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: corp-lan }
+        - { segment: dmz }
+        - { segment: db }
+        - { segment: mgmt }
+
+    - name: corp-workstation
+      role: corp-workstation
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      net: corp-lan
+      count: 26
+
+    - name: mail-server
+      role: mail-server
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: dmz
+      install: [{ pkg: postfix }]
+
+    - name: egress-proxy
+      role: egress-proxy
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: dmz
+      install: [{ pkg: squid }]
+
+    - name: dmz-web
+      role: dmz-web
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: dmz
+      install: [{ pkg: nginx }]
+
+    # count: 5 fans out to sql01..sql05 (`TwinConfigNode`'s count>1 naming
+    # convention) -- sql01 is the host the provenance sidecar's
+    # `persona db-replica -> sql01` row names.
+    - name: sql
+      role: db-replica
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      net: db
+      install: [{ pkg: mysql-server }]
+      count: 5
+
+    - name: dc01
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      net: mgmt
+      install: [{ role: adds }]
+      provides: [{ domain: corp.axr.lab }]
+
+    - name: log-collector
+      role: log-collector
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: mgmt
+      install: [{ pkg: rsyslog }]
+      count: 4
+
+    - name: monitoring-collector
+      role: monitoring-collector
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: mgmt
+      install: [{ pkg: prometheus }]
+      count: 3

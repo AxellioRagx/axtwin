@@ -1,0 +1,38 @@
+# Cross-segment persona: dmz -> server-vlan. See xseg-corp-to-srv.yaml for
+# the family rationale.
+#
+# Models the realistic shape of DMZ services authenticating back to AD: a
+# mail relay, a proxy and a web front-end all resolve users and groups
+# against the domain controller, and all of that traffic must transit gw
+# because AD lives on server-vlan. Assigned per-NODE (not by role) so the
+# three DMZ hosts keep their own `mail-server`/`egress-proxy`/`dmz-web`
+# roles -- re-roling them into one shared role would make them vanish as
+# peer_role targets for the other xseg personas.
+persona:
+  id: xseg-dmz-to-srv
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [2055]
+      peer_role: domain-controller
+      transport: udp
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: high
+    - proto: ldap
+      ports: [389]
+      peer_role: domain-controller
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: med
+    - proto: smb
+      ports: [445]
+      peer_role: file-server
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:20s"
+      volume: med
+  requires: [domain-controller, file-server]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

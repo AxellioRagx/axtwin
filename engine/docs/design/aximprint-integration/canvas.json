@@ -1,0 +1,14 @@
+{
+  "pages": [
+    { "id": "arch",    "name": "Architecture" },
+    { "id": "console", "name": "Console" },
+    { "id": "rollout", "name": "Rollout" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",      "x": 0,    "y": 0, "w": 1120, "h": 860,  "page": "arch",    "title": "The closed loop" },
+    { "file": "Contracts.dc.html", "x": 1260, "y": 0, "w": 1120, "h": 1010, "page": "arch",    "title": "Seams & rollout" },
+    { "file": "Console.dc.html",   "x": 0,    "y": 0, "w": 1440, "h": 920,  "page": "console", "title": "O2 Console — deploy a learned twin" },
+    { "file": "Rollout.dc.html",   "x": 0,    "y": 0, "w": 1200, "h": 860,  "page": "rollout", "title": "Three tracks, two repos" }
+  ],
+  "launch": { "view": "canvas", "page": "rollout" }
+}

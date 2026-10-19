@@ -1,0 +1,12 @@
+# Traffic profile: sme-flat / default (see corp-enterprise/tfc-default.yaml
+# for why this lives here rather than inline in the twin config).
+traffic-profile:
+  target: sme-flat
+
+  assignments:
+    - role: corp-workstation
+      persona: corp-workstation
+    - role: file-server
+      persona: file-server
+    - role: db-tier
+      persona: db-tier

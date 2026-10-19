@@ -1,0 +1,347 @@
+traffic-profile:
+  target: corpapcn-twin
+  assignments:
+  - role: corp-workstation
+    persona: cast-corp-workstation-local
+    seed: 1184689301
+    intensity: 4.333333333333333
+  - role: domain-controller
+    persona: cast-domain-controller-local
+    seed: 2881639273
+    intensity: 30.666666666666668
+  - role: log-shipper
+    persona: cast-log-shipper-local
+    seed: 1399946700
+    intensity: 0.6666666666666666
+  - role: monitoring-collector
+    persona: cast-monitoring-collector
+    seed: 3688728350
+    intensity: 1.0
+  - role: network-device
+    persona: cast-network-device
+    seed: 426622069
+    intensity: 0.3333333333333333
+  - node: dns-resolver-10-20-196
+    persona: cast-dns-resolver-chatter
+    schedule: 24x7
+  - node: dns-resolver-10-80-64
+    persona: cast-dns-resolver
+    schedule: 24x7
+  - node: dns-resolver-heavy-10-80-2
+    persona: cast-dns-resolver-heavy-local
+    schedule: 24x7
+  - node: dns-resolver-light-10-21-161
+    persona: cast-dns-resolver
+    schedule: 24x7
+  - node: generic-endpoint-10-1-101
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-1-102
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-20-19301
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-20-19302
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-20-19501
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-20-19502
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-20-19503
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-20-203
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-20-204
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-80-201
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-80-202
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-6401
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-6402
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7201
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7202
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7203
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7204
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7205
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7206
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7207
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7208
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7209
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7210
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7301
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-10-80-7302
+    persona: cast-generic-endpoint-local
+    schedule: 24x7
+  - node: generic-endpoint-10-80-75
+    persona: cast-generic-endpoint-chatter
+    schedule: 24x7
+  - node: generic-endpoint-10-80-79
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-192-16801
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-192-16802
+    persona: cast-generic-endpoint
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-192
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19301
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19302
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19303
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19304
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19501
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-19502
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-2
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-20-204
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-201
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-202
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-203
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-204
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-205
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-206
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-207
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-208
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-48
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-6401
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-6402
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-65
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-7201
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-7202
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-74
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-75
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-10-80-76
+    persona: cast-generic-endpoint-heavy-chatter
+    schedule: 24x7
+  - node: generic-endpoint-heavy-192-16801
+    persona: cast-generic-endpoint-heavy-local
+    schedule: 24x7
+  - node: generic-endpoint-heavy-192-16802
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-heavy-192-16803
+    persona: cast-generic-endpoint-heavy
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-192
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19301
+    persona: cast-generic-endpoint-light-chatter
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19302
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19303
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19304
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19305
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19306
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19307
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19308
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19309
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19601
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-19602
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-201
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-202
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-203
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-204
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-20701
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-20-20702
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-2
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-6401
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-6402
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-6403
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-65
+    persona: cast-generic-endpoint-light-chatter
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7201
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7202
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7203
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7204
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7205
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7206
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7207
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7208
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7209
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7210
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7211
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7212
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7213
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7214
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7215
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-73
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7501
+    persona: cast-generic-endpoint-light-local
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7502
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7701
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-7702
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: generic-endpoint-light-10-80-79
+    persona: cast-generic-endpoint-light
+    schedule: 24x7
+  - node: web-tier-10-80-72
+    persona: cast-web-tier-chatter
+    schedule: 24x7
+  - node: web-tier-10-80-75
+    persona: cast-web-tier
+    schedule: 24x7

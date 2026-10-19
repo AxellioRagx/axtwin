@@ -1,0 +1,33 @@
+# Windows Delivery Optimization / BranchCache: the only MESH persona.
+#
+# Every other entry in the catalog is a star -- N hosts each talking to a hub.
+# This one has every peer talking to every other peer, so its flow count grows
+# with the SQUARE of the twin rather than linearly: on the 32-host
+# `corp-enterprise` twin, a single binding produces on the order of a thousand
+# distinct flows. That is a genuinely different load shape for a sensor to
+# survive, and it is the shape a flow-based store (netflow, Zeek conn.log)
+# struggles with long before a byte-based one does.
+persona:
+  id: p2p-update-peer
+  os_family: windows
+  drive: scripted
+  emits:
+    # The mesh. `peer_scope: all` excludes the instance's own host, so no node
+    # peers with itself.
+    - proto: http
+      ports: [7680]
+      peer_role: p2p-update-peer
+      peer_scope: all
+      direction: EW
+      cadence: "cyclic:30s"
+      volume: high
+    # The upstream pull the mesh then redistributes -- one big periodic
+    # fetch, in contrast to the continuous peer chatter above.
+    - proto: https
+      ports: [443]
+      peer_role: egress-proxy
+      direction: NS
+      cadence: "burst:60m"
+      volume: bulk
+  requires: [p2p-update-peer, egress-proxy]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

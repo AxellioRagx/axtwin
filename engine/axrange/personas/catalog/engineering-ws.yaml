@@ -1,0 +1,14 @@
+# occasional, high-signal PLC programming bursts.
+persona:
+  id: engineering-ws
+  os_family: windows
+  drive: scripted
+  emits:
+    - proto: modbus
+      ports: [502]
+      peer_role: plc
+      direction: EW
+      cadence: "burst:1h"
+      volume: med
+  requires: [plc]
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true }

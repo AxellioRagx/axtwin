@@ -1,0 +1,474 @@
+scenario_schema_version: 1
+
+# =============================================================================
+# OptraHealth — multi-site healthcare datacenter TWIN
+# =============================================================================
+# A long-running digital twin of a (fictional, Optum-like) healthcare company's
+# datacenter estate spread across three sites, built on the axRange FABRIC slice
+# (docs/DESIGN_BRIEF_fabric.md) so the network is REAL — dynamic routing + overlay,
+# not static plumbing:
+#
+#   - DC-East  (primary)  : IS-IS spine-leaf + iBGP-EVPN/VXLAN fabric (AS 65010)
+#   - DC-West  (DR)       : IS-IS spine-leaf + iBGP-EVPN/VXLAN fabric (AS 65020)
+#   - Corp-HQ  (campus)   : OSPFv2 multi-area campus                  (AS 65030)
+#   - WAN backbone        : eBGP full-mesh between the three site borders
+#
+# Focus: traffic-capture twin. The capture plane (sensors:) records the
+# control-plane (IS-IS / OSPF / iBGP-EVPN / eBGP / VXLAN / BFD / redistribution)
+# AND the healthcare application protocols (HL7 / DICOM / FHIR / SQL / LDAP /
+# Kerberos / SMB). Authored per docs/SCENARIO_AUTHORING.md.
+#
+# KNOWN LIMITATIONS (fabric slice v1 — control-plane realism; honest about deploy):
+#   - L2VNI EVPN only (no L3VNI / IRB anycast-gateway): hosts on different EVPN
+#     access segments aren't L3-routed to each other, and have no internet/apt
+#     default-gateway, so pkg installs + inter-segment + cross-site host traffic
+#     need the L3VNI/IRB follow-on. Same-segment (intra-tier) flows work over VXLAN.
+#   - Cross-site EVPN stretch + replica-DC AD replication likewise need follow-ons.
+#   This IR VALIDATES and PLANS and captures the full intended architecture; the
+#   above are the next fabric increments. See README.md.
+# =============================================================================
+
+scenario:
+  id: optrahealth-twin
+  version: 1
+  seed: 20260630          # deterministic synthetic PHI (overlays.data)
+  reproducible: true
+  description: |
+    Multi-site healthcare datacenter twin (DC-East primary + DC-West DR +
+    Corp-HQ campus) on a real BGP/OSPF/EVPN/VXLAN fabric. Long-running; capture
+    plane records control-plane + clinical-application traffic.
+  labels:
+    profile: twin
+    focus: traffic-capture
+    org: optrahealth
+
+fabric:
+  fabric_asn: 65010
+  # Symmetric-IRB tenant: VTEP leaves give each EVPN segment an anycast distributed
+  # gateway and route between segments over the L3VNI (EVPN Type-5). The clinical/
+  # data/etc. tiers become L3-reachable to each other across the fabric.
+  tenant: { name: optra, l3vni: 10999, table: 1000 }
+  regions:
+    - { id: dc-east, igp: isis, isis_area: "49.0001" }
+    - { id: dc-west, igp: isis, isis_area: "49.0002" }
+    - { id: campus,  igp: ospf }
+    - { id: wan,     igp: none }
+
+layers:
+  infra:
+    networks:
+      # --- WAN backbone (inter-site eBGP peering) ---------------------------
+      - { id: wan-core, cidr: 10.255.255.0/24, vlan: 4000 }
+
+      # --- DC-East underlay (spine-leaf p2p /30s) --------------------------
+      - { id: e-s1l1, cidr: 10.10.0.0/30,  vlan: 100 }
+      - { id: e-s1l2, cidr: 10.10.0.4/30,  vlan: 101 }
+      - { id: e-s2l1, cidr: 10.10.0.8/30,  vlan: 102 }
+      - { id: e-s2l2, cidr: 10.10.0.12/30, vlan: 103 }
+      - { id: e-bl,   cidr: 10.10.0.16/30, vlan: 104 }
+      # --- DC-East access (EVPN L2VNI) -------------------------------------
+      - { id: e-clin, cidr: 10.10.10.0/24, vlan: 110, vni: 10010, gateway: 10.10.10.254 }  # clinical tier
+      - { id: e-dmz,  cidr: 10.10.20.0/24, vlan: 111, vni: 10020, gateway: 10.10.20.254 }  # member/provider DMZ
+      - { id: e-data, cidr: 10.10.30.0/24, vlan: 112, vni: 10030, gateway: 10.10.30.254 }  # claims + EDW
+      - { id: e-infra,cidr: 10.10.40.0/24, vlan: 113, vni: 10040, gateway: 10.10.40.254 }  # AD/DNS/jump
+
+      # --- DC-West underlay ------------------------------------------------
+      - { id: w-s1l1, cidr: 10.20.0.0/30,  vlan: 200 }
+      - { id: w-bl,   cidr: 10.20.0.4/30,  vlan: 201 }
+      # --- DC-West access (EVPN L2VNI) -------------------------------------
+      - { id: w-data, cidr: 10.20.30.0/24, vlan: 210, vni: 20030, gateway: 10.20.30.254 }  # DR DB + app
+      - { id: w-infra,cidr: 10.20.40.0/24, vlan: 211, vni: 20040, gateway: 10.20.40.254 }  # DR DC + backup
+
+      # --- Corp-HQ campus (OSPF) -------------------------------------------
+      - { id: c-abr-a1, cidr: 10.30.1.0/30,  vlan: 300, ospf_area: 1 }
+      - { id: c-user,   cidr: 10.30.10.0/24, vlan: 310, ospf_area: 1 }
+
+    nodes:
+      # ===================== DC-East fabric (AS 65010) =====================
+      - id: spine-e1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: e-s1l1, ip: 10.10.0.1 }
+          - { net: e-s1l2, ip: 10.10.0.5 }
+        routing:
+          region: dc-east
+          role: spine
+          loopback: 10.255.0.1/32
+          isis: { net: "49.0001.0000.0000.0001.00" }
+          bgp: { asn: 65010, rr_server: true, evpn: true }
+      - id: spine-e2
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: e-s2l1, ip: 10.10.0.9 }
+          - { net: e-s2l2, ip: 10.10.0.13 }
+        routing:
+          region: dc-east
+          role: spine
+          loopback: 10.255.0.2/32
+          isis: { net: "49.0001.0000.0000.0002.00" }
+          bgp: { asn: 65010, rr_server: true, evpn: true }
+      - id: leaf-e1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: e-s1l1, ip: 10.10.0.2 }
+          - { net: e-s2l1, ip: 10.10.0.10 }
+          - { net: e-bl,   ip: 10.10.0.17 }
+          - { net: e-clin, ip: 10.10.10.1 }
+          - { net: e-dmz,  ip: 10.10.20.1 }
+        # Tapped: this leaf mediates the e-clin<->e-dmz boundary (clinical
+        # tier vs. member/provider DMZ) -- a real inter-segment boundary,
+        # not just underlay transit.
+        routing:
+          region: dc-east
+          role: leaf
+          loopback: 10.255.0.3/32
+          isis: { net: "49.0001.0000.0000.0003.00" }
+          bgp: { asn: 65010, rr_clients_of: [spine-e1, spine-e2], evpn: true, vtep: true }
+          bfd: true
+      - id: leaf-e2
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: e-s1l2, ip: 10.10.0.6 }
+          - { net: e-s2l2, ip: 10.10.0.14 }
+          - { net: e-data, ip: 10.10.30.1 }
+          - { net: e-infra,ip: 10.10.40.1 }
+        # Tapped: this leaf mediates the e-data<->e-infra boundary (claims/EDW
+        # vs. AD/DNS/jump) -- a real inter-segment boundary.
+        routing:
+          region: dc-east
+          role: leaf
+          loopback: 10.255.0.4/32
+          isis: { net: "49.0001.0000.0000.0004.00" }
+          bgp: { asn: 65010, rr_clients_of: [spine-e1, spine-e2], evpn: true, vtep: true }
+          bfd: true
+      - id: border-e
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: e-bl,     ip: 10.10.0.18 }
+          - { net: wan-core, ip: 10.255.255.1 }
+        # Tapped: this border mediates the e-bl<->wan-core boundary (DC-East
+        # fabric vs. the inter-site backbone) -- `wan-core` is an ordinary
+        # declared network here (inter-site eBGP peering), NOT axRange's
+        # synthetic router-slice `__wan__` uplink, so this boundary IS
+        # expressible/resolvable (unlike the `__wan__`-exclusion case).
+        routing:
+          region: dc-east
+          role: border
+          loopback: 10.255.0.5/32
+          isis: { net: "49.0001.0000.0000.0005.00" }
+          bgp:
+            asn: 65010
+            ebgp_peers:
+              - { neighbor: 10.255.255.2, remote_asn: 65020 }   # border-w
+              - { neighbor: 10.255.255.3, remote_asn: 65030 }   # abr-c
+            originate: [ 10.10.0.0/16 ]
+
+      # ===================== DC-West fabric (AS 65020) =====================
+      - id: spine-w1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: w-s1l1, ip: 10.20.0.1 }
+        routing:
+          region: dc-west
+          role: spine
+          loopback: 10.255.0.11/32
+          isis: { net: "49.0002.0000.0000.0011.00" }
+          bgp: { asn: 65020, rr_server: true, evpn: true }
+      - id: leaf-w1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: w-s1l1, ip: 10.20.0.2 }
+          - { net: w-bl,   ip: 10.20.0.5 }
+          - { net: w-data, ip: 10.20.30.1 }
+          - { net: w-infra,ip: 10.20.40.1 }
+        # Tapped: this leaf mediates the w-data<->w-infra boundary (DR app/DB
+        # vs. DR DC/backup) -- a real inter-segment boundary.
+        routing:
+          region: dc-west
+          role: leaf
+          loopback: 10.255.0.12/32
+          isis: { net: "49.0002.0000.0000.0012.00" }
+          bgp: { asn: 65020, rr_clients_of: [spine-w1], evpn: true, vtep: true }
+      - id: border-w
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: w-bl,     ip: 10.20.0.6 }
+          - { net: wan-core, ip: 10.255.255.2 }
+        # Tapped: this border mediates the w-bl<->wan-core boundary (DC-West
+        # fabric vs. the inter-site backbone).
+        routing:
+          region: dc-west
+          role: border
+          loopback: 10.255.0.13/32
+          isis: { net: "49.0002.0000.0000.0013.00" }
+          bgp:
+            asn: 65020
+            ebgp_peers:
+              - { neighbor: 10.255.255.1, remote_asn: 65010 }   # border-e
+              - { neighbor: 10.255.255.3, remote_asn: 65030 }   # abr-c
+            originate: [ 10.20.0.0/16 ]
+
+      # ===================== Corp-HQ campus (AS 65030, OSPF) ================
+      - id: abr-c
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: c-abr-a1, ip: 10.30.1.1 }
+          - { net: wan-core, ip: 10.255.255.3 }
+        # Tapped: this ABR mediates the c-abr-a1<->wan-core boundary (campus
+        # OSPF area vs. the inter-site backbone).
+        routing:
+          region: campus
+          role: border          # OSPF (campus) <-> eBGP (WAN) redistribution
+          loopback: 10.255.0.21/32
+          ospf: { router_id: 10.255.0.21 }
+          bgp:
+            asn: 65030
+            ebgp_peers:
+              - { neighbor: 10.255.255.1, remote_asn: 65010 }   # border-e
+              - { neighbor: 10.255.255.2, remote_asn: 65020 }   # border-w
+            originate: [ 10.30.0.0/16 ]
+      - id: area-c1
+        kind: router
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+        nets:
+          - { net: c-abr-a1, ip: 10.30.1.2 }
+          - { net: c-user,   ip: 10.30.10.1 }
+        # Tapped: this area router mediates the c-abr-a1<->c-user boundary
+        # (campus backbone vs. the clinician-workstation access segment).
+        routing:
+          region: campus
+          role: area
+          loopback: 10.255.0.22/32
+          ospf: { router_id: 10.255.0.22 }
+
+      # ===================== DC-East hosts =================================
+      - id: ehr-e        # EHR app (OpenEMR-class)
+        kind: host
+        net: e-clin
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      - id: integ-e      # HL7 integration engine (Mirth/MLLP-class)
+        kind: host
+        net: e-clin
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      - id: pacs-e       # PACS / DICOM (Orthanc)
+        kind: host
+        net: e-clin
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 40Gi }
+      - id: clindb-e     # clinical DB (PostgreSQL) — replication primary
+        kind: host
+        net: e-clin
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      - id: portal-e     # member/provider portal
+        kind: host
+        net: e-dmz
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      - id: fhir-e       # FHIR API
+        kind: host
+        net: e-dmz
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      - id: edw-e        # enterprise data warehouse (synthetic PHI crown jewel)
+        kind: host
+        net: e-data
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 80Gi }
+      - id: claimsdb-e   # claims + pharmacy DB
+        kind: host
+        net: e-data
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      - id: dc1          # Active Directory domain controller (corp.optra.lab)
+        kind: host
+        nets:
+          - { net: e-infra, ip: 10.10.40.10 }   # static IP — domain-join clients use it as DNS
+        image: windows-server-2022@v1
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      - id: jump-e       # bastion / mgmt
+        kind: host
+        net: e-infra
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 20Gi }
+
+      # ===================== DC-West hosts (DR) ============================
+      - id: app-w        # standby business app
+        kind: host
+        net: w-data
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      - id: clindb-w     # clinical DB replication standby
+        kind: host
+        net: w-data
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      - id: dc2          # DR domain controller (substrate; replica-DC promotion deferred)
+        kind: host
+        net: w-infra
+        image: windows-server-2022@v1
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      - id: backup-w     # backup target (SMB/restic)
+        kind: host
+        net: w-infra
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 100Gi }
+
+      # ===================== Corp-HQ hosts =================================
+      - id: ws1          # clinician workstation (domain-joined)
+        kind: host
+        net: c-user
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: corp.optra.lab
+      - id: helpdesk     # IT helpdesk box
+        kind: host
+        net: c-user
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+
+  apps:
+    - id: ad-dc
+      install:
+        - { role: adds }
+      provides:
+        - { domain: corp.optra.lab }
+    - id: ehr
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+    - id: integ
+      install:
+        - { pkg: python3 }
+        - { pkg: socat }
+    - id: pacs
+      install:
+        - { pkg: orthanc }
+    - id: clin-db
+      install:
+        - { pkg: postgresql }
+    - id: portal
+      install:
+        - { pkg: nginx }
+    - id: fhir
+      install:
+        - { pkg: python3 }
+    - id: edw
+      install:
+        - { pkg: postgresql }
+    - id: claims-db
+      install:
+        - { pkg: postgresql }
+    - id: jump
+      install:
+        - { pkg: openssh-server }
+    - id: app-w-stack
+      install:
+        - { pkg: nginx }
+    - id: repl-db
+      install:
+        - { pkg: postgresql }
+    - id: backup
+      install:
+        - { pkg: samba }
+    - id: helpdesk-kit
+      install:
+        - { pkg: openssh-server }
+
+  # Steady-state baseline traffic (one-shot at deploy — exercises the capture
+  # plane). Continuous ambient generators (systemd timers) are the follow-on
+  # for an always-on twin (docs/SCENARIO_AUTHORING.md §6). Best-effort steps.
+  activity:
+    - id: baseline-traffic
+      actor: ops
+      inline:
+        steps:
+          - { run: "curl -s -m 5 http://10.10.20.10/ >/dev/null 2>&1 || true; true" }
+          - { run: "curl -s -m 5 http://10.10.10.10/ >/dev/null 2>&1 || true; true" }
+
+# Capture plane: a full-fidelity pcap recorder (primary) over the tapped hosts;
+# the in-scenario tcpdump-sensor receives the per-tap tc->gretap mirror.
+sensors:
+  - { id: pcap, type: tcpdump-sensor, primary: true }
+
+bindings:
+  - { app: ad-dc,        host: dc1 }
+  - { app: ehr,          host: ehr-e }
+  - { app: integ,        host: integ-e }
+  - { app: pacs,         host: pacs-e }
+  - { app: clin-db,      host: clindb-e }
+  - { app: portal,       host: portal-e }
+  - { app: fhir,         host: fhir-e }
+  - { app: edw,          host: edw-e }
+  - { app: claims-db,    host: claimsdb-e }
+  - { app: jump,         host: jump-e }
+  - { app: app-w-stack,  host: app-w }
+  - { app: repl-db,      host: clindb-w }
+  - { app: backup,       host: backup-w }
+  - { app: helpdesk-kit, host: helpdesk }
+  - { activity: baseline-traffic, host: jump-e }
+
+overlays:
+  data:
+    - id: phi-warehouse
+      host: edw-e
+      path: /srv/edw/patients.csv
+      classification: phi
+      crown_jewel: true
+      synthetic_size: 256Ki
+    - id: claims-records
+      host: claimsdb-e
+      path: /srv/claims/claims.csv
+      classification: phi
+      synthetic_size: 128Ki
+  identity:
+    - { id: alice, type: user, domain: corp.optra.lab, groups: [clinicians] }
+    - { id: bob,   type: user, domain: corp.optra.lab, groups: [billing] }
+    - { id: ops,   type: user, host: jump-e, groups: [sudo] }

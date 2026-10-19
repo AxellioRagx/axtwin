@@ -1,0 +1,64 @@
+# corp-twin -- variant: the MS120 SPAN read as a SPAN of the MX-facing uplink
+# (SFP25) only, plus the same External TAP bindings as the default.
+#
+# Since the device-parity round SFP25 is a real segment (the 802.1Q trunk
+# between the MX85's switch side `mx-sw` and the `ms120` switch VM), so the
+# uplink SPAN is literally one `segment` binding on sfp25: every frame between
+# the MX85 and the MS120 fabric, tagged with its real VLAN ID, both directions
+# (rx on each end's port), and NO intra-VLAN east-west traffic that stays below
+# the MS120. sfp26 (STP-blocked) is deliberately not bound -- bind it too to
+# watch the BPDUs / a failover.
+#
+# The off-map lab /24s do not ride the SFP25 trunk in the twin (they are direct
+# hq-mx legs), so their routed view stays `perimeter` = "every ROUTER port
+# attached to this net, both directions" (axrange/planner/tappoints.py) --
+# hq-mx's one leg per lab segment.
+#
+# NOT combinable with tap/default.yaml's bindings on one deploy with
+# `mode: exclusive`: sfp25 is in both. None is set here, so a union is legal.
+#
+# NOT bound, because the DEFAULT gate (DEPLOY_MIN_OCCUPANCY=0.8) leaves the
+# deployed twin without them and a binding on a missing segment is a
+# resolve-time error: the six off-map segments it gates (lab-10-110-240,
+# lab-10-112-140, lab-10-20-198, lab-10-21-161, lab-10-55-10, lab-10-64-7 --
+# occupancy 0.22-0.78). Deployed at a lower threshold? Add them. (vlan1,
+# vlan32 and vlan40 no longer vanish at the default gate: the switch VMs
+# carrying them keep them -- G14 closed, work order §8.)
+tap-plan:
+  target: corp-twin
+  bindings:
+    # ---- External TAP (WAN1 active, WAN2 standby) ------------------------
+    - selector: { scope: segment, target: wan1-isp }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: wan2-isp }
+      sensors: [XPress-SW-A]
+    # ---- MS120 uplink SPAN: the SFP25 trunk ---------------------------------
+    - selector: { scope: segment, target: sfp25 }
+      sensors: [XPress-SW-A]
+    # ---- off-map subnets: hq-mx's leg on each ------------------------------
+    - selector: { scope: perimeter, target: lab-10-0-21 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-1-10 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-128-215 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-192 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-193 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-195 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-196 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-200 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-201 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-203 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-204 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-10-20-207 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: lab-172-16 }
+      sensors: [XPress-SW-A]

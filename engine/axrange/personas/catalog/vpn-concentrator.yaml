@@ -1,0 +1,29 @@
+persona:
+  id: vpn-concentrator
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: ike
+      ports: [500, 4500]
+      peer_role: internet
+      direction: NS
+      cadence: "24x7"
+      volume: med
+    - proto: wireguard
+      ports: [51820]
+      peer_role: internet
+      direction: NS
+      cadence: "24x7"
+      volume: low
+    - proto: ssl-vpn
+      ports: [443]
+      peer_role: internet
+      direction: NS
+      cadence: "24x7"
+      volume: low
+  requires: []
+  # GAP-032: assert against strongSwan's running IKE daemon by PROCESS name
+  # (`charon`, not a systemd unit) -- strongSwan's Debian systemd unit name
+  # (`strongswan-starter`) is less stable across distros/versions than the
+  # daemon's own process name, and IKE is the highest-volume emit above.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, process_match: charon }

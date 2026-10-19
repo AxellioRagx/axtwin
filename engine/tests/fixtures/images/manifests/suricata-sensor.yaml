@@ -1,0 +1,32 @@
+manifest_schema_version: 1
+
+image:
+  id: suricata-sensor
+  description: |
+    Debian 12 (Bookworm) generic-cloud + Suricata IDS, pre-baked for the
+    `suricata-sensor` type (sensors design Phase C, docs/DESIGN_BRIEF_sensors.md
+    §10). Baking the tool at image-build time (on the build host's vmbr0 egress,
+    where bookworm-backports is reachable) sidesteps the runtime apt-install that
+    isolated scenario sensor VMs can't do (their apt is a local mirror missing
+    suricata's backports libhtp2; CHANGELOG 2026-06-23). deploy-sensor then just
+    starts the already-present suricata on the gre-cap decap iface.
+  os:
+    family: linux
+    distribution: debian
+    version: "12"
+    architecture: x86_64
+  versions:
+    - id: v1
+      released: 2026-06-23
+      status: current
+      provides:
+        - linux
+        - sensor:suricata      # the baked IDS tool (probe in the binding)
+      install_support:
+        pkg: [apt]
+        config: true
+        role: false
+        container: true
+        script: true
+      first_boot_budget: 120
+      size_estimate: 6Gi

@@ -1,0 +1,610 @@
+# Twin config: svc-engines -- the purpose-built THROWAWAY twin for the
+# protocol-ENGINE round (`docs/WORK_ORDER_protocol_engines.md` §5 E8, verbatim:
+# *"`twin-configs/svc-engines/`, modelled on `twin-configs/svc-verify/` ... Nodes:
+# resolver (bind9) - web (nginx 80+443) - file server (samba 445) - DC
+# (`windows-server-2022@v1`, `install: [{role: adds}]` + `provides: [{domain: ...}]`)
+# - Linux client (E4+E5+`scripted` -- the E0 proof) - Windows client
+# (`win11-finance@v4`, `joins:`) - sink (E2) - router (E1)"*).
+#
+# **What this twin is FOR, in one line.** svc-verify proved that real SERVERS
+# answer (row 5's server half: `dig` gets NOERROR, a TLS handshake completes,
+# `PartOfDomain=True`). This twin proves the other half: that real CLIENTS,
+# driven by a persona, put **protocol semantics** on the wire -- a query name,
+# a TLS SNI, an RC4 TGS-REP, a UNC path -- so the sensor records `dns`/`tls`/
+# `krb5`/`ldap`/`smb`/`rdp` instead of bare `tcp`/`udp`. One engine at a time,
+# each engine with a real server on the far end and nowhere else to go.
+#
+# **The three properties that make that possible, and why they need a NEW twin**
+# (the work order's "containment triangle", §5 E1/E2/E3 -- *nothing is
+# measurable without all three*):
+#
+#   1. E1  the router denies real egress while measuring -- DECLARED, in the
+#          twin-level `egress:` block below (GAP-101 closed this seam; the
+#          block says which phase and why, and the `gw` node carries nothing).
+#   2. E2  the `sink` impersonates every external server the cast observed, on
+#          every port, at any IP.
+#   3. E3  the twin's own DNS is the ONLY resolver, and it answers external
+#          names with SINK addresses. THIS FILE IS WHERE E3 LIVES -- the chain
+#          is spelled out at every hop below, because it is the piece that
+#          makes real SNI / real SPNs / real UNC paths possible and it is the
+#          first thing a reviewer will doubt.
+#
+# **Modelled on svc-verify, deliberately not a copy.** Same shape (a `.yaml`, a
+# `tap-*.yaml`, a `tfc-*.yaml`, `personas/`, `scripts/`, this folder's
+# README.md), same house rules (pinned host IPs so the runbook is literal,
+# unpinned router legs per GAP-078, `default_agents: false`, fail-loud recipes).
+# What is NEW: a sink, a Samba file server, a name-service chain with three
+# hops, and a client that carries FOUR persona instances instead of one.
+#
+# **KNOWN LIMIT, recorded not worked around (work order §5 E7 / E8).**
+# `win-member` declares `win11-finance@v4`, but that binding on `dev45` points
+# at template **101 -- the Windows SERVER 2022 image** (the two Windows 11
+# templates 9102/9103 no longer exist on the cluster;
+# `deploy-dev45/images/bindings/proxmox/win11-finance.yaml`, 2026-08-13). So
+# the "Windows client" in this twin is a Server 2022 wearing the
+# `win11-finance` id, and **consumer-Windows chatter will not appear**:
+# Delivery Optimization on 7680/tcp+udp, some SSDP/mDNS, the consumer Store
+# and Windows-Update client traffic. The cast observed that chatter; this twin
+# cannot reproduce it. Record it in any read of the capture -- do NOT add a
+# synthetic emitter to paper over it (that would be shape dressed as
+# reproduction, exactly what §6's `fidelity_class` exists to prevent).
+#
+# **Disposable by construction**, like svc-verify: deployed, probed engine by
+# engine, destroyed. Nothing here is content to reuse.
+twin_config:
+  id: svc-engines
+  description: |
+    Throwaway engine-verify twin for the protocol-engine round: a bind9
+    resolver forwarding the AD zone to a real DC and everything else to an
+    any-IP sink, an nginx TLS web tier, a Samba file server holding ~1 GiB of
+    files, a real AD DS domain controller with a joined Windows member, the
+    E2 sink standing in for the whole observed external world, and one Linux
+    client carrying FOUR persona instances (browser + three `drive: command`
+    engine groups) -- all behind one `gw` router on three segments. Deploy,
+    run the README's per-engine proof list at the sensor, destroy.
+
+  # LES-070, and svc-verify's own call: a focused verify twin that is not
+  # testing agent enrollment turns the default-ON agent sweep OFF. Not for
+  # want of egress (the `gw` router has it at provisioning time) -- for
+  # op-count and failure-surface, and because node-exporter scrapes and
+  # wazuh-agent enrollment are twin-only traffic that would appear in the
+  # capture this twin exists to read.
+  default_agents: false
+
+  # ---- E1: the twin's CONTAINMENT POSTURE (GAP-101) ---------------------
+  # This block IS the seam that used to be a comment on `gw` below. It is
+  # TWIN-level, not per-node, because containment is a property of the whole
+  # twin: `pass1_emit` attaches it to EVERY `kind: router` node, so a second
+  # router can never be left in a different posture (one permissive router
+  # re-opens the real internet for everything behind it -- the 2026-09-21
+  # breach, where a `github.com` handshake came back with a real Sectigo
+  # certificate instead of this twin's lab CA).
+  #
+  # **`provision`, deliberately, and this is not the safe-by-default value.**
+  # `configure-router` runs LONG before any `provision-app`/`run-script`
+  # (pass-3 orders apt behind router-ready on purpose), and this twin apt-pulls
+  # hard at provisioning time: Caddy/bind9/chrony on the sink, Chromium plus
+  # seven protocol tools on the client, Samba on the file server. A twin that
+  # deployed in `measure` would have no package source at all -- the sink
+  # impersonates the observed external world, not the Debian archive.
+  #
+  # So the declaration's job here is NOT to deploy contained; it is to make
+  # the phase a DECLARED, INSTALLED, VISIBLE, one-command-flippable fact
+  # instead of two hand-typed router commands nobody can audit afterwards:
+  #
+  #   * the engine + its state + its boot unit are installed on `gw` by the
+  #     deploy (`/usr/local/sbin/axr-egress-phase.sh`), with `sink_ip` already
+  #     baked in -- so the flip needs NO new input and cannot point at a
+  #     stale address;
+  #   * `axrange te info` / `te inventory` print the live phase, so "is this
+  #     twin contained?" is answerable without an ssh to the router. That is
+  #     the question nobody could answer during the live run.
+  #
+  # **Before measuring anything, flip it** (README step 2):
+  #     axr-egress-phase.sh measure   # on gw; --show / --healthcheck to read
+  # and confirm with `axrange te info` -- it must say `measure -- CONTAINED`.
+  # A capture window that ran in `provision` is UNCONTAINED and must not be
+  # scored (§6). A twin whose provisioning needs no real egress should
+  # declare `phase: measure` here instead and never flip at all.
+  #
+  # `sink_ip` is NOT written here: it is resolved from this twin's own
+  # `role: sink` node (`sink`, pinned at 10.66.30.10 on `ext`). One statement
+  # of the address, in the one place the twin already states it.
+  egress:
+    phase: provision
+
+  # No `params:`. Every name below is hardcoded on purpose: the bind9 zone,
+  # the nginx certificate CN, the Samba UNC path, the Kerberos realm and the
+  # persona knobs all have to agree BYTE FOR BYTE or the engines fail in ways
+  # that read like protocol bugs (a cert that does not match the SNI, a TGS
+  # request for an SPN nobody registered). A parameterized DOMAIN is exactly
+  # how those drift apart.
+  #
+  # The realm is the LAB realm by ruling (D4, Authority: user, 2026-09-04):
+  # the observed `AXELLIO.DOM` is RECORDED, never reproduced. Only the
+  # external names the sink answers are the cast's real ones -- and those are
+  # DATA (the generated sink corpus), not identity.
+  #
+  # No `observation:` blocks: this is HAND-AUTHORED content, not a cast, so
+  # there is no measured occupancy to gate on.
+
+  segments:
+    # ---- svc: the servers ------------------------------------------------
+    # Tapped (tap-svc-engines.yaml). Every engine's peer lives here except the
+    # external world, so this segment carries Kerberos, LDAP, SMB, RPC, SNMP,
+    # SSH, internal DNS and internal TLS.
+    - { name: svc, cidr: 10.66.10.0/24, zone_type: simple }
+    # ---- cli: the clients -------------------------------------------------
+    # The engine host and the Windows member. Separate from `svc` so every
+    # emit actually crosses the router -- the shape every real cast has, and
+    # what makes the `svc`-leg `rx` mirror worth taking.
+    - { name: cli, cidr: 10.66.20.0/24, zone_type: simple }
+    # ---- ext: the "external world" ---------------------------------------
+    # ONE host: the sink. A segment of its own rather than a leg on `svc`, for
+    # three reasons that all matter to the read of the capture:
+    #   (a) ROUTING INTENT IS EXPLICIT -- "everything not 10.66.0.0/16 goes to
+    #       10.66.30.10" is a statement about a NEXT HOP on a dedicated
+    #       segment, not a host route smuggled into the server net. E1's
+    #       `measure` phase is then one default-route change at `gw`, and the
+    #       router's own counters say whether anything went to the real WAN.
+    #   (b) IT IS SEPARATELY TAPPABLE -- external-facing traffic (the browser
+    #       engine: DNS, TLS-with-real-SNI, HTTP/2, QUIC) is captured on `ext`
+    #       and internal traffic on `svc`, so a read never has to guess which
+    #       side of the twin a flow belongs to.
+    #   (c) NOTHING INTERNAL SHARES ITS BROADCAST DOMAIN, so the sink's any-IP
+    #       acceptance trick (`ip route add local 0.0.0.0/0`, serve-sink.sh's
+    #       "ARM" section) cannot swallow a frame that was meant for a
+    #       twin-internal server.
+    - { name: ext, cidr: 10.66.30.0/24, zone_type: simple }
+
+  nodes:
+    # ======================================================================
+    # the router -- where the twin-level `egress:` posture lands
+    # ======================================================================
+    # Debian/nftables (NOT VyOS): the shipped-config shape, and the branch
+    # `OP-HOST-090 configure-router` implements with REST/QGA. It gives every
+    # Linux host apt egress at PROVISIONING time, which this twin needs badly:
+    # the sink apt-installs Caddy/bind9/chrony and the engine client
+    # apt-installs Chromium plus seven protocol tools.
+    #
+    # **E1's seam is CLOSED (GAP-101).** The phase used to be two hand-typed
+    # commands on this router, described in a 40-line comment here; it is now
+    # the twin-level `egress:` block at the top of this file, which
+    # `pass1_emit` attaches to this node's `configure-router` op. Nothing is
+    # declared on the node itself -- read that block for the posture, why it
+    # is `provision` at deploy time, and the one command that flips it. The
+    # VyOS branch is deliberately not used here: the egress phase policy has
+    # no vbash implementation and a VyOS router in a declaring twin is
+    # refused at PLAN time (`pass1_emit`), never half-applied.
+    #
+    # Still true, and still why `tfc-svc-engines.yaml` gates the browse
+    # persona on the measure phase: in `provision` the sink's DNS answers
+    # (real observed addresses like 140.82.112.3) ARE routable to the real
+    # internet through this router's NAT, so a persona left running in that
+    # phase talks to the real world, and a capture window that ran in it is
+    # uncontained and must not be scored (§6).
+    #
+    # GAP-078: the legs are deliberately NOT pinned. `expand.py`'s allocator
+    # records a segment's `gateway:` only on the branch that AUTO-assigns a
+    # lone router leg; pinning it skips that branch, the network is emitted
+    # with NO gateway, every host gets `gateway: None`, and every apt pull
+    # fails in-guest with nothing upstream saying why. Validation passes
+    # either way. Unset yields the same addresses (.1 of each CIDR) AND the
+    # gateway.
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: svc }
+        - { segment: cli }
+        - { segment: ext }
+
+    # ======================================================================
+    # the sink -- E2's any-IP responder, the whole external world in one VM
+    # ======================================================================
+    # Runs `twin-configs/_shared/scripts/serve-sink.sh` (shared content: every
+    # twin that needs a sink installs the same file -- it is NOT copied here).
+    # That recipe stands up, on ONE host: bind9 authoritative for the ROOT
+    # over the generated corpus (an observed name -> its really-observed
+    # address; everything else NXDOMAIN, nothing forwarded), Caddy serving
+    # HTTP/1.1 + HTTP/2 + HTTP/3 with a certificate minted PER SNI from a lab
+    # CA, chrony, sshd, and a generic TCP/UDP responder so an unclaimed port
+    # COMPLETES a connection instead of answering RST.
+    #
+    # **The corpus must be delivered BEFORE the recipe runs** -- serve-sink.sh
+    # fails loud when `/etc/axr-sink/db.axr-sink-root` is absent, on purpose.
+    # `run-script` (OP-APP-030) delivers exactly ONE script per app
+    # (`pass1_emit._emit_apps` refuses a second), so the two payloads the sink
+    # needs -- the GENERATED corpus installer and the SHARED recipe -- are
+    # concatenated into one file by `scripts/build-sink-payload.sh`, which
+    # writes `scripts/provision-sink.sh`. That file is GENERATED, never
+    # hand-edited; regenerate it whenever the cast topology or serve-sink.sh
+    # changes. README step 0 runs it; `te plan` fails loudly if it is missing.
+    #
+    # ROUTING INTENT, stated once and referenced everywhere: **every external
+    # destination in this twin routes to 10.66.30.10.** Today that is the
+    # operator's interim route at `gw` (see the SEAM above); after E1 it is
+    # the `measure` phase's default route. The sink accepts those packets
+    # regardless of their destination address via its own policy-routed
+    # `ip route add local 0.0.0.0/0 dev lo` on the LAN NIC only -- read the
+    # "ARM" section of serve-sink.sh before changing anything about this node.
+    #
+    # `pkg:` mirrors the recipe's own package list so the apt work happens in
+    # `provision-app` (in the provisioning phase, when egress exists) rather
+    # than inside `run-script`. The recipe's `axr_pkg` then finds everything
+    # installed and skips -- the same belt-and-braces svc-verify uses.
+    #
+    # That ordering is not merely tidy here, it is LOad-BEARING: serve-sink.sh
+    # points this guest's own `/etc/resolv.conf` at the twin GATEWAY while one
+    # exists ("this host's apt path has to survive provisioning"), and this
+    # twin's gateway is a ROUTER, not a resolver -- so any apt work left to the
+    # recipe would fail to resolve. Declaring the packages here means the pulls
+    # happen earlier, over cloud-init's own resolver, through the router's NAT.
+    - name: sink
+      role: sink
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      nets: [{ segment: ext, ip: 10.66.30.10 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-dnsutils }
+        - { pkg: caddy }
+        - { pkg: chrony }
+        - { pkg: socat }
+        - { pkg: nftables }
+        - { pkg: openssl }
+        - { pkg: curl }
+        - { pkg: ca-certificates }
+        - { script: scripts/provision-sink.sh }
+      # The DECLARED set is what serve-sink.sh actually binds. The last two
+      # are the generic-responder ports every unclaimed port is REDIRECTed to
+      # (nftables nat/prerouting, `AXR_TCP_FALLBACK_PORT`/`AXR_UDP_FALLBACK_
+      # PORT` in the recipe): they are real listeners an `ss` census will see,
+      # so they are declared rather than quietly omitted.
+      listen:
+        - { port: 22, proto: tcp }     # sshd, as shipped
+        - { port: 53, proto: udp }     # bind9, authoritative for '.'
+        - { port: 53, proto: tcp }
+        - { port: 80, proto: tcp }     # Caddy, plain HTTP
+        - { port: 443, proto: tcp }    # Caddy, TLS: HTTP/1.1 + HTTP/2
+        - { port: 443, proto: udp }    # Caddy, HTTP/3 (QUIC)
+        - { port: 123, proto: udp }    # chrony, `local stratum 8`
+        - { port: 9099, proto: tcp }   # generic TCP responder (redirect target)
+        - { port: 9098, proto: udp }   # generic UDP responder (redirect target)
+
+    # ======================================================================
+    # the resolver -- E3 hop 2, where the whole name service is decided
+    # ======================================================================
+    # **Why this is NOT svc-verify's `serve-dns-resolver-10-80-64-core.sh`,
+    # byte-identical.** That recipe is aximprint's real generated output and
+    # it is right for what it does, but it does three things this twin cannot
+    # have (each one silently breaks an engine rather than failing loudly):
+    #
+    #   1. It maps EVERY name in its zone -- including a `*` wildcard -- to
+    #      the RESOLVER'S OWN address. In a twin whose whole point is real
+    #      UNC paths and real SPNs, `\\files.svc.axr.lab\corp` would then open
+    #      an SMB session against bind9, and `kvno cifs/dc.corp.axr.lab` would
+    #      request a ticket for a host that is not the DC. Names here must
+    #      resolve to the REAL host that serves them.
+    #   2. It forwards everything else to `axr_gateway` -- the ROUTER, which
+    #      is not a resolver at all (svc-verify's README records the
+    #      consequence: anything outside the zone SERVFAILs). This twin
+    #      forwards to the SINK, which is the entire external world.
+    #   3. It is authoritative for `corp.axr.lab`, which in THIS twin is the
+    #      AD forest the DC owns. Two authoritative answers for one zone is
+    #      how a green result becomes unreadable (svc-verify's own README
+    #      makes that exact point about `axdc01`).
+    #
+    # So the recipe is new, but the HOUSE PARTS are the cast's, unchanged:
+    # `axr_pkg` / `axr_unit_name` / `axr_unit` / `axr_self_ip` are copied
+    # verbatim, so the fail-loud behaviour (`systemctl is-active` or exit 1)
+    # and the install-only-what-is-missing behaviour are identical.
+    #
+    # ---------------------------------------------------------------------
+    # **THE NAME-SERVICE CHAIN (E3), in full. Every hop is authored:**
+    #
+    #   Linux hosts        --> 10.66.10.11 (this host), set in each Linux
+    #                          recipe's /etc/resolv.conf. Linux never talks to
+    #                          the DC: it has no reason to, and pointing a
+    #                          non-member at AD DNS buys nothing.
+    #   Windows member     --> 10.66.10.21 (the DC), set BY THE JOIN OP
+    #                          (`config_exec/render.py::render_join_to_domain`
+    #                          points a joining host's DNS at the DC). A
+    #                          domain member MUST use the DC as its DNS --
+    #                          `_ldap._tcp.dc._msdcs...` SRV lookups, secure
+    #                          dynamic update and the logon locator all break
+    #                          otherwise. **Never point a member at bind9.**
+    #   DC                 --> forwarder = 10.66.10.11 (this host), set by
+    #                          `scripts/prepare-dc.ps1`. The DC stays
+    #                          authoritative for `corp.axr.lab` and asks the
+    #                          twin resolver for everything else.
+    #   this host          --> `corp.axr.lab` + `_msdcs.corp.axr.lab`:
+    #                            FORWARD-ONLY to 10.66.10.21 (the DC). This is
+    #                            what lets a LINUX client resolve `dc.corp.axr
+    #                            .lab`, the SRV records `kinit` may want, and
+    #                            the DC's own A record -- i.e. what makes a
+    #                            real SPN and a real UNC path possible.
+    #                        --> `svc.axr.lab`: AUTHORITATIVE here (the zone
+    #                            below). The twin's Linux service names live in
+    #                            their own zone rather than inside the AD zone,
+    #                            because nothing outside AD can write records
+    #                            into an AD-integrated zone without a domain
+    #                            join, and a second authority for
+    #                            `corp.axr.lab` is exactly defect (3) above.
+    #                        --> EVERYTHING ELSE: forward-only to the SINK
+    #                            (10.66.30.10), which answers observed names
+    #                            with their observed addresses and NXDOMAINs
+    #                            the rest. **Nothing ever reaches a real public
+    #                            resolver**: there is no `1.1.1.1`, no root
+    #                            hints path, `forward only` (never `forward
+    #                            first`), and `dnssec-validation no`.
+    #
+    # The one thing only the cluster can settle is whether bind9 is happy to
+    # accept an AUTHORITATIVE (RA=0) answer from a forwarder -- the sink is an
+    # authoritative root server, not a recursive resolver. The recipe's header
+    # documents the fallback (`zone "." { type static-stub; ... }`) and the
+    # README's step 3 probe is what decides it.
+    # ---------------------------------------------------------------------
+    - name: resolver
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: svc, ip: 10.66.10.11 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { pkg: bind9-dnsutils }
+        - { script: scripts/serve-twin-resolver.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+
+    # ======================================================================
+    # the web tier -- real TLS, with a certificate that matches a real name
+    # ======================================================================
+    # Modelled on svc-verify's copied `serve-web-tier-10-80-72-core.sh`, with
+    # ONE deliberate change: the vhost/CN/SAN is `web.svc.axr.lab` -- the name
+    # THIS twin's resolver publishes for this host -- instead of the cast
+    # compiler's node-group name. A certificate whose SAN does not match the
+    # name a client dials makes every TLS result unreadable (is the failure
+    # the client, the server, or the chain?), and this twin is measuring
+    # precisely that: real name -> real SNI -> matching cert.
+    #
+    # Serves 80 as well as 443 so the browser engine's plain-HTTP emit and any
+    # HTTP->HTTPS behaviour have somewhere internal to land.
+    - name: web
+      role: web-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: svc, ip: 10.66.10.12 }]
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier.sh }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+
+    # ======================================================================
+    # the file server -- NEW: Samba, with enough bytes to be realistic
+    # ======================================================================
+    # The cast observed **2.2 GB of internal SMB** (work order §1). Filler
+    # bytes at port 445 cannot carry that: SMB byte volume is a real client
+    # reading real files out of a real share, with real SMB2 READ/WRITE
+    # semantics, real negotiated dialects and a real tree connect to a UNC
+    # path. So this host holds ~1 GiB of files across two shares, and the
+    # file-client persona reads them repeatedly -- a 2.2 GB window is reached
+    # by re-reading, not by inventing 2.2 GB of content nobody observed.
+    #
+    # NOT domain-joined, on purpose: a Samba member server needs `net ads
+    # join` and a working keytab, which is a slice of its own. The
+    # consequence is recorded rather than hidden: **SMB to this host
+    # authenticates with NTLM or as guest, not with Kerberos.** The
+    # Kerberos-authenticated SMB path is exercised against the DC's SYSVOL
+    # share instead (the AD persona), where it is genuine.
+    #
+    # SNMP rides here too (161/udp). It needs a real agent somewhere, a NAS
+    # exposing SNMP is the realistic pairing, and giving it a host of its own
+    # would cost a ninth VM for one UDP emit.
+    - name: files
+      role: file-server
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      nets: [{ segment: svc, ip: 10.66.10.13 }]
+      install:
+        - { pkg: samba }
+        - { pkg: samba-common-bin }
+        - { pkg: snmpd }
+        - { script: scripts/serve-file-server.sh }
+      listen:
+        - { port: 445, proto: tcp }    # smbd -- SMB2/SMB3 only; nmbd is masked
+        - { port: 161, proto: udp }    # snmpd, read-only community
+        - { port: 22, proto: tcp }     # sshd: DECLARED because the mgmt persona
+                                       # dials it, so it is a service this twin
+                                       # relies on, not just an image baseline
+
+    # ======================================================================
+    # the Windows half -- a real AD DS forest (S3's shape, svc-verify's wiring)
+    # ======================================================================
+    # TWO lines of authoring (`install:` + `provides:`) reproduce ten service
+    # ports, because AD DS brings DNS, the KDC, LDAP + CLDAP, SMB, the Global
+    # Catalog, the RPC endpoint mapper and W32Time up as a CONSEQUENCE of
+    # being a DC. The declared set is svc-verify's, verbatim: the observed
+    # twelve minus the two dynamic RPC allocations, which are ephemeral rather
+    # than services (GAP-064) and must never be declared to make a census
+    # match.
+    #
+    # **Why the DC carries a SCRIPT as well as `role: adds`** (E3 hop 3): a
+    # freshly promoted DC forwards to whatever the image's DNS client had --
+    # on this twin, nothing useful -- so external names die at the DC and the
+    # member's whole world is `corp.axr.lab`. `prepare-dc.ps1` points the DC's
+    # forwarder at the twin resolver, and drops one readable probe file into
+    # SYSVOL so the AD persona's SMB emit has a real file to fetch over a
+    # KERBEROS-authenticated session. It runs as `run-script`, which
+    # gates only on this app's `provision-app` (the promotion), so the script
+    # RETRIES until the DNS Server service answers: the promotion's reboot and
+    # the DNS role's first start are not synchronous with the op boundary.
+    #
+    # **The listen-census consequence worth stating** (work order §5 E6 /
+    # services order S3): a DC that ANSWERS is not a DC that is RE-INFERRED.
+    # `roles.yaml`'s `domain-controller` row needs 88/tcp AND 389/tcp together
+    # in the observed listen census, and a listen fact is written only from an
+    # ACCEPTED flow -- so something must actually DIAL 88/tcp and 389/tcp at
+    # this host. That is exactly what `svc-engines-ad-client`'s kerberos and
+    # ldap emits do, over TCP by derivation (`personas.schema.
+    # default_transport` leaves both on TCP).
+    - name: dc
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      nets: [{ segment: svc, ip: 10.66.10.21 }]
+      install:
+        - { role: adds }
+        - { script: scripts/prepare-dc.ps1 }
+      provides: [{ domain: corp.axr.lab }]
+      listen:
+        - { port: 53, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 88, proto: tcp }
+        - { port: 88, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 135, proto: tcp }
+        - { port: 389, proto: tcp }
+        - { port: 389, proto: udp }
+        - { port: 445, proto: tcp }
+        - { port: 3268, proto: tcp }
+
+    # The joined member -- the Windows engine's host (work order §5 E6).
+    # `joins:` is the explicit domain-join declaration; the join op points
+    # this host's DNS at the DC, which is E3 hop 1 and is why NO resolver
+    # wiring is authored here. ONE Windows client, deliberately: GAP-051 says
+    # joins are ~1-2 min each and effectively serialised, and the work order
+    # sizes E8 for one.
+    #
+    # 3389 is the one port Windows ships OFF; `enable-rdp.ps1` (copied
+    # byte-identical from svc-verify, which took it from the `ad-cast`
+    # fixture) turns it on -- without it the mgmt persona's `rdp` emit gets a
+    # refusal, which looks exactly like the "RST instead of complete" failure
+    # the engine round exists to eliminate.
+    - name: win-member
+      role: corp-workstation
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      nets: [{ segment: cli, ip: 10.66.20.21 }]
+      joins: corp.axr.lab
+      install: [{ script: scripts/enable-rdp.ps1 }]
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+        - { port: 3389, proto: tcp }
+
+    # ======================================================================
+    # the engine client -- E4 + E5, and the E0 proof
+    # ======================================================================
+    # Carries FOUR persona instances (tfc-svc-engines.yaml): one `drive:
+    # browser` (the web stack: DNS + real TLS with real SNI + HTTP/1.1 +
+    # HTTP/2 + QUIC) and three `drive: command` groups (AD, file, mgmt). One
+    # host carrying more than one persona is exactly what slice E0 lifts
+    # (`o2control/traffic.py`'s `claimed_hosts` refusal) -- so this node IS
+    # the E0 acceptance case, and tfc-svc-engines.yaml says what to collapse
+    # to if E0 has not landed when this deploys.
+    #
+    # **Run-time installs, not an image bake -- a DISCLOSED bypass.** Work
+    # order §5 E7 says the Chromium + protocol-tool set belongs in an image
+    # (LES-024: bake fragile tooling rather than apt-install it in an isolated
+    # guest; GAP-056). That image does not exist yet, and `install:` on a
+    # STANDING twin trips `--update`'s in-place mutation refusal. It is legal
+    # here for the same reason it was legal in svc-verify: this twin is a
+    # throwaway, deployed once and destroyed. When E7's image lands, these
+    # `pkg:` lines become `provides:` and the deploy gets ~10 minutes shorter.
+    #
+    # The apt pulls are large (Chromium alone is ~1 GB of packages) and they
+    # happen in `provision-app`, i.e. in the PROVISION phase while `gw` still
+    # masquerades to the WAN. That ordering is not an accident -- see the E1
+    # seam on `gw`, and README step 2.
+    #
+    # No `listen:`: this host serves nothing, and ABSENT is how a twin says
+    # "no claim" (`listen: []` is refused at the author, LES-226).
+    - name: linux-client
+      role: engine-client
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 4, ram: 6Gi, disk: 40Gi }
+      nets: [{ segment: cli, ip: 10.66.20.11 }]
+      install:
+        # --- E4, the browser engine ---------------------------------------
+        - { pkg: chromium }            # headless Chromium: DNS + TLS(SNI/JA3) + h1/h2/h3
+        - { pkg: ca-certificates }
+        # --- E5, one binary per `drive: command` template -----------------
+        - { pkg: dnsutils }            # dig        -- proto: dns
+        - { pkg: curl }                # curl       -- proto: http / https
+        - { pkg: krb5-user }           # kinit/kvno -- proto: kerberos
+        - { pkg: ldap-utils }          # ldapsearch -- proto: ldap
+        # The SASL GSSAPI MECHANISM, which `ldap-utils` does not depend on and
+        # which ships no binary, so no `command -v` probe can catch it
+        # missing. Without it `ldapsearch -Y GSSAPI` dies with `Unknown
+        # authentication method (-6) ... no mechanism available: No worthy
+        # mechs found` -- an error that accuses the DC of refusing GSSAPI and
+        # is in fact this client not knowing the word (measured, dev45
+        # 2026-09-21). Declared on the `ldap` template too
+        # (`command.py`, `extra_packages`) so an image bake inherits it.
+        - { pkg: libsasl2-modules }
+        - { pkg: libsasl2-modules-gssapi-mit }
+        - { pkg: smbclient }           # smbclient / rpcclient -- proto: smb / rpc
+        - { pkg: freerdp2-x11 }        # xfreerdp   -- proto: rdp (+auth-only)
+        - { pkg: openssh-client }      # ssh        -- proto: ssh
+        # `sshpass` is how the `ssh` template hands over the lab credential
+        # without putting it in the argv (`command._build_ssh`). Key-auth
+        # alone made every ssh firing end in `Permission denied
+        # (publickey,password)` -- a real KEX and a session that never
+        # completed (measured, dev45 2026-09-21).
+        - { pkg: sshpass }             # sshpass -f <0600 file> ssh -- proto: ssh
+        - { pkg: snmp }                # snmpget    -- proto: snmp
+        # (`ping` is iputils-ping, already in the base cloud image.)
+        # `ntpdate` (proto: ntp) is NOT a `pkg:` action: Debian renamed the
+        # package that ships that binary across the ntp->ntpsec transition
+        # (`ntpdate` on bullseye, `ntpsec-ntpdate` on bookworm) and a `pkg:`
+        # naming the wrong one FAILS THE DEPLOY rather than degrading
+        # (Ansible's apt module fails the task -> provision-app fails ->
+        # halt). svc-verify hit exactly this and wrapped it in a script; here
+        # the same try-both-and-assert logic is step 0 of the one script
+        # action below, because that slot is a limit of one
+        # (`pass1_emit._emit_apps`).
+        #
+        # The one script action this app is allowed: ntpdate, realm config,
+        # the resolver pointer, and a fail-loud binary census.
+        - { script: scripts/prepare-engine-client.sh }
+
+  # LAB DEFAULTS, and imputed -- all of them. Nothing observed carries a
+  # password, a group or an OU, so this population is invented and must never
+  # read as reproduction evidence.
+  #
+  # **NO explicit `password:` on `alice`, unlike svc-verify -- deliberately.**
+  # Three engines authenticate as her (`kinit`, `smbclient -A`, `xfreerdp`),
+  # and a `drive: command` persona gets its secret from ONE place:
+  # `AdapterConfig.default_password` (adapter.conf's `DEFAULT_PASSWORD`),
+  # resolved at RUN time by `o2control.traffic.PersonaBackend` and written
+  # into a 0600 in-guest file -- a persona document is catalog content and
+  # may never carry a credential literal (`command._resolve_client_knobs`
+  # refuses a secret-looking knob by name). `create-domain-user` takes
+  # `inp.password or config.default_password`, so LEAVING THIS UNSET is what
+  # makes the account's password and the persona's credential the same
+  # string. Setting it explicitly here would create an account no engine can
+  # authenticate as -- and the failure would look like a broken KDC.
+  #
+  # ⇒ the operator's `adapter.conf` `DEFAULT_PASSWORD` is `alice`'s password,
+  #   and it is what the README's manual `kinit` step uses too.
+  identity:
+    domain: corp.axr.lab
+    users:
+      - { id: alice, groups: [Domain Users], ou: Finance }
+      - { id: bob-admin, groups: [Domain Admins], ou: IT }

@@ -1,0 +1,109 @@
+<title>corp-enterprise Blueprint</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f7f8f9; --surface:#fcfcfb; --ink:#14171a; --muted:#6b7280;
+  --border:rgba(20,23,26,0.22); --seg:#eef1f4; --panel:#f2f4f7; --panel-dim:#f7f8f9;
+  --accent:#b1461f; --accent-soft:#f6e4dc;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:#0e0f11; --surface:#191c1f; --ink:#e8eaed; --muted:#98a0aa;
+    --border:rgba(255,255,255,0.24); --seg:#1e2329; --panel:#1b1f24; --panel-dim:#15181c;
+    --accent:#e58259; --accent-soft:#3a2117;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0e0f11; --surface:#191c1f; --ink:#e8eaed; --muted:#98a0aa;
+  --border:rgba(255,255,255,0.24); --seg:#1e2329; --panel:#1b1f24; --panel-dim:#15181c;
+  --accent:#e58259; --accent-soft:#3a2117;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink);
+  font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1120px; margin:0 auto; padding:44px 24px 72px; }
+.eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); }
+h1 { margin:6px 0 6px; font-size:clamp(26px,3.6vw,36px); letter-spacing:-0.02em;
+  line-height:1.12; text-wrap:balance; }
+.sub { margin:0 0 26px; color:var(--muted); max-width:72ch; font-size:15.5px; }
+figure { margin:0; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; padding:20px 20px 10px; }
+.figscroll { overflow-x:auto; }
+svg { width:100%; min-width:900px; height:auto; display:block; color:var(--ink); }
+figcaption { color:var(--muted); font-size:13px; margin-top:14px; padding-top:12px;
+  border-top:1px solid var(--border); }
+.cloud { fill:var(--surface); stroke:var(--muted); stroke-width:1.2; stroke-dasharray:5 3; }
+.router { fill:var(--seg); stroke:currentColor; stroke-width:1.5; }
+.seg { fill:var(--seg); stroke:var(--border); stroke-width:1.2; }
+.node { fill:var(--surface); stroke:var(--border); stroke-width:1.2; }
+.node-hot { fill:var(--surface); stroke:var(--accent); stroke-width:1.6; }
+.panel { fill:var(--panel); stroke:var(--border); stroke-width:1.2; }
+.panel-dim { fill:var(--panel-dim); stroke:var(--border); stroke-width:1; stroke-dasharray:4 3; }
+.wire { stroke:currentColor; stroke-width:1.3; opacity:.55; fill:none; }
+.ah { fill:currentColor; opacity:.6; }
+.dot { fill:var(--muted); }
+.hot-dot { fill:var(--accent); }
+text { font-family:var(--sans); }
+.lbl-b { fill:currentColor; font-size:12.5px; font-weight:600; }
+.seg-name { fill:currentColor; font-size:13.5px; font-weight:700; letter-spacing:.02em; }
+.mono-s { fill:var(--muted); font-family:var(--mono); font-size:10px; }
+.hot-lbl { fill:var(--accent); font-size:10.5px; font-weight:600; }
+.sec { fill:currentColor; font-size:13px; font-weight:600; }
+.panel-h { fill:currentColor; font-size:13px; font-weight:700; }
+.leg { fill:var(--muted); font-size:11.5px; }
+.notes { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+  gap:14px; margin-top:22px; }
+.note { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+.note h3 { margin:0 0 5px; font-size:13.5px; }
+.note p { margin:0; color:var(--muted); font-size:13px; }
+.inl { font-family:var(--mono); font-size:12px;
+  background:color-mix(in srgb, var(--ink) 7%, transparent); padding:1px 5px; border-radius:4px; }
+footer { color:var(--muted); font-size:12px; font-family:var(--mono);
+  margin-top:26px; padding-top:14px; border-top:1px solid var(--border); }
+</style>
+
+<div class="wrap">
+  <div class="eyebrow">twin config · blueprint (not a live deploy) · 2026-08-14</div>
+  <h1>corp-enterprise — as configured</h1>
+  <p class="sub">Drawn from <span class="inl">twin-configs/corp-enterprise/corp-enterprise.yaml</span>
+  alone: the default <span class="inl">N_WORKSTATIONS=25</span>, every declared node with its image
+  and app, and the identity + data overlays. A twin config authors <em>no</em> capture, traffic, or
+  attack intent — those are separate tier specs — so unlike the deployed view, there is no tap plane
+  or O2 surface here.</p>
+
+  <figure>
+    <div class="figscroll"><svg viewBox="0 0 1080 644" role="img" aria-label="Blueprint of the corp-enterprise twin config: four VLAN segments behind a multi-homed router with WAN egress, nine node types with their images and installed apps (25 domain-joined workstations, a domain controller, servers and a LAN attacker), and the identity and data overlays the config authors — an AD domain with deliberately-vulnerable accounts (Kerberoastable, AS-REP-roastable, domain-admin) and crown-jewel PII on the file server. No capture, traffic or attack tiers, which are separate specs."><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs><rect x="64" y="44" width="174" height="40" rx="7" class="cloud"/><text x="151" y="61" text-anchor="middle" class="lbl-b">Internet / WAN</text><text x="151" y="75" text-anchor="middle" class="mono-s">adapter-injected on vmbr0</text><rect x="330" y="110" width="420" height="48" rx="7" class="router"/><text x="540" y="130" text-anchor="middle" class="lbl-b">gw · kind: router · debian-12-cloud</text><text x="540" y="146" text-anchor="middle" class="mono-s">4 VLAN legs (.1 each) · WAN egress + NAT</text><polyline points="151,84 151,98 330,98 330,118" class="wire" fill="none" marker-end="url(#arrow)"/><text x="240" y="94" text-anchor="middle" class="mono-s">egress</text><rect x="61" y="190" width="190" height="46" rx="7" class="seg"/><text x="156" y="209" text-anchor="middle" class="seg-name">corp-lan</text><text x="156" y="225" text-anchor="middle" class="mono-s">10.62.0.0/24 · zone vlan</text><line x1="382" y1="158" x2="156" y2="190" class="wire"/><line x1="156" y1="236" x2="156" y2="250" class="wire"/><rect x="61" y="250" width="190" height="50" rx="7" class="node"/><text x="156" y="267" text-anchor="middle" class="lbl-b">attacker</text><text x="156" y="281" text-anchor="middle" class="mono-s">debian-12-cloud · offense kit</text><text x="156" y="294" text-anchor="middle" class="mono-s">nmap/impacket/hashcat/john</text><line x1="156" y1="300" x2="156" y2="312" class="wire"/><rect x="61" y="312" width="190" height="50" rx="7" class="node"/><text x="156" y="329" text-anchor="middle" class="lbl-b">corp-workstation ×25</text><text x="156" y="343" text-anchor="middle" class="mono-s">win11-finance · joins corp.axr.lab</text><text x="156" y="356" text-anchor="middle" class="mono-s">N_WORKSTATIONS</text><rect x="307" y="190" width="190" height="46" rx="7" class="seg"/><text x="402" y="209" text-anchor="middle" class="seg-name">server-vlan</text><text x="402" y="225" text-anchor="middle" class="mono-s">10.62.10.0/24 · zone vlan</text><line x1="488" y1="158" x2="402" y2="190" class="wire"/><line x1="402" y1="236" x2="402" y2="250" class="wire"/><rect x="307" y="250" width="190" height="50" rx="7" class="node-hot"/><text x="402" y="267" text-anchor="middle" class="lbl-b">domain-controller</text><text x="402" y="281" text-anchor="middle" class="mono-s">windows-server-2022 · adds</text><text x="402" y="294" text-anchor="middle" class="hot-lbl">hosts corp.axr.lab forest</text><line x1="402" y1="300" x2="402" y2="312" class="wire"/><rect x="307" y="312" width="190" height="50" rx="7" class="node-hot"/><text x="402" y="329" text-anchor="middle" class="lbl-b">file-server</text><text x="402" y="343" text-anchor="middle" class="mono-s">ubuntu-server-22 · samba</text><text x="402" y="356" text-anchor="middle" class="hot-lbl">+ customer-pii (crown-jewel)</text><rect x="553" y="190" width="190" height="46" rx="7" class="seg"/><text x="648" y="209" text-anchor="middle" class="seg-name">dmz</text><text x="648" y="225" text-anchor="middle" class="mono-s">10.62.20.0/24 · zone vlan</text><line x1="592" y1="158" x2="648" y2="190" class="wire"/><line x1="648" y1="236" x2="648" y2="250" class="wire"/><rect x="553" y="250" width="190" height="50" rx="7" class="node"/><text x="648" y="267" text-anchor="middle" class="lbl-b">mail-server</text><text x="648" y="281" text-anchor="middle" class="mono-s">ubuntu-server-22 · postfix</text><line x1="648" y1="300" x2="648" y2="312" class="wire"/><rect x="553" y="312" width="190" height="50" rx="7" class="node"/><text x="648" y="329" text-anchor="middle" class="lbl-b">egress-proxy</text><text x="648" y="343" text-anchor="middle" class="mono-s">debian-12-cloud · squid</text><line x1="648" y1="362" x2="648" y2="374" class="wire"/><rect x="553" y="374" width="190" height="50" rx="7" class="node"/><text x="648" y="391" text-anchor="middle" class="lbl-b">dmz-web</text><text x="648" y="405" text-anchor="middle" class="mono-s">ubuntu-server-22 · nginx</text><rect x="799" y="190" width="190" height="46" rx="7" class="seg"/><text x="894" y="209" text-anchor="middle" class="seg-name">mgmt</text><text x="894" y="225" text-anchor="middle" class="mono-s">10.62.30.0/24 · zone vlan</text><line x1="698" y1="158" x2="894" y2="190" class="wire"/><line x1="894" y1="236" x2="894" y2="250" class="wire"/><rect x="799" y="250" width="190" height="50" rx="7" class="node"/><text x="894" y="267" text-anchor="middle" class="lbl-b">monitoring-collector</text><text x="894" y="281" text-anchor="middle" class="mono-s">debian-12-cloud · prometheus</text><text x="60" y="452" text-anchor="start" class="sec">Overlays the config authors — identity + data (no capture / traffic / attack intent)</text><rect x="60" y="468" width="660" height="150" rx="7" class="panel"/><text x="76" y="492" text-anchor="start" class="panel-h">Identity overlay · AD domain  corp.axr.lab</text><text x="76" y="509" text-anchor="start" class="mono-s">hosted on domain-controller (adds) · 25 corp-workstations domain-joined</text><circle cx="84" cy="526" r="3.2" class="dot"/><text x="98" y="530" text-anchor="start" class="lbl-b">alice</text><text x="210" y="530" text-anchor="start" class="mono-s">Domain Users · OU Finance</text><circle cx="84" cy="547" r="3.2" class="hot-dot"/><text x="98" y="551" text-anchor="start" class="lbl-b">bob-admin</text><text x="210" y="551" text-anchor="start" class="mono-s">Domain Admins · OU IT</text><text x="704" y="551" text-anchor="end" class="hot-lbl">◂ DCSync / domain-admin objective</text><circle cx="84" cy="568" r="3.2" class="hot-dot"/><text x="98" y="572" text-anchor="start" class="lbl-b">svc-sql</text><text x="210" y="572" text-anchor="start" class="mono-s">SPN MSSQLSvc/sql01…:1433 · Summer2024!</text><text x="704" y="572" text-anchor="end" class="hot-lbl">◂ Kerberoastable</text><circle cx="84" cy="589" r="3.2" class="hot-dot"/><text x="98" y="593" text-anchor="start" class="lbl-b">jsmith</text><text x="210" y="593" text-anchor="start" class="mono-s">asrep_roastable · Password123 · OU Finance</text><text x="704" y="593" text-anchor="end" class="hot-lbl">◂ AS-REP roastable</text><rect x="740" y="468" width="280" height="96" rx="7" class="panel"/><text x="756" y="492" text-anchor="start" class="panel-h">Data overlay</text><circle cx="762" cy="512" r="3.2" class="hot-dot"/><text x="776" y="516" text-anchor="start" class="lbl-b">customer-pii</text><text x="756" y="534" text-anchor="start" class="hot-lbl">PII · crown-jewel · 2 GiB synthetic</text><text x="756" y="550" text-anchor="start" class="mono-s">on file-server (server-vlan)</text><rect x="740" y="578" width="280" height="40" rx="7" class="panel-dim"/><text x="756" y="595" text-anchor="start" class="mono-s">Separate tier specs (not shown):</text><text x="756" y="609" text-anchor="start" class="mono-s">tap-*.yaml · tfc-*.yaml · exr-*.yaml</text><line x1="792" y1="96" x2="816" y2="96" class="wire"/><text x="822" y="100" text-anchor="start" class="leg">network &amp; hosts</text><circle cx="804" cy="114" r="3.4" class="hot-dot"/><text x="822" y="118" text-anchor="start" class="leg">seeded attack surface (purple-team)</text></svg></div>
+    <figcaption>The production plane (grey) is the config's <span class="inl">segments</span> +
+    <span class="inl">nodes</span>: four VLAN zones behind the multi-homed <span class="inl">gw</span>
+    router, whose WAN NIC is adapter-injected for <span class="inl">kind: router</span> (the config
+    declares four VLAN legs and WAN-egress intent, not the NIC). The accent marks the seeded
+    purple-team attack surface the overlays bake in — a deliberately-weak AD domain
+    (a Kerberoastable service account, an AS-REP-roastable user, a domain-admin DCSync objective) and
+    crown-jewel PII on the file server. IPs are auto-allocated at expand time and so are not shown.</figcaption>
+  </figure>
+
+  <div class="notes">
+    <div class="note"><h3>Infra + apps (config-declared)</h3><p>9 node types: a
+    <span class="inl">gw</span> router, a Windows DC (<span class="inl">adds</span>), Linux file /
+    mail / web / proxy / monitoring servers each with one <span class="inl">install:</span> package,
+    25 Win11 workstations that <span class="inl">joins:</span> the domain, and a Debian attacker with
+    an apt offense kit.</p></div>
+    <div class="note"><h3>Overlays (config-authored)</h3><p><b>identity</b> — the
+    <span class="inl">corp.axr.lab</span> forest with four accounts, three deliberately weak;
+    <b>data</b> — <span class="inl">customer-pii</span>, a 2&nbsp;GiB synthetic crown-jewel on the
+    file server. These are what a config <em>does</em> seed.</p></div>
+    <div class="note"><h3>Not in a twin config</h3><p>Capture (tap plans), traffic (persona
+    profiles), and attack (exercise specs) are <em>separate</em> tiers — <span class="inl">tap-*</span>,
+    <span class="inl">tfc-*</span>, <span class="inl">exr-*</span> in this folder — bound to a
+    <em>deployed</em> twin, never authored in the config. That separation is the 2026-07-28
+    tap-eligibility model.</p></div>
+  </div>
+
+  <footer>Source: twin-configs/corp-enterprise/corp-enterprise.yaml (blueprint). Compare with
+  2026-08-14-corp-enterprise-topology.html — the same twin deployed (N=6) with its live tap + O2 plane.</footer>
+</div>

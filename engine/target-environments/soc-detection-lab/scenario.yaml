@@ -1,0 +1,188 @@
+scenario_schema_version: 1
+
+scenario:
+  id: soc-detection-lab
+  version: 2
+  description: |
+    Corpus-derived SOC detection lab (Stage-2 of the scenario-ai-research).
+
+    Synthesized by Claude Code from the 324-video cyber-range knowledge corpus
+    (scenario_ai_research/stage2/CORPUS_DIGEST.md). The dominant deployable archetype across
+    the corpus is the segmented enterprise range with a blue-team SOC stack — Hack
+    The Box "realistic range for red and blue teams", I.T Security Labs / VirtualBox
+    home labs (Security Onion + Splunk + pfSense), and the Josh Madakor SOC labs
+    (Sentinel/Defender/Tenable). This is the focused detection-lab cut: a DMZ web
+    victim, a Windows finance workstation (corp segment), an attacker, and a SOC
+    sensor + SIEM, behind a VyOS/Debian router enforcing VLAN segmentation.
+
+      - DMZ web victim (nginx + a deliberately weak app surface),
+      - a Windows finance workstation (corp segment, high-value lateral target),
+      - an attacker host staged with the corpus's red-team kit (nmap, Metasploit,
+        Responder, Impacket, CrackMapExec),
+      - a SOC SENSOR running Suricata + Zeek (the corpus's #1 IDS pairing),
+      - a SOC SIEM running a Wazuh single-node stack (SIEM + EDR telemetry),
+      - a Debian router (kind: router) providing VLAN segmentation + egress NAT.
+
+    Victims are tapped, so mirrored traffic reaches the capture sensor for blue-team
+    threat hunting (the corpus's #1 technique). `requires:` is sharpened to the
+    image capabilities each role needs (eBPF/auditd on the sensor, EDR-hooks/
+    PowerShell on the Windows victim, a container runtime on the SIEM).
+
+    SCOPE — deployable here: Infrastructure + Apps & Tools on the Linux hosts
+    (router NAT/segmentation, sensor, SIEM, attacker kit, web victim), plus a
+    one-shot inline RED-TEAM ATTACK CHAIN (recon -> HTTP probe of the DMZ web
+    victim -> corp-segment sweep across the router -> lateral probe of the
+    workstation) via the OP-ACT inline-steps engine (CHANGELOG 2026-06-12).
+    Passes `axrange validate` and `axrange plan`. STILL DEFERRED (designed, not
+    deployed; see CORPUS_DIGEST.md §5): the richer library-driven chain
+    (exploit + lateral movement + ransomware/exfil beacon, Atomic Red Team
+    behavior refs) and the DEFENSE OVERLAY (Suricata/Wazuh `observes:` the
+    dmz/corp segments, Sigma/ET-open rulesets, KQL-style hunts, via OP-OVL).
+    Windows app/role provisioning is also deferred (the workstation deploys as
+    substrate).
+
+layers:
+  infra:
+    networks:
+      # Gateways are the `fw` router's LAN IPs (router slice Phase 2): the router
+      # provides internet/apt egress (NAT) + inter-segment routing across the VLANs.
+      - { id: dmz,  cidr: 10.50.10.0/24, vlan: 50, gateway: 10.50.10.1 }
+      - { id: corp, cidr: 10.50.20.0/24, vlan: 60, gateway: 10.50.20.1 }
+      - { id: soc,  cidr: 10.50.30.0/24, vlan: 70, gateway: 10.50.30.1 }
+    nodes:
+      # Firewall/router — the corpus's pfSense/VyOS, now deployable (Phase 2).
+      # Multi-homed across DMZ/corp/SOC; gets a WAN uplink for egress NAT and is
+      # the inter-segment chokepoint. Debian/nftables today (VyOS-swappable).
+      # Tapped: the chokepoint itself is a capture point, not just each VLAN
+      # separately.
+      - id: fw
+        kind: router
+        nets:
+          - { net: dmz,  ip: 10.50.10.1 }
+          - { net: corp, ip: 10.50.20.1 }
+          - { net: soc,  ip: 10.50.30.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # DMZ web victim — internet-facing app (Drupal/DVWA-class appeared across the
+      # corpus's exploitation labs). Tapped (monitored).
+      - id: web
+        kind: host
+        nets: [ { net: dmz, ip: 10.50.10.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # Windows finance workstation — high-value victim / lateral-movement target.
+      # requires sharpened: EDR hooks + PowerShell (the telemetry/tooling surface
+      # the corpus's Windows attack/detect labs assume).
+      - id: workstation
+        kind: host
+        nets: [ { net: corp, ip: 10.50.20.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # Attacker host — staged with the corpus's recurring red-team kit (red team).
+      - id: attacker
+        kind: host
+        nets: [ { net: dmz, ip: 10.50.10.66 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # SOC SENSOR — Suricata + Zeek network IDS/NSM (the corpus's #1 IDS pairing).
+      # eBPF + auditd are the host-telemetry surface these tools use.
+      - id: sensor
+        kind: host
+        nets: [ { net: soc, ip: 10.50.30.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:ebpf, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # SOC SIEM — Wazuh single-node (SIEM + EDR telemetry), run containerized.
+      # The corpus's SIEM tier (Splunk/Wazuh/Sentinel); here OSS + deployable.
+      - id: siem
+        kind: host
+        nets: [ { net: soc, ip: 10.50.30.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+  apps:
+    # DMZ web victim: nginx + PHP, then a deliberately weak app surface (script).
+    - id: web-stack
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+        - { script: ./scripts/web_setup.sh }
+    # SOC sensor: Suricata + Zeek + capture utilities, then sensor config (script).
+    - id: sensor-stack
+      install:
+        - { pkg: suricata }
+        - { pkg: zeek }
+        - { pkg: tcpdump }
+        - { pkg: jq }
+        - { script: ./scripts/sensor_setup.sh }
+    # SOC SIEM: container runtime, then bring up the Wazuh single-node stack (script).
+    - id: siem-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { script: ./scripts/siem_setup.sh }
+    # Attacker kit: scanning/cracking/AD tooling, then stage pip-based tools (script).
+    - id: offensive
+      install:
+        - { pkg: nmap }
+        - { pkg: netcat-traditional }
+        - { pkg: hydra }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { script: ./scripts/offensive_setup.sh }
+  # Red-team activity (OP-ACT inline-steps engine, docs/SLICE_ACTIVITY.md).
+  # One-shot attack chain run from the attacker host once the host's offensive
+  # kit is installed and capture is live (start-activity gates on mirror-ready):
+  # recon the DMZ web victim -> probe its HTTP surface -> sweep the corp segment
+  # across the router -> lateral-probe the finance workstation. All steps use
+  # tools the `offensive` app installs (nmap, netcat); traffic crosses the tapped
+  # dmz/corp hosts so the chain shows up in the capture sensor. The richer
+  # library-driven chain (Atomic Red Team, exploit + ransomware/exfil) remains a
+  # follow-on (behavior library — deferred).
+  activity:
+    - id: act-attack-chain
+      actor: red-operator
+      inline:
+        steps:
+          - { tool: nmap, args: "-sV -T4 -Pn", target: 10.50.10.10 }
+          - { run: "nc -z -w3 10.50.10.10 80 && echo 'web:80 open' >> /tmp/recon.txt; true" }
+          - { tool: nmap, args: "-sn -Pn", target: 10.50.20.0/24 }
+          - { run: "for p in 135 445 3389; do nc -z -w2 10.50.20.20 $p && echo \"ws:$p open\" >> /tmp/lateral.txt; done; true" }
+
+bindings:
+  - { app: web-stack,   host: web }
+  - { app: sensor-stack, host: sensor }
+  - { app: siem-stack,  host: siem }
+  - { app: offensive,   host: attacker }
+  - { activity: act-attack-chain, host: attacker }
+
+# Defense overlay (OP-OVL, docs/SLICE_OVERLAY.md §4b). First Defense increment:
+# a Wazuh HOST AGENT on the monitored Linux endpoints, shipping telemetry to the
+# SIEM manager (10.50.30.20). The overlay drops the agent config + enables the
+# service (the agent binary is the host app's concern). The NETWORK SENSOR half
+# (Suricata/Zeek observing dmz+corp via the capture mirror) is the next Defense
+# sub-increment (deploy-network-sensor) and is not declared here yet.
+overlays:
+  defense:
+    - id: wazuh-endpoint
+      tool: wazuh-agent
+      installed_on: [web, sensor]
+      ruleset: ossec-default
+      config: ./scripts/wazuh_agent.conf
+    # Network sensor (OP-OVL deploy-network-sensor, Option C — appliance-adjacent
+    # network-sensor Suricata). Inspects the dmz+corp segments by reading a mirror of the
+    # capture sensor's aggregated feed (tap_from: external-mirror); the ruleset
+    # fires on the red-team attack chain. Sensor-tier standing infra, not an
+    # in-segment node — see docs/SLICE_OVERLAY.md §4b.
+    - id: ids-suricata
+      tool: suricata
+      observes:
+        - { net: dmz,  mode: live }
+        - { net: corp, mode: live }
+      tap_from: external-mirror
+      ruleset: et-open
+      config: ./scripts/suricata_axrange.rules

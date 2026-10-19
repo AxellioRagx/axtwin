@@ -1,0 +1,114 @@
+# A cast-shaped fixture for S3 of `docs/WORK_ORDER_protocol_faithful_services.md`
+# -- a REAL domain controller and Windows members that answer, authored the
+# way an imprint cast would author them.
+#
+# **Not shipped content.** `twin-configs/corp-enterprise/` is the shipped
+# precedent for `role: adds` + `provides:`; this fixture exists because that
+# one is hand-authored and the work order's S3 acceptance is specifically
+# "prove the TWIN-CONFIG path end to end" -- the path a cast takes, with
+# `observation:` blocks, a `count:` group, and the declared listen sets S1
+# added. No test here reaches a cluster (LES-208): the plan is built and
+# read, never executed.
+#
+# **The realm is the lab default `corp.axr.lab`** (D4, Authority: user,
+# 2026-09-04). The observed realm (`AXELLIO.DOM`) was offered and NOT chosen:
+# the forest name is `imputed`. The DC's SHORT hostname does follow the
+# observed one (`axdc01`, entity key `hostname:axdc01`) -- only the realm is
+# replaced.
+#
+# **The listen sets are the OBSERVED ones** (work order §2's table): the DC's
+# twelve ports, and the workstation profile's 135/137/3389. They are
+# DECLARED here (S1, `App.listen`) and reproduced by real machinery -- AD DS
+# brings 53/88/135/389/445/3268 up as a consequence of being a DC, and the
+# `enable-rdp.ps1` script turns on the one port Windows ships off. Nothing
+# here binds a socket to satisfy a census: the dynamic RPC ports
+# (49669/49682) are deliberately NOT declared, because they are ephemeral
+# allocations rather than services (GAP-064) and the scorecard classifies
+# them that way.
+twin_config:
+  id: ad-cast
+  description: Cast-shaped AD fixture -- a real DC, joined members, declared listens.
+
+  # Off for the same reason the mini-cast fixture turns it off: node-exporter
+  # scrapes and wazuh enrollment are twin-only traffic with no counterpart in
+  # the source capture, and they would double this fixture's op count for
+  # nothing this work order is about.
+  default_agents: false
+
+  params:
+    DEPLOY_MIN_OCCUPANCY: 0.8
+
+  segments:
+    - name: seg-corp
+      cidr: 10.70.0.0/24
+      zone_type: simple
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0}
+
+  nodes:
+    # The domain controller. TWO lines of authoring (`install:` +
+    # `provides:`) reproduce twelve observed ports, because AD DS brings DNS,
+    # the KDC, LDAP + CLDAP, SMB, the Global Catalog, the RPC endpoint mapper
+    # and W32Time up as a CONSEQUENCE of being a DC -- not as twelve
+    # provisioning steps (work order §2 reading 1).
+    - name: axdc01
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: {cpu: 2, ram: 4Gi, disk: 60Gi}
+      net: seg-corp
+      install: [{role: adds}]
+      provides: [{domain: corp.axr.lab}]
+      # The observed listen set of `hostname:axdc01` (work order §2), minus
+      # the two dynamic RPC ports. `123/udp` is W32Time, which a DC runs as
+      # the forest's authoritative time source.
+      listen:
+        - {port: 53, proto: tcp}
+        - {port: 53, proto: udp}
+        - {port: 88, proto: tcp}
+        - {port: 88, proto: udp}
+        - {port: 123, proto: udp}
+        - {port: 135, proto: tcp}
+        - {port: 389, proto: tcp}
+        - {port: 389, proto: udp}
+        - {port: 445, proto: tcp}
+        - {port: 3268, proto: tcp}
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0, role_confidence: 0.95}
+
+    # The members. `joins:` is the explicit domain-join declaration (W2 §6.3,
+    # superseding the ratified I1=infer); the join op points each member's
+    # DNS at the DC itself, which is why no separate resolver is authored --
+    # see `config_exec/render.py::render_join_to_domain`.
+    - name: corp-workstation
+      role: corp-workstation
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+      net: seg-corp
+      count: 2
+      joins: corp.axr.lab
+      # 135/tcp and 137/udp are Windows built-ins on a domain member; 3389 is
+      # the one that needs turning on.
+      install: [{script: scripts/enable-rdp.ps1}]
+      listen:
+        - {port: 135, proto: tcp}
+        - {port: 137, proto: udp}
+        - {port: 3389, proto: tcp}
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0, role_confidence: 0.9}
+
+  # LAB DEFAULTS, and imputed -- every one of them. Nothing observed carries
+  # a password, a group, an OU or a SID (work order §5.3: the capture yields
+  # two principals, one of which is `Guest`), so this population is invented
+  # and must never be read as reproduction evidence. The directory-export
+  # channel (spec 13 §5 item 1) is what replaces it; until then these exist
+  # so the domain has somebody in it.
+  #
+  # NOTE there is no machine-readable evidence marker for identity in the
+  # twin-config vocabulary today -- `observation:` is per-entity occupancy,
+  # not per-fact provenance -- so "imputed" is stated here in prose. The
+  # provenance sidecar is the file that carries evidence classes across the
+  # seam (`docs/design/14-operator-assertions.md` §2).
+  identity:
+    domain: corp.axr.lab
+    users:
+      - {id: alice, groups: [Domain Users], ou: Finance}
+      - {id: bob-admin, groups: [Domain Admins], ou: IT}

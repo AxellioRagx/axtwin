@@ -1,0 +1,41 @@
+# Prometheus — axRange observability stack (Phase 1).
+#
+# Scrapes the capture appliance's node_exporter, which surfaces the textfile written
+# by exporters/capture-health-exporter.sh (a wrapper around `capture-healthcheck`).
+# Metrics: capture_up, newest_pcap_age_seconds, rx_drops_total, disk_pct,
+# promisc_on (see that script's HELP/TYPE headers).
+#
+# PARAMETERIZED TARGET: the capture-host scrape target below is a literal placeholder
+# __CAPTURE_HOST__:__CAPTURE_NODE_EXPORTER_PORT__. The bring-up runbook (README.md)
+# renders it in place from observability.conf before `up` (Prometheus does not
+# interpolate env vars inside static_configs, hence a render step):
+#   . ../observability.conf
+#   sed -i -e "s/__CAPTURE_HOST__/${CAPTURE_HOST}/" \
+#          -e "s/__CAPTURE_NODE_EXPORTER_PORT__/${CAPTURE_NODE_EXPORTER_PORT}/" \
+#          prometheus.yml
+#
+# The placeholders are valid host:port tokens, so `promtool check config`
+# parses this file as-is; replace before live bring-up.
+
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+  external_labels:
+    monitor: axrange-observability
+
+scrape_configs:
+  # Prometheus self-scrape (liveness of the stack itself).
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Capture health (node_exporter textfile collector on the capture host mgmt NIC).
+  # NEVER point this at the capture NIC — it has no IP by design (o2/tcpdump-sensor/README.md).
+  - job_name: capture-health
+    # node_exporter's default metrics path.
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["__CAPTURE_HOST__:__CAPTURE_NODE_EXPORTER_PORT__"]
+        labels:
+          component: capture

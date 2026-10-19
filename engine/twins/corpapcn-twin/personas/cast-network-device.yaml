@@ -1,0 +1,19 @@
+persona:
+  id: cast-network-device
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: hsrp
+    ports:
+    - 1985
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:19s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

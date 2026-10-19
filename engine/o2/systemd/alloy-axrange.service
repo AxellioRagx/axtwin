@@ -1,0 +1,61 @@
+# axRange Alloy log shipper — runs ON THE NETWORK SENSOR VM.
+#
+# Tails Suricata's eve.json and pushes to Loki (o2/alloy/config.alloy).
+# Install on the network sensor (NOT the stack host):
+#
+#   1. Install Alloy on the network sensor (Grafana apt repo or the release tarball;
+#      see README "Log shipper"). It provides /usr/bin/alloy.
+#   2. sudo install -d -m 0750 /etc/alloy /var/lib/alloy
+#   3. sudo cp o2/alloy/config.alloy /etc/alloy/config.alloy
+#   4. Fill /etc/alloy/axrange.env from observability.conf (the [Service]
+#      EnvironmentFile below) with EVE_JSON_PATH, LOKI_PUSH_URL, NETWORK_SENSOR_HOST.
+#      Example /etc/alloy/axrange.env:
+#        EVE_JSON_PATH=/var/log/suricata/eve.json
+#        LOKI_PUSH_URL=http://<DEPLOY_HOST>:3100/loki/api/v1/push
+#        NETWORK_SENSOR_HOST=10.0.0.11
+#   5. sudo cp o2/systemd/alloy-axrange.service /etc/systemd/system/
+#   6. sudo systemctl daemon-reload && sudo systemctl enable --now alloy-axrange
+#
+# Healthcheck:  systemctl is-active alloy-axrange ; curl -s localhost:12345/-/ready
+
+[Unit]
+Description=axRange Alloy — ship Suricata eve.json to Loki
+Documentation=file:///etc/alloy/config.alloy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/alloy/axrange.env
+# --storage.path holds the WAL + file positions; --server.http.listen-addr
+# exposes Alloy's own /-/ready + /metrics for a healthcheck.
+ExecStart=/usr/bin/alloy run /etc/alloy/config.alloy \
+    --storage.path=/var/lib/alloy \
+    --server.http.listen-addr=127.0.0.1:12345
+Restart=on-failure
+RestartSec=5
+
+# Needs to read /var/log/suricata (root-owned). Run as root for read access;
+# tighten to a group-readable setup if you prefer (add the alloy user to a group
+# that can read eve.json).
+User=root
+Group=root
+
+# Minimal hardening — reads logs, writes its own state dir, talks to the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=/var/lib/alloy
+ReadOnlyPaths=/var/log/suricata
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=alloy-axrange
+
+[Install]
+WantedBy=multi-user.target

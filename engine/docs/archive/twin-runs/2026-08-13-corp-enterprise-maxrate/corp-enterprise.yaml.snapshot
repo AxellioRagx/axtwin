@@ -1,0 +1,172 @@
+# Twin config: corp-enterprise (docs/DESIGN_BRIEF_twin_model.md §6.2)
+#
+# AD workhorse. Segments corp-lan/server-vlan/dmz/mgmt behind a router/FW
+# with WAN egress; full AD domain (users/groups/OUs); crown-jewel PII data
+# on the file server. Re-expresses today's `ad-domain-lab` archetype as a
+# parameterized config (docs/CHANGELOG.md's twin-config build entry).
+twin_config:
+  id: corp-enterprise
+  description: |
+    AD workhorse enterprise twin: corp-lan/server-vlan/dmz/mgmt behind a
+    router with WAN egress, a full AD domain, and crown-jewel PII data on
+    the file server. Expanded from twin-config 'corp-enterprise'
+    (docs/WORK_ORDER_twin_configs.md).
+
+    No tap-related content here (`docs/WORK_ORDER_tap_eligibility.md`,
+    Authority: user, 2026-07-28) -- a twin config authors no capture
+    intent at all; corp-lan/server-vlan/dmz (segment), a corp-lan<->dmz
+    boundary at the router, and the twin's WAN egress leg (perimeter: wan)
+    are all addressable by a standalone tap plan against the deployed
+    twin's published topology -- see `twin-configs/corp-enterprise/tap-*.yaml`.
+
+  params:
+    N_WORKSTATIONS: 25
+    DOMAIN: corp.axr.lab
+
+  segments:
+    - { name: corp-lan,    cidr: 10.62.0.0/24,  zone_type: vlan }   # corp workstation LAN
+    - { name: server-vlan, cidr: 10.62.10.0/24, zone_type: vlan }   # domain controller + file server
+    - { name: dmz,         cidr: 10.62.20.0/24, zone_type: vlan }   # internet-facing services
+    - { name: mgmt,        cidr: 10.62.30.0/24, zone_type: vlan }   # monitoring/management
+
+  nodes:
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: corp-lan }
+        - { segment: server-vlan }
+        - { segment: dmz }
+        - { segment: mgmt }
+
+    - name: domain-controller
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      net: server-vlan
+      install: [{ role: adds }]
+      provides: [{ domain: "${DOMAIN:corp.axr.lab}" }]
+
+    - name: file-server
+      role: file-server
+      image: ubuntu-server-22@v5
+      requires: [linux, kernel:container-runtime]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      net: server-vlan
+      install: [{ pkg: samba }]
+
+    - name: mail-server
+      role: mail-server
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: dmz
+      install: [{ pkg: postfix }]
+
+    - name: egress-proxy
+      role: egress-proxy
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: dmz
+      install: [{ pkg: squid }]
+
+    - name: dmz-web
+      role: dmz-web
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: dmz
+      install: [{ pkg: nginx }]
+
+    - name: monitoring-collector
+      role: monitoring-collector
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: mgmt
+      install: [{ pkg: prometheus }]
+
+    - name: corp-workstation
+      role: corp-workstation
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      count: "${N_WORKSTATIONS:25}"
+      net: corp-lan
+      joins: "${DOMAIN:corp.axr.lab}"
+
+    # Stage 5 exercise-tier addition (Authority: user, 2026-07-25): a LAN
+    # foothold attacker for the AD kill-chain live-verify
+    # (this folder's exr-ad-killchain.yaml), modeled on
+    # target-environments/ad-domain-lab's `attacker` node. On corp-lan (the
+    # same segment corp-workstation lives on) so it reaches the DC on
+    # server-vlan via the twin's `gw` router, exactly the "LAN attacker vs.
+    # the domain" shape the corpus kill-chain assumes. No `persona:` --
+    # this is an offense-tool host, not a benign-traffic-generating one.
+    # Toolkit matches ad-domain-lab's `ad-offense` app's apt side exactly
+    # (nmap/hashcat/john/ldap-utils/smbclient/netcat-traditional/
+    # python3-impacket -- the Debian-packaged impacket carries the
+    # GetNPUsers/GetUserSPNs/secretsdump scripts the chain runs, no pip/git
+    # egress required). ad-domain-lab's `ad_offense.sh` script step (pip
+    # impacket/netexec/bloodhound.py + a Responder git clone, all
+    # egress-gated best-effort anyway) is NOT ported: twin-config-expanded
+    # scenarios materialize to a tempfile with no co-located `scripts/`
+    # directory (`axrange.twinconfig.expand.materialize_twin_config`,
+    # `axrange/cli/main.py`'s "always lands in a system tempdir" note), so a
+    # relative `{ script: ... }` install action has no file to resolve --
+    # unlike `pkg:` actions, which need no such directory. The apt-only kit
+    # above is sufficient for the full kill-chain (recon/enum/AS-REP roast/
+    # Kerberoast/DCSync all run off python3-impacket + apt tools); Responder
+    # is intentionally left out of the exr spec's LLMNR step's hard
+    # dependency (best-effort `|| echo` fallback, matching the source).
+    - name: attacker
+      role: attacker
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: corp-lan
+      install:
+        - { pkg: nmap }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: hashcat }
+        - { pkg: john }
+        - { pkg: ldap-utils }
+        - { pkg: smbclient }
+        - { pkg: netcat-traditional }
+        # Debian-packaged impacket -- GetNPUsers/GetUserSPNs/secretsdump,
+        # apt-sourced so the chain works over the twin's router NAT without
+        # needing pip/git egress (matches ad-domain-lab's `ad-offense` app).
+        - { pkg: python3-impacket }
+
+  identity:
+    domain: "${DOMAIN:corp.axr.lab}"
+    users:
+      - { id: alice, groups: [Domain Users], ou: Finance }
+      - { id: bob-admin, groups: [Domain Admins], ou: IT }
+      # Stage 5 vulnerable-AD weakening (Authority: user, 2026-07-25),
+      # modeled on ad-domain-lab's overlays.identity: a KERBEROASTABLE
+      # service account (SPN + a weak password -> its TGS is offline-
+      # crackable; impacket-getuserspns is the kill-chain's Kerberoast
+      # target) ...
+      - { id: svc-sql, groups: [Domain Users], spn: "MSSQLSvc/sql01.corp.axr.lab:1433",
+          password: "Summer2024!", ou: Service Accounts }
+      # ... an AS-REP ROASTABLE user (no Kerberos pre-auth required -- an
+      # offline-crackable AS-REP with no credential needed at all) ...
+      - { id: jsmith, groups: [Domain Users], asrep_roastable: true,
+          password: "Password123", ou: Finance }
+      # ... and the DCSync/domain-admin objective. `bob-admin` above already
+      # covers this: Domain Admins + no `password:` set means the engine's
+      # lab-default domain password applies (Axr4nge-Lab! --
+      # axrange/config_exec/backend.py's `_WINDOWS_DOMAIN_ADMIN_PW`), so the
+      # DCSync step authenticates + replicates as bob-admin, matching
+      # ad-domain-lab's `helpdesk` account exactly.
+
+  data:
+    - { dataset: customer-pii, on_role: file-server, classification: pii,
+        crown_jewel: true, synthetic_size: 2Gi }

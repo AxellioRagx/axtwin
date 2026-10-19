@@ -1,0 +1,48 @@
+{
+  "imprint_id": "corp-enterprise",
+  "as_of": "2026-08-14T09:00:00Z",
+  "store": "imprint.duckdb",
+  "days_observed": 10,
+  "windows": 240,
+
+  "summary": {
+    "services": 128,
+    "personas": 9,
+    "mean_confidence": 0.86,
+    "out_of_vocab_pct": 3.0
+  },
+
+  "segment_confidence": {
+    "corp-lan": 0.91,
+    "dmz": 0.88,
+    "db": 0.79,
+    "mgmt": 0.83
+  },
+
+  "fields": {
+    "segment corp-lan": {
+      "evidence_class": "observed",
+      "confidence": 0.91,
+      "signal": "Zeek conn.log - /24 co-occurrence clustering",
+      "evidence": "10d - observed"
+    },
+    "host dc01 - role adds": {
+      "evidence_class": "imputed",
+      "confidence": 0.88,
+      "signal": "Kerberos 88 + LDAP 389 + DNS SOA",
+      "evidence": "10d - observed"
+    },
+    "persona db-replica -> sql01": {
+      "evidence_class": "imputed",
+      "confidence": 0.79,
+      "signal": "periodic 3306 flows, fixed peer & cadence",
+      "evidence": "8d - observed"
+    },
+    "tap perimeter:wan": {
+      "evidence_class": "referenced",
+      "confidence": 0.95,
+      "signal": "gateway egress vantage - EW/NS visibility",
+      "evidence": "structural"
+    }
+  }
+}

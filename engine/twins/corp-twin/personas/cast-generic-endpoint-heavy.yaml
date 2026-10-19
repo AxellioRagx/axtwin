@@ -1,0 +1,44 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): QUIC high -> low x 1200 B (§7 QUIC 0.15 %),
+# HTTP high -> med (TLS:HTTP ~28:1).
+persona:
+  id: cast-generic-endpoint-heavy
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: http
+    ports:
+    - 80
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: med
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: high
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: low
+    bytes: 1200
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

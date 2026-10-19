@@ -1,0 +1,23 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): DNS 64 B.
+persona:
+  id: cast-generic-endpoint-light
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:109s
+    volume: low
+    bytes: 64
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

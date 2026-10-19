@@ -1,0 +1,13 @@
+# corp-twin-devlab -- minimal traffic: the light endpoint persona (DNS to the
+# sink -- i.e. across the whole fabric, out through hq-mx's measure-phase
+# policy route) on the three reachable endpoints. Every `node:` here is a host
+# the devlab always emits (it carries no `observation:`, so nothing is gated);
+# ep-vlan32-cut is deliberately absent (it is cut off by design).
+#
+# Contain first: `axrange te egress corp-twin-devlab --phase measure`.
+traffic-profile:
+  target: corp-twin-devlab
+  assignments:
+  - { node: ep-vlan20, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: ep-vlan64, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: ep-vlan48, persona: cast-generic-endpoint-light, schedule: 24x7 }

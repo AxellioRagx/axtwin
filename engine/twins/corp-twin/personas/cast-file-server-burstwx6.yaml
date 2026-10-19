@@ -1,0 +1,24 @@
+# GENERATED capture-rate ladder persona (2026-10-01): cast-file-server scaled x6.
+# Mode burst: every emit cyclic:N -> burst:max(1.0,N/6)s, message size/count unchanged.
+# Message size and count unchanged (only the firing interval and the intra-firing gap change).
+# Rule and rationale: docs/reference/capture-rate/2026-10-01-corp-twin-ladder.md
+persona:
+  id: cast-file-server-burstwx6
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: ntp
+    ports:
+    - 123
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:10.7s
+    volume: low
+    bytes: 48
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

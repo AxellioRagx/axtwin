@@ -1,0 +1,24 @@
+manifest_schema_version: 1
+
+image:
+  id: vyos
+  description: VyOS router image (test fixture).
+  os:
+    family: linux
+    distribution: vyos
+    version: "1.5"
+    architecture: x86_64
+  versions:
+    - id: "1.5"
+      released: 2026-01-15
+      status: current
+      provides:
+        - linux
+      install_support:
+        pkg: false
+        config: true
+        role: false
+        container: false
+        script: true
+      first_boot_budget: 60
+      size_estimate: 2Gi

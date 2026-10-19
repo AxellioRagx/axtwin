@@ -1,0 +1,23 @@
+# corp-enterprise -- max-capture-rate ramp, rung 4b (dev45, 2026-08-13).
+#
+# The bisection rung. Rung 4 (3 senders, ~1.59 Gbit/s) was clean across every
+# window; rung 5 (5 senders, ~2.6 Gbit/s) is INTERMITTENTLY lossy -- some
+# 20-25s windows show thousands of tx_drops on the sink VM's vhost backend
+# (tap104i1, i.e. the guest's virtio receive ring), others show none. That
+# marginal behaviour is the signature of a queue at its edge, so the honest
+# max-lossless figure has to come from a rung that is clean across SEVERAL
+# consecutive windows, not one lucky sample.
+#
+# 4 senders: the dmz mesh plus the corp-lan sender, dropping rung 5's
+# server-vlan sender. Expected ~2.1 Gbit/s, i.e. between the two.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles-loadgen.yaml
+
+  assignments:
+    - role: loadgen
+      persona: loadgen-l4
+      schedule: 24x7
+    - node: attacker
+      persona: loadgen-corp
+      schedule: 24x7

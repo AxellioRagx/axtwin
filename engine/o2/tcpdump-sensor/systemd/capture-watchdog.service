@@ -1,0 +1,44 @@
+[Unit]
+Description=Cyber-range capture appliance — disk-pressure pruner (oneshot)
+Documentation=file:///usr/share/doc/capture/README.md
+ConditionPathIsDirectory=/captures
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/capture/capture.conf
+ExecStart=/usr/local/bin/capture-watchdog
+
+# The watchdog runs as root because it may need to stop capture.service when
+# the hard threshold is crossed (HARD_ACTION=stop_capture) and to delete
+# files owned by the capture user.
+User=root
+Group=root
+
+# Minimal hardening — this script reads /etc, lists /captures, deletes
+# files there, and possibly calls systemctl on capture.service.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @debug @mount
+
+ReadWritePaths=/captures /var/lib/capture
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=capture-watchdog
+
+[Install]
+# Pulled in by the .timer; no WantedBy needed.

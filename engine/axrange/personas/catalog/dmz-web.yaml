@@ -1,0 +1,21 @@
+persona:
+  id: dmz-web
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: https
+      ports: [443]
+      peer_role: internet
+      direction: NS
+      cadence: "24x7"
+      volume: high
+    - proto: http
+      ports: [80]
+      peer_role: internet
+      direction: NS
+      cadence: "24x7"
+      volume: med
+  requires: []
+  # GAP-032: assert against nginx -- the HTTP(S)-inbound daemon this DMZ web
+  # farm actually terminates traffic on.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: nginx }

@@ -1,0 +1,19 @@
+# datacenter -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every tier file stays
+# deployable on its own by path; the manifest adds
+# `--config datacenter` and `--twin datacenter [--variant <stem>]`.
+#
+# `containment:` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block (D3) -- not a second copy of the posture.
+twin:
+  id: datacenter
+  description: >
+    Multi-tier hosting datacenter twin: edge/app/db/storage/mgmt-oob segments,
+    an edge<->app boundary at the gateway, an opt-in spine/leaf slice.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tfc:
+      default: tfc/default.yaml

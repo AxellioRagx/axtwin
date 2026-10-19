@@ -1,0 +1,412 @@
+scenario_schema_version: 1
+
+scenario:
+  id: enterprise-multisite
+  version: 1
+  seed: 20260625        # deterministic synthetic corporate data (OP-OVL)
+  description: |
+    Large enterprise estate — a head office + two remote branches, modeled as a
+    typical multi-zone, segmented corporate network with Windows AD identity,
+    production + data-warehouse database tiers, ETL job servers, edge/DMZ nodes,
+    and a SOC. Built on the axRange router slice (one kind: router edge node per
+    site, VLAN-zoned segments, SNAT egress + inter-segment routing) and the
+    Windows-AD identity slice (single acme.corp forest, cross-site domain joins).
+
+    SITES & ZONES
+      Head office (10.50.0.0/16) — 5 segments behind the hq-core router:
+        hq-edge   (DMZ)        public web + mail/VPN gateway
+        hq-user   (corp LAN)   the AD domain controller + IT/finance workstations
+        hq-server (app LAN)    internal business app, file server, ETL servers
+        hq-data   (restricted) production DB + data-warehouse DB (crown jewels)
+        hq-mgmt   (SOC)        SIEM + jump host (and the in-scenario IDS sensor)
+      Branch 1 (10.51.0.0/16) behind br1-rtr: user LAN + local file server.
+      Branch 2 (10.52.0.0/16) behind br2-rtr: user LAN + local file server.
+    The three routers are the WAN edge nodes; all branches authenticate to the
+    head-office DC across the WAN (single-forest, RODC-per-branch deferred).
+
+    SCOPE — deployable: Infrastructure (9 segments + 3 site routers), Apps & Tools
+    on the Linux hosts (edge web/mail, business app, file shares, two-tier Postgres,
+    ETL runners, SIEM), the AD IDENTITY core (dc01 -> acme.corp forest; domain
+    users/groups/service-accounts + cross-site workstation joins), the corporate
+    DATA overlay (synthetic customer PII in prod, aggregated analytics in the DW),
+    host audit DEFENSE on the DC, a SOC suricata-sensor over the tapped segments,
+    and a "typical corporate traffic" ETL/web/SMB/AD activity. Passes axrange
+    validate and axrange plan. DEFERRED (designed, not deployed): per-branch RODCs;
+    SSSD/realmd AD-integration of the Linux DB/app tier; explicit inter-site
+    firewall conduit policy; the ETL data-quality / reconciliation jobs beyond the
+    representative traffic loop.
+
+layers:
+  infra:
+    networks:
+      # ---- Head office (10.50.0.0/16) — gateways are hq-core's per-zone LAN IPs.
+      - { id: hq-edge,   cidr: 10.50.10.0/24, vlan: 110, gateway: 10.50.10.1 }
+      - { id: hq-user,   cidr: 10.50.20.0/24, vlan: 120, gateway: 10.50.20.1 }
+      - { id: hq-server, cidr: 10.50.30.0/24, vlan: 130, gateway: 10.50.30.1 }
+      - { id: hq-data,   cidr: 10.50.40.0/24, vlan: 140, gateway: 10.50.40.1 }
+      - { id: hq-mgmt,   cidr: 10.50.50.0/24, vlan: 150, gateway: 10.50.50.1 }
+      # ---- Branch 1 (10.51.0.0/16) — gateways are br1-rtr's per-zone LAN IPs.
+      - { id: br1-user,   cidr: 10.51.10.0/24, vlan: 210, gateway: 10.51.10.1 }
+      - { id: br1-server, cidr: 10.51.20.0/24, vlan: 220, gateway: 10.51.20.1 }
+      # ---- Branch 2 (10.52.0.0/16) — gateways are br2-rtr's per-zone LAN IPs.
+      - { id: br2-user,   cidr: 10.52.10.0/24, vlan: 310, gateway: 10.52.10.1 }
+      - { id: br2-server, cidr: 10.52.20.0/24, vlan: 320, gateway: 10.52.20.1 }
+
+    nodes:
+      # =====================================================================
+      # SITE ROUTERS (the WAN edge nodes — one per site; Debian/nftables branch)
+      # =====================================================================
+      # Head-office core router — 5-homed across all HQ zones; WAN uplink (egress
+      # NAT + inter-segment routing for corp traffic and the blue stack).
+      # Tapped: the inter-zone boundaries (edge<->user<->server<->data<->mgmt)
+      # are themselves capture points, not just each zone separately.
+      - id: hq-core
+        kind: router
+        nets:
+          - { net: hq-edge,   ip: 10.50.10.1 }
+          - { net: hq-user,   ip: 10.50.20.1 }
+          - { net: hq-server, ip: 10.50.30.1 }
+          - { net: hq-data,   ip: 10.50.40.1 }
+          - { net: hq-mgmt,   ip: 10.50.50.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Branch-1 router — 2-homed (user + server); WAN uplink to head office.
+      # Tapped: the branch's own user<->server boundary.
+      - id: br1-rtr
+        kind: router
+        nets:
+          - { net: br1-user,   ip: 10.51.10.1 }
+          - { net: br1-server, ip: 10.51.20.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Branch-2 router — 2-homed (user + server); WAN uplink to head office.
+      # Tapped: the branch's own user<->server boundary.
+      - id: br2-rtr
+        kind: router
+        nets:
+          - { net: br2-user,   ip: 10.52.10.1 }
+          - { net: br2-server, ip: 10.52.20.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+
+      # =====================================================================
+      # HQ — EDGE / DMZ
+      # =====================================================================
+      # Public reverse-proxy / web edge. Tapped (north-south DMZ traffic).
+      - id: edge-web
+        kind: host
+        nets: [ { net: hq-edge, ip: 10.50.10.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      # Mail / VPN gateway.
+      - id: edge-mail
+        kind: host
+        nets: [ { net: hq-edge, ip: 10.50.10.11 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+
+      # =====================================================================
+      # HQ — USER LAN (the AD domain)
+      # =====================================================================
+      # Primary domain controller — promotes to the acme.corp forest (role: adds).
+      # windows-server-2022 (a Server SKU; win11 clients can't be promoted). DNS
+      # rides on the DC. Tapped so the SOC sees Kerberos/LDAP/SMB.
+      - id: dc01
+        kind: host
+        nets: [ { net: hq-user, ip: 10.50.20.10 } ]
+        image: windows-server-2022@v1
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # IT admin workstation — domain-joined.
+      - id: it-ws
+        kind: host
+        nets: [ { net: hq-user, ip: 10.50.20.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: acme.corp
+      # Finance workstation — domain-joined.
+      - id: fin-ws
+        kind: host
+        nets: [ { net: hq-user, ip: 10.50.20.21 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: acme.corp
+
+      # =====================================================================
+      # HQ — SERVER / APP LAN
+      # =====================================================================
+      # Internal business application (intranet app). Tapped.
+      - id: app-srv
+        kind: host
+        nets: [ { net: hq-server, ip: 10.50.30.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # Corporate file server (SMB shares).
+      - id: file-srv
+        kind: host
+        nets: [ { net: hq-server, ip: 10.50.30.20 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 40Gi }
+      # ETL runner #1 — extracts from the production DB.
+      - id: etl01
+        kind: host
+        nets: [ { net: hq-server, ip: 10.50.30.30 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # ETL runner #2 — loads the data warehouse.
+      - id: etl02
+        kind: host
+        nets: [ { net: hq-server, ip: 10.50.30.31 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+
+      # =====================================================================
+      # HQ — RESTRICTED DATA ZONE (the database tier; crown jewels)
+      # =====================================================================
+      # Production database (OLTP) — PostgreSQL. Tapped (DB access is sensitive).
+      - id: db-prod
+        kind: host
+        nets: [ { net: hq-data, ip: 10.50.40.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 8Gi, disk: 80Gi }
+      # Data warehouse (OLAP / analytics) — PostgreSQL. Tapped.
+      - id: db-dw
+        kind: host
+        nets: [ { net: hq-data, ip: 10.50.40.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 8Gi, disk: 120Gi }
+
+      # =====================================================================
+      # HQ — MANAGEMENT / SOC
+      # =====================================================================
+      # SIEM (single-node Wazuh in Docker).
+      - id: siem
+        kind: host
+        nets: [ { net: hq-mgmt, ip: 10.50.50.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 80Gi }
+      # Admin jump host / bastion into the estate.
+      - id: jump
+        kind: host
+        nets: [ { net: hq-mgmt, ip: 10.50.50.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+
+      # =====================================================================
+      # BRANCH 1
+      # =====================================================================
+      # Branch local file/print server.
+      - id: br1-fs
+        kind: host
+        nets: [ { net: br1-server, ip: 10.51.20.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 40Gi }
+      # Branch user workstation — domain-joined across the WAN to the HQ DC.
+      - id: br1-ws
+        kind: host
+        nets: [ { net: br1-user, ip: 10.51.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: acme.corp
+
+      # =====================================================================
+      # BRANCH 2
+      # =====================================================================
+      # Branch local file/print server.
+      - id: br2-fs
+        kind: host
+        nets: [ { net: br2-server, ip: 10.52.20.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 40Gi }
+      # Branch user workstation — domain-joined across the WAN to the HQ DC.
+      - id: br2-ws
+        kind: host
+        nets: [ { net: br2-user, ip: 10.52.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: acme.corp
+
+  apps:
+    # AD core (W2a): role: adds stands up the acme.corp forest on dc01; the
+    # overlays.identity users below are then created on it (W2b create-domain-user).
+    - id: ad-dc
+      install:
+        - { role: adds }
+      provides:
+        - { domain: acme.corp }
+    # Public web edge — reverse proxy / intranet front door.
+    - id: web-edge
+      install:
+        - { pkg: nginx }
+    # Mail / VPN gateway.
+    - id: mail-gw
+      install:
+        - { pkg: postfix }
+    # Internal business application (intranet app + a synthetic content marker).
+    - id: biz-app
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+        - { script: ./scripts/app_setup.sh }
+    # Corporate file share (SMB).
+    - id: file-share
+      install:
+        - { pkg: samba }
+        - { script: ./scripts/share_setup.sh }
+    # Branch local file/print share.
+    - id: branch-file
+      install:
+        - { pkg: samba }
+    # PostgreSQL database engine — used by BOTH the production OLTP DB and the
+    # data warehouse (bound to db-prod and db-dw; db_init.sh seeds each role).
+    - id: db-engine
+      install:
+        - { pkg: postgresql }
+        - { script: ./scripts/db_init.sh }
+    # ETL runner — Python + DB/SMB/LDAP client tooling for the corporate ETL jobs
+    # (bound to etl01 and etl02). etl_setup.sh stages a sample extract/load job.
+    - id: etl-runner
+      install:
+        - { pkg: python3-pip }
+        - { pkg: postgresql-client }
+        - { pkg: curl }
+        - { pkg: smbclient }
+        - { pkg: ldap-utils }
+        - { script: ./scripts/etl_setup.sh }
+    # SOC SIEM — single-node Wazuh in Docker.
+    - id: siem-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { script: ./scripts/siem_setup.sh }
+
+  # ---------------------------------------------------------------------------
+  # OP-ACT — "typical corporate traffic": the daily ETL + intranet + file + AD
+  # flows a SOC sensor would routinely see. Inline-steps MVP, one-shot, local
+  # actor (docs/SLICE_ACTIVITY.md), run from etl01 across the hq-core router into
+  # the data/server/edge zones. Best-effort (logs + continues); the TRAFFIC is the
+  # captured artifact. Tooling staged by the etl-runner app (etl_setup.sh + apt).
+  #   db-prod=10.50.40.10  db-dw=10.50.40.20  app-srv=10.50.30.10
+  #   file-srv=10.50.30.20  edge-web=10.50.10.10  dc01=10.50.20.10  domain acme.corp
+  # ---------------------------------------------------------------------------
+  activity:
+    - id: corp-traffic
+      actor: etl-svc
+      inline:
+        steps:
+          # 1. EXTRACT — pull yesterday's orders from the production OLTP DB.
+          - run: PGPASSWORD='Etl-Lab!1' psql -h 10.50.40.10 -U etl_ro -d sales -c "SELECT count(*) FROM orders;" 2>&1 | tail -5; true
+          # 2. LOAD — write the aggregate into the data warehouse.
+          - run: PGPASSWORD='Etl-Lab!1' psql -h 10.50.40.20 -U etl_rw -d warehouse -c "INSERT INTO daily_sales(d, n) SELECT current_date, 0 ON CONFLICT DO NOTHING;" 2>&1 | tail -5; true
+          # 3. INTRANET — health-check the internal business app + the web edge.
+          - run: curl -fsS -m 5 http://10.50.30.10/ 2>&1 | head -3; curl -fsS -m 5 http://10.50.10.10/ 2>&1 | head -3; true
+          # 4. FILE SHARE — list the corporate share (SMB to the file server).
+          - run: smbclient -N -L //10.50.30.20 2>&1 | tail -15; true
+          # 5. DIRECTORY — a routine LDAP lookup against the DC (AD service traffic).
+          - run: ldapsearch -x -H ldap://10.50.20.10 -b 'DC=acme,DC=corp' '(objectClass=user)' sAMAccountName 2>&1 | tail -15; true
+
+# SOC network IDS — an in-scenario suricata-sensor scores the tapped segments
+# (DMZ edge, the DC + user LAN, the app/file servers, and the DB tier) so the
+# blue team sees the corporate + ETL traffic. Clones the pre-baked suricata-sensor
+# image (suricata present, no egress).
+sensors:
+  - id: soc-ids
+    type: suricata-sensor
+    primary: true
+
+bindings:
+  # --- apps -> hosts ---
+  - { app: ad-dc,       host: dc01 }
+  - { app: web-edge,    host: edge-web }
+  - { app: mail-gw,     host: edge-mail }
+  - { app: biz-app,     host: app-srv }
+  - { app: file-share,  host: file-srv }
+  - { app: db-engine,   host: db-prod }
+  - { app: db-engine,   host: db-dw }
+  - { app: etl-runner,  host: etl01 }
+  - { app: etl-runner,  host: etl02 }
+  - { app: siem-stack,  host: siem }
+  - { app: branch-file, host: br1-fs }
+  - { app: branch-file, host: br2-fs }
+  # --- activity -> the host it runs from ---
+  - { activity: corp-traffic, host: etl01 }
+
+# Cross-cutting overlays (OP-OVL). Deterministic from scenario.seed.
+overlays:
+  # Synthetic corporate datasets (seed-dataset, docs/SLICE_OVERLAY.md) planted on
+  # the existing DB / file hosts — the corporate crown jewels.
+  data:
+    # Production customer PII (the OLTP DB's sensitive dataset).
+    - id: prod-customers
+      host: db-prod
+      path: /var/lib/axrange/data/customers.csv
+      classification: PII
+      crown_jewel: true
+      synthetic_size: 512Ki
+    # Aggregated analytics in the data warehouse.
+    - id: dw-analytics
+      host: db-dw
+      path: /var/lib/axrange/data/sales_by_region.csv
+      classification: confidential
+      synthetic_size: 256Ki
+    # Finance records on the corporate file share.
+    - id: finance-records
+      host: file-srv
+      path: /srv/share/finance/ledger-2026.csv
+      classification: confidential
+      synthetic_size: 128Ki
+
+  # AD identities created on dc01 once the forest is up (W2b create-domain-user).
+  # A realistic corporate directory: IT + Finance + branch users, two Domain Admins,
+  # and Kerberos service accounts (SPNs) for the SQL/ETL/backup services. Plus a
+  # couple of local accounts (the W2 local-user branch, both OS paths).
+  identity:
+    # --- Privileged / IT (OU: IT) ---
+    - { id: corp-admin, type: user, domain: acme.corp, groups: [Domain Admins], ou: IT }
+    - { id: it-helpdesk, type: user, domain: acme.corp, groups: [Domain Users], ou: IT }
+    # --- Finance (OU: Finance) ---
+    - { id: jdoe,  type: user, domain: acme.corp, groups: [Domain Users], ou: Finance }
+    - { id: fmgr,  type: user, domain: acme.corp, groups: [Domain Users], ou: Finance }
+    # --- Branch users (OU: Branches) ---
+    - { id: br1-user1, type: user, domain: acme.corp, groups: [Domain Users], ou: Branches }
+    - { id: br2-user1, type: user, domain: acme.corp, groups: [Domain Users], ou: Branches }
+    # --- Service accounts with SPNs (OU: Service Accounts) ---
+    - { id: svc-sql, type: user, domain: acme.corp, groups: [Domain Users],
+        spn: "MSSQLSvc/db-prod.acme.corp:1433", ou: Service Accounts }
+    - { id: svc-etl, type: user, domain: acme.corp, groups: [Domain Users],
+        spn: "ETL/etl01.acme.corp", ou: Service Accounts }
+    - { id: svc-backup, type: user, domain: acme.corp, groups: [Domain Users],
+        spn: "CIFS/file-srv.acme.corp", ou: Service Accounts }
+    # --- Local accounts (no domain:) — W2 local-user branch (both OS paths) ---
+    # Local Windows admin on the IT workstation (New-LocalUser).
+    - { id: wks-admin, type: user, host: it-ws, groups: [Administrators] }
+    # Local Linux ops account on the jump host (useradd).
+    - { id: ops-local, type: user, host: jump, groups: [sudo] }
+
+  # HOST-side audit on the DC (install-defense-agent, Windows branch): enable the
+  # AD audit subcategories (Kerberos 4768/4769, logon) so the Security event log
+  # records authentication across the estate — the host substrate the SIEM forwards,
+  # paired with the network IDS (soc-ids). Applied post-promotion (gated domain-ready).
+  defense:
+    - id: dc-audit
+      tool: sysmon
+      installed_on: [dc01]

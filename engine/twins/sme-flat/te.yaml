@@ -1,0 +1,58 @@
+# Twin config: sme-flat (docs/DESIGN_BRIEF_twin_model.md §6.2)
+#
+# Small/flat baseline — one segment, minimal segmentation, cheap to stand
+# up. The worked example for §4.1: with no meaningful north-south/east-west
+# split at all, a single `segment`-scoped tap-plan binding still describes
+# it exactly (authored in a standalone tap plan, not here -- `docs/
+# WORK_ORDER_tap_eligibility.md`). A good default for quick tests and
+# lateral-movement detection validation (no VLAN boundaries to hide behind).
+twin_config:
+  id: sme-flat
+  description: |
+    Small/flat baseline twin: one subnet, a handful of servers, minimal
+    segmentation. Expanded from twin-config 'sme-flat'
+    (docs/WORK_ORDER_twin_configs.md).
+
+  params:
+    N_WORKSTATIONS: 3
+
+  segments:
+    - name: lan
+      cidr: 10.40.0.0/24
+      zone_type: simple  # no VLAN anywhere -> a true Simple SDN zone
+      # the whole flat network
+
+  nodes:
+    # Egress gateway -- the only router in this config; single-homed, so
+    # its leg auto-gets the segment's gateway address (network+1).
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: lan
+
+    - name: corp-workstation
+      role: corp-workstation
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      count: "${N_WORKSTATIONS:3}"
+      net: lan
+
+    - name: file-server
+      role: file-server
+      image: ubuntu-server-22@v5
+      requires: [linux, kernel:container-runtime]
+      resources: { cpu: 2, ram: 2Gi, disk: 30Gi }
+      net: lan
+      install: [{ pkg: samba }]
+
+    - name: db-tier
+      role: db-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: lan
+      install: [{ pkg: postgresql }]

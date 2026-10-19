@@ -1,0 +1,26 @@
+# corp-twin-devlab -- the device-parity DEV LAB for corp-twin: the full
+# network-device fabric (every switch/TOR VM, the MX85 edge, the sink) with ONE
+# host per distinct path type instead of the ~130-host cast. Its only job is
+# the FIRST live verify of what the device-parity round built and no unit test
+# can prove: STP actually blocking SFP26, real 802.1Q tags on the trunks, VRRP
+# failover, cross-VLAN reachability through the fabric, and containment
+# (docs/WORK_ORDER_corp_twin.md §10 D, §11 "devlab first").
+#
+# Shares corp-twin's recipes by RELATIVE reference (`../corp-twin/scripts/`)
+# rather than a copy, so the two cannot drift; the consolidation work order's
+# Phase-2 `_shared/` layout is the eventual home (§12 D5).
+twin:
+  id: corp-twin-devlab
+  description: >
+    corp-twin's device fabric (MX85 edge + switch side, MS120, access switches,
+    3850, 9K VRRP pair, 8325h VSX pair) with one host per path type -- the
+    first live verify of STP, 802.1Q trunks, VRRP failover and containment.
+  cluster: dev45
+  containment: contained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

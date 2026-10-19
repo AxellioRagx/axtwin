@@ -1,0 +1,5991 @@
+{
+ "_provenance": "Built 2026-09-29 from the LIVE read-only GETs of the standing corp-twin-07cfcdb2 deploy on dev45 (/api/deploys/{id}/inventory + /api/tfc + /api/o2/taps?verbose), joined into the 04-api-contract /hosts shape (the live server predates /hosts). Real host ids, nets, roles, OS, persona bindings; per-instance timing and op ids are not in those reads and are set from the tfc deploy row / null.",
+ "deploy_id": "corp-twin-07cfcdb2",
+ "twin_id": "corp-twin",
+ "deploy_status": "completed",
+ "target": "dev45",
+ "tfc": {
+  "deploy_id": "tfc-corp-twin-07cfcdb2-785b1a06",
+  "status": "completed"
+ },
+ "tap": {
+  "deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+  "status": "completed"
+ },
+ "hosts": [
+  {
+   "host_id": "8325h-l",
+   "vm_name": "te-77ced9-8325h-l",
+   "vmid": 314168,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "isl-8325",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "vlan953",
+     "ip": null,
+     "nic_index": 2,
+     "external": false
+    },
+    {
+     "net_id": "x9k01-8325l",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "8325h-r",
+   "vm_name": "te-77ced9-8325h-r",
+   "vmid": 213878,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "isl-8325",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "x9k02-8325r",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "9k01",
+   "vm_name": "te-77ced9-9k01",
+   "vmid": 140607,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l3-switch",
+   "role_baseline": "l3-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "x3850-9k01",
+     "ip": "10.180.93.2",
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "x9k01-8325l",
+     "ip": "10.180.34.2",
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "9k02",
+   "vm_name": "te-77ced9-9k02",
+   "vmid": 338460,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l3-switch",
+   "role_baseline": "l3-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "x3850-9k02",
+     "ip": "10.180.93.3",
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "x9k02-8325r",
+     "ip": "10.180.34.3",
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "axeprodsw",
+   "vm_name": "te-77ced9-axeprodsw",
+   "vmid": 809267,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "t-ms120-axeprod",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "vlan48",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "vlan52",
+     "ip": null,
+     "nic_index": 2,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-axeprod",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-10-80-48-core01",
+   "vm_name": "te-77ced9-corp-workstation-10-80-48-core01",
+   "vmid": 490971,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan48",
+     "ip": "10.180.48.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 137,
+     "proto": "udp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-10-80-48-core01-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-10-80-48-core02",
+   "vm_name": "te-77ced9-corp-workstation-10-80-48-core02",
+   "vmid": 657284,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan48",
+     "ip": "10.180.48.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 137,
+     "proto": "udp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-10-80-48-core02-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-10-80-72-core",
+   "vm_name": "te-77ced9-corp-workstation-10-80-72-core",
+   "vmid": 392722,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.11",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-10-80-72-core-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-10-80-75-core",
+   "vm_name": "te-77ced9-corp-workstation-10-80-75-core",
+   "vmid": 170094,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.20",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 7680,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-10-80-75-core-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-192-168-core01",
+   "vm_name": "te-77ced9-corp-workstation-192-168-core01",
+   "vmid": 503038,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan192",
+     "ip": "10.192.168.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 137,
+     "proto": "udp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-192-168-core01-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-192-168-core02",
+   "vm_name": "te-77ced9-corp-workstation-192-168-core02",
+   "vmid": 665476,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan192",
+     "ip": "10.192.168.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 137,
+     "proto": "udp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-192-168-core02-cast-corp-workstation-local",
+     "persona": "cast-corp-workstation-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-heavy-10-80-20-core",
+   "vm_name": "te-77ced9-corp-workstation-heavy-10-80-20-core",
+   "vmid": 298496,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-heavy-10-80-20-core-cast-corp-workstation-heavy-local",
+     "persona": "cast-corp-workstation-heavy-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-light-10-80-64-core",
+   "vm_name": "te-77ced9-corp-workstation-light-10-80-64-core",
+   "vmid": 796836,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-light-10-80-64-core-cast-corp-workstation-light-local",
+     "persona": "cast-corp-workstation-light-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-light-10-80-78-core",
+   "vm_name": "te-77ced9-corp-workstation-light-10-80-78-core",
+   "vmid": 115737,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.32",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 3389,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-light-10-80-78-core-cast-corp-workstation-light-local",
+     "persona": "cast-corp-workstation-light-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "corp-workstation-light-10-80-79-core",
+   "vm_name": "te-77ced9-corp-workstation-light-10-80-79-core",
+   "vmid": 239719,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "corp-workstation",
+   "role_baseline": "corp-workstation",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.34",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "corp-workstation-light-10-80-79-core-cast-corp-workstation-light-local",
+     "persona": "cast-corp-workstation-light-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "cos-sw-r32e01",
+   "vm_name": "te-77ced9-cos-sw-r32e01",
+   "vmid": 584848,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "t-ms120-cos",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "vlan40",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-cos",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "dns-resolver-10-0-21-core",
+   "vm_name": "te-77ced9-dns-resolver-10-0-21-core",
+   "vmid": 958650,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "dns-resolver",
+   "role_baseline": "dns-resolver",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-0-21",
+     "ip": "10.100.21.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 53,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "dns-resolver-10-0-21-core-cast-dns-resolver-local",
+     "persona": "cast-dns-resolver-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-0-21",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "dns-resolver-10-20-193-core",
+   "vm_name": "te-77ced9-dns-resolver-10-20-193-core",
+   "vmid": 736391,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "dns-resolver",
+   "role_baseline": "dns-resolver",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 53,
+     "proto": "udp"
+    },
+    {
+     "port": 636,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "dns-resolver-10-20-193-core-cast-dns-resolver",
+     "persona": "cast-dns-resolver",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "dns-resolver-10-20-196-core",
+   "vm_name": "te-77ced9-dns-resolver-10-20-196-core",
+   "vmid": 758312,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "dns-resolver",
+   "role_baseline": "dns-resolver",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-196",
+     "ip": "10.120.196.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 53,
+     "proto": "udp"
+    },
+    {
+     "port": 67,
+     "proto": "udp"
+    },
+    {
+     "port": 123,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "dns-resolver-10-20-196-core-cast-dns-resolver",
+     "persona": "cast-dns-resolver",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-196",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "dns-resolver-10-80-64-core",
+   "vm_name": "te-77ced9-dns-resolver-10-80-64-core",
+   "vmid": 317534,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "dns-resolver",
+   "role_baseline": "dns-resolver",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 53,
+     "proto": "tcp"
+    },
+    {
+     "port": 53,
+     "proto": "udp"
+    },
+    {
+     "port": 135,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "dns-resolver-10-80-64-core-cast-dns-resolver",
+     "persona": "cast-dns-resolver",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "domain-controller-10-80-20-core",
+   "vm_name": "te-77ced9-domain-controller-10-80-20-core",
+   "vmid": 260517,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "domain-controller",
+   "role_baseline": "domain-controller",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "windows",
+   "listen": [
+    {
+     "port": 53,
+     "proto": "tcp"
+    },
+    {
+     "port": 53,
+     "proto": "udp"
+    },
+    {
+     "port": 67,
+     "proto": "udp"
+    },
+    {
+     "port": 88,
+     "proto": "tcp"
+    },
+    {
+     "port": 88,
+     "proto": "udp"
+    },
+    {
+     "port": 123,
+     "proto": "udp"
+    },
+    {
+     "port": 135,
+     "proto": "tcp"
+    },
+    {
+     "port": 389,
+     "proto": "tcp"
+    },
+    {
+     "port": 389,
+     "proto": "udp"
+    },
+    {
+     "port": 445,
+     "proto": "tcp"
+    },
+    {
+     "port": 3268,
+     "proto": "tcp"
+    },
+    {
+     "port": 49667,
+     "proto": "tcp"
+    },
+    {
+     "port": 49669,
+     "proto": "tcp"
+    },
+    {
+     "port": 49677,
+     "proto": "tcp"
+    },
+    {
+     "port": 49680,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "domain-controller-10-80-20-core-cast-domain-controller-local",
+     "persona": "cast-domain-controller-local",
+     "os_family": "windows",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "file-server-10-80-75-core",
+   "vm_name": "te-77ced9-file-server-10-80-75-core",
+   "vmid": 799034,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "file-server",
+   "role_baseline": "file-server",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.21",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 139,
+     "proto": "tcp"
+    },
+    {
+     "port": 445,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "file-server-10-80-75-core-cast-file-server",
+     "persona": "cast-file-server",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-1-10-core",
+   "vm_name": "te-77ced9-generic-endpoint-10-1-10-core",
+   "vmid": 302715,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-1-10",
+     "ip": "10.101.10.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-1-10-core-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-1-10",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core01",
+   "vmid": 226820,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core01-cast-generic-endpoint-chatter",
+     "persona": "cast-generic-endpoint-chatter",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core02",
+   "vmid": 852180,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core03",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core03",
+   "vmid": 624175,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core03-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core04",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core04",
+   "vmid": 700146,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.6",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core04-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core05",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core05",
+   "vmid": 748135,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.7",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core05-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core06",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core06",
+   "vmid": 472226,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.8",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core06-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core07",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core07",
+   "vmid": 527448,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.9",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core07-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-193-core08",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-193-core08",
+   "vmid": 240365,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.10",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-193-core08-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-196-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-196-core01",
+   "vmid": 431074,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-196",
+     "ip": "10.120.196.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-196-core01-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-196",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-196-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-196-core02",
+   "vmid": 722270,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-196",
+     "ip": "10.120.196.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-196-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-196",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-203-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-203-core01",
+   "vmid": 576861,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-203",
+     "ip": "10.120.203.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-203-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-203",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-203-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-203-core02",
+   "vmid": 522933,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-203",
+     "ip": "10.120.203.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-203-core02-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-203",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-204-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-204-core01",
+   "vmid": 870778,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-204",
+     "ip": "10.120.204.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-204-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-204",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-204-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-204-core02",
+   "vmid": 326283,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-204",
+     "ip": "10.120.204.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-204-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-204",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-207-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-207-core01",
+   "vmid": 170477,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-207",
+     "ip": "10.120.207.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-207-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-207",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-20-207-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-20-207-core02",
+   "vmid": 298253,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-207",
+     "ip": "10.120.207.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-20-207-core02-cast-generic-endpoint-local",
+     "persona": "cast-generic-endpoint-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-207",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-64-core",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-64-core",
+   "vmid": 384434,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-64-core-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-73-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-73-core01",
+   "vmid": 646347,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.17",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-73-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-73-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-73-core02",
+   "vmid": 697469,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.18",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-73-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-75-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-75-core01",
+   "vmid": 820994,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.22",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-75-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-75-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-75-core02",
+   "vmid": 981987,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.23",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-75-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-77-core01",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-77-core01",
+   "vmid": 830070,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.29",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-77-core01-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-10-80-77-core02",
+   "vm_name": "te-77ced9-generic-endpoint-10-80-77-core02",
+   "vmid": 210809,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.30",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-10-80-77-core02-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-192-168-core",
+   "vm_name": "te-77ced9-generic-endpoint-192-168-core",
+   "vmid": 619464,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan192",
+     "ip": "10.192.168.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-192-168-core-cast-generic-endpoint",
+     "persona": "cast-generic-endpoint",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-1-10-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-1-10-core",
+   "vmid": 864417,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-1-10",
+     "ip": "10.101.10.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-1-10-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-1-10",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-128-215-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-128-215-core",
+   "vmid": 141623,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-128-215",
+     "ip": "10.228.215.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-128-215-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-128-215",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-192-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-192-core",
+   "vmid": 494900,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-192",
+     "ip": "10.120.192.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-192-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-192",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-193-core01",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-193-core01",
+   "vmid": 748143,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.11",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 5601,
+     "proto": "tcp"
+    },
+    {
+     "port": 9200,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-193-core01-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-193-core02",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-193-core02",
+   "vmid": 266152,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.12",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 5601,
+     "proto": "tcp"
+    },
+    {
+     "port": 9200,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-193-core02-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-195-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-195-core",
+   "vmid": 418218,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-195",
+     "ip": "10.120.195.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-195-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-195",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-200-core01",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-200-core01",
+   "vmid": 197879,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-200",
+     "ip": "10.120.200.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-200-core01-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-200",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-200-core02",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-200-core02",
+   "vmid": 953728,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-200",
+     "ip": "10.120.200.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-200-core02-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-200",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-200-core03",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-200-core03",
+   "vmid": 452606,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-200",
+     "ip": "10.120.200.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-200-core03-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-200",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-200-core04",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-200-core04",
+   "vmid": 693023,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-200",
+     "ip": "10.120.200.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-200-core04-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-200",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-201-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-201-core",
+   "vmid": 913919,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-201",
+     "ip": "10.120.201.2",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-201-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-201",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-20-204-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-20-204-core",
+   "vmid": 120463,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-204",
+     "ip": "10.120.204.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-20-204-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-204",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-20-core01",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-20-core01",
+   "vmid": 629952,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 51252,
+     "proto": "udp"
+    },
+    {
+     "port": 54689,
+     "proto": "udp"
+    },
+    {
+     "port": 61478,
+     "proto": "udp"
+    },
+    {
+     "port": 62619,
+     "proto": "udp"
+    },
+    {
+     "port": 65489,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-20-core01-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    },
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-20-core01-corp-file-share-client",
+     "persona": "corp-file-share-client",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-20-core02",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-20-core02",
+   "vmid": 763023,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 51252,
+     "proto": "udp"
+    },
+    {
+     "port": 54689,
+     "proto": "udp"
+    },
+    {
+     "port": 61478,
+     "proto": "udp"
+    },
+    {
+     "port": 62619,
+     "proto": "udp"
+    },
+    {
+     "port": 65489,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-20-core02-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-20-core03",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-20-core03",
+   "vmid": 345370,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.6",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 51252,
+     "proto": "udp"
+    },
+    {
+     "port": 54689,
+     "proto": "udp"
+    },
+    {
+     "port": 61478,
+     "proto": "udp"
+    },
+    {
+     "port": 62619,
+     "proto": "udp"
+    },
+    {
+     "port": 65489,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-20-core03-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-20-core04",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-20-core04",
+   "vmid": 636731,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.7",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 51252,
+     "proto": "udp"
+    },
+    {
+     "port": 54689,
+     "proto": "udp"
+    },
+    {
+     "port": 61478,
+     "proto": "udp"
+    },
+    {
+     "port": 62619,
+     "proto": "udp"
+    },
+    {
+     "port": 65489,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-20-core04-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-34-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-34-core",
+   "vmid": 874474,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan953",
+     "ip": "10.180.34.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-34-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-64-core01",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-64-core01",
+   "vmid": 905620,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-64-core01-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-64-core02",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-64-core02",
+   "vmid": 669672,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.6",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-64-core02-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-65-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-65-core",
+   "vmid": 143498,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.9",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 3000,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-65-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-74-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-74-core",
+   "vmid": 782983,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.19",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-74-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-75-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-75-core",
+   "vmid": 851918,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.24",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-75-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-76-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-76-core",
+   "vmid": 143838,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.28",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-76-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-77-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-77-core",
+   "vmid": 846167,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.31",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-77-core-cast-generic-endpoint-heavy-local",
+     "persona": "cast-generic-endpoint-heavy-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-10-80-79-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-10-80-79-core",
+   "vmid": 781702,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.35",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-10-80-79-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-heavy-192-168-core",
+   "vm_name": "te-77ced9-generic-endpoint-heavy-192-168-core",
+   "vmid": 135506,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan192",
+     "ip": "10.192.168.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-heavy-192-168-core-cast-generic-endpoint-heavy",
+     "persona": "cast-generic-endpoint-heavy",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-20-207-core",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-20-207-core",
+   "vmid": 954741,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-207",
+     "ip": "10.120.207.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-20-207-core-cast-generic-endpoint-light",
+     "persona": "cast-generic-endpoint-light",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-207",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-64-core",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-64-core",
+   "vmid": 635419,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.7",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-64-core-cast-generic-endpoint-light",
+     "persona": "cast-generic-endpoint-light",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-65-core",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-65-core",
+   "vmid": 526528,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.10",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-65-core-cast-generic-endpoint-light-local",
+     "persona": "cast-generic-endpoint-light-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-72-core01",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-72-core01",
+   "vmid": 854056,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.12",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-72-core01-cast-generic-endpoint-light",
+     "persona": "cast-generic-endpoint-light",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-72-core02",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-72-core02",
+   "vmid": 778039,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.13",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-72-core02-cast-generic-endpoint-light",
+     "persona": "cast-generic-endpoint-light",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-75-core",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-75-core",
+   "vmid": 750356,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.25",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-75-core-cast-generic-endpoint-light-local",
+     "persona": "cast-generic-endpoint-light-local",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "generic-endpoint-light-10-80-78-core",
+   "vm_name": "te-77ced9-generic-endpoint-light-10-80-78-core",
+   "vmid": 563644,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "generic-endpoint",
+   "role_baseline": "generic-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.33",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "generic-endpoint-light-10-80-78-core-cast-generic-endpoint-light",
+     "persona": "cast-generic-endpoint-light",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "hq-mx",
+   "vm_name": "te-77ced9-hq-mx",
+   "vmid": 305605,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "gw",
+   "role_baseline": "gw",
+   "kind": "router",
+   "nets": [
+    {
+     "net_id": "__wan__",
+     "ip": null,
+     "nic_index": 25,
+     "external": true
+    },
+    {
+     "net_id": "lab-10-0-21",
+     "ip": "10.100.21.1",
+     "nic_index": 13,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-1-10",
+     "ip": "10.101.10.1",
+     "nic_index": 14,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-128-215",
+     "ip": "10.228.215.1",
+     "nic_index": 15,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-192",
+     "ip": "10.120.192.1",
+     "nic_index": 16,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.1",
+     "nic_index": 17,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-195",
+     "ip": "10.120.195.1",
+     "nic_index": 18,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-196",
+     "ip": "10.120.196.1",
+     "nic_index": 19,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-200",
+     "ip": "10.120.200.1",
+     "nic_index": 20,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-201",
+     "ip": "10.120.201.1",
+     "nic_index": 21,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-203",
+     "ip": "10.120.203.1",
+     "nic_index": 22,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-204",
+     "ip": "10.120.204.1",
+     "nic_index": 23,
+     "external": false
+    },
+    {
+     "net_id": "lab-10-20-207",
+     "ip": "10.120.207.1",
+     "nic_index": 24,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan1010",
+     "ip": "10.180.101.1",
+     "nic_index": 11,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan192",
+     "ip": "10.192.168.1",
+     "nic_index": 9,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan1",
+     "ip": "10.180.0.1",
+     "nic_index": 2,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan20",
+     "ip": "10.180.16.1",
+     "nic_index": 3,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan32",
+     "ip": "10.180.32.1",
+     "nic_index": 4,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan40",
+     "ip": "10.180.40.1",
+     "nic_index": 5,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan48",
+     "ip": "10.180.48.1",
+     "nic_index": 6,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan52",
+     "ip": "10.180.56.1",
+     "nic_index": 7,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan64",
+     "ip": "10.180.64.1",
+     "nic_index": 8,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan880",
+     "ip": "10.180.88.1",
+     "nic_index": 10,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan935",
+     "ip": "10.180.93.1",
+     "nic_index": 12,
+     "external": false
+    },
+    {
+     "net_id": "wan1-isp",
+     "ip": "10.250.234.65",
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "wan2-isp",
+     "ip": "10.251.234.78",
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-0-21",
+     "nic_index": 13,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-1-10",
+     "nic_index": 14,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-128-215",
+     "nic_index": 15,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-192",
+     "nic_index": 16,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 17,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-195",
+     "nic_index": 18,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-196",
+     "nic_index": 19,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-200",
+     "nic_index": 20,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-201",
+     "nic_index": 21,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-203",
+     "nic_index": 22,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-204",
+     "nic_index": 23,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-207",
+     "nic_index": 24,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "wan1-isp",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "wan2-isp",
+     "nic_index": 1,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "both"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "hwlab2960s",
+   "vm_name": "te-77ced9-hwlab2960s",
+   "vmid": 555039,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "p17-hwlab2960s",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "vlan32",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "p17-hwlab2960s",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "labswitch",
+   "vm_name": "te-77ced9-labswitch",
+   "vmid": 141289,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "t-ms120-labsw",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "vlan192",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-labsw",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "ms120",
+   "vm_name": "te-77ced9-ms120",
+   "vmid": 691364,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "p17-hwlab2960s",
+     "ip": null,
+     "nic_index": 8,
+     "external": false
+    },
+    {
+     "net_id": "sfp25",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "sfp26",
+     "ip": null,
+     "nic_index": 2,
+     "external": false
+    },
+    {
+     "net_id": "t-ms120-3850",
+     "ip": null,
+     "nic_index": 7,
+     "external": false
+    },
+    {
+     "net_id": "t-ms120-axeprod",
+     "ip": null,
+     "nic_index": 4,
+     "external": false
+    },
+    {
+     "net_id": "t-ms120-cos",
+     "ip": null,
+     "nic_index": 5,
+     "external": false
+    },
+    {
+     "net_id": "t-ms120-labsw",
+     "ip": null,
+     "nic_index": 6,
+     "external": false
+    },
+    {
+     "net_id": "t-ms120-sgs5240",
+     "ip": null,
+     "nic_index": 3,
+     "external": false
+    },
+    {
+     "net_id": "vlan1",
+     "ip": null,
+     "nic_index": 9,
+     "external": false
+    },
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.15",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "p17-hwlab2960s",
+     "nic_index": 8,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "sfp25",
+     "nic_index": 1,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "sfp26",
+     "nic_index": 2,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-3850",
+     "nic_index": 7,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-axeprod",
+     "nic_index": 4,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-cos",
+     "nic_index": 5,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-labsw",
+     "nic_index": 6,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-sgs5240",
+     "nic_index": 3,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan1",
+     "nic_index": 9,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "both"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "mx-sw",
+   "vm_name": "te-77ced9-mx-sw",
+   "vmid": 835280,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "mx-vlan1010",
+     "ip": null,
+     "nic_index": 9,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan192",
+     "ip": null,
+     "nic_index": 7,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan1",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan20",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan32",
+     "ip": null,
+     "nic_index": 2,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan40",
+     "ip": null,
+     "nic_index": 3,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan48",
+     "ip": null,
+     "nic_index": 4,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan52",
+     "ip": null,
+     "nic_index": 5,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan64",
+     "ip": null,
+     "nic_index": 6,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan880",
+     "ip": null,
+     "nic_index": 8,
+     "external": false
+    },
+    {
+     "net_id": "mx-vlan935",
+     "ip": null,
+     "nic_index": 10,
+     "external": false
+    },
+    {
+     "net_id": "sfp25",
+     "ip": null,
+     "nic_index": 11,
+     "external": false
+    },
+    {
+     "net_id": "sfp26",
+     "ip": null,
+     "nic_index": 12,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "sfp25",
+     "nic_index": 11,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    },
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "sfp26",
+     "nic_index": 12,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "sgs-5240",
+   "vm_name": "te-77ced9-sgs-5240",
+   "vmid": 242738,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "t-ms120-sgs5240",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "vlan64",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-sgs5240",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "sink",
+   "vm_name": "te-77ced9-sink",
+   "vmid": 824506,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "sink",
+   "role_baseline": "sink",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "wan1-isp",
+     "ip": "10.250.234.66",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 22,
+     "proto": "tcp"
+    },
+    {
+     "port": 53,
+     "proto": "udp"
+    },
+    {
+     "port": 53,
+     "proto": "tcp"
+    },
+    {
+     "port": 80,
+     "proto": "tcp"
+    },
+    {
+     "port": 443,
+     "proto": "tcp"
+    },
+    {
+     "port": 443,
+     "proto": "udp"
+    },
+    {
+     "port": 123,
+     "proto": "udp"
+    },
+    {
+     "port": 9099,
+     "proto": "tcp"
+    },
+    {
+     "port": 9098,
+     "proto": "udp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "wan1-isp",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "sw-3850",
+   "vm_name": "te-77ced9-sw-3850",
+   "vmid": 404054,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "l2-switch",
+   "role_baseline": "l2-switch",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "t-ms120-3850",
+     "ip": null,
+     "nic_index": 0,
+     "external": false
+    },
+    {
+     "net_id": "x3850-9k01",
+     "ip": null,
+     "nic_index": 1,
+     "external": false
+    },
+    {
+     "net_id": "x3850-9k02",
+     "ip": null,
+     "nic_index": 2,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "t-ms120-3850",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-128-215-core01",
+   "vm_name": "te-77ced9-unroled-endpoint-10-128-215-core01",
+   "vmid": 903536,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-128-215",
+     "ip": "10.228.215.3",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-128-215",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-128-215-core02",
+   "vm_name": "te-77ced9-unroled-endpoint-10-128-215-core02",
+   "vmid": 193327,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-128-215",
+     "ip": "10.228.215.4",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-128-215",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-20-193-core",
+   "vm_name": "te-77ced9-unroled-endpoint-10-20-193-core",
+   "vmid": 261523,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.13",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-20-204-core",
+   "vm_name": "te-77ced9-unroled-endpoint-10-20-204-core",
+   "vmid": 811458,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-204",
+     "ip": "10.120.204.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-204",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-80-20-core01",
+   "vm_name": "te-77ced9-unroled-endpoint-10-80-20-core01",
+   "vmid": 939609,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.8",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-80-20-core02",
+   "vm_name": "te-77ced9-unroled-endpoint-10-80-20-core02",
+   "vmid": 813987,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.9",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-80-31-core",
+   "vm_name": "te-77ced9-unroled-endpoint-10-80-31-core",
+   "vmid": 554658,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan20",
+     "ip": "10.180.16.10",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "vlan20",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-80-64-core",
+   "vm_name": "te-77ced9-unroled-endpoint-10-80-64-core",
+   "vmid": 198063,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.8",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "unroled-endpoint-10-80-79-core",
+   "vm_name": "te-77ced9-unroled-endpoint-10-80-79-core",
+   "vmid": 688063,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "unroled-endpoint",
+   "role_baseline": "unroled-endpoint",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.36",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": null,
+   "role_origin": "baseline",
+   "personas": [],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-20-193-core",
+   "vm_name": "te-77ced9-web-tier-10-20-193-core",
+   "vmid": 323343,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "lab-10-20-193",
+     "ip": "10.120.193.14",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-20-193-core-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [
+    {
+     "tap_deploy_id": "tap-corp-twin-07cfcdb2-8176c5ad",
+     "net_id": "lab-10-20-193",
+     "nic_index": 0,
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "directions": {
+      "XPress-SW-A": "rx"
+     },
+     "status": "completed"
+    }
+   ],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-34-core01",
+   "vm_name": "te-77ced9-web-tier-10-80-34-core01",
+   "vmid": 108211,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan953",
+     "ip": "10.180.34.5",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    },
+    {
+     "port": 9080,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-34-core01-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-34-core02",
+   "vm_name": "te-77ced9-web-tier-10-80-34-core02",
+   "vmid": 949702,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan953",
+     "ip": "10.180.34.6",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    },
+    {
+     "port": 9080,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-34-core02-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-34-core03",
+   "vm_name": "te-77ced9-web-tier-10-80-34-core03",
+   "vmid": 767061,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan953",
+     "ip": "10.180.34.7",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    },
+    {
+     "port": 9080,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-34-core03-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-72-core01",
+   "vm_name": "te-77ced9-web-tier-10-80-72-core01",
+   "vmid": 704692,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.14",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-72-core01-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-72-core02",
+   "vm_name": "te-77ced9-web-tier-10-80-72-core02",
+   "vmid": 298261,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.15",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-72-core02-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-72-core03",
+   "vm_name": "te-77ced9-web-tier-10-80-72-core03",
+   "vmid": 940138,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.16",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-72-core03-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-75-core01",
+   "vm_name": "te-77ced9-web-tier-10-80-75-core01",
+   "vmid": 347671,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.26",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 80,
+     "proto": "tcp"
+    },
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-75-core01-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  },
+  {
+   "host_id": "web-tier-10-80-75-core02",
+   "vm_name": "te-77ced9-web-tier-10-80-75-core02",
+   "vmid": 840142,
+   "pve_node": "dev45",
+   "vm_status": "completed",
+   "role": "web-tier",
+   "role_baseline": "web-tier",
+   "kind": "host",
+   "nets": [
+    {
+     "net_id": "vlan64",
+     "ip": "10.180.64.27",
+     "nic_index": 0,
+     "external": false
+    }
+   ],
+   "os": "linux",
+   "listen": [
+    {
+     "port": 80,
+     "proto": "tcp"
+    },
+    {
+     "port": 443,
+     "proto": "tcp"
+    }
+   ],
+   "role_origin": "baseline",
+   "personas": [
+    {
+     "instance_id": "web-tier-10-80-75-core02-cast-web-tier",
+     "persona": "cast-web-tier",
+     "os_family": "linux",
+     "drive": null,
+     "intensity": null,
+     "schedule": null,
+     "seed": null,
+     "peers": {},
+     "peer_sets": {},
+     "status": "completed",
+     "op_id": null,
+     "started_at": 1790591119.0908184,
+     "completed_at": 1790599221.2809746,
+     "origin": "profile",
+     "heartbeat": null,
+     "last_error": null
+    }
+   ],
+   "taps": [],
+   "last_error": null
+  }
+ ],
+ "net_bridge": {
+  "__wan__": "vmbr0",
+  "isl-8325": "tev69c97",
+  "lab-10-0-21": "tev37443",
+  "lab-10-1-10": "tevf05a8",
+  "lab-10-128-215": "tev75d82",
+  "lab-10-20-192": "tevd570e",
+  "lab-10-20-193": "tevd297b",
+  "lab-10-20-195": "tevb6a76",
+  "lab-10-20-196": "tev5ed6e",
+  "lab-10-20-200": "tevbae10",
+  "lab-10-20-201": "tev5f2d5",
+  "lab-10-20-203": "tevb3c62",
+  "lab-10-20-204": "tev94457",
+  "lab-10-20-207": "tev5801a",
+  "mx-vlan1010": "tevcd8a0",
+  "mx-vlan192": "tev329f5",
+  "mx-vlan1": "tev88d47",
+  "mx-vlan20": "tev034e6",
+  "mx-vlan32": "tev0ae42",
+  "mx-vlan40": "tev5855b",
+  "mx-vlan48": "tevcf8ff",
+  "mx-vlan52": "tevc758f",
+  "mx-vlan64": "tevfc5c6",
+  "mx-vlan880": "tevc9585",
+  "mx-vlan935": "tevb0d63",
+  "p17-hwlab2960s": "tev178bb",
+  "sfp25": "tevfb220",
+  "sfp26": "tev2c59b",
+  "t-ms120-3850": "tev5d72c",
+  "t-ms120-axeprod": "tev58c98",
+  "t-ms120-cos": "tev38136",
+  "t-ms120-labsw": "tev76e19",
+  "t-ms120-sgs5240": "tev1f563",
+  "vlan192": "tev49c48",
+  "vlan1": "tev4f2e2",
+  "vlan20": "tev0e3d7",
+  "vlan32": "tev23cb2",
+  "vlan40": "tevc61c1",
+  "vlan48": "tev13bb0",
+  "vlan52": "tev8ec2e",
+  "vlan64": "tev4e58d",
+  "vlan953": "tev9ccc5",
+  "wan1-isp": "tevca53d",
+  "wan2-isp": "tev2f5ab",
+  "x3850-9k01": "tev8f166",
+  "x3850-9k02": "teva6f91",
+  "x9k01-8325l": "tevf5c90",
+  "x9k02-8325r": "tev875ac"
+ },
+ "egress": {
+  "router_host": "hq-mx",
+  "phase_declared": "provision",
+  "phase_applied": "measure",
+  "sink_ip": "10.250.234.66",
+  "mode": "default",
+  "contained": true,
+  "live_read_at": "2026-09-28T12:30:41Z"
+ },
+ "warnings": [],
+ "vlan_underlay": null
+}

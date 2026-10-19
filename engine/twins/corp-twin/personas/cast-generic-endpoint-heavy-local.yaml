@@ -1,0 +1,52 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): DNS 64 B (was 64 KiB x 24, chunked to
+# 1400 B frames), NTP 48 B low (was `high`: the 1400 B "NTP" frames to the DC), HTTP high -> low.
+persona:
+  id: cast-generic-endpoint-heavy-local
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: http
+    ports:
+    - 80
+    peer_role: web-tier
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: low
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: high
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: high
+    bytes: 64
+  - proto: ntp
+    ports:
+    - 123
+    peer_role: domain-controller
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: low
+    bytes: 48
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

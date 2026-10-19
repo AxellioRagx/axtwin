@@ -1,0 +1,130 @@
+# svc-engines -- the WEB engine: a real headless Chromium visiting real
+# observed names (work order §5 E4, `drive: browser`).
+#
+# **Bundle-local, not catalog** (`AXRANGE_PERSONAS_DIR`), for the same reason
+# the `command` personas in this folder are: the engine needs Chromium and a
+# name service that answers, neither of which any base image or ordinary twin
+# provides. Assigning it to a guest that has neither is a persona that fails
+# at arm time.
+#
+# **Why one engine covers most of the measurement.** The cast is **DNS 70% of
+# flows** and **TLS 11% of flows but 6.3 of 8.9 GB** (work order §1). A real
+# browser produces, from ONE driver: the DNS lookups (through the twin's own
+# chain), a real TLS handshake carrying the REAL SNI and a real JA3/JA4,
+# HTTP/1.1, HTTP/2, and QUIC/HTTP-3 -- 81% of measured flows and 71% of bytes.
+# No `scripted` emit can carry any of it: a TLS flow's fidelity lives entirely
+# in bytes a filler generator does not know how to produce.
+#
+# ---------------------------------------------------------------------------
+# **`resolve_via_dns: true` -- the knob that makes this persona CONTAINED or
+# UNCONTAINED, depending on the twin's phase. READ THIS BEFORE DEPLOYING.**
+#
+# The browser driver has two modes (its module docstring):
+#   1. default -- `--host-resolver-rules=MAP * <peer-ip>`: no guest-side
+#      resolution at all, every name pinned to one orchestrator-resolved twin
+#      address. Works with no sink, no resolver, no router phase.
+#   2. `resolve_via_dns: true` -- the guest resolves normally. This is the mode
+#      the user RATIFIED for the finished twin (ruling 1, 2026-09-21:
+#      containment becomes a NETWORK property), and it is the only mode in
+#      which the DNS half of the measurement is real: mode 1 produces zero DNS
+#      queries, because Chromium never asks anyone.
+#
+# This persona uses mode 2 **because this twin is built for it** -- E3's name
+# service (`resolver` -> sink for every external name) plus E2's sink (a real
+# certificate per SNI) are both in this bundle. BUT the third leg, E1's egress
+# phase, is a SEAM here (see `gw` in svc-engines.yaml): until the twin is in
+# the `measure` phase, the sink's answers -- real observed addresses like
+# 140.82.112.3 -- are routable to the REAL internet through the router's NAT.
+#
+# ⇒ **Do not run this persona while the twin is in the provision phase.**
+#   `tfc-svc-engines.yaml` says the same thing at the assignment, and the
+#   README makes the phase switch step 2 rather than an afterthought.
+#
+# `browser_ignore_cert_errors: true` is the OTHER disclosed compromise: the
+# sink MINTS its lab CA at run time, so it cannot be in an image's trust store
+# until E7 bakes one, and Chromium would otherwise fail every fetch at
+# validation. TLS FIDELITY IS UNAFFECTED -- the SNI, ALPN, JA3/JA4 and the
+# certificate the sink presents are all real; only the client's verification of
+# them is skipped. When E7 lands, delete this knob; it is not a permanent part
+# of the design.
+# ---------------------------------------------------------------------------
+persona:
+  id: svc-engines-browse
+  os_family: linux          # `drive: browser` is Linux-only, by design
+
+  drive: browser
+
+  emits:
+    # HTTPS over TCP: TLS 1.3 + ALPN h2/http1.1 against the sink's Caddy,
+    # which mints a certificate for whatever SNI arrives. This is the emit
+    # that carries the round's headline claim -- **the TLS record names the
+    # real observed name** -- and the one whose evidence GAP-076 currently
+    # blocks at Suricata (read the SNI from Zeek's `ssl.log` or the pcap
+    # instead; see the README's step 4).
+    - { proto: https, ports: [443], peer_role: internet,
+        direction: NS, cadence: "cyclic:60s", volume: med }
+    # HTTP/3 over QUIC, udp/443. `quic` is UDP by definition
+    # (`personas.schema._UDP_PROTOS`) and the driver FORCES the origin to
+    # HTTP/3 for this row, because Chromium only speaks QUIC to an origin it
+    # has already seen advertise Alt-Svc -- without the force this would
+    # silently be a TCP HTTP/2 flow wearing a QUIC label, the exact
+    # plausible-looking wrong answer LES-001 is about. The sink serves h3
+    # (Caddy, udp/443) which is why that choice was made over mitmproxy.
+    - { proto: quic, ports: [443], peer_role: internet,
+        direction: NS, cadence: "cyclic:120s", volume: low }
+    # Plain HTTP. Small share of the cast, but it is the one web flow whose
+    # CONTENT a sensor can actually read (method, Host, User-Agent, status),
+    # so it is the cheapest end-to-end proof that the browser really is a
+    # browser and the sink really is answering.
+    - { proto: http, ports: [80], peer_role: internet,
+        direction: NS, cadence: "cyclic:120s", volume: low }
+
+  # No `requires:`. `internet` is a RESERVED peer_role
+  # (`personas.schema.RESERVED_PEER_ROLES`) meaning "outside the twin" -- no
+  # twin host is resolved for it, which is exactly right here: the sink is
+  # reached because the twin's DNS and the twin's routing send every external
+  # destination there, not because a persona named it. That indirection IS the
+  # containment model, and it is why this persona needs no knowledge of the
+  # sink's address.
+  requires: []
+
+  knobs:
+    # ---- the browse list: REAL names from the cast -------------------------
+    # Eight names taken verbatim from `twin-configs-cast/corpapcn-disco/
+    # topology.json`'s `observations.dns.names`, all `locality: external`, all
+    # present in the generated sink corpus (checked: each resolves to its
+    # really-observed address in `scripts/provision-sink.sh`'s root zone).
+    # They are NAMES, not URLs -- no scheme, no path, no port -- which the
+    # driver enforces at render, because each of these strings becomes a TLS
+    # SNI and an HTTP Host header and a wrong shape there is write-path
+    # garbage a sensor would faithfully record as truth.
+    #
+    # The set is deliberately a handful, not the corpus's 613: a browse list
+    # is a claim about what THIS host browses, and eight names at a 60 s
+    # cadence is already more DNS+TLS than the rest of the twin combined.
+    browse_names:
+      - github.com                     # 140.82.112.3/.4 observed
+      - login.microsoftonline.com      # a PINNED endpoint -- see the note below
+      - ecs.office.com
+      - ctldl.windowsupdate.com
+      - au.download.windowsupdate.com
+      - acrobat.adobe.com
+      - c.bing.com
+      - gov.teams.microsoft.us
+    # **`login.microsoftonline.com` is in the list on purpose, and its result
+    # must be labelled HANDSHAKE-ONLY** (work order §5 E2, §7): certificate-
+    # pinned endpoints abort after the handshake against a lab CA. That is a
+    # real, expected outcome -- the flow is a genuine TLS negotiation with a
+    # real SNI -- and it must never be scored as a successful fetch. Having
+    # one in the list keeps that distinction visible instead of theoretical.
+
+    # ---- the two disclosed knobs (see the header) --------------------------
+    resolve_via_dns: true
+    browser_ignore_cert_errors: true
+    # A page load through a sink that mints a certificate ON THE FIRST
+    # handshake for a name is slower than one against a warm origin; 20 s is
+    # comfortably above that and still bounded (the driver hard-bounds every
+    # fetch with `subprocess.run(timeout=...)`).
+    browse_timeout_s: 20
+    schedule: 24x7
+    seed_jitter: true

@@ -1,0 +1,42 @@
+# axRange cluster targets -- `axrange serve --targets <this file>` (or AXRANGE_TARGETS).
+#
+# One entry per cluster the Console can show. The FIRST entry is the default
+# target: routes that take no `?target=` (tfc/tap/exr tiers, imprints,
+# validate/plan) use its db + adapter.conf.
+#
+# Each target needs its OWN state store: a deploy's cluster is "the target
+# whose db it was read from" (state.db has no cluster column), so two targets
+# sharing one db would show every deploy on both. `axrange serve` refuses it.
+#
+# Without this file, `axrange serve` serves one implicit target built from
+# --adapter-config/--db, named after that adapter.conf's DEFAULT_NODE.
+#
+# `axrange serve --targets` REFUSES TO START when:
+#   - the file names more than one target and an entry has no adapter_config
+#     (the default search path would point it at another cluster);
+#   - any of PROXMOX_API_URL, PROXMOX_API_TOKEN, DEFAULT_NODE, OVS_SSH_HOST,
+#     OVS_SSH_USER, OVS_SSH_KEY is set in its environment (env values override
+#     EVERY target's adapter.conf);
+#   - two targets resolve to the same Proxmox API URL (list one cluster ONCE and
+#     give it `extra_dbs`), or share a store.
+#
+# protected_deploys: twin deploy ids the API refuses to write to (destroy,
+# per-host persona edits, tap/tfc/exr applies and destroys) with 423 unless the
+# request carries `override_protection=<that id>`. The CLI is not affected.
+targets:
+  - name: dev45
+    adapter_config: /etc/axrange/adapter.conf
+    db: ~/.axrange/state.db
+    # Optional: the PVE node names this cluster runs. A deploy whose recorded
+    # placement names any other node is flagged on /api/range (never hidden).
+    # Default: the adapter.conf's DEFAULT_NODE.
+    nodes: [dev45]
+    protected_deploys: [corp-twin-07cfcdb2, svc-engines-24131435]
+    # Optional: further state stores recording deploys on THIS cluster (a twin
+    # deployed with `--db <other file>`). Reads search every store; new deploys
+    # go to `db`. A store belongs to one target, once.
+    extra_dbs: [/home/rocky/axr-svcengines.state.db]
+
+  - name: pxtwin1
+    adapter_config: /etc/axrange/adapter-pxtwin1.conf
+    db: ~/.axrange/state-pxtwin1.db

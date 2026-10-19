@@ -1,0 +1,74 @@
+# The bundle-local persona for svc-verify's probe client -- §9.2 step 5:
+# "`tfc deploy` with a `drive: command` persona -> the same protocols appear
+# unattended, from the persona's own cadence."
+#
+# **Bundle-local, not catalog.** Loaded via `AXRANGE_PERSONAS_DIR`
+# (`axrange/personas/registry.py`), the same mechanism the golden cast's
+# `twin-configs-cast/corpapcn-golden/personas/` uses. It is NOT shipped into
+# `axrange/personas/catalog/` on purpose: the `command` driver's own §5
+# choice 5 is that no catalog persona uses `drive: command` yet, because
+# shipping one would make it assignable onto guests that cannot run it (the
+# tools are not in any base image -- GAP-056). This twin's client installs
+# them explicitly, so here it is safe.
+#
+# **What makes this the protocol-faithful client half.** At each emit's
+# firing instant the driver runs a REAL client tool -- `dig`, `curl`,
+# `ntpdate`, `ping` -- instead of pushing tagged filler bytes at a port, so
+# the capture records `dns`/`tls`/`ntp`/`icmp` rather than bare `udp`/`tcp`
+# (`docs/WORK_ORDER_protocol_faithful_traffic.md`). Its counterpart is the
+# server half: a real `dig` needs a real resolver on the other end, which is
+# what the three copied `serve-*.sh` recipes provide.
+#
+# **Containment is structural, not conventional**: every peer address is
+# resolved to a twin host IP BY THE ORCHESTRATOR and baked into the rendered
+# client as a literal; a bare hostname is refused at render
+# (`command._check_containment`). Nothing here can teach a guest to resolve
+# a name.
+#
+# **Every hard peer_role is in `requires[]`** (PSN-090) and every one of them
+# is a role THIS twin publishes -- `dns-resolver` (svc-dns), `web-tier`
+# (svc-web), `ntp-server` (svc-ntp). LES-193: a profile that parses and
+# references real persona ids can still be unbindable against the twin it
+# targets, and a gated destructive run is the worst place to find that out.
+persona:
+  id: svc-verify-probe
+  os_family: linux          # `drive: command` is Linux-only, by design
+  drive: command
+
+  emits:
+    # dig @<svc-dns> axdc04.corp.axr.lab A  -- see `knobs.dns_qname` below.
+    - { proto: dns, ports: [53], peer_role: dns-resolver,
+        direction: EW, cadence: "cyclic:60s", volume: low }
+    # curl -k https://<svc-web>:443/ -- a REAL TLS handshake against the
+    # recipe's self-signed cert; Suricata records `tls`, never bare `tcp`.
+    - { proto: https, ports: [443], peer_role: web-tier,
+        direction: EW, cadence: "cyclic:60s", volume: low }
+    # ntpdate -q <svc-ntp> -- query only, never steps the guest clock (the
+    # DC's Kerberos depends on twin time). `ports: [123]` is the template's
+    # own well-known port, which `_resolve_ports` accepts for a port-less
+    # tool; any OTHER port would be a loud refusal.
+    - { proto: ntp, ports: [123], peer_role: ntp-server,
+        direction: EW, cadence: "cyclic:60s", volume: low }
+    # ping -- the one template needing no package at all (iputils is in the
+    # base image), so it keeps firing even if an apt install regressed. No
+    # `ports:`: ICMP has none, and pinning one is a refusal.
+    - { proto: icmp, peer_role: web-tier,
+        direction: EW, cadence: "cyclic:60s", volume: low }
+
+  requires: [dns-resolver, web-tier, ntp-server]
+
+  knobs:
+    # A name the copied bind9 recipe is genuinely AUTHORITATIVE for. The
+    # zone (`/etc/bind/db.axr-lab`, zone `corp.axr.lab`) carries the source's
+    # observed short names re-homed under the LAB realm (D4) -- `axdc04` is
+    # `axdc04.axellio.dom` in the capture (`observations.dns`,
+    # evidence_class `referenced`, locality local). Deliberately NOT
+    # `axdc01`: that name is also this twin's real DC, and pointing the
+    # probe at the name two servers answer differently would make a green
+    # result unreadable.
+    #
+    # Trailing dot + dig's `+nosearch`: the guest's own search list is never
+    # consulted, so this cannot silently become something else.
+    dns_qname: "axdc04.corp.axr.lab."
+    schedule: 24x7
+    seed_jitter: true

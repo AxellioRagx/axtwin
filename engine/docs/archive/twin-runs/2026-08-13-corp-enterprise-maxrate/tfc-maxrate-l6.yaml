@@ -1,0 +1,26 @@
+# corp-enterprise -- max-capture-rate ramp, rung 6 (dev45, 2026-08-13).
+#
+# Added AFTER multiqueue was enabled on XPress-SW-A (net1 queues=8). That took
+# the sink from 31,733 drops to ZERO at rung 5's ~2.6 Gbit/s, so the previous
+# ceiling no longer binds and five Linux senders can no longer reach it.
+#
+# Rung 6 = rung 5 plus the Windows fleet: all 6 corp-workstations meshed inside
+# corp-lan via loadgen-win. 11 senders total. PowerShell is the weaker emitter,
+# so this adds breadth rather than a second Linux-scale step.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles-loadgen.yaml
+
+  assignments:
+    - role: loadgen
+      persona: loadgen-l4
+      schedule: 24x7
+    - node: attacker
+      persona: loadgen-corp
+      schedule: 24x7
+    - node: file-server
+      persona: loadgen-srv
+      schedule: 24x7
+    - role: corp-workstation
+      persona: loadgen-win
+      schedule: 24x7

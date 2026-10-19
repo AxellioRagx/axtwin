@@ -1,0 +1,123 @@
+scenario_schema_version: 1
+
+scenario:
+  id: ransomware-hospital
+  version: 7
+  description: |
+    EMR server compromise via phishing, lateral movement to PACS.
+  seed: 42
+  reproducible: true
+  labels:
+    domain: healthcare
+    tactic: TA0040
+
+layers:
+  infra:
+    networks:
+      - { id: corp, cidr: 10.10.0.0/24, vlan: 10, gateway: 10.10.0.1 }
+      - { id: dmz,  cidr: 192.168.50.0/24, vlan: 50 }
+
+    nodes:
+      - id: h-fin
+        kind: host
+        net: corp
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+
+      - id: h-corp-emr
+        kind: host
+        net: corp
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 100Gi }
+
+      - id: h-corp-dc
+        kind: host
+        net: corp
+        image: win11-finance@v4
+        requires: [windows]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+
+      - id: h-dmz-ids
+        kind: host
+        net: dmz
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+
+      - id: h-attacker
+        kind: host
+        net: dmz
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+
+      - id: r-edge
+        kind: router
+        nets:
+          - { net: corp, ip: 10.10.0.1 }
+          - { net: dmz,  ip: 192.168.50.1 }
+        image: vyos@1.5
+        requires: [linux]
+        resources: { cpu: 1, ram: 512Mi }
+        static_routes:
+          - { to: 0.0.0.0/0, via: 192.168.50.254 }
+
+  apps:
+    - id: emr-app
+      role: medical-records
+      install:
+        - container: hospital/emr@1.4
+      listen:
+        - { port: 8443, proto: tcp }
+
+    - id: ad-dc-1
+      role: domain-controller
+      install:
+        - role: adds
+      provides:
+        - domain: corp.local
+
+  activity:
+    - id: act-fin-workday
+      actor: user-fin
+      behavior: office-workday@v2
+      intensity: 0.6
+      schedule: { start: "09:00", end: "17:00", days: [mon, tue, wed, thu, fri] }
+
+    - id: act-attacker-phish
+      actor: attacker-1
+      inline:
+        steps:
+          - { tool: send-email, to: user-fin, payload: ./payloads/phish-emr.eml }
+      schedule: { start: "10:30", once: true }
+
+bindings:
+  - { app: emr-app,  host: h-corp-emr }
+  - { app: ad-dc-1,  host: h-corp-dc }
+  - { activity: act-fin-workday, host: h-fin }
+  - { activity: act-attacker-phish, host: h-attacker }
+  - { activity: act-attacker-phish, targets: [h-fin] }
+
+overlays:
+  identity:
+    - { id: user-fin, type: user, domain: corp.local, groups: [finance] }
+    - { id: attacker-1, type: user, external: true }
+
+  data:
+    - id: pii-records
+      host: h-corp-emr
+      path: /var/lib/emr/records
+      classification: pii
+      crown_jewel: true
+      synthetic_size: 2Gi
+
+  defense:
+    - id: suricata-perimeter
+      tool: suricata
+      host: h-dmz-ids
+      observes:
+        - { net: dmz, mode: ids }
+      ruleset: emerging-pro@v2026.05
+      tap_from: bridge

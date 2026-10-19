@@ -1,0 +1,461 @@
+/*
+ * The three-pane shell (`15` §7): outline | map | inspector, one header
+ * carrying the breadcrumb. Structure only -- S3 owns everything inside the
+ * map pane.
+ */
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; }
+
+/* The two `minmax()` minimums below are MIRRORED in `layout/viewport.ts`'s
+   `estimateMapWidth` (the jsdom / first-paint fallback for the map pane's
+   width), together with `.pane`'s 0.9rem horizontal padding. A test in
+   `test/viewport.test.ts` reads THIS file and fails if either drifts -- or if
+   a `font-size` is ever set on `html`, which would rescale every rem here. */
+.shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(14rem, 20rem) 1fr minmax(16rem, 24rem);
+  grid-template-areas: "head head head" "outline map inspector";
+  height: 100%;
+}
+
+/* R1: the outline pane collapses to give the map its width back. The column
+   goes to zero rather than to a narrow rail -- the toggle lives in the header,
+   which is visible in both states, so a rail would only cost the map pixels. */
+.shell.is-outline-collapsed { grid-template-columns: 0 1fr minmax(16rem, 24rem); }
+
+.shell-head {
+  grid-area: head;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--hair);
+  background: var(--paper-2);
+}
+
+.rail-toggle {
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border: 1px solid var(--hair);
+  background: var(--paper);
+  color: var(--ink-soft);
+  border-radius: 4px;
+  padding: 0.1rem 0.5rem;
+}
+.rail-toggle:hover { border-color: var(--focus); color: var(--ink); }
+
+.shell-title { font-weight: 600; letter-spacing: 0.01em; }
+.shell-title small { color: var(--neutral); font-weight: 400; margin-left: 0.4rem; }
+
+.breadcrumb { display: flex; gap: 0.35rem; align-items: baseline; color: var(--ink-soft); }
+.breadcrumb a { color: var(--ink-soft); text-decoration: none; border-bottom: 1px dotted var(--hair); }
+.breadcrumb a:hover { color: var(--focus); }
+.breadcrumb .sep { color: var(--neutral); }
+.breadcrumb .here { color: var(--ink); font-weight: 500; }
+
+.pane { overflow: auto; padding: 0.75rem 0.9rem; }
+.pane-outline { grid-area: outline; border-right: 1px solid var(--hair); background: var(--paper-2); }
+.pane-map { grid-area: map; }
+/* Visually hidden, still read -- an empty live region kept in the DOM so a
+   message that appears in it is announced. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* Focusable (`tabIndex=-1`) only so a cleared selection can hand focus back
+   here when its opener is gone; a ring only when the keyboard put it there. */
+.pane-map:focus { outline: none; }
+.pane-map:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.pane-inspector { grid-area: inspector; border-left: 1px solid var(--hair); background: var(--paper-2); }
+
+.pane h2 {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--neutral);
+  margin: 0 0 0.5rem;
+}
+
+.pane h3 { font-size: 0.9rem; margin: 1.1rem 0 0.35rem; }
+
+.imprint-list { list-style: none; margin: 0; padding: 0; }
+.imprint-list li { margin: 0 0 0.2rem; }
+.imprint-list a { color: var(--ink); text-decoration: none; display: block; padding: 0.3rem 0.4rem; border-radius: 4px; }
+.imprint-list a:hover { background: var(--paper-3); }
+.imprint-list a.is-current { background: var(--paper-3); font-weight: 600; }
+.imprint-list .meta { color: var(--neutral); font-size: 0.8rem; }
+
+.numbers { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.6rem; margin: 0.4rem 0 1rem; }
+.number { border: 1px solid var(--hair); border-radius: 6px; padding: 0.5rem 0.6rem; background: var(--paper-2); box-shadow: var(--shadow); }
+.number .value { font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.number .label { color: var(--neutral); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.number .note { color: var(--neutral); font-size: 0.75rem; }
+
+.placeholder {
+  border: 1px dashed var(--hair);
+  border-radius: 6px;
+  padding: 1rem;
+  color: var(--neutral);
+  background: repeating-linear-gradient(45deg, var(--paper-2) 0 8px, transparent 8px 16px);
+}
+
+.notice { border-left: 3px solid var(--warn); padding: 0.35rem 0.6rem; margin: 0.5rem 0; color: var(--ink-soft); background: var(--paper-2); }
+.notice.is-error { border-left-color: var(--bad); }
+
+.legend { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+.legend li { display: flex; gap: 0.5rem; align-items: baseline; margin-bottom: 0.15rem; }
+.legend .name { min-width: 6rem; }
+.legend .why { color: var(--neutral); font-size: 0.78rem; }
+
+.skipped { color: var(--neutral); font-size: 0.8rem; }
+
+dl.facts {
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) 1fr;
+  gap: 0.1rem 0.6rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+}
+dl.facts dt { color: var(--neutral); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* =========================================================================
+ * S3 -- the drawn map, the outline tree, and the inspector's focus detail.
+ * Structure and the evidence encoding only; the dataviz palette lives in
+ * tokens.css so a hue change stays a one-file change (`15` §12).
+ * ========================================================================= */
+
+.map-scroll { overflow: auto; }
+.summary-strip { margin-bottom: 0.6rem; }
+.map-controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin: 0.3rem 0 0.6rem; }
+
+/* R1: the collapsible one-line summary bar. Collapsed by default (`?summary=`
+   in the URL), so the drawing starts near the top of the pane. */
+.summary-bar { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin: 0 0 0.3rem; font-size: 0.82rem; }
+.summary-toggle { color: var(--ink-soft); text-decoration: none; border: 1px solid var(--hair); border-radius: 4px; padding: 0.02rem 0.45rem; white-space: nowrap; }
+.summary-toggle:hover { border-color: var(--focus); color: var(--ink); }
+.summary-digest { font-variant-numeric: tabular-nums; }
+.summary-bar .notice { margin: 0; }
+
+/* R1: the scale control. `1:1` is the default -- the map SCROLLS rather than
+   shrinking -- and `fit width` never goes below the 0.8 floor. */
+.map-zoom { display: flex; gap: 0.35rem; align-items: center; margin: 0 0 0.4rem; font-size: 0.8rem; }
+.zoom-chip { font: inherit; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--hair); background: var(--paper-2); color: var(--ink-soft); border-radius: 3px; padding: 0.02rem 0.45rem; }
+.zoom-chip:hover { border-color: var(--focus); }
+.zoom-chip.on { background: var(--focus); color: white; border-color: var(--focus); }
+
+/* R1: level 0 is NOT fitted to the pane -- it is drawn at `width`/`height`
+   (layout units x scale) and `.map-scroll` pans it. The root font-size is in
+   px so the smallest type the map can draw is bounded by the 0.8 scale floor
+   (12px * 0.8 = 9.6px). Level 1 and the matrix keep the fit-to-pane rule. */
+svg.level0 { display: block; font-size: 12px; }
+svg.level1, svg.matrix { max-width: 100%; height: auto; font-size: 11px; }
+
+/* tier rails (R1): the left-edge label per tier + a hairline down its extent */
+.rail-label { fill: var(--neutral); font-size: 10px; letter-spacing: 0.09em; font-weight: 600; }
+.rail-rule { stroke: var(--hair-soft); stroke-dasharray: 2 4; }
+
+/* tiers + tiles */
+.tier-internet { fill: var(--paper-3); stroke: var(--neutral); stroke-dasharray: 5 3; }
+.tier-wan { fill: color-mix(in srgb, var(--warn) 12%, var(--paper-2)); stroke: var(--warn); }
+.tier-label { fill: var(--ink-soft); font-size: 11px; }
+.tile { fill: var(--paper-2); stroke: var(--hair); }
+.tile.has-router { stroke: var(--warn); }
+.tile.is-unplaced { fill: var(--paper-3); stroke: var(--neutral); stroke-dasharray: 4 3; }
+.tile.is-dimmed, .device.is-dimmed { opacity: 0.28; }
+.tile-cidr { fill: var(--ink); font-weight: 600; }
+.tile-counts { fill: var(--ink-soft); font-size: 10px; }
+/* R6: the tile's byte figure (north-south and east-west, in this window). A
+   third line rather than a second channel on an existing one -- the numbers are
+   different questions and the reference report prints both. */
+.tile-bytes { fill: var(--neutral); font-size: 9px; }
+/* R6: the `+N more` tile at the end of an over-budget group. Dashed, like the
+   other "there is more here than the map draws" elements (the unplaced tile),
+   and clickable -- it is the affordance that opens the group, not a note. */
+.tile.is-more { fill: var(--paper-3); stroke: var(--neutral); stroke-dasharray: 4 3; }
+.tile-more { fill: var(--ink-soft); font-weight: 600; }
+.tile-more-hint { fill: var(--neutral); font-size: 9px; }
+.site-box { fill: none; stroke: var(--hair-soft); }
+.site-label { fill: var(--neutral); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.device { fill: var(--paper-2); stroke: var(--ev-color, var(--neutral)); stroke-width: 1.5; }
+.device-role { fill: var(--ink); font-weight: 600; font-size: 11px; }
+.device-id { fill: var(--ink-soft); font-size: 10px; }
+/* A device whose segment has no tile on this map: it sits centred with nothing
+   to point at, dashed like the other "not placed" elements (the unplaced tile,
+   the Internet pill) rather than looking like a device someone forgot to
+   connect. R3 -- the diagonal `.tie` line it would have carried is gone. */
+.device.is-unplaced { stroke-dasharray: 4 3; }
+/* R3's replacement for `.tie`: one short vertical from a device to its group's
+   header. No dash -- it is a real, structural connection, and its whole point
+   is that it passes through nothing. */
+.infra-stub { fill: none; stroke: var(--neutral); stroke-width: 1.5; opacity: 0.55; }
+/* Tile role badges (R3). The fill is set per badge from the role's hue; only
+   the type is themed here, so the two cannot drift apart. */
+.role-badge rect { stroke: none; opacity: 0.85; }
+.role-badge-text { fill: var(--paper); font-size: 9px; font-weight: 700; letter-spacing: 0.02em; }
+/* the east-west band (R4, `layout/arcs.ts`) -- one arc per segment pair,
+   leaving its group's bottom edge. Like the trunk, the stroke WIDTH is set per
+   element from `layout/scale.ts` (it carries the pair's volume), so it is
+   deliberately absent here: a width in the stylesheet would silently override
+   the one thing the geometry encodes. No protocol colour either -- `15` §5
+   keeps colour for evidence. */
+.arc { fill: none; stroke: var(--neutral); stroke-linecap: round; opacity: 0.5; }
+/* An ASSERTED conduit -- the twin's own `conduits:` -- in the edit colour, so
+   what the cast declares is distinguishable at a glance from what the capture
+   observed. */
+.arc.is-asserted { stroke: var(--edit-saved); opacity: 0.8; }
+/* Declared, and silent in this window: the layout gives it the HAIRLINE width,
+   which carries the right claim (no volume) and is invisible at 1:1 -- the same
+   treatment, and the same reason, as a silent trunk leg. */
+.arc.is-silent { stroke-width: 1.2; stroke-dasharray: 5 4; opacity: 0.75; }
+/* The top-K disclosure ("N of M shown"), beside the scale controls -- and R6's
+   per-group tile budget, which discloses itself the same way and therefore
+   looks the same. */
+.ew-controls, .budget-controls { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.2rem 0 0.3rem; flex-wrap: wrap; }
+
+/* the trunk (R2): Internet -> tap -> WAN edge -> one leg per site group. The
+   stroke WIDTH is set per element from `layout/scale.ts` (it carries the
+   north-south volume), so it is deliberately absent here -- a width in the
+   stylesheet would silently override the one thing this geometry encodes. */
+.trunk { fill: none; stroke: var(--neutral); stroke-linecap: butt; stroke-linejoin: round; opacity: 0.5; }
+/* A group with NO observed north-south traffic. The layout gives it the
+   HAIRLINE width, which carries the right claim (no magnitude) and is ~25% of
+   one pixel at 1:1 under the rule above -- i.e. invisible, which is the one
+   thing this leg must not be, since "nothing observed here" and "not attached"
+   are what it exists to distinguish. Drawn instead as a visible dashed 1px:
+   present, plainly different from a measured leg, still claiming no volume. */
+.trunk.is-silent { stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.85; }
+.trunk-label { fill: var(--neutral); font-size: 10px; }
+.tap-badge { fill: var(--paper); stroke: var(--ink-soft); stroke-dasharray: 3 2; }
+.tap-text { fill: var(--ink-soft); font-size: 9px; font-weight: 600; letter-spacing: 0.08em; }
+.tap-vantage { fill: var(--neutral); font-size: 10px; }
+
+/* level 1 */
+.spine { fill: color-mix(in srgb, var(--focus) 10%, var(--paper-2)); stroke: var(--focus); }
+.spine-cidr { fill: var(--ink); font-weight: 600; }
+.spine-meta { fill: var(--ink-soft); font-size: 10px; }
+.router-leg { fill: color-mix(in srgb, var(--warn) 14%, var(--paper-2)); stroke: var(--warn); }
+.router-label { fill: var(--ink-soft); font-size: 10px; }
+.band { fill: var(--paper-2); stroke: var(--hair); }
+.band.is-below { stroke-dasharray: 4 3; stroke: var(--neutral); }
+.band-label { fill: var(--neutral); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.rung-row { fill: var(--ink-soft); font-size: 11px; }
+.chip { fill: var(--ev-fill, var(--paper-3)); stroke: var(--ev-color, var(--neutral)); }
+.chip.is-ghost { stroke-dasharray: 4 3; }
+.chip.is-dimmed { opacity: 0.28; }
+.chip-label { fill: var(--ink); font-size: 10px; }
+.spoke { stroke: var(--hair); }
+.peer { fill: var(--paper-2); stroke: var(--hair); }
+.peer.is-gateway { stroke: var(--warn); }
+.peer-label { fill: var(--ink-soft); font-size: 10px; }
+
+/* matrix */
+.matrix-empty { fill: var(--paper-2); stroke: var(--hair-soft); }
+.matrix-cell { fill: var(--focus); stroke: var(--paper); cursor: pointer; }
+.matrix-cell:focus { outline: 2px solid var(--warn); }
+.matrix-axis { fill: var(--ink-soft); font-size: 10px; }
+
+/* the clickable svg groups */
+.nav { cursor: pointer; }
+.nav:focus { outline: none; }
+.nav:focus rect:first-of-type { stroke: var(--focus); stroke-width: 2; }
+
+/* S4 pins: the drag affordance on segments/sites + the reset control */
+.pin-controls { display: flex; gap: 0.6rem; align-items: center; margin: 0.2rem 0 0.4rem; }
+.pin-reset { font: inherit; cursor: pointer; border: 1px solid var(--hair); background: var(--paper-2); color: var(--ink); border-radius: 4px; padding: 0.1rem 0.5rem; }
+.pin-reset:hover { border-color: var(--focus); }
+.pinnable { cursor: grab; touch-action: none; }
+.pinnable.is-dragging { cursor: grabbing; }
+.pinnable.is-dragging rect:first-of-type { stroke: var(--focus); stroke-width: 2; }
+/* A site column's box is `fill: none`; `pointer-events: all` lets its whole
+ *  area be a drag grab target, while the tiles painted on top still take
+ *  their own clicks (later siblings win hit-testing). */
+.site-drag .site-box { pointer-events: all; }
+
+/* level 2 facts table + drawers */
+.facts-table h3 { font-size: 1rem; }
+table.facts2 { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin: 0.3rem 0 0.8rem; }
+table.facts2 th { text-align: left; color: var(--neutral); font-weight: 500; padding: 0.15rem 0.5rem 0.15rem 0; vertical-align: top; }
+table.facts2 td { padding: 0.15rem 0.5rem; vertical-align: top; }
+table.facts2 thead th { border-bottom: 1px solid var(--hair); }
+.ports { list-style: none; margin: 0.2rem 0 0.8rem; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ports li { background: var(--paper-2); border: 1px solid var(--hair); border-radius: 3px; padding: 0.05rem 0.35rem; font-size: 0.8rem; }
+.assertion-list, .drawer-list { list-style: none; margin: 0.2rem 0; padding: 0; font-size: 0.82rem; }
+.drawer-list li { padding: 0.1rem 0; border-bottom: 1px solid var(--hair-soft); }
+.ev-badge { display: inline-block; padding: 0.02rem 0.35rem; border-radius: 3px; font-size: 0.75rem; border: 1px solid var(--ev-color, var(--neutral)); background: var(--ev-fill, transparent); }
+
+/* filters + search */
+.filters { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; font-size: 0.8rem; }
+.filters-label, .filters-group { color: var(--neutral); display: flex; gap: 0.25rem; align-items: center; }
+.filters .chip { text-decoration: none; color: var(--ink-soft); border: 1px solid var(--hair); border-radius: 3px; padding: 0.02rem 0.4rem; }
+.filters .chip.on { background: var(--focus); color: white; border-color: var(--focus); }
+.filters .chip.clear { border-color: var(--bad); color: var(--bad); }
+.search { display: flex; gap: 0.5rem; align-items: center; }
+.search input { padding: 0.25rem 0.5rem; border: 1px solid var(--hair); border-radius: 4px; background: var(--paper); color: var(--ink); min-width: 16rem; }
+.search-note { color: var(--neutral); font-size: 0.8rem; }
+
+/* outline tree */
+.outline-tree h3 { margin: 0.8rem 0 0.3rem; }
+.tree-root { list-style: none; margin: 0 0 0.5rem; padding: 0; font-size: 0.82rem; }
+.tree-count { display: flex; justify-content: space-between; padding: 0.05rem 0; }
+.tree-count a { color: var(--focus); text-decoration: none; }
+.tree-site-label { color: var(--neutral); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.4rem; }
+.tree-segments { list-style: none; margin: 0.1rem 0; padding: 0; }
+.tree-segments li.is-current > .tree-segment { background: var(--paper-3); font-weight: 600; }
+.tree-segment { display: flex; align-items: center; gap: 0.35rem; width: 100%; background: none; border: none; text-align: left; cursor: pointer; color: var(--ink); padding: 0.15rem 0.3rem; border-radius: 3px; font: inherit; }
+.tree-segment:hover { background: var(--paper-3); }
+.tree-dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; border: 1px solid var(--ev-color, var(--neutral)); background: var(--ev-fill, transparent); }
+.tree-roles { list-style: none; margin: 0.1rem 0 0.3rem 1.4rem; padding: 0; font-size: 0.78rem; color: var(--ink-soft); }
+.tree-roles li { display: flex; justify-content: space-between; }
+
+/* inspector focus detail */
+.focus { border: 1px solid var(--focus); border-radius: 6px; padding: 0.4rem 0.6rem; margin-bottom: 0.8rem; background: var(--paper-2); }
+.focus h3 { margin-top: 0; display: flex; justify-content: space-between; align-items: baseline; }
+.link { background: none; border: none; color: var(--focus); cursor: pointer; font: inherit; font-size: 0.8rem; padding: 0; }
+
+/* S5.1.a -- selection drives editing (views/ElementActions.tsx).
+   The selected element's facts and actions sit at the TOP of the inspector:
+   it is what the operator is acting on, and everything below it is context. */
+.element-actions { border: 1px solid var(--focus); border-radius: 6px; padding: 0.4rem 0.6rem; margin-bottom: 0.8rem; background: var(--paper-2); }
+.element-actions h3 { margin: 0 0 0.4rem; }
+/* The title and `clear` share a row, but `clear` is NOT inside the heading, so
+   the heading a keyboard select moves focus to reads as the subject alone. */
+.selection-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin-bottom: 0.4rem; }
+.element-actions .selection-title { margin: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+.selection-title:focus { outline: none; }
+.selection-title:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.action-list { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; }
+.action-button { width: 100%; text-align: left; padding: 0.3rem 0.5rem; border: 1px solid var(--hair); border-radius: 4px; background: var(--paper); color: var(--ink); cursor: pointer; font: inherit; font-size: 0.82rem; }
+.action-button:hover:not([aria-disabled="true"]) { border-color: var(--focus); color: var(--focus); }
+.action-button.is-open { border-color: var(--focus); background: var(--paper-3); font-weight: 600; }
+/* `aria-disabled`, not `disabled`: an unavailable action stays in the tab order,
+   so a keyboard user reaches it and hears its reason. */
+.action-button[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
+/* An unavailable action says WHY, right under the control -- an unavailable
+   affordance with no reason reads as a bug (LES-307's rule). */
+.action-why { margin: 0.15rem 0 0.2rem 0.5rem; font-size: 0.72rem; }
+
+/* The level-0 affordances S5.1.a adds: a tile's select control and a site
+   header's `+`. Each is a 24x24 hit target (WCAG 2.2 2.5.8 at the default 1:1
+   scale) holding a stroked PATH icon -- never a text glyph, which rendered as
+   an empty square on a host with no font for it. Siblings of a `Pinnable`,
+   never children (a nested pointer-down would start a pin drag). */
+.tile-actions, .site-add { fill: var(--paper); stroke: var(--hair); stroke-width: 1; }
+.nav:hover .tile-actions, .nav:hover .site-add, .nav:focus .tile-actions, .nav:focus .site-add { fill: var(--paper-3); stroke: var(--focus); }
+.control-icon { fill: none; stroke: var(--neutral); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.nav:hover .control-icon, .nav:focus .control-icon { stroke: var(--focus); }
+/* The element the inspector is acting on (`aria-current`, `15` §7): the tile,
+   its select control, the level-1 spine, and the outline row say it alike. */
+.nav.is-selected .tile, .nav.is-selected .spine { stroke: var(--focus); stroke-width: 2.5; }
+/* `aria-current` sits on the TILE alone -- one element, not two adjacent
+   controls -- and its select control, drawn right after it, follows visually. */
+.pinnable.is-selected + .nav .tile-actions { fill: var(--paper-3); stroke: var(--focus); }
+.pinnable.is-selected + .nav .control-icon { stroke: var(--focus); }
+.tree-segments li.is-selected > .tree-segment { box-shadow: inset 3px 0 0 var(--focus); }
+/* A segment the edit store adds: listed in the outline -- and, once PLACED (a
+   clone's pin, S5.1.b), drawn on the map below. */
+.tree-added .change-state { font-size: 0.7rem; }
+/* S5.1.b: a placed added segment on level 0. Pending is HATCHED -- by the
+   `fill` ATTRIBUTE the view sets to its SVG pattern (`.hatch-*` below) -- saved
+   is OUTLINED, applied reads as asserted: the three states `15` §8 names, in the
+   edit colours. Deliberately NOT `.tile`: that rule sets `fill`, and any CSS
+   `fill` overrides a presentation attribute, so the pending hatch must never
+   meet a stylesheet fill. */
+.added-tile { stroke: var(--edit-pending); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.added-tile.is-saved { fill: var(--paper-2); stroke: var(--edit-saved); stroke-width: 2; stroke-dasharray: none; }
+.added-tile.is-applied { fill: var(--paper-2); stroke: var(--edit-applied); stroke-width: 2; stroke-dasharray: none; }
+.nav.is-selected .added-tile { stroke: var(--focus); stroke-width: 2.5; }
+/* The clone not yet staged, and the Alt-drag ghost: dashed harder, and the ghost
+   lets the pointer through to the drag it belongs to. */
+.added-tile.is-draft { stroke-dasharray: 2 3; stroke-width: 2; }
+.added-tile.is-ghost { opacity: 0.7; pointer-events: none; }
+/* S5.1.d: the one leave-guard, and the gesture rows of the change list. */
+.leave-guard { margin: 0 0.75rem; }
+.change-row.is-gesture { display: block; }
+.change-row.is-nested { margin-left: 1rem; }
+.change-sublist { list-style: none; margin: 0.25rem 0 0; padding: 0; }
+.change-expand { font-family: inherit; }
+/* S5.1.d: a host this file ADDS, at level 1. NOT `.chip` -- that rule sets
+   `fill`, which beats the hatch pattern set as a presentation attribute and
+   would flatten every pending chip in a browser while jsdom saw nothing wrong
+   (LES-327). Nothing here may set `fill` on `.added-chip`. */
+.added-chip { stroke: var(--edit-pending); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.added-chip.is-saved { fill: var(--paper-2); stroke: var(--edit-saved); stroke-dasharray: none; }
+.added-chip.is-applied { fill: var(--paper-2); stroke: var(--edit-applied); stroke-dasharray: none; }
+.band.is-pending { fill: none; stroke: var(--edit-pending); stroke-dasharray: 4 3; }
+/* Review S3: a position held only in this browser, said ON the tile. */
+.tile-unsaved { fill: var(--warn); font-size: 9px; font-style: italic; }
+.hatch-bg { fill: var(--paper-2); }
+.hatch-line { stroke: var(--edit-pending); stroke-width: 2.5; opacity: 0.55; }
+/* While a clone is being placed, a tap anywhere on the map places it. */
+.placement-overlay { fill: transparent; cursor: crosshair; }
+.placement-bar { margin: 0.2rem 0 0.4rem; }
+.clone-nudges { display: flex; gap: 0.3rem; margin: 0.3rem 0; }
+.clone-choice { display: block; font-size: 0.8rem; margin: 0.1rem 0; }
+.clone-hosts, .clone-mapping, .hosts-block { border: 1px solid var(--hair-soft); border-radius: 4px; margin: 0.4rem 0; padding: 0.2rem 0.5rem 0.4rem; }
+/* The outline's own add controls (the same gesture, from the tree that lists
+   EVERY site -- including the groups the map's per-group budget collapsed). */
+.tree-add { margin-left: 0.3rem; font-weight: 600; }
+.tree-add-root { display: block; margin: 0.4rem 0 0; }
+
+/* S5 edit panel (views/EditPanel.tsx, ChangeList.tsx) */
+.edit-panel { border-top: 1px solid var(--hair); margin-top: 0.8rem; padding-top: 0.6rem; }
+.edit-panel h3 { margin: 0 0 0.4rem; }
+.edit-panel h4 { margin: 0.7rem 0 0.3rem; color: var(--neutral); font-size: 0.85rem; }
+.gesture-form { border: 1px solid var(--hair); border-radius: 6px; padding: 0.4rem 0.6rem; margin: 0.4rem 0; background: var(--paper-2); }
+.gesture-title { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem; }
+.edit-field { display: flex; flex-direction: column; gap: 0.1rem; margin: 0.2rem 0; font-size: 0.8rem; }
+.edit-label { color: var(--neutral); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.edit-field input, .edit-field select { padding: 0.2rem 0.4rem; border: 1px solid var(--hair); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; }
+.stage-button, .save-button { margin-top: 0.4rem; padding: 0.25rem 0.7rem; border: 1px solid var(--focus); border-radius: 4px; background: var(--focus); color: white; cursor: pointer; font: inherit; font-size: 0.82rem; }
+.stage-button:disabled, .save-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.port-editor { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.port-editor .port-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.3rem; width: 100%; }
+.port-editor input { max-width: 5rem; }
+.save-meta { display: flex; flex-direction: column; gap: 0.2rem; }
+.save-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.5rem; flex-wrap: wrap; }
+.change-list { list-style: none; margin: 0.2rem 0; padding: 0; font-size: 0.8rem; }
+.change-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline; padding: 0.25rem 0.3rem; border-bottom: 1px solid var(--hair-soft); border-left: 3px solid transparent; }
+.change-row.is-pending { border-left-color: var(--edit-pending); }
+.change-row.is-saved { border-left-color: var(--edit-saved); }
+.change-row.is-applied { border-left-color: var(--good); }
+.change-summary { flex: 1 1 12rem; }
+.change-state { color: var(--neutral); font-size: 0.72rem; }
+.change-tag { font-size: 0.72rem; border: 1px solid var(--hair); border-radius: 3px; padding: 0.02rem 0.35rem; }
+.change-tag.is-fresh { border-color: var(--warn); color: var(--warn); }
+.change-tag.is-update { border-color: var(--good); color: var(--good); }
+.change-ineffective { color: var(--bad); font-size: 0.72rem; }
+/* S5.1.b/c: the batch gesture a record came from. */
+.change-gesture { color: var(--neutral); font-size: 0.72rem; font-style: italic; }
+/* SF2: a record whose segment exists nowhere a reader looks, and the inline
+   confirmation for removing a segment with the records staged on it. */
+.change-orphan { display: block; font-size: 0.72rem; margin: 0.2rem 0 0; }
+.change-confirm { margin: 0.3rem 0 0.2rem; }
+.change-confirm-list { margin: 0.2rem 0; padding-left: 1.1rem; font-size: 0.75rem; }
+.change-remove { color: var(--bad); }
+
+/* S6 -- apply + post-apply highlight (docs/design/15-console-canvas.md section 12, O5). */
+.apply-button { margin-top: 0.4rem; padding: 0.25rem 0.7rem; border: 1px solid var(--good); border-radius: 4px; background: var(--good); color: white; cursor: pointer; font: inherit; font-size: 0.82rem; }
+.apply-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.apply-status { margin: 0.5rem 0 0; font-size: 0.8rem; }
+.apply-status.is-error { color: var(--bad); }
+.apply-status.is-ok { color: var(--good); }
+.apply-status p { margin: 0.15rem 0; }
+.apply-stderr { white-space: pre-wrap; word-break: break-word; max-height: 12rem; overflow: auto; background: var(--paper-3); border: 1px solid var(--hair); border-radius: 4px; padding: 0.4rem 0.5rem; font-size: 0.75rem; color: var(--ink); }
+/* The changed set. `is-changed` persists while the "changes" filter is on (SVG
+   elements take a stroke, the level-2 facts table an outline); `is-changed-glow`
+   is the transient five-second emphasis layered on top. */
+.is-changed { stroke: var(--good); stroke-width: 2.5; }
+.is-changed-glow { stroke: var(--warn); stroke-width: 3; }
+.facts-table.is-changed { outline: 2px solid var(--good); outline-offset: 3px; }
+.facts-table.is-changed-glow { outline-color: var(--warn); }

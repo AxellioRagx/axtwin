@@ -1,0 +1,19 @@
+binding_schema_version: 1
+binding:
+  image: ubuntu-server-22
+  platform: proxmox
+  versions:
+    - id: v5
+      storage: { type: template, node: any, volid: "local-zfs:vm-9201-disk-0", template_vmid: 9201 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: ubuntu, sysprep_required: false }
+      hardware:
+        machine: q35
+        bios: seabios
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 60

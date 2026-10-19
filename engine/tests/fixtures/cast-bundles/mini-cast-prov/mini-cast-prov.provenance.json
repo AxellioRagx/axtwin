@@ -1,0 +1,168 @@
+{
+  "code_fingerprint": "fixture-0000000000",
+  "fields": {
+    "twin_config.nodes[0].image": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[0].name": {
+      "evidence_class": "compiler",
+      "signal": "topology",
+      "source": "synthetic gateway"
+    },
+    "twin_config.nodes[0].resources": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[1].count": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.nodes[1].image": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[1].install": {
+      "confidence": 0.8,
+      "evidence_class": "imputed",
+      "signal": "role rule web-tier",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[1].resources": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[1].role": {
+      "confidence": 0.9,
+      "evidence_class": "imputed",
+      "signal": "listen+dial ports",
+      "source": "role census"
+    },
+    "twin_config.nodes[2].count": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.nodes[2].image": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[2].resources": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[2].role": {
+      "confidence": 1.0,
+      "evidence_class": "asserted",
+      "overrides": {
+        "evidence_class": "imputed",
+        "value": "dns-resolver"
+      },
+      "signal": "assertions file",
+      "source": "operator: fixture"
+    },
+    "twin_config.nodes[3].count": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.nodes[3].image": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[3].resources": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[3].role": {
+      "confidence": 0.9,
+      "evidence_class": "imputed",
+      "signal": "listen+dial ports",
+      "source": "role census"
+    },
+    "twin_config.nodes[4].count": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.nodes[4].image": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[4].resources": {
+      "evidence_class": "compiler",
+      "source": "catalog/roles.yaml"
+    },
+    "twin_config.nodes[4].role": {
+      "confidence": 0.9,
+      "evidence_class": "imputed",
+      "signal": "listen+dial ports",
+      "source": "role census"
+    },
+    "twin_config.segments[0].cidr": {
+      "evidence_class": "compiler",
+      "source": "CIDR relocation"
+    },
+    "twin_config.segments[0].name": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.segments[1].cidr": {
+      "evidence_class": "compiler",
+      "source": "CIDR relocation"
+    },
+    "twin_config.segments[1].name": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.segments[2].cidr": {
+      "evidence_class": "compiler",
+      "source": "CIDR relocation"
+    },
+    "twin_config.segments[2].name": {
+      "confidence": 1.0,
+      "evidence_class": "observed",
+      "signal": "windows"
+    },
+    "twin_config.segments[3].cidr": {
+      "evidence_class": "compiler",
+      "source": "synthetic sink segment"
+    }
+  },
+  "pit_id": "pit-miniprov-0000000001",
+  "population": {
+    "pit_entities": 9,
+    "placed_hosts": 5,
+    "emitted_hosts": 5,
+    "suppressed": [],
+    "excluded_by_occupancy": [
+      {
+        "id": "address:10.1.0.14",
+        "windows_seen": 2
+      }
+    ],
+    "node_groups": [
+      {
+        "capped_by": null,
+        "emitted": 2,
+        "key": "web-tier|seg-corp",
+        "observed": 3
+      },
+      {
+        "capped_by": "count",
+        "emitted": 1,
+        "key": "db-tier|seg-data",
+        "observed": 2
+      }
+    ],
+    "role_less": [
+      "address:10.1.0.13"
+    ],
+    "segments_pruned": []
+  },
+  "schema": "axr-cast-provenance/1",
+  "vantage": "https://10.1.0.2:0-5"
+}

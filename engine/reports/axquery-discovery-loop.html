@@ -1,0 +1,294 @@
+<title>axquery Twin-Discovery Loop</title>
+<meta name="description" content="Running the digital-twin discovery loop through axquery instead of Zeek — Iteration 1 results from dev45.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#f5f7f8; --panel:#ffffff; --panel-2:#eef2f4; --ink:#141a1e; --ink-2:#3d4a52;
+    --muted:#67787f; --line:#dde4e7; --line-2:#c9d3d7;
+    --accent:#0e7490; --accent-ink:#0b5568; --accent-soft:#d5eef3;
+    --good:#177245; --good-soft:#dcf0e3; --warn:#a25a08; --warn-soft:#f6e7cf; --bad:#b02a2a; --bad-soft:#f5dcdc;
+    --shadow:0 1px 2px rgba(20,26,30,.05), 0 6px 20px rgba(20,26,30,.05);
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --ground:#0c1116; --panel:#121a21; --panel-2:#18222b; --ink:#e7eef2; --ink-2:#b3c2ca;
+    --muted:#8095a0; --line:#233039; --line-2:#33454f;
+    --accent:#22d3ee; --accent-ink:#7fe6f5; --accent-soft:#0c2f3a;
+    --good:#4ade80; --good-soft:#0f2c1c; --warn:#f0b45e; --warn-soft:#33240d; --bad:#f2807f; --bad-soft:#331717;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 26px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0c1116; --panel:#121a21; --panel-2:#18222b; --ink:#e7eef2; --ink-2:#b3c2ca;
+    --muted:#8095a0; --line:#233039; --line-2:#33454f;
+    --accent:#22d3ee; --accent-ink:#7fe6f5; --accent-soft:#0c2f3a;
+    --good:#4ade80; --good-soft:#0f2c1c; --warn:#f0b45e; --warn-soft:#33240d; --bad:#f2807f; --bad-soft:#331717;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 26px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,sans-serif;line-height:1.55;
+    -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px) 80px;}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,monospace;}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent-ink);font-weight:500;}
+  h1{font-size:clamp(30px,5.5vw,46px);line-height:1.05;font-weight:700;letter-spacing:-.02em;
+    margin:.35em 0 .3em;text-wrap:balance;}
+  h2{font-size:clamp(19px,3vw,23px);font-weight:600;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:600;margin:0 0 6px;}
+  p{margin:0 0 14px;color:var(--ink-2);max-width:66ch;}
+  a{color:var(--accent);}
+  .lede{font-size:clamp(17px,2.4vw,20px);line-height:1.5;color:var(--ink);max-width:60ch;font-weight:400;}
+  .lede b{font-weight:600;}
+
+  header{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:30px;}
+  .verdict{display:inline-flex;align-items:center;gap:9px;margin-top:16px;padding:7px 14px;border-radius:999px;
+    background:var(--good-soft);color:var(--good);font-weight:600;font-size:13.5px;border:1px solid color-mix(in srgb,var(--good) 26%,transparent);}
+  .verdict::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px color-mix(in srgb,var(--good) 22%,transparent);}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:22px;font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted);}
+  .meta b{color:var(--ink-2);font-weight:500;}
+
+  section{margin-top:44px;}
+  .sec-head{margin-bottom:18px;}
+  .sec-head .eyebrow{display:block;margin-bottom:9px;}
+
+  /* pipeline */
+  .pipe{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;padding:4px 0;}
+  .step{flex:1 1 120px;min-width:120px;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px 13px;box-shadow:var(--shadow);position:relative;}
+  .step .n{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--accent-ink);font-weight:600;}
+  .step .t{font-size:13.5px;font-weight:600;margin-top:3px;line-height:1.25;}
+  .step .d{font-size:11.5px;color:var(--muted);margin-top:3px;font-family:"IBM Plex Mono",monospace;}
+  .step[data-x="1"]{border-left:3px solid var(--accent);}
+
+  /* stat tiles */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 17px;box-shadow:var(--shadow);}
+  .stat .v{font-size:clamp(24px,4vw,30px);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1;}
+  .stat .k{font-size:12.5px;color:var(--muted);margin-top:7px;line-height:1.35;}
+  .stat .v small{font-size:15px;font-weight:600;color:var(--ink-2);}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;box-shadow:var(--shadow);}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:640px){.grid2{grid-template-columns:1fr;}}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);background:var(--panel);}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  thead th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--panel-2);}
+  tbody tr:last-child td{border-bottom:none;}
+  td.mono,th.mono{font-family:"IBM Plex Mono",monospace;}
+  .num{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;}
+  .svc{font-family:"IBM Plex Mono",monospace;font-weight:500;}
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:11.5px;font-weight:600;font-family:"IBM Plex Mono",monospace;}
+  .t-good{background:var(--good-soft);color:var(--good);}
+  .t-warn{background:var(--warn-soft);color:var(--warn);}
+  .t-bad{background:var(--bad-soft);color:var(--bad);}
+  .bar{height:7px;border-radius:4px;background:var(--panel-2);overflow:hidden;min-width:64px;display:inline-block;vertical-align:middle;width:80px;}
+  .bar i{display:block;height:100%;border-radius:4px;}
+
+  ul.clean{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:14px;}
+  ul.clean>li{padding-left:0;}
+  .find{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line-2);border-radius:10px;padding:15px 18px;box-shadow:var(--shadow);}
+  .find.key{border-left-color:var(--accent);}
+  .find h3{display:flex;gap:9px;align-items:baseline;}
+  .find h3 .mono{font-size:11.5px;color:var(--muted);font-weight:500;}
+  .find p{margin:6px 0 0;font-size:14px;max-width:72ch;}
+  .find p .mono{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:12.5px;color:var(--ink);}
+
+  .fix{display:flex;gap:14px;align-items:flex-start;}
+  .fix .idx{flex:0 0 auto;width:26px;height:26px;border-radius:7px;background:var(--accent-soft);color:var(--accent-ink);
+    font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:13px;display:grid;place-items:center;margin-top:1px;}
+  .fix .body h3{margin-bottom:3px;}
+  .fix .body p{margin:0;font-size:14px;}
+
+  footer{margin-top:52px;padding-top:22px;border-top:1px solid var(--line);font-family:"IBM Plex Mono",monospace;
+    font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 20px;justify-content:space-between;}
+  .callout{background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+    border-radius:12px;padding:16px 20px;color:var(--ink);}
+  .callout p{color:var(--ink-2);margin:0;max-width:74ch;}
+  .callout p b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Digital-twin fidelity · dev45 · 2026-09-08</span>
+    <h1>The axquery twin-discovery loop</h1>
+    <p class="lede">Can a network digital twin be discovered, deployed, and measured through
+      <b>axquery</b> — the PacketXpress metadata engine — instead of Zeek? Iteration&nbsp;1 ran the
+      whole loop end to end on live hardware. Here is what it took, and what it found.</p>
+    <span class="verdict">Loop converges — a fix improved fidelity</span>
+    <div class="meta">
+      <span><b>Source</b> corp-apcn (16&nbsp;GB, 53 chunks)</span>
+      <span><b>Twin</b> 149 VMs · 29 segments</span>
+      <span><b>Sink</b> XPress-SW-A</span>
+      <span><b>Compare</b> structural (PIT-2 vs twin)</span>
+    </div>
+  </header>
+
+  <div class="callout">
+    <p><b>Bottom line.</b> The loop runs to completion through axquery: discover&nbsp;→ deploy&nbsp;→
+      capture&nbsp;→ re-analyze&nbsp;→ re-discover&nbsp;→ compare. The re-discovered twin reproduces the
+      deployed twin's <b>topology</b> faithfully — host count, segments, and the major roles all land.
+      Its own synthetic traffic, though, <b>under-exercises its declared services</b>: a listen port is
+      invisible to a traffic-based re-discovery unless a client actually connects to it. That gap is the
+      concrete thing the loop exists to find.</p>
+  </div>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">01 · The pipeline</span>
+      <h2>Seven stages, two repos, one sensor swap</h2></div>
+    <p>axRange deploys and scores; aximprint discovers and casts; fx-cap (PacketXpress) is the capture and
+      query engine. The only change from the Zeek loop is the sensor the imprint is learned from.</p>
+    <div class="pipe">
+      <div class="step" data-x="1"><div class="n">01</div><div class="t">axquery source</div><div class="d">v29_test metadb</div></div>
+      <div class="step"><div class="n">02</div><div class="t">Discover + cast</div><div class="d">aximprint → twin</div></div>
+      <div class="step"><div class="n">03</div><div class="t">Deploy</div><div class="d">149 VMs · dev45</div></div>
+      <div class="step"><div class="n">04</div><div class="t">Tap + traffic</div><div class="d">→ XPress-SW-A</div></div>
+      <div class="step"><div class="n">05</div><div class="t">Analytics</div><div class="d">axanalytics → metadb</div></div>
+      <div class="step"><div class="n">06</div><div class="t">Re-discover</div><div class="d">axquery → PIT-2</div></div>
+      <div class="step"><div class="n">07</div><div class="t">Compare</div><div class="d">structural fidelity</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">02 · The run</span>
+      <h2>What the loop moved</h2></div>
+    <div class="stats">
+      <div class="stat"><div class="v">1407</div><div class="k">deploy ops completed — 0 failed, 0 halted (149 VMs)</div></div>
+      <div class="stat"><div class="v">18.0<small>M</small></div><div class="k">packets captured to the sink over a 20-min soak (24 GB)</div></div>
+      <div class="stat"><div class="v">10.9<small>M</small></div><div class="k">packets re-analyzed into the fresh metadb</div></div>
+      <div class="stat"><div class="v">161</div><div class="k">local hosts re-discovered vs 149 intended</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">03 · The outcome</span>
+      <h2>Topology reproduces; services fall short</h2></div>
+    <div class="grid2" style="margin-bottom:16px">
+      <div class="card">
+        <h3>Topology — recovered</h3>
+        <p style="margin:6px 0 12px;font-size:13.5px">Re-discovered vs deployed twin. Structure lands within noise.</p>
+        <div class="tbl-wrap" style="box-shadow:none;border:none">
+        <table>
+          <tbody>
+            <tr><td>Local hosts</td><td class="num">161 / 149</td><td><span class="tag t-good">match</span></td></tr>
+            <tr><td>Segments</td><td class="num">30 / 29</td><td><span class="tag t-good">match</span></td></tr>
+            <tr><td>corp-workstation</td><td class="num">16 / 16</td><td><span class="tag t-good">exact</span></td></tr>
+            <tr><td>domain-controller</td><td class="num">1 / 1</td><td><span class="tag t-good">exact</span></td></tr>
+            <tr><td>web-tier</td><td class="num">11 / 9</td><td><span class="tag t-good">close</span></td></tr>
+            <tr><td>generic-endpoint</td><td class="num">103 / 90</td><td><span class="tag t-good">close</span></td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <h3>Why the services fall short</h3>
+        <p style="font-size:14px">A declared listen port only appears in a traffic-based re-discovery when
+          a <b style="color:var(--ink)">client actually connects to it</b>. The role personas emit only a
+          subset of client traffic, so RDP, Kerberos, HTTPS, NTP and RPC listeners are never exercised on
+          the wire — and what is never dialed is never seen.</p>
+        <p style="font-size:14px;margin-bottom:0">A confounder amplifies it: the re-capture was a 12-minute,
+          low-rate window against the source's two hours, so sparse services drop out first.</p>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Service</th><th class="mono">port</th><th class="num">re-disc.</th><th class="num">intended</th><th>recovery</th><th>status</th></tr>
+        </thead>
+        <tbody id="svc"></tbody>
+      </table>
+    </div>
+    <p style="font-size:12.5px;color:var(--muted);margin-top:10px" class="mono">
+      hosts observed serving / hosts the twin declares · recovery = observed ÷ declared</p>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">04 · What it took</span>
+      <h2>Findings from the first run</h2></div>
+    <ul class="clean">
+      <li class="find key"><h3>axquery's rich data had to be wired in <span class="mono">aximprint · committed</span></h3>
+        <p>The stock axquery ingest emitted only flows and sensor-health — 2 of 6 event types. The extension
+          added a UDP-listener fix and identity from <span class="mono">/api/events</span>, so the discovered
+          twin gained real UDP services (DNS, NTP, DHCP) and an identity surface instead of an
+          impoverished flow graph.</p></li>
+      <li class="find key"><h3>The analytics engine deadlocks on its own capture core <span class="mono">fx-cap · worked around</span></h3>
+        <p><span class="mono">axanalytics</span> unconditionally pins its main thread to CPU&nbsp;29 — the live
+          capture core — whose kernel migration path is wedged, so every start hangs and survives
+          <span class="mono">kill&nbsp;-9</span>. Confining the cgroup with
+          <span class="mono">AllowedCPUs=0-23</span> makes the pin fail fast and the app roll back gracefully.</p></li>
+      <li class="find"><h3>The metadb is a live capture, not a replay <span class="mono">operational</span></h3>
+        <p>axanalytics only follows live; it will not read a historical window from the pxfs ring. The fresh
+          metadb must be produced while traffic flows, so capture and traffic generation run concurrently.</p></li>
+      <li class="find"><h3>Drift is the wrong comparator here <span class="mono">by design</span></h3>
+        <p>aximprint's <span class="mono">drift</span> refuses a cross-vantage compare — a PIT is one tap
+          point's view. Source-versus-twin fidelity is a <b style="color:var(--ink)">structural</b> question
+          (roles, segments, services), not an entity diff, because the twin's identities are synthetic.</p></li>
+      <li class="find"><h3>Persona traffic tapers after its burst <span class="mono">observed</span></h3>
+        <p>The mirror rate fell from ~15k to ~1k packets/s once the personas' initial burst subsided —
+          enough to starve sparse services during the capture window.</p></li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">05 · Iteration 2 — the fix, applied</span>
+      <h2>The loop converges</h2></div>
+    <p>Iteration 1's fix was applied: a <span class="mono">disco-exercise</span> persona put 111 Linux
+      client hosts onto the twin's own internal servers. On the next capture, service recovery jumped for
+      every Linux-served service — the fidelity loop measurably converges.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Service</th><th class="mono">port</th><th class="num">Iter 1</th><th class="num">Iter 2</th><th class="num">intended</th><th>result</th></tr></thead>
+        <tbody id="svc2"></tbody>
+      </table>
+    </div>
+    <p style="font-size:12.5px;color:var(--muted);margin-top:10px" class="mono">edges 843 → 7,778 (~9×) — the internal-service connections that had been missing</p>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><h3>Recovered — the Linux services</h3>
+        <p style="font-size:14px;margin-bottom:0">web-tier (nginx), dns-resolver (bind9) and file-server
+          (Samba) <b style="color:var(--ink)">accept</b> the exercise connections, so HTTPS, HTTP, DNS and
+          SMB are now re-discovered as servers.</p></div>
+      <div class="card"><h3>The next-layer blocker — Windows Firewall</h3>
+        <p style="font-size:14px;margin-bottom:0">Kerberos, RPC and RDP stayed flat: they live on the
+          Windows DC and workstations, whose firewall blocks inbound from the Linux clients. Iteration 3
+          opens those ports or runs the exercise from Windows — a precisely diagnosed residual, not a
+          mystery.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Iterations 1–2 · Journal: <span style="color:var(--ink-2)">docs/JOURNAL_axquery_discovery_loop.md</span></span>
+    <span>corpapcn-disco · pit-395a61f04e</span>
+  </footer>
+</div>
+
+<script>
+  const svc=[
+    ["HTTP","80/tcp",14,17],["NetBIOS","138/udp",3,3],["DNS","53/tcp",10,16],
+    ["DNS","53/udp",9,20],["SMB","445/tcp",1,3],["NTP","123/udp",1,17],
+    ["Kerberos","88/tcp",1,9],["RPC","135/tcp",1,15],["HTTPS","443/tcp",1,24],["RDP","3389/tcp",0,15],
+  ];
+  const band=r=> r>=0.7?["t-good","var(--good)","recovered"] : r>=0.35?["t-warn","var(--warn)","partial"] : ["t-bad","var(--bad)","missed"];
+  document.getElementById("svc").innerHTML = svc.map(([n,p,a,b])=>{
+    const r=b?a/b:0, [cls,col,lab]=band(r), pct=Math.round(r*100);
+    return `<tr><td>${n}</td><td class="mono" style="color:var(--muted)">${p}</td>`+
+      `<td class="num">${a}</td><td class="num" style="color:var(--muted)">${b}</td>`+
+      `<td><span class="bar"><i style="width:${Math.max(pct,3)}%;background:${col}"></i></span> `+
+      `<span class="mono" style="font-size:11.5px;color:var(--muted)">${pct}%</span></td>`+
+      `<td><span class="tag ${cls}">${lab}</span></td></tr>`;
+  }).join("");
+
+  const svc2=[["HTTPS","443/tcp",1,10,24],["HTTP","80/tcp",14,23,17],["DNS","53/tcp",10,14,16],
+    ["SMB","445/tcp",1,2,3],["Kerberos","88/tcp",1,1,9],["RPC","135/tcp",1,1,15],["RDP","3389/tcp",0,0,15]];
+  const e2=document.getElementById("svc2");
+  if(e2) e2.innerHTML=svc2.map(([n,p,a,b,c])=>{
+    const up=b>a, cls=up?"t-good":"t-bad", lab=up?"recovered":"blocked";
+    return `<tr><td>${n}</td><td class="mono" style="color:var(--muted)">${p}</td>`+
+      `<td class="num" style="color:var(--muted)">${a}</td>`+
+      `<td class="num">${up?`<b style="color:var(--good)">${b}</b>`:b}</td>`+
+      `<td class="num" style="color:var(--muted)">${c}</td>`+
+      `<td><span class="tag ${cls}">${lab}</span></td></tr>`;
+  }).join("");
+</script>

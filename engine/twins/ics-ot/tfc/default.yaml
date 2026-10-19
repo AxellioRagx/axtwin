@@ -1,0 +1,25 @@
+# Traffic profile: ics-ot / default (see corp-enterprise/tfc-default.yaml for
+# why this lives here rather than inline in the twin config).
+#
+# NOTE `corp-ws` is the one role here whose persona name DIFFERS from it --
+# the OT twin's corporate slice runs the ordinary `corp-workstation` persona.
+# The pre-split twin config could not express that separation at all: one
+# field had to be both the node-id stem and the semantic role.
+traffic-profile:
+  target: ics-ot
+
+  assignments:
+    - role: plc
+      persona: plc
+    - role: hmi
+      persona: hmi
+    - role: historian
+      persona: historian
+    - role: engineering-ws
+      persona: engineering-ws
+    - role: protocol-gateway
+      persona: protocol-gateway
+    - role: bastion-jump
+      persona: bastion-jump
+    - role: corp-ws
+      persona: corp-workstation

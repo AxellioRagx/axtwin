@@ -1,0 +1,21 @@
+scenario_schema_version: 1
+
+scenario:
+  id: minimal
+  version: 1
+
+layers:
+  infra:
+    networks:
+      - { id: corp, cidr: 10.10.0.0/24, vlan: 10, gateway: 10.10.0.1 }
+    nodes:
+      - id: h-fin
+        kind: host
+        net: corp
+        image: win11-finance@v3
+        requires: [windows]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+  apps: []
+  activity: []
+
+bindings: []

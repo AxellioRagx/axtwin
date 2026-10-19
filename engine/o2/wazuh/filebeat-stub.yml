@@ -1,0 +1,38 @@
+# STUB filebeat config for the axRange O2 wazuh-manager service.
+#
+# WHY THIS EXISTS (docs/WORK_ORDER_o2_server_stack.md §3.2, docs/PRODUCT_GAPS.md GAP-017):
+# wazuh/wazuh-manager:4.9.2's s6 init auto-starts filebeat as a co-process, normally used to
+# ship the manager's alerts to a sibling wazuh-INDEXER. This O2 stack is deliberately
+# manager-only (no indexer/dashboard -- see ../README.md "Attack/defense servers"): alerts are
+# read via the Wazuh manager REST API (:55000) or the local alerts.json, the same pattern
+# Suricata's eve.json feeds Loki via Alloy. With no filebeat.yml present at all, filebeat
+# hard-exits `code=1` on boot (`error loading config file: stat /etc/filebeat/filebeat.yml: no
+# such file or directory`), which tears the whole container down via s6 -- so the manager never
+# comes up, even though the manager daemons themselves (wazuh-remoted et al.) are fine.
+#
+# This stub makes filebeat a harmless no-op: no inputs, no indexer/elasticsearch output, so it
+# idles instead of crash-looping. If O2 ever wants a native Wazuh alerting path (rather than
+# reading alerts.json / the manager API), replace this with a real filebeat.yml pointed at
+# a wazuh-indexer -- that's a separate design call (GAP-017), not something this stub decides.
+#
+# NOT SUFFICIENT ALONE AT RUNTIME (proven live 2026-07-15 on dev45 VM 102): filebeat 8.x
+# rejects a config file it doesn't own -- "error loading config file: config file
+# ("/etc/filebeat/filebeat.yml") must be owned by the user identifier (uid=0) or root" --
+# and a git-tracked, bind-mounted file carries the HOST's ownership (uid 1000 here), which
+# git cannot control, so this stub alone still crash-loops the container. The compose file
+# also mounts an empty s6 `down` file (../wazuh/filebeat-down ->
+# /etc/services.d/filebeat/down) that disables the filebeat service at the s6 supervisor
+# level BEFORE it ever reads this file -- that `down` file is what actually keeps the
+# manager up; this stub is retained for intent/documentation only. See
+# o2/compose/docker-compose.yml's wazuh-manager volumes comment, docs/WORK_ORDER_o2_server_stack.md
+# §3.2, and docs/PRODUCT_GAPS.md GAP-017.
+
+filebeat.inputs: []
+
+output.file:
+  path: /var/ossec/logs/filebeat-stub
+  filename: filebeat-stub
+  rotate_every_kb: 1024
+  number_of_files: 2
+
+logging.level: error

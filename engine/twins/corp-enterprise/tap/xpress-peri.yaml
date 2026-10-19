@@ -1,0 +1,17 @@
+# corp-enterprise — packetXpress tap plan: route to the EXTERNAL XPress sinks
+# instead of the standing O2 sensors.
+#   server-vlan segment        -> XPress-SW    (external packetXpress sink)
+#   corp-lan <-> dmz boundary   -> XPress-SW-A  (external packetXpress sink)
+# Both sinks are operator-owned externals — each must be declared in
+# adapter.conf `EXTERNAL_SENSORS` (id + vmid + transport_ip) to resolve/bind;
+# axRange never reaches into them, so their capture is UNVERIFIED (no
+# verify-capture heartbeat), by design.
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: server-vlan }
+      sensors: [XPress-SW]
+      mode: exclusive
+    - selector: { scope: perimeter, target: corp-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive

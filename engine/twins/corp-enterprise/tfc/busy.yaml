@@ -1,0 +1,29 @@
+# Traffic profile: corp-enterprise / busy
+#
+# Same twin, same ROLE map (shared via `roles_from:`), heavier traffic: the
+# workstation fleet runs 24x7 instead of following the persona's own diurnal
+# cadence. Swap between this and tfc-default.yaml on a STANDING twin with
+#   axrange tfc deploy twin-configs/corp-enterprise/tfc-busy.yaml \
+#     --target corp-enterprise
+# -- no node is redeployed, and the previous profile's dropped instances are
+# de-scoped automatically.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles.yaml
+
+  assignments:
+    - role: domain-controller
+      persona: domain-controller
+    - role: file-server
+      persona: file-server
+    - role: mail-server
+      persona: mail-server
+    - role: egress-proxy
+      persona: egress-proxy
+    - role: dmz-web
+      persona: dmz-web
+    - role: monitoring-collector
+      persona: monitoring-collector
+    - role: corp-workstation
+      persona: corp-workstation
+      schedule: 24x7

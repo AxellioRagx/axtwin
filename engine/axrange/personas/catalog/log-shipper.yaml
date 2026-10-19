@@ -1,0 +1,49 @@
+# High PACKET rate, low bytes-per-packet -- the exact inverse of
+# `streaming-media-client`, and the profile that actually overruns a capture
+# ring (a sensor drops on pps long before it drops on bps). Pleasingly meta:
+# this is the twin generating the telemetry the O2 layer collects.
+persona:
+  id: log-shipper
+  os_family: linux
+  drive: scripted
+  emits:
+    # Splunk forwarder -> indexer. aximprint infers `log-shipper` from a host DIALLING 9997/tcp,
+    # and this persona emitted syslog/netflow/beats but never 9997 -- so a node assigned the role
+    # could not be re-inferred as it (GAP-C8). Forwarding to an indexer is the defining act of a
+    # log shipper, so the omission was a content gap, not a modelling choice.
+    - proto: tcp
+      ports: [9997]
+      peer_role: monitoring-collector
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:15s"
+      volume: med
+    # `bulk` message count with a deliberately SMALL `bytes:` -- 64 separate
+    # 512-byte datagrams per second, not one large transfer. This is the
+    # combination the pre-2026-07-28 volume model could not express at all:
+    # message count and payload size moved together or not at all.
+    - proto: syslog
+      ports: [514]
+      peer_role: monitoring-collector
+      transport: udp
+      bytes: 512
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: bulk
+    - proto: netflow
+      ports: [2055]
+      peer_role: monitoring-collector
+      transport: udp
+      bytes: 1400
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: high
+    # The batched TCP half: fewer, larger ships.
+    - proto: beats
+      ports: [5044]
+      peer_role: monitoring-collector
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: high
+  requires: [monitoring-collector]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

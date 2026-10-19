@@ -1,0 +1,20 @@
+# Load-test persona, step 2 of 4. See loadgen-l1.yaml for the family rationale.
+#
+# Step 2: same `high` volume as l1 (24 x 64 KiB), but fired every 1s instead
+# of every 5s AND fanned out across the whole mesh. With three hosts in the
+# `loadgen` role that is 2 peers each, so ~5x l1's offered load per instance.
+persona:
+  id: loadgen-l2
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: loadgen
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: high
+      peer_scope: all
+  requires: [loadgen]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

@@ -1,0 +1,46 @@
+scenario_schema_version: 1
+
+scenario:
+  id: activity-demo
+  version: 1
+  description: |
+    Minimal inline-activity scenario for the OP-ACT engine tests
+    (docs/SLICE_ACTIVITY.md). One attacker host with a red-team app (so
+    deploy-behavior-agent gates on provision-app) and a one-shot inline
+    recon chain bound to it, plus a victim host (capture is now a
+    standalone tap-plan concern against the deployed twin's published
+    topology -- `docs/WORK_ORDER_tap_eligibility.md`, Authority: user,
+    2026-07-28 -- not authored here).
+
+layers:
+  infra:
+    networks:
+      - { id: corp, cidr: 10.10.0.0/24, vlan: 10, gateway: 10.10.0.1 }
+    nodes:
+      - id: attacker
+        kind: host
+        nets: [ { net: corp, ip: 10.10.0.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      - id: victim
+        kind: host
+        nets: [ { net: corp, ip: 10.10.0.11 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  apps:
+    - id: redkit
+      install:
+        - { pkg: nmap }
+  activity:
+    - id: act-recon
+      actor: red
+      inline:
+        steps:
+          - { tool: nmap, args: "-sn -Pn", target: 10.10.0.0/24 }
+          - { run: "echo done >> /tmp/recon.txt; true" }
+
+bindings:
+  - { app: redkit, host: attacker }
+  - { activity: act-recon, host: attacker }

@@ -1,0 +1,24 @@
+# tight peer set = clean baseline: from the app tier only.
+persona:
+  id: db-tier
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: mysql
+      ports: [3306]
+      peer_role: web-tier
+      direction: EW
+      cadence: 24x7
+      volume: med
+    - proto: postgres
+      ports: [5432]
+      peer_role: web-tier
+      direction: EW
+      cadence: 24x7
+      volume: low
+  requires: [web-tier]
+  # GAP-032: assert against MariaDB (the mysql proto is the higher-volume of
+  # the two emits above) -- Debian's systemd unit is `mariadb`. A twin
+  # provisioning Postgres instead should override with
+  # `service_name: postgresql` at the traffic-profile/twin-config layer.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: mariadb }

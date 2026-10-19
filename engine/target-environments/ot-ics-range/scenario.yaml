@@ -1,0 +1,175 @@
+scenario_schema_version: 1
+
+scenario:
+  id: ot-ics-range
+  version: 2
+  description: |
+    Corpus-derived OT/ICS range (Stage-2 of the scenario-ai-research).
+
+    Synthesized by Claude Code from the 324-video cyber-range knowledge corpus
+    (scenario_ai_research/stage2/CORPUS_DIGEST.md) — where OT/ICS was the single largest
+    enriched theme. The corpus surfaced industrial ranges explicitly: "Industrial
+    Cybersecurity OT Security Lab Demo" (PLCs/HMIs, a Tokyo electric-grid attack
+    via Kali), "Attack OT/ICS with Labshock", an Aviation Runway IT/OT range,
+    RHEA CITEF, and a Cyber-Energy Emulation Platform; with tooling OpenPLC,
+    pymodbus, Node-RED, ScadaLab, Modbus Poll, and Siemens S7-1200/1500, and
+    attacks "compromise the engineering station to control all OT devices",
+    "Modbus TCP scanning on port 502 with Metasploit", and "spoof as a master
+    device to read/write memory".
+
+    This is a Purdue-style range across three zones — IT enterprise (L4/5), an
+    industrial DMZ (L3.5), and the OT control zone (L0-2) — joined by a conduit
+    router. Real PLCs aren't VMs, so the control devices are software-emulated on
+    Linux (pymodbus/OpenPLC Modbus slaves, an MQTT historian, a Node-RED HMI) —
+    the standard approach for OT ranges.
+
+      IT:      engineering/HMI workstation (Windows), attacker (pivots to OT)
+      OT-DMZ:  SCADA historian (MQTT broker), OT-aware SOC sensor
+      OT:      two Modbus PLCs (pymodbus), a Node-RED web HMI
+
+    SCOPE — deployable here: Infrastructure (3 Purdue zones + conduit router) +
+    Apps & Tools on the Linux hosts (Modbus PLC sims, MQTT historian, Node-RED
+    HMI, OT attacker kit, OT sensor). Passes `axrange validate` and `axrange
+    plan`. DEFERRED (designed, not deployed; CORPUS_DIGEST.md §5):
+      - the conduit FIREWALL POLICY (default-deny IT<->OT, the L3.5 broker-only
+        data path) — the router deploys, but per-rule policy needs the IR
+        firewall-rule extension;
+      - the OT ATTACK activity (Modbus register manipulation, master spoofing,
+        eng-station -> PLC pivot, process disruption) via OP-ACT;
+      - the OT DETECTION overlay (Modbus/DNP3 IDS rules, protocol-aware
+        monitoring) via OP-OVL;
+      - high-fidelity physical-process simulation.
+    The Windows engineering workstation deploys as substrate.
+
+layers:
+  infra:
+    networks:
+      # gateways are the conduit router's LAN IPs (router slice Phase 2: egress
+      # NAT + inter-zone routing). Air-gapping/segmenting OT (default-deny the
+      # conduit) is the firewall-policy follow-on (needs IR rule fields).
+      - { id: it,     cidr: 10.80.10.0/24, vlan: 100, gateway: 10.80.10.1 }  # L4/5 enterprise
+      - { id: ot_dmz, cidr: 10.80.15.0/24, vlan: 105, gateway: 10.80.15.1 }  # L3.5 industrial DMZ
+      - { id: ot,     cidr: 10.80.20.0/24, vlan: 110, gateway: 10.80.20.1 }  # L0-2 control
+    nodes:
+      # Purdue conduit — the IT/OT/DMZ router. Multi-homed across all three zones;
+      # WAN uplink for egress NAT. Debian/nftables (VyOS-swappable). Default policy
+      # permissive in v1; the default-deny conduit firewall is the follow-on.
+      # Tapped: this is the IT/OT boundary itself (`docs/DESIGN_BRIEF_twin_model.md`
+      # §4.1/§6.2's `idmz-conduit` — "the highest-value capture point in the
+      # catalog"), so it must be a capture point in its own right, not just
+      # each zone separately.
+      - id: conduit
+        kind: router
+        nets:
+          - { net: it,     ip: 10.80.10.1 }
+          - { net: ot_dmz, ip: 10.80.15.1 }
+          - { net: ot,     ip: 10.80.20.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+
+      # --- IT enterprise zone (L4/5) ------------------------------------------
+      # Engineering / HMI workstation (Windows; TIA-Portal-class). Substrate; tapped.
+      - id: eng-ws
+        kind: host
+        nets: [ { net: it, ip: 10.80.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # Attacker — pivots from IT toward OT (the classic IT->OT path).
+      - id: attacker
+        kind: host
+        nets: [ { net: it, ip: 10.80.10.66 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+
+      # --- Industrial DMZ (L3.5) ----------------------------------------------
+      # SCADA historian — MQTT broker + a simple subscriber/store. The broker-only
+      # data path is the intended IT<->OT mediation point. Tapped.
+      - id: historian
+        kind: host
+        nets: [ { net: ot_dmz, ip: 10.80.15.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # OT-aware SOC sensor — Suricata + Zeek with Modbus/DNP3 focus. Tapped.
+      - id: detect
+        kind: host
+        nets: [ { net: ot_dmz, ip: 10.80.15.20 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:ebpf, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+
+      # --- OT control zone (L0-2) ---------------------------------------------
+      # Simulated PLC #1 — pymodbus Modbus/TCP slave on :502. Tapped (OT protocol).
+      - id: plc1
+        kind: host
+        nets: [ { net: ot, ip: 10.80.20.30 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Simulated PLC #2 — a second pymodbus slave (different process/unit). Tapped.
+      - id: plc2
+        kind: host
+        nets: [ { net: ot, ip: 10.80.20.31 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # HMI — Node-RED operator interface onto the process. Tapped.
+      - id: hmi
+        kind: host
+        nets: [ { net: ot, ip: 10.80.20.40 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 10Gi }
+  apps:
+    # OT attacker kit: scanners + Modbus client tooling (script stages pymodbus).
+    - id: ot-offense
+      install:
+        - { pkg: nmap }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: netcat-traditional }
+        - { script: ./scripts/ot_attack.sh }
+    # SCADA historian: MQTT broker + a tiny subscriber-to-sqlite historian.
+    - id: historian-stack
+      install:
+        - { pkg: mosquitto }
+        - { pkg: mosquitto-clients }
+        - { pkg: python3-pip }
+        - { pkg: sqlite3 }
+        - { script: ./scripts/historian_setup.sh }
+    # PLC #1: pymodbus Modbus/TCP slave on :502.
+    - id: plc-sim
+      install:
+        - { pkg: python3-pip }
+        - { script: ./scripts/plc_sim.sh }
+    # PLC #2: second pymodbus slave (distinct unit/process).
+    - id: plc-sim2
+      install:
+        - { pkg: python3-pip }
+        - { script: ./scripts/plc_sim2.sh }
+    # HMI: Node-RED web dashboard onto the process.
+    - id: hmi-web
+      install:
+        - { pkg: nodejs }
+        - { pkg: npm }
+        - { script: ./scripts/hmi.sh }
+    # OT-aware sensor: Suricata + Zeek tuned for OT protocols.
+    - id: ot-ids
+      install:
+        - { pkg: suricata }
+        - { pkg: zeek }
+        - { pkg: tcpdump }
+        - { pkg: jq }
+        - { script: ./scripts/ot_sensor.sh }
+  activity: []
+
+bindings:
+  - { app: ot-offense,      host: attacker }
+  - { app: historian-stack, host: historian }
+  - { app: plc-sim,         host: plc1 }
+  - { app: plc-sim2,        host: plc2 }
+  - { app: hmi-web,         host: hmi }
+  - { app: ot-ids,          host: detect }

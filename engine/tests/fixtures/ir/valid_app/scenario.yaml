@@ -1,0 +1,36 @@
+scenario_schema_version: 1
+
+scenario:
+  id: app-demo
+  version: 1
+  description: |
+    Config-slice demo (docs/SLICE_CONFIG.md): one host with one app (nginx)
+    installed via QGA-mediated Ansible. host-ready -> provision-app. Untapped
+    (no mirror/sensor needed). Requires a template with `ansible` baked in via the
+    imagebuild `provision:` path; the package source (apt) must be reachable
+    from the host's network.
+
+layers:
+  infra:
+    networks:
+      - id: corp
+        cidr: 10.10.0.0/24
+        vlan: 10
+        gateway: 10.10.0.1
+    nodes:
+      - id: h-a
+        kind: host
+        nets:
+          - { net: corp, ip: 10.10.0.10 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  apps:
+    - id: web
+      install:
+        - { pkg: nginx }
+        - { script: ./setup.sh }
+  activity: []
+
+bindings:
+  - { app: web, host: h-a }

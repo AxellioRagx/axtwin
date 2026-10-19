@@ -1,0 +1,91 @@
+# svc-engines -- the FILE protocol group: SMB byte volume out of a real share,
+# plus SSH (work order §5 E5).
+#
+# **Bundle-local, not catalog** (see `svc-engines-ad-client.yaml`'s header for
+# why `drive: command` personas stay out of `axrange/personas/catalog/`).
+#
+# **What this one is for: BYTES.** The cast observed **2.2 GB of internal SMB**
+# (work order §1) -- the largest internal byte volume after TLS, and the one a
+# `scripted` persona has always been able to fake at a port and never able to
+# make real. Here the bytes come from `smbclient` doing real SMB2 READs out of
+# the `files` host's `pub` share, which holds ~1 GiB of files
+# (`scripts/serve-file-server.sh`). A 2.2 GB window is reached by RE-READING
+# those files, never by inventing content nobody observed.
+#
+# **Anonymous on purpose.** The `pub` share is guest-readable, so the byte
+# volume never depends on an identity being right; if the credential path
+# regresses, the volume engine keeps running and the AD persona is the one
+# that fails, which is the separation of concerns you want when reading a
+# capture. The authenticated share (`corp`, the LOCAL `smbuser`) is there for
+# the SESSION_SETUP-with-a-real-username case -- exercised by hand in the
+# README, deliberately not by this persona, because a persona may never carry
+# a credential literal and that account's password is not the lab-wide one.
+#
+# **This host's SMB is NTLM/guest, not Kerberos**, because `files` is not
+# domain-joined (recorded in the twin config and in `serve-file-server.sh`,
+# deliberately not worked around). Kerberised SMB is the AD persona's emit
+# against the DC's SYSVOL.
+#
+# **Written against E5's landed templates** (`smb`/`ssh` rows,
+# `personas/drivers/command.py`, 2026-09-21), not against a guess. Note what
+# `smb` actually does: `smbclient //<host>/<share> -m SMB3 -N -c 'get <file>
+# /dev/null'` -- ONE named file per firing, so the BYTE VOLUME is the size of
+# `knobs.smb_file`, not anything `volume:` controls (the row is
+# `spends_bytes=False`). That is why the share holds 256 MiB files.
+persona:
+  id: svc-engines-file-client
+  os_family: linux
+  drive: command
+
+  emits:
+    # The volume engine: one 256 MiB file per firing, every 120 s -- a ~2 MB/s
+    # average, comfortably inside what one vCPU of smbclient and a tapped
+    # Linux bridge carry (max-capture-rate characterization, CHANGELOG
+    # 2026-08-13/14) and enough to reach the cast's 2.2 GB internal-SMB class
+    # in a ~20 min window.
+    #
+    # `volume: med` drives the INVOCATION count per firing, NOT bytes: the
+    # `smb` row is `spends_bytes=False` because how many bytes an SMB read
+    # costs is a property of the FILE, not of a message-size knob. Authoring
+    # `bulk` here would look like a byte lever and be one only by accident.
+    - { proto: smb, ports: [445], peer_role: file-server,
+        direction: EW, cadence: "cyclic:120s", volume: med }
+    # **The `ssh` emit moved to `svc-engines-mgmt-client` (2026-09-21).** It
+    # used to live here, and it could not work here: `knobs` are persona-WIDE,
+    # this persona is `auth_credential: none` (the anonymous SMB byte engine,
+    # below), and an ssh client with no credential cannot complete a session.
+    # It ran `ssh -o BatchMode=yes axr@files.svc.axr.lab true` every cycle and
+    # got `Permission denied (publickey,password)` / exit 255 every cycle --
+    # a real KEX at the sensor and a client that never once did the thing it
+    # claims to do (measured on dev45; LES-001). The mgmt persona already
+    # authenticates (`auth_credential: default`) and already dials this same
+    # host for SNMP, so ssh belongs there; `svc-engines.yaml`'s own `listen:`
+    # comment on port 22 said "the mgmt persona dials it" before the move.
+
+  requires: [file-server]
+
+  knobs:
+    # ---- CONTENT for the `command` templates. Every key is one
+    # `command._resolve_client_knobs` reads; see `svc-engines-ad-client.yaml`'s
+    # knobs block for the "an unread knob is SILENT" caveat.
+    #
+    # **Anonymous.** `auth_credential: none` renders `smbclient -N` -- no
+    # credential file is written for this instance at all
+    # (`required_credentials` returns nothing), so the byte volume cannot fail
+    # for an identity reason. It is also what makes this persona legal against
+    # a NON-domain-joined Samba host: there is no realm in play.
+    auth_credential: none
+
+    # Dial the file server BY NAME (E3: the twin resolver is authoritative for
+    # `svc.axr.lab`), so the UNC path on the wire is a real one --
+    # `//files.svc.axr.lab/pub`.
+    target_name: files.svc.axr.lab
+
+    # The share and the one file fetched per firing. 256 MiB, sparse on the
+    # server (`serve-file-server.sh`) -- real bytes on the wire, synthetic
+    # content, and never a claim about anything observed.
+    smb_share: pub
+    smb_file: bulk/bulk-01.dat
+
+    schedule: 24x7
+    seed_jitter: true

@@ -1,0 +1,29 @@
+# Minimal twin-config fixture for API tests (`tests/test_api.py`) -- mirrors
+# `tests/fixtures/ir/valid_slice/scenario.yaml`'s two-tapless-host shape so
+# the SAME fake adapter/manifest fixtures the rest of `test_api.py` already
+# uses can drive a config-sourced `POST /api/deploys` end to end, with no
+# router/identity/data content to keep the fixture minimal.
+twin_config:
+  id: api-test-config
+  description: Minimal two-host twin-config fixture for API deploy tests.
+
+  params:
+    N_WORKSTATIONS: 1
+
+  segments:
+    - name: corp
+      cidr: 10.20.0.0/24
+      zone_type: simple
+
+  nodes:
+    - name: h-a
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: corp
+    - name: h-b
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: "${N_WORKSTATIONS:1}"
+      net: corp

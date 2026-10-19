@@ -1,0 +1,14 @@
+# corp-enterprise — re-shard variant: swap the two standing sensors in place.
+#   server-vlan segment        -> Tcpdump-SW-A   (was o2-suricata)
+#   corp-lan <-> dmz boundary   -> o2-suricata  (was Tcpdump-SW-A)
+# Apply over tap-default.yaml to prove capture re-points to different sensors
+# without redeploying the twin (old bindings de-scoped, new ones wired).
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: server-vlan }
+      sensors: [Tcpdump-SW-A]
+      mode: exclusive
+    - selector: { scope: boundary, target: [corp-lan, dmz] }
+      sensors: [o2-suricata]
+      mode: exclusive

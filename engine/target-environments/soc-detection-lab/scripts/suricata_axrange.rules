@@ -1,0 +1,8 @@
+# axRange SOC detection ruleset (loaded by the OP-OVL network sensor onto the
+# appliance-adjacent network-sensor Suricata, observing dmz+corp). Tuned to fire on the red-team
+# inline attack chain (recon -> probe -> lateral sweep). Replace with ET-open
+# in a richer scenario.
+alert icmp any any -> $HOME_NET any (msg:"AXR SOC ICMP recon"; itype:8; sid:9100001; rev:1;)
+alert tcp any any -> $HOME_NET any (msg:"AXR SOC TCP SYN scan"; flags:S,12; threshold:type both, track by_src, count 5, seconds 10; sid:9100002; rev:1;)
+alert tcp any any -> $HOME_NET 445 (msg:"AXR SOC SMB lateral probe"; flags:S; sid:9100003; rev:1;)
+alert tcp any any -> $HOME_NET 3389 (msg:"AXR SOC RDP lateral probe"; flags:S; sid:9100004; rev:1;)

@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+#
+# capture-start — systemd ExecStart helper for capture.service.
+#
+# Sources /etc/capture/capture.conf, validates the runtime environment,
+# applies NIC settings that must hold while tcpdump runs (offloads off,
+# PROMISC verified), pre-creates the dated output directories, then execs
+# tcpdump with the §4 flags from docs/tcpdump-sensor/README.md.
+#
+# Hard rules this script enforces (see docs/tcpdump-sensor/README.md §10):
+#   * tcpdump -W 999999999 always — "unlimited rotation".
+#     Historically the spec said -W 0; tcpdump 4.99+ (Debian 12 default)
+#     rejects -W 0 as "invalid number of output files 0". A very large
+#     finite value preserves the strftime template in -w and behaves
+#     unlimited for any realistic deploy. Empirically surfaced 2026-05-29.
+#   * tcpdump -p always (PROMISC is set by udev, not by tcpdump).
+#   * tcpdump -Z $CAPTURE_USER always (drop privileges).
+#   * NIC offloads (gro/lro/tso/gso) forced OFF.
+#   * Refuse to start if CAPTURE_DIR is on btrfs/zfs (CoW filesystems).
+#   * Refuse to start if CAPTURE_IF has an IP address.
+
+set -euo pipefail
+
+CONF="${CAPTURE_CONF:-/etc/capture/capture.conf}"
+
+die() { echo "capture-start: $*" >&2; exit 1; }
+
+[ -r "$CONF" ] || die "missing or unreadable $CONF"
+# shellcheck disable=SC1090
+. "$CONF"
+
+# ---- Validate required vars -------------------------------------------------
+
+for v in CAPTURE_IF SOURCE_TAG ROTATE_SECONDS ROTATE_MEGABYTES COMPRESS_CMD \
+         KERNEL_RING_KB SNAPLEN CAPTURE_USER CAPTURE_DIR; do
+    if [ -z "${!v:-}" ]; then
+        die "$v is unset or empty in $CONF"
+    fi
+done
+
+case "$SOURCE_TAG" in
+    *[!A-Za-z0-9._-]*) die "SOURCE_TAG '$SOURCE_TAG' contains illegal characters; allowed: [A-Za-z0-9._-]" ;;
+esac
+
+# ---- Validate the runtime environment ---------------------------------------
+
+# CAPTURE_IF must exist
+if ! ip link show "$CAPTURE_IF" >/dev/null 2>&1; then
+    die "capture interface '$CAPTURE_IF' does not exist"
+fi
+
+# CAPTURE_IF must NOT carry an IP address (§10 hard rule).
+if ip -4 -o addr show dev "$CAPTURE_IF" | grep -q 'inet '; then
+    die "capture interface '$CAPTURE_IF' has an IPv4 address; remove it before starting capture"
+fi
+if ip -6 -o addr show dev "$CAPTURE_IF" scope global | grep -q 'inet6 '; then
+    die "capture interface '$CAPTURE_IF' has a global IPv6 address; remove it before starting capture"
+fi
+
+# CAPTURE_DIR must exist and not be CoW.
+[ -d "$CAPTURE_DIR" ] || die "CAPTURE_DIR '$CAPTURE_DIR' does not exist (install.sh creates it)"
+fstype=$(findmnt -n -o FSTYPE --target "$CAPTURE_DIR" 2>/dev/null || true)
+case "$fstype" in
+    btrfs|zfs)
+        die "CAPTURE_DIR '$CAPTURE_DIR' is on $fstype; CoW filesystems are forbidden for the capture path (see docs/tcpdump-sensor/README.md §10). Move /captures to XFS or ext4 with noatime,nodiratime."
+        ;;
+    "")  echo "capture-start: WARN: could not determine filesystem type of $CAPTURE_DIR" >&2 ;;
+esac
+
+# CAPTURE_USER must exist (-Z requires it).
+if ! id -u "$CAPTURE_USER" >/dev/null 2>&1; then
+    die "user '$CAPTURE_USER' does not exist (install.sh creates it)"
+fi
+
+# Verify PROMISC is set. We don't set it here — that's the udev rule's job —
+# but we refuse to start if it's missing, because tcpdump -p will not toggle
+# it and we'd silently capture nothing but unicast addressed to our own MAC.
+if ! ip link show "$CAPTURE_IF" | grep -q PROMISC; then
+    # Try one explicit set in case the udev rule failed to fire (e.g., NIC
+    # appeared after udev cold-plug); then re-check.
+    ip link set "$CAPTURE_IF" promisc on || true
+    if ! ip link show "$CAPTURE_IF" | grep -q PROMISC; then
+        die "$CAPTURE_IF is not in PROMISC mode and could not be put in PROMISC; check the udev rule at /etc/udev/rules.d/99-capture-promisc.rules"
+    fi
+fi
+
+# Force NIC offloads OFF on every start. They can come back after a NIC reset
+# or driver reload, and capture pcaps must reflect wire reality.
+ethtool -K "$CAPTURE_IF" gro off lro off tso off gso off 2>/dev/null || \
+    echo "capture-start: WARN: ethtool -K failed on $CAPTURE_IF (may be a virtual NIC without offload support)" >&2
+
+# ---- Pre-create output directories ------------------------------------------
+#
+# We use strftime in the -w argument so day rollover at UTC midnight produces
+# a new YYYY/MM/DD directory automatically. But tcpdump's open() will fail if
+# the directory doesn't exist at rotation time. Solution: create today AND
+# tomorrow's directories at startup; the watchdog refreshes both every 60s.
+
+today=$(date -u +%Y/%m/%d)
+tomorrow=$(date -u -d 'tomorrow' +%Y/%m/%d 2>/dev/null || \
+           date -u -v+1d +%Y/%m/%d 2>/dev/null || \
+           echo "$today")  # last-ditch fallback: same as today
+for d in "$today" "$tomorrow"; do
+    target="$CAPTURE_DIR/$d/$SOURCE_TAG"
+    install -d -o "$CAPTURE_USER" -g "$CAPTURE_USER" -m 0750 "$target"
+done
+
+# ---- Build the EXCLUDE_BPF argv safely --------------------------------------
+
+bpf_args=()
+if [ -n "${EXCLUDE_BPF:-}" ]; then
+    # Append as a single tcpdump filter expression argv element. tcpdump
+    # treats trailing args as a single filter, so passing it intact is fine.
+    # We use eval-free expansion by relying on word splitting only when the
+    # operator deliberately quoted in capture.conf.
+    bpf_args=("$EXCLUDE_BPF")
+fi
+
+# ---- Compose -z argument ----------------------------------------------------
+
+z_args=()
+if [ "$COMPRESS_CMD" != "none" ]; then
+    z_args=(-z "$COMPRESS_CMD")
+fi
+
+# ---- Exec tcpdump -----------------------------------------------------------
+
+# The -w path uses strftime: tcpdump expands %Y/%m/%d/cap-%H%M%S.pcap on each
+# rotation. We pass SOURCE_TAG as a literal path component, not via strftime.
+out_template="${CAPTURE_DIR}/%Y/%m/%d/${SOURCE_TAG}/cap-%Y%m%d-%H%M%S.pcap"
+
+echo "capture-start: launching tcpdump on $CAPTURE_IF -> $out_template"
+
+exec tcpdump \
+    -i "$CAPTURE_IF" \
+    -p \
+    -n \
+    --immediate-mode \
+    -B "$KERNEL_RING_KB" \
+    -s "$SNAPLEN" \
+    -G "$ROTATE_SECONDS" \
+    -C "$ROTATE_MEGABYTES" \
+    -W 999999999 \
+    "${z_args[@]}" \
+    -Z "$CAPTURE_USER" \
+    -w "$out_template" \
+    "${bpf_args[@]}"

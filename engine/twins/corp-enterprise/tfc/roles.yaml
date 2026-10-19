@@ -1,0 +1,20 @@
+# Shared role map for corp-enterprise, referenced by every profile of this
+# twin via `roles_from: roles.yaml`.
+#
+# Roles are what a host IS (and what personas resolve `peer_role:` against);
+# personas are what it DOES. Keeping the map in one file means a profile that
+# varies only traffic VOLUME -- tfc-busy.yaml vs. tfc-default.yaml -- does not
+# have to repeat it (`docs/WORK_ORDER_role_persona_tier.md` §3.1).
+#
+# Every entry here OVERRIDES the twin's own baseline `role:` for that host, so
+# a bare-bone twin (one whose config declares no `role:` at all) is driven
+# entirely from this file.
+traffic-profile:
+  roles:
+    - { node: domain-controller,   role: domain-controller }
+    - { node: file-server,         role: file-server }
+    - { node: mail-server,         role: mail-server }
+    - { node: egress-proxy,        role: egress-proxy }
+    - { node: dmz-web,             role: dmz-web }
+    - { node: monitoring-collector, role: monitoring-collector }
+    - { selector: { kind: router }, role: gw }

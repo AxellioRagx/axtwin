@@ -1,0 +1,93 @@
+// Grafana Alloy — ships the axRange network sensor's Suricata eve.json to Loki.
+//
+// RUNS ON THE NETWORK SENSOR VM (the standing Suricata box next to the capture
+// appliance — adapter.conf NETWORK_SENSOR_VMID; dev45 vmid 8001), NOT on the stack
+// host. Suricata there writes /var/log/suricata/eve.json (axrange/config_exec/
+// render.py: `suricata -i <iface> -l /var/log/suricata`). This tails it, parses
+// each JSON line, promotes a handful of fields to Loki labels, and pushes.
+//
+// Tunables come from environment variables (see systemd/alloy-axrange.service,
+// which loads them from observability.conf):
+//   EVE_JSON_PATH   — path to eve.json            (SENSOR_EVE_JSON_PATH)
+//   LOKI_PUSH_URL   — Loki push endpoint          (LOKI_PUSH_URL)
+//   NETWORK_SENSOR_HOST    — value for the `host` label  (NETWORK_SENSOR_HOST)
+//
+// Validate (no run):   alloy validate o2/alloy/config.alloy
+// Run (human-gated):   alloy run   o2/alloy/config.alloy
+//
+// FALLBACK: Promtail does the same job with a simpler config (a single
+// scrape_configs job with a `json` + `labels` pipeline_stages stanza). Alloy is
+// chosen as the current Grafana-supported shipper; if Alloy is unavailable on
+// the network sensor, see README "Log shipper: Alloy (Promtail fallback)".
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// ---- Source: tail eve.json -------------------------------------------------
+local.file_match "suricata_eve" {
+  path_targets = [{
+    __path__ = sys.env("EVE_JSON_PATH"),
+    job      = "suricata",
+    host     = sys.env("NETWORK_SENSOR_HOST"),
+  }]
+}
+
+loki.source.file "suricata_eve" {
+  targets               = local.file_match.suricata_eve.targets
+  forward_to            = [loki.process.suricata.receiver]
+  legacy_positions_file = "/var/lib/alloy/positions.yml"
+}
+
+// ---- Process: parse JSON, promote fields to labels -------------------------
+loki.process "suricata" {
+  forward_to = [loki.write.default.receiver]
+
+  // Parse the eve.json line. alert.* is nested, so map it explicitly.
+  stage.json {
+    expressions = {
+      event_type     = "event_type",
+      src_ip         = "src_ip",
+      dest_ip        = "dest_ip",
+      proto          = "proto",
+      alert_severity = "alert.severity",
+      alert_sig      = "alert.signature",
+    }
+  }
+
+  // Promote to labels (the brief's set): event_type, severity, signature,
+  // src_ip, dest_ip, proto. Keep cardinality sane — these are bounded in a lab.
+  stage.labels {
+    values = {
+      event_type = "",
+      severity   = "alert_severity",
+      signature  = "alert_sig",
+      src_ip     = "",
+      dest_ip    = "",
+      proto      = "",
+    }
+  }
+
+  // Use Suricata's own event timestamp for the log line time when present.
+  stage.json {
+    expressions = { ts = "timestamp" }
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+    // If parsing fails, Alloy falls back to ingestion time (safe default).
+    action_on_failure = "fudge"
+  }
+}
+
+// ---- Destination: push to Loki ---------------------------------------------
+loki.write "default" {
+  endpoint {
+    url = sys.env("LOKI_PUSH_URL")
+  }
+  // A static external label so multiple network sensors are distinguishable if added.
+  external_labels = {
+    source = "axrange-network-sensor",
+  }
+}

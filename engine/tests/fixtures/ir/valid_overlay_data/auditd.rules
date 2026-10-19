@@ -1,0 +1,3 @@
+# axRange test auditd ruleset
+-w /etc/passwd -p wa -k identity
+-w /srv/data -p rwa -k crown-jewel-access

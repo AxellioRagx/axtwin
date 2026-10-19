@@ -1,0 +1,60 @@
+# Load-test persona, step 1 of 4 (`loadgen-l1` .. `loadgen-l4`).
+#
+# NOT a fidelity persona. The starter catalog models what a role realistically
+# DOES; this family exists to answer a capacity question -- "what is the
+# highest rate the tap -> gretap -> sink capture path carries without dropping
+# a frame" -- by offering progressively more load until something drops.
+# Authored 2026-08-13 for the dev45 corp-enterprise max-capture-rate run.
+#
+# Why four separate ids rather than one persona edited between steps: a tfc
+# re-apply keys an instance on (host, persona-id). Editing one persona's
+# CONTENT in place leaves the id unchanged, so the re-apply can read as a
+# no-op; a distinct id per step forces the de-scope-then-apply path
+# (LES-112/LES-113) and makes each rung independently attributable.
+#
+# Shape notes that apply to all four:
+#   - UDP, pinned explicitly. A TCP emit spends ~9 packets to carry one small
+#     payload and, worse, only materializes its byte volume against a real
+#     LISTENER -- a refused connect is 2 packets, not 64 MiB (the `fails=`
+#     counter in the guest log is the tell). Nothing is listening on these
+#     ports, so TCP would measure nothing.
+#   - `peer_role: loadgen` + a `roles:` block that puts several hosts in that
+#     one role turns the emit into an intra-segment MESH; `peer_scope: all`
+#     fans out across every holder and excludes the sender's own host
+#     (LES-170), so every datagram crosses a real tapped port.
+#   - Keeping the mesh inside ONE segment is deliberate: corp-enterprise's
+#     `gw` router has 1 vCPU, so any cross-segment flow measures the router,
+#     not the capture path.
+#   - `seed_jitter: false` -- the +/-10% interval jitter is realism this run
+#     does not want; a steady offered rate makes each rung's number readable.
+#
+# Step 1: the modest rung. `volume: high` = 24 messages x 64 KiB per fire,
+# every 5s. Present to prove the measurement chain reads a small, known load
+# correctly before it is asked to read a large one.
+#
+# **`peer_scope: all` is REQUIRED here, not a volume choice** (found live on
+# dev45, 2026-08-13). This rung originally used `peer_scope: one`, and every
+# instance resolved its `loadgen` peer to ITSELF -- mail-server 10.62.20.2
+# sending to 10.62.20.2. The persona logged `sent ... fails=0` and looked
+# perfectly healthy while putting exactly ZERO frames on the wire, because
+# loopback traffic never reaches the VM's tap interface and so never reaches
+# a tap point. `_resolve_peer_sets` (the `peer_scope: all` path) explicitly
+# excludes the instance's own host for precisely this reason (LES-170); the
+# single-peer `_resolve_peers` path has no equivalent guard, so a persona
+# whose `peer_role` is a role the SENDER ALSO HOLDS -- i.e. any mesh -- must
+# use `all`. The failure is silent in both the guest log and the tfc status.
+persona:
+  id: loadgen-l1
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: loadgen
+      transport: udp
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: high
+      peer_scope: all
+  requires: [loadgen]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

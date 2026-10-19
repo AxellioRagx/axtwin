@@ -1,0 +1,34 @@
+{
+  "//": [
+    "STRICT FROM ZERO. LES-042's tolerated ~118-error `tsc --noEmit` baseline",
+    "belongs to the Grafana plugin (a webpack/swc JSX-runtime gap); this is a",
+    "new package and `npm run typecheck` is a real green/red signal here.",
+    "`noUncheckedIndexedAccess` is on because most of this package parses",
+    "untrusted strings (routes, CIDRs, entity keys) where `parts[1]` is",
+    "genuinely `string | undefined`."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "vite.config.ts"]
+}

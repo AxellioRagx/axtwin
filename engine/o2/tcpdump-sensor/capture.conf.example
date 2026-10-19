@@ -1,0 +1,120 @@
+# /etc/capture/capture.conf
+#
+# Configuration for the cyber-range capture appliance (the tcpdump-sensor).
+#
+# Sourced as plain shell by:
+#   /usr/local/bin/capture-start         (systemd ExecStart for capture.service)
+#   /usr/local/bin/capture-watchdog      (ExecStart for capture-watchdog.service)
+#   /usr/local/bin/capture-healthcheck   (run on demand or by a monitoring timer)
+#
+# Rules of the road:
+#   * KEY=value, one per line. No spaces around =.
+#   * Quote values that contain spaces.
+#   * No command substitution, no shell logic. This file is data, not code.
+#   * Every value below is required unless marked OPTIONAL.
+#   * Changes take effect on `systemctl restart capture.service`.
+#
+# After editing, re-run `capture-healthcheck` to sanity-check.
+
+# =============================================================================
+# Capture interface
+# =============================================================================
+
+# Name of the NIC where mirrored frames arrive. Must be promiscuous (set by the
+# udev rule installed at /etc/udev/rules.d/99-capture-promisc.rules) and have
+# NO IP address. If it has an IP, scenario traffic can route to the appliance — bad.
+CAPTURE_IF=eth1
+
+# Tag used in the output path: /captures/YYYY/MM/DD/<SOURCE_TAG>/cap-*.pcap.zst
+# Pick something stable and meaningful (e.g. zone-a, lab-uplink, gretap0).
+# Allowed characters: [A-Za-z0-9._-]. The installer/healthcheck will warn on
+# anything else.
+SOURCE_TAG=zone-default
+
+# Optional BPF expression appended to the tcpdump command line. Use it to
+# exclude noise (e.g. SSH from the operator workstation, mgmt traffic that
+# somehow ended up on the capture NIC). Leave empty for "capture everything."
+# Example:  EXCLUDE_BPF="not (host 10.0.0.10 and port 22)"
+EXCLUDE_BPF=""
+
+# =============================================================================
+# Rotation
+# =============================================================================
+
+# Time-based rotation (seconds). tcpdump -G.
+ROTATE_SECONDS=300
+
+# Size-based rotation (megabytes). tcpdump -C. Whichever fires first wins.
+ROTATE_MEGABYTES=1024
+
+# Post-rotate compression command. tcpdump -z.
+# "zstd -1" is fast and gives ~2x compression on typical traffic.
+# "gzip -1" is slower and worse but ships in every distro by default.
+# Set to the literal string "none" to disable compression (pcaps stay raw).
+COMPRESS_CMD="zstd -1"
+
+# =============================================================================
+# Buffering and snaplen
+# =============================================================================
+
+# tcpdump -B, in KILObytes. 524288 = 512 MB kernel ring buffer.
+# Size it to ~4x your worst expected burst. Increase if you see "dropped by
+# kernel" in the capture.service log.
+KERNEL_RING_KB=524288
+
+# tcpdump -s. 0 = full packet (recommended). 96 captures headers only and is
+# useful only for flow analysis on a constrained capture host.
+SNAPLEN=0
+
+# =============================================================================
+# Privilege drop
+# =============================================================================
+
+# tcpdump -Z target. The capture process drops to this user after opening
+# CAPTURE_IF. The user is created by install.sh. Do not change unless you also
+# change install.sh.
+CAPTURE_USER=capture
+
+# =============================================================================
+# Storage layout
+# =============================================================================
+
+# Root of the pcap tree. Must be a dedicated mount in production
+# (XFS or ext4 with noatime,nodiratime — NEVER btrfs/zfs; CoW kills sustained
+# sequential writes). install.sh refuses to start the service if it detects
+# btrfs or zfs.
+CAPTURE_DIR=/captures
+
+# =============================================================================
+# Disk watchdog thresholds (percent of CAPTURE_DIR filesystem in use)
+# =============================================================================
+
+# Soft threshold: pruning begins above this.
+SOFT_THRESHOLD_PCT=80
+
+# Hard threshold: alert + optionally stop capture (see HARD_ACTION).
+HARD_THRESHOLD_PCT=92
+
+# Target usage to reach during a prune pass. Must be < SOFT_THRESHOLD_PCT to
+# avoid ping-ponging between SOFT and the next watchdog cycle.
+TARGET_AFTER_PRUNE_PCT=70
+
+# Number of newest pcap files the watchdog will refuse to delete, regardless
+# of disk pressure. Protects the active write target. Must be >= 1.
+MIN_KEEP_FILES=10
+
+# What the watchdog does when HARD_THRESHOLD_PCT is crossed:
+#   alert         — log a CRITICAL line via journald; keep capturing; keep pruning.
+#   stop_capture  — `systemctl stop capture.service`; keep pruning.
+#   both          — both of the above (functionally identical to stop_capture
+#                   since stop_capture already logs CRITICAL).
+HARD_ACTION=alert
+
+# =============================================================================
+# Healthcheck thresholds
+# =============================================================================
+
+# Maximum allowed age, in seconds, of the newest pcap file. If exceeded,
+# healthcheck reports a PROBLEM. Should comfortably exceed ROTATE_SECONDS on
+# idle networks where rotation is the only thing that closes a file.
+HEALTHCHECK_MAX_PCAP_AGE=400

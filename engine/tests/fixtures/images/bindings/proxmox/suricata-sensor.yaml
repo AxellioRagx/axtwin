@@ -1,0 +1,56 @@
+binding_schema_version: 1
+binding:
+  image: suricata-sensor
+  platform: proxmox
+  versions:
+    - id: v1
+      # template_vmid is written by `axrange image build suricata-sensor`.
+      # 0 until built (a suricata-sensor scenario can't deploy until then).
+      storage: { type: template, node: any, volid: "", template_vmid: 0 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: debian, sysprep_required: false }
+      hardware:
+        # Same as debian-12-cloud (i440fx so cloud-init sees the cidata CD).
+        machine: pc
+        bios: seabios
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-pci
+        agent: true
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 60
+      # Build recipe: reproduce a Debian-12 + Suricata template from the upstream
+      # cloud image. `axrange image build suricata-sensor` runs this on the build
+      # host (vmbr0 egress), bakes the tools, conforms, and writes template_vmid.
+      build:
+        base_image:
+          url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+          checksum_url: https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
+          checksum_algo: sha512
+          filename: debian-12-genericcloud-amd64.qcow2
+        disk_size: 12G
+        provision:
+          # tcpdump: the verify-capture confirm reads the sensor with it; curl/ca:
+          # apt over https for backports.
+          - { pkg: [tcpdump, curl, ca-certificates] }
+          # Suricata lives in bookworm-backports (with its newer libhtp2). The
+          # build VM reaches the real debian backports, so enable it + install
+          # the backports suricata (which pulls the backports libhtp2). set -e so
+          # a failed install fails the build, not a silent bake.
+          - script:
+              inline: |
+                #!/bin/sh
+                set -e
+                echo 'deb http://deb.debian.org/debian bookworm-backports main' \
+                  > /etc/apt/sources.list.d/backports.list
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update
+                apt-get install -y -t bookworm-backports suricata
+                # default rules dir + the axrange-managed iface mode; deploy-sensor
+                # drops the live ruleset and (re)starts it on gre-cap at deploy.
+                install -d -m 0755 /etc/suricata/rules /var/log/suricata
+                suricata -V
+        probes:
+          # one probe per non-default `provides:` keyword (conformance §4.1).
+          "sensor:suricata": "command -v suricata && suricata -V 2>&1 | grep -qi suricata"

@@ -1,0 +1,19 @@
+persona:
+  id: cast-log-shipper
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: tcp
+    ports:
+    - 9997
+    peer_role: monitoring-collector
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:117s
+    volume: bulk
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

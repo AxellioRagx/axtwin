@@ -1,0 +1,28 @@
+# corp-enterprise -- max-capture-rate tap plan, WIDE variant (dev45,
+# 2026-08-13). Companion to tfc-maxrate-l5.yaml.
+#
+# Same single sink as tap-maxrate-dmz.yaml (XPress-SW-A, the box under test),
+# but covering all three segments that rung 5 generates on. Tapping only dmz
+# while rung 5 also drives corp-lan and server-vlan would mirror a third of
+# the offered load and understate the achieved capture rate.
+#
+# Three separate `segment` bindings rather than one broad selector: each
+# resolves to every port on its own net (rx-only, so each frame is captured
+# exactly once), and keeping them separate makes it obvious in `tap plan`
+# output which segment contributes which ports.
+#
+# mgmt is deliberately NOT tapped: its only Linux host
+# (monitoring-collector) has no same-segment peer to talk to except the gw
+# router itself, so it would add router load rather than capture load.
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: dmz }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+    - selector: { scope: segment, target: corp-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+    - selector: { scope: segment, target: server-vlan }
+      sensors: [XPress-SW-A]
+      mode: exclusive

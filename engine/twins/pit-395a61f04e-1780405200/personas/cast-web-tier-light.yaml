@@ -1,0 +1,19 @@
+persona:
+  id: cast-web-tier-light
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:14s
+    volume: med
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

@@ -1,0 +1,166 @@
+{
+  "kind": "roles",
+  "axis": [
+    "domain-controller",
+    "dns-resolver",
+    "web-tier",
+    "monitoring-collector",
+    "network-device",
+    "corp-workstation",
+    "generic-endpoint",
+    "unroled-endpoint",
+    "external"
+  ],
+  "cells": [
+    {
+      "row": "domain-controller",
+      "col": "dns-resolver",
+      "rowIndex": 0,
+      "colIndex": 1,
+      "flows": 5,
+      "bytes": 300,
+      "edgeCount": 1,
+      "protos": [
+        "udp"
+      ],
+      "box": {
+        "x": 158,
+        "y": 128,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "web-tier",
+      "col": "external",
+      "rowIndex": 2,
+      "colIndex": 8,
+      "flows": 7,
+      "bytes": 80,
+      "edgeCount": 1,
+      "protos": [
+        "udp"
+      ],
+      "box": {
+        "x": 368,
+        "y": 188,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "corp-workstation",
+      "col": "domain-controller",
+      "rowIndex": 5,
+      "colIndex": 0,
+      "flows": 7,
+      "bytes": 2100,
+      "edgeCount": 2,
+      "protos": [
+        "tcp"
+      ],
+      "box": {
+        "x": 128,
+        "y": 278,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "corp-workstation",
+      "col": "external",
+      "rowIndex": 5,
+      "colIndex": 8,
+      "flows": 9,
+      "bytes": 60,
+      "edgeCount": 1,
+      "protos": [
+        "udp"
+      ],
+      "box": {
+        "x": 368,
+        "y": 278,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "generic-endpoint",
+      "col": "dns-resolver",
+      "rowIndex": 6,
+      "colIndex": 1,
+      "flows": 8,
+      "bytes": 350,
+      "edgeCount": 2,
+      "protos": [
+        "udp"
+      ],
+      "box": {
+        "x": 158,
+        "y": 308,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "generic-endpoint",
+      "col": "monitoring-collector",
+      "rowIndex": 6,
+      "colIndex": 3,
+      "flows": 8,
+      "bytes": 400,
+      "edgeCount": 1,
+      "protos": [
+        "tcp"
+      ],
+      "box": {
+        "x": 218,
+        "y": 308,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "generic-endpoint",
+      "col": "generic-endpoint",
+      "rowIndex": 6,
+      "colIndex": 6,
+      "flows": 11,
+      "bytes": 10,
+      "edgeCount": 1,
+      "protos": [
+        "tcp"
+      ],
+      "box": {
+        "x": 308,
+        "y": 308,
+        "w": 30,
+        "h": 30
+      }
+    },
+    {
+      "row": "external",
+      "col": "web-tier",
+      "rowIndex": 8,
+      "colIndex": 2,
+      "flows": 1,
+      "bytes": 5000,
+      "edgeCount": 1,
+      "protos": [
+        "tcp"
+      ],
+      "box": {
+        "x": 188,
+        "y": 368,
+        "w": 30,
+        "h": 30
+      }
+    }
+  ],
+  "totalFlows": 56,
+  "totalBytes": 8300,
+  "overBudget": false,
+  "axisCount": 9,
+  "width": 398,
+  "height": 398
+}

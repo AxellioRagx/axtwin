@@ -1,0 +1,29 @@
+{
+  "$comment": "doc-stats policy for aximprint. `command` runs from the repo root on every --check (turn-end and before every commit) — treat this file as executable code and review it like a hook. CHANGELOG and LESSONS are deliberately NOT in `files`: their dated entries quote the number that was true then, and are supposed to. NOTE ON THE COMMANDS: each one is written `out=$(...) && printf` on purpose. doc-stats' `_compute_one` ignores the subprocess return code, so a pytest collect that ERRORS still yields whatever `(\\d+) tests collected` it managed to print — which is how a bare-`python` run once reported 3 tests and false drift against a correct doc. The `&&` makes a failed command print nothing, so the counter comes back unknown instead of confidently wrong. Use `.venv/bin/python`, never bare `python`: without the venv, 4 of 5 test files fail to import.",
+  "counters": {
+    "tests": {
+      "command": "out=$(.venv/bin/python -m pytest --collect-only -q) && printf '%s' \"$out\"",
+      "extract": "(\\d+)\\s+tests?\\s+collected"
+    },
+    "plugins": {
+      "command": "out=$(.venv/bin/python -c 'import aximprint.ingest.zeek; from aximprint.ingest.base import _REGISTRY; print(len(_REGISTRY))') && printf '%s' \"$out\"",
+      "extract": "(\\d+)"
+    },
+    "lessons": {
+      "command": "grep -c '^## LES-[0-9]' docs/LESSONS.md",
+      "extract": "(\\d+)"
+    }
+  },
+  "claims": [
+    { "counter": "tests",   "pattern": "(\\d+)\\s+pytest tests",       "label": "pytest tests" },
+    { "counter": "plugins", "pattern": "(\\d+)\\s+ingest plugins?",    "label": "ingest plugins" },
+    { "counter": "lessons", "pattern": "(\\d+)\\s+recorded lessons?",  "label": "recorded lessons" }
+  ],
+  "files": [
+    "CLAUDE.md",
+    "README.md"
+  ],
+  "limits": {
+    "CLAUDE.md": { "max_lines": 500, "enforce": false }
+  }
+}

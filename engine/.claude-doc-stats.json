@@ -1,0 +1,74 @@
+{
+  "$comment": [
+    "doc-stats config for axRange. Reproduces the counters the project's bespoke",
+    "scripts/doc-stats.py computed before the workflow-template v7 upgrade replaced it",
+    "with the generic, config-driven script (see docs/SESSION_STATE.md 2026-08-07).",
+    "",
+    "Every `command` runs `.venv/bin/python` explicitly, never bare `python3`: the system",
+    "interpreter has no pytest and cannot import axrange, so a bare python3 would exit",
+    "non-zero and silently drop the counter. argv-list form (not a shell string) is used",
+    "throughout, so nothing here goes through a shell.",
+    "",
+    "`scenarios` is computed but deliberately has NO claim: the bespoke script counted it",
+    "the same way and never policed it either, because no doc quotes a scenario TOTAL --",
+    "the 'N archetypes' phrasings in docs/ all refer to specific subsets. Its old paths",
+    "(scenario-ai-research/stage2/scenarios, scenarios/) are dead; it now counts",
+    "target-environments/, and returns 0 rather than failing if that directory is absent.",
+    "",
+    "The `rules` claim pattern is narrow ('N catalog rules') on purpose. A broader",
+    "'N rules' would match docs/VALIDATOR.md's per-pass subset counts ('2 rules',",
+    "'53 rules') and CLAUDE.md's historical narrative counts ('89 rules', '104 rules'),",
+    "reporting drift on numbers that are correct as written.",
+    "",
+    "No `limits` block: the bespoke script had no doc size budget, so adding one here",
+    "would be a new behavior, not a reproduction.",
+    "",
+    "2026-09-19: CLAUDE.md is NO LONGER a policed file. It was trimmed to a lean",
+    "orientation doc that quotes no counters at all (quoted counts drifted on every",
+    "commit; the history moved to docs/DIRECTION_LOG.md). With it went the `tests`",
+    "counter + claim -- no remaining policed doc quotes a pytest total, and the counter",
+    "cost a full `pytest --collect-only` at every turn-end and commit. The `rules` claim",
+    "now binds to docs/VALIDATOR.md's lead-paragraph sum ('= N total') instead of",
+    "CLAUDE.md's old 'N catalog rules' phrasing.",
+    "",
+    "NOTE: --check runs these commands at turn-end and before every commit. Review this",
+    "file as executable code. Delete it to disable drift checking entirely."
+  ],
+
+  "counters": {
+    "ops": {
+      "command": [
+        ".venv/bin/python",
+        "-c",
+        "from axrange.ops import list_actions_and_waits, list_barriers; print(len(list_actions_and_waits()) + len(list_barriers()))"
+      ],
+      "extract": "(\\d+)"
+    },
+    "rules": {
+      "command": [
+        ".venv/bin/python",
+        "-c",
+        "from axrange.validator import list_rules; print(len(list_rules()))"
+      ],
+      "extract": "(\\d+)"
+    },
+    "scenarios": {
+      "command": [
+        ".venv/bin/python",
+        "-c",
+        "import pathlib; root = pathlib.Path('target-environments'); print(sum(1 for p in (sorted(root.iterdir()) if root.is_dir() else []) if (p / 'scenario.yaml').is_file()))"
+      ],
+      "extract": "(\\d+)"
+    }
+  },
+
+  "claims": [
+    {"counter": "ops",   "pattern": "(\\d+)\\s+op types",     "label": "op types"},
+    {"counter": "rules", "pattern": "=\\s+(\\d+)\\s+total", "label": "validator rules (VALIDATOR.md lead sum)"}
+  ],
+
+  "files": [
+    "docs/OP_CATALOG.md",
+    "docs/VALIDATOR.md"
+  ]
+}

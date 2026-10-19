@@ -1,0 +1,27 @@
+manifest_schema_version: 1
+
+image:
+  id: ubuntu-server-22
+  description: Ubuntu Server 22.04 LTS (test fixture).
+  os:
+    family: linux
+    distribution: ubuntu
+    version: "22.04"
+    architecture: x86_64
+  versions:
+    - id: v5
+      released: 2026-04-01
+      status: current
+      provides:
+        - linux
+        - kernel:ebpf
+        - kernel:audit
+        - kernel:container-runtime
+      install_support:
+        pkg: [apt]
+        config: true
+        role: [docker-host]
+        container: true
+        script: true
+      first_boot_budget: 120
+      size_estimate: 20Gi

@@ -1,0 +1,28 @@
+# web-lab.te.yaml   →   axrange te deploy web-lab.te.yaml
+scenario_schema_version: 1
+scenario: { id: web-lab, version: 1 }
+layers:
+  infra:
+    networks:
+      - id: lan
+        cidr: 10.20.0.0/24
+        gateway: 10.20.0.1
+    nodes:
+      - id: web
+        kind: host
+        net: lan                    # -> 10.20.0.10
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      - id: client
+        kind: host
+        net: lan                    # -> 10.20.0.20
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  apps:
+    - id: nginx
+      install: [ { pkg: nginx } ]   # web is a real service
+  activity: []                      # <- empty: behavior lives in the traffic tier now
+bindings:
+  - { app: nginx, host: web }

@@ -1,0 +1,24 @@
+# Shared role map for the max-capture-rate run (dev45, 2026-08-13), referenced
+# by every tfc-maxrate-*.yaml via `roles_from: roles-loadgen.yaml`.
+#
+# Puts corp-enterprise's three DMZ Linux hosts into ONE shared `loadgen` role.
+# That single fact is what turns a `peer_role: loadgen` + `peer_scope: all`
+# emit into a full intra-segment mesh: each host resolves the other two as
+# peers (its own host is excluded, LES-170), so every datagram crosses a real
+# port on the tapped `dmz` segment.
+#
+# Why these three and not more: they are the only three Linux hosts sharing a
+# segment. Adding a host from another segment would route its traffic through
+# corp-enterprise's `gw` router, which has 1 vCPU -- that would measure the
+# router rather than the capture path. The 6 corp-workstations are Windows
+# (weaker PowerShell emitters) and the DC/file-server pair sits on
+# server-vlan, which this run does not tap.
+#
+# These override the twin's own baseline `role:` for these three hosts only;
+# every other host keeps its baseline and, having no assignment, generates
+# nothing -- which is what keeps the measured rate attributable to the mesh.
+traffic-profile:
+  roles:
+    - { node: mail-server,  role: loadgen }
+    - { node: egress-proxy, role: loadgen }
+    - { node: dmz-web,      role: loadgen }

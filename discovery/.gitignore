@@ -1,0 +1,57 @@
+# Real sensor/capture data — NEVER commit (CONVENTIONS §3 Privacy, DESIGN_BRIEF §7, LES-003).
+# Zeek log trees and anything derived from real traffic: it carries PII, hostnames,
+# principals, cert subjects, filenames, and sometimes cleartext credentials.
+metadata/
+captures/
+capture/
+zeek-logs/
+
+# NOTE: Zeek metadata archives are NOT listed here. They defend themselves — the
+# converter writes a `.gitignore` with `*` into the archive root, the same way
+# the feature sink does (LES-011). That covers every artifact including
+# `manifest.json` without a blanket rule that would shadow a legitimate manifest
+# elsewhere in the tree.
+
+# `aximprint acquire pcap`/`harvest` output — raw pcap, never commit (CONVENTIONS §3
+# Privacy). Categorically MORE sensitive than the Zeek metadata above: full packet
+# payloads, not derived metadata. Inherited from xtract's own .gitignore as-is
+# (docs/WORK_ORDER_merge_xtract_acquire.md step 7) — `--out` defaults to the invoking
+# cwd, so these patterns are deliberately UNANCHORED (no leading `/`): they must catch a
+# run from the repo root, not just a dedicated output subdirectory. Do not "tidy" them.
+*.pcap
+*.pcap.part
+
+# Scratch output from a real `aximprint features`/`ingest` run against this repo's own
+# root `data/` — repo-root only, deliberately anchored with a leading `/` (fix, this
+# merge round): the UNANCHORED `data/` this line used to be matched every `data/`
+# anywhere in the tree, silently swallowing `tests/acquire/data/` — a genuine, tracked
+# fixture directory (`reference_conn_header.log`) that survived only because it was
+# already tracked before the rule existed; every FUTURE fixture placed there would have
+# been silently skipped by `git add` with no error. `git check-ignore -v` confirms both
+# halves: `data/somefile` still matches (repo-root data/ stays ignored), `tests/acquire/
+# data/newfixture.pcap` no longer does.
+
+# Claude workflow sync state
+.claude-sync/
+.claude/settings.local.json
+# ...and the atomic-write temp siblings the harness leaves beside it. The
+# exact-filename rule above did not cover these, and one reached a commit.
+.claude/settings.local.json.tmp.*
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+*.duckdb
+# Covers this project's own evidence-log/feature-sink output AND, coincidentally but
+# completely (both patterns are unanchored), xtract's `manifest.jsonl` pcap-extraction
+# resume state — confirmed during the merge (docs/WORK_ORDER_merge_xtract_acquire.md
+# step 7) rather than assumed; no separate `manifest.jsonl` line is needed.
+*.jsonl
+/data/
+.idea/
+.vscode/

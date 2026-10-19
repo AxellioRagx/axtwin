@@ -1,0 +1,21 @@
+# corp-twin -- variant: ONE persona per role, the cast's role-level profile
+# (twin-configs-cast/corpapcn-disco/tfc-roles.yaml), retargeted from the
+# destroyed deploy it pinned to the twin NAME (LES-072).
+#
+# Coarser than tfc/default.yaml (which carries the cast's per-host heavy/light
+# /chatter split, seeds and intensities) and robust to any
+# DEPLOY_MIN_OCCUPANCY: a role that matches no host is an error, but every
+# role below survives the default gate. `unroled-endpoint` borrows the
+# generic endpoint's local persona, as the cast did.
+#
+# Contain first (runbook §11 step 2).
+traffic-profile:
+  target: corp-twin
+  assignments:
+    - { role: corp-workstation, persona: cast-corp-workstation-local }
+    - { role: dns-resolver, persona: cast-dns-resolver-local }
+    - { role: domain-controller, persona: cast-domain-controller-local }
+    - { role: file-server, persona: cast-file-server }
+    - { role: generic-endpoint, persona: cast-generic-endpoint-local }
+    - { role: unroled-endpoint, persona: cast-generic-endpoint-local }
+    - { role: web-tier, persona: cast-web-tier }

@@ -1,0 +1,65 @@
+# docs/DESIGN_BRIEF_twin_model.md §5.2 — the most characteristic corp signature.
+persona:
+  id: domain-controller
+  os_family: windows
+  drive: real-service
+  emits:
+    - proto: dns
+      ports: [53]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: high
+    - proto: kerberos
+      ports: [88, 464]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: high
+    - proto: ldap
+      ports: [389, 636]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: high
+    - proto: ldap
+      ports: [3268, 3269]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: med
+    - proto: smb
+      ports: [445]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: med
+    - proto: rpc
+      ports: [135]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: low
+    - proto: ntp
+      ports: [123]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: 24x7
+      volume: low
+    - proto: drsuapi
+      ports: [135]
+      peer_role: domain-controller
+      # Inter-DC replication traffic only exists when the twin has MORE
+      # THAN ONE domain controller -- a single-DC twin is a perfectly
+      # normal topology, not a broken one. Optional: resolve-if-present.
+      optional: true
+      direction: EW
+      cadence: "cyclic:15m"
+      volume: low
+  requires: [corp-workstation]
+  # GAP-032: assert against NTDS (Active Directory Domain Services) -- the
+  # core AD service backing this persona's whole DNS/Kerberos/LDAP/SMB/RPC
+  # signature. Netlogon is the other AD-critical service (secure-channel /
+  # DC-locator) but the driver checks one target at a time; NTDS is the
+  # single most representative "is this actually a DC" signal.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: NTDS }

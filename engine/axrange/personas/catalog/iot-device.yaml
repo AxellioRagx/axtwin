@@ -1,0 +1,25 @@
+persona:
+  id: iot-device
+  os_family: linux
+  drive: replay
+  emits:
+    - proto: mqtt
+      ports: [1883, 8883]
+      peer_role: protocol-gateway
+      direction: NS
+      cadence: "cyclic:30s"
+      volume: low
+    - proto: coap
+      ports: [5683]
+      peer_role: protocol-gateway
+      direction: NS
+      cadence: "cyclic:60s"
+      volume: low
+    - proto: https
+      ports: [443]
+      peer_role: internet
+      direction: NS
+      cadence: "cyclic:24h"
+      volume: low
+  requires: [protocol-gateway]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

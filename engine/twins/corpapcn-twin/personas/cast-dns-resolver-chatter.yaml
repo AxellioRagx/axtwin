@@ -1,0 +1,29 @@
+persona:
+  id: cast-dns-resolver-chatter
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: udp
+    ports:
+    - 68
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:9s
+    volume: low
+  - proto: dns
+    ports:
+    - 53
+    peer_role: internet-sink-2
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:9s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

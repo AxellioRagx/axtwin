@@ -1,0 +1,61 @@
+tap-plan:
+  target: pit-395a61f04e-1780405200
+  bindings:
+    - selector: { scope: segment, target: seg-10-0-21-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-1-10-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-128-215-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-192-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-193-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-195-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-196-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-200-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-201-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-203-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-204-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-207-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-20-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-31-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-34-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-48-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-63-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-64-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-65-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-72-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-73-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-74-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-75-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-76-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-77-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-78-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-79-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-172-16-0-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-192-168-0-0 }
+      sensors: [XPress-SW-A]

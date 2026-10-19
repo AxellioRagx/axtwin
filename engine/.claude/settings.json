@@ -1,0 +1,86 @@
+{
+  "$comment": "axRange pipeline harness config (tracked, shared). Permission allowlist lets background workers run reads/tests/preflight unattended; deploy/destroy/build/commit/push/manual-qm stay gated (the check-back points); inbound git sync is denied per the Git Policy. Hooks wire the lessons store + doc-drift enforcement. Doc-counter drift is HARD-BLOCKED only at `git commit` (PreToolUse commit-guard) — where docs must match source; the Stop hook is a non-looping ADVISORY nudge (backs off on stop_hook_active) so transient drift during a multi-stage pipeline never wedges the turn. Personal overrides go in .claude/settings.local.json (gitignored). Hook commands are cwd-independent (LES-067 fix): each anchors `R=$(git rev-parse --show-toplevel)` and invokes `$R/scripts/hooks.py` (+ `$R/.venv/bin/python`) by absolute path, so a subagent whose cwd != repo root no longer gets silent Edit/Write failures; `git rev-parse` falls back to `.` outside a worktree.",
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -m pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(bash scripts/verify_tier.sh:*)",
+      "Bash(scripts/verify_tier.sh:*)",
+      "Bash(./scripts/verify_tier.sh:*)",
+      "Bash(.venv/bin/python scripts/doc-stats.py:*)",
+      "Bash(python scripts/doc-stats.py:*)",
+      "Bash(python3 scripts/doc-stats.py:*)",
+      "Bash(.venv/bin/python scripts/inject_lessons.py:*)",
+      "Bash(python scripts/inject_lessons.py:*)",
+      "Bash(python3 scripts/inject_lessons.py:*)",
+      "Bash(.venv/bin/python scripts/probe_host.py:*)",
+      "Bash(python scripts/probe_host.py:*)",
+      "Bash(.venv/bin/python scripts/sdn_preflight.py:*)",
+      "Bash(python scripts/sdn_preflight.py:*)",
+      "Bash(.venv/bin/python scripts/verify_resource_locks.py:*)",
+      "Bash(python scripts/verify_resource_locks.py:*)",
+      "Bash(axrange validate:*)",
+      "Bash(axrange plan:*)",
+      "Bash(axrange status:*)",
+      "Bash(axrange list-deploys:*)",
+      "Bash(.venv/bin/axrange validate:*)",
+      "Bash(.venv/bin/axrange plan:*)",
+      "Bash(.venv/bin/axrange status:*)",
+      "Bash(.venv/bin/axrange list-deploys:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git stash list:*)",
+      "Bash(git grep:*)",
+      "Bash(rg:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(qm list:*)",
+      "Bash(qm status:*)",
+      "Bash(qm config:*)",
+      "Bash(qm agent ping:*)"
+    ],
+    "ask": [
+      "Bash(axrange deploy:*)",
+      "Bash(axrange destroy:*)",
+      "Bash(axrange image build:*)",
+      "Bash(.venv/bin/axrange deploy:*)",
+      "Bash(.venv/bin/axrange destroy:*)",
+      "Bash(.venv/bin/axrange image build:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(qm:*)",
+      "Bash(apt-get:*)",
+      "Bash(apt:*)",
+      "Bash(pip install:*)",
+      "Bash(sudo:*)"
+    ],
+    "deny": [
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git clone:*)",
+      "Bash(git remote add:*)",
+      "Bash(git remote set-url:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          { "type": "command", "command": "sh -c 'R=$(git rev-parse --show-toplevel 2>/dev/null || echo .); PY=$([ -x \"$R/.venv/bin/python\" ] && echo \"$R/.venv/bin/python\" || echo python3); exec $PY \"$R/scripts/hooks.py\" read-guard'" }
+        ]
+      }
+    ]
+  }
+}

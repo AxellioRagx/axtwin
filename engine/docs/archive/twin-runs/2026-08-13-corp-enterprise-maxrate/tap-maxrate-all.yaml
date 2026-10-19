@@ -1,0 +1,22 @@
+# corp-enterprise -- max-capture-rate tap plan, ALL FOUR segments (dev45,
+# 2026-08-13). Companion to tfc-maxrate-l7.yaml.
+#
+# Adds mgmt to tap-maxrate-wide.yaml's three, so the monitoring-collector
+# sender's traffic is captured rather than merely generated. Same single sink
+# (XPress-SW-A) throughout: fan-out would duplicate frames on the transport
+# wire and confound "what rate does the path carry" with "how many copies".
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: dmz }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+    - selector: { scope: segment, target: corp-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+    - selector: { scope: segment, target: server-vlan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+    - selector: { scope: segment, target: mgmt }
+      sensors: [XPress-SW-A]
+      mode: exclusive

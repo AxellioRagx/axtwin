@@ -1,0 +1,58 @@
+persona:
+  id: cast-generic-endpoint-heavy-local
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-4
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:54s
+    volume: med
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-2
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:54s
+    volume: med
+  - proto: https
+    ports:
+    - 8006
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:54s
+    volume: med
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:54s
+    volume: med
+  - proto: ldap
+    ports:
+    - 389
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:54s
+    volume: med
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

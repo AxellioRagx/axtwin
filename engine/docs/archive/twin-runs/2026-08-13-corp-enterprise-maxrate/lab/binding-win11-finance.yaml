@@ -1,0 +1,68 @@
+binding_schema_version: 1
+binding:
+  image: win11-finance
+  platform: proxmox
+  versions:
+    # LAB SUBSTITUTION 2026-08-13 (operator-local, reversible; backup in
+    # deploy-dev45/.binding-backup-20260813/). The original v4 pointed at
+    # template 9104 on `local-zfs` -- neither the template NOR that storage
+    # exists on dev45 any more. Repointed at template 101 (the built
+    # windows-server-2022 image), whose hardware is an EXACT match for the
+    # block below -- q35 / OVMF / virtio-scsi-single / TPM 2.0 -- and whose
+    # `ostype` is literally `win11`. So the only change here is `storage:`.
+    # `host:secure-boot` is dropped from requires_host_caps to match
+    # windows-server-2022.yaml (template 101's efidisk carries
+    # pre-enrolled-keys=0, i.e. Secure Boot keys are NOT enrolled).
+    # Semantic substitution only: Server 2022 stands in for Win 11 as a
+    # domain-joining workstation. Nothing in corp-enterprise depends on the
+    # difference -- the fleet domain-joins and runs the corp-workstation
+    # persona, both of which are OS-version agnostic.
+    - id: v4
+      storage: { type: template, node: any, volid: "axrpool:base-101-disk-1", template_vmid: 101 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+        tpm: { enabled: true, version: "2.0" }
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+      clone_estimate: 90
+    - id: v3
+      storage: { type: template, node: any, volid: "local-zfs:vm-9103-disk-0", template_vmid: 9103 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+        tpm: { enabled: true, version: "2.0" }
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+          - host:secure-boot
+          - host:tpm
+      clone_estimate: 110
+    - id: v2
+      storage: { type: template, node: any, volid: "local-zfs:vm-9102-disk-0", template_vmid: 9102 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+      clone_estimate: 120

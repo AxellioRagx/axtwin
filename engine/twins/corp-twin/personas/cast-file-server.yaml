@@ -1,0 +1,29 @@
+# Rebalanced (corp-twin live run 3, 2026-09-28, docs/WORK_ORDER_corp_twin.md §11): the cast
+# gave this persona two `volume: bulk` UDP emits -- ntp/123 and udp/138 to the sink, 64 MiB
+# each every 32 s -- which made "NTP" + NetBIOS-DGM 48-72 % of every tapped segment's bytes
+# (~37 Mbit/s from one host). §7 has NTP at 0.01 % and NetBIOS at 2 flows. A file server's
+# bytes are its CLIENTS' SMB sessions to it (§7: 2.2 GB internal, one 10.80.20 client), and
+# the persona engine only drives traffic a host ORIGINATES -- so the SMB lives in
+# `corp-file-share-client` (dialling this role on 445, served by the host's smbd), and this
+# persona keeps only the host's own background: a periodic 48 B NTP poll to the site
+# resolver, which is where §7's internal NTP goes (dns-resolver 10.20.196.1).
+persona:
+  id: cast-file-server
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: ntp
+    ports:
+    - 123
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:64s
+    volume: low
+    bytes: 48
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

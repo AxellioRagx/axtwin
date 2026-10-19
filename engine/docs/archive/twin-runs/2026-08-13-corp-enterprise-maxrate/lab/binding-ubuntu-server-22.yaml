@@ -1,0 +1,34 @@
+binding_schema_version: 1
+binding:
+  image: ubuntu-server-22
+  platform: proxmox
+  versions:
+    # LAB SUBSTITUTION 2026-08-13 (operator-local, reversible; backup in
+    # deploy-dev45/.binding-backup-20260813/). The original v5 pointed at
+    # template 9201 on `local-zfs` -- neither the template NOR that storage
+    # exists on dev45 any more, so every ubuntu-server-22 node failed to
+    # clone. Repointed at the debian-12-cloud template (620) that IS built
+    # here. The hardware block is copied from debian-12-cloud.yaml verbatim,
+    # NOT left as it was: `machine: pc` is load-bearing -- q35's IDE-on-ICH9
+    # doesn't expose the cloud-init CD as /dev/sr0 to the Debian generic-cloud
+    # kernel, so ds-identify never finds the cidata and the whole cloud-init
+    # pipeline is silently masked (CHANGELOG 2026-05-29).
+    # Semantic substitution only: the three consumers (file-server samba,
+    # mail-server postfix, dmz-web nginx) are apt packages present in Debian
+    # 12 main. The manifest still declares ubuntu-server-22's `provides:`,
+    # so `kernel:container-runtime` on file-server still validates -- nothing
+    # in corp-enterprise actually exercises it.
+    - id: v5
+      storage: { type: template, node: any, volid: "axrpool:base-620-disk-0", template_vmid: 620 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: debian, sysprep_required: false }
+      hardware:
+        machine: pc
+        bios: seabios
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-pci
+        agent: true
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 60

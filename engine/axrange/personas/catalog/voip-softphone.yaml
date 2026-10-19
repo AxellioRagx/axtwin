@@ -1,0 +1,39 @@
+# The only CONSTANT-BITRATE UDP persona in the catalog -- every other entry
+# is bursty TCP. Steady-state offered load with no congestion backoff is what
+# exposes a mirror that drops under sustained rate rather than under bursts.
+persona:
+  id: voip-softphone
+  os_family: windows
+  drive: scripted
+  emits:
+    # Signaling. Direct/P2P SIP is common enough that a twin carrying no PBX
+    # is a realistic topology, not a broken one -- hence optional.
+    - proto: sip
+      ports: [5060]
+      peer_role: voip-pbx
+      optional: true
+      direction: EW
+      cadence: "cyclic:30s"
+      volume: low
+    # Media. RTP is endpoint-to-endpoint, NOT relayed via the PBX -- so this
+    # fans out across every other softphone (peer_scope: all, which excludes
+    # the instance's own host). 1400-byte datagrams at ~8/s/peer is the shape
+    # of a real codec stream; `bytes:` pins it rather than inheriting the
+    # volume default, because packet SIZE is the defining trait of RTP.
+    - proto: rtp
+      ports: [16384, 16386]
+      peer_role: voip-softphone
+      peer_scope: all
+      transport: udp
+      bytes: 1400
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: med
+    - proto: stun
+      ports: [3478]
+      peer_role: internet
+      direction: NS
+      cadence: "cyclic:60s"
+      volume: low
+  requires: [voip-softphone]
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true }

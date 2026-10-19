@@ -1,0 +1,142 @@
+# A miniature CAST BUNDLE fixture for the fidelity scorecard
+# (`docs/WORK_ORDER_fidelity_scorecard.md` §6). Shaped like what aximprint's
+# emit-all compiler hands back and `install_cast_as_twin.py` installs -- a
+# twin config PLUS a `.topology.json` observed superset -- not like a
+# hand-authored `twin-configs/` config.
+#
+# **Why it reproduces the real cast's degenerate shape (LES-185/LES-210):**
+# the standing `twin-configs-cast/corpapcn-twin/` has ONE `kind: router`
+# (`gw`) legging EVERY segment, groups collapsed by `(role, segment)` with a
+# `count:`, and a synthetic `internet-sink` segment with no observed
+# counterpart. All three are reproduced here, because a tidier fixture
+# cannot catch a rule that reads a router as occupancy evidence, a group
+# fan-out compared host-to-host, or a compiler-invented segment scored
+# against the observed side.
+#
+# The `observation:` blocks make the DEPLOY GATE run (unlike the standing
+# CorpAPCN twin, cast under the old drop policy), which is the only way to
+# exercise the `observed, below deploy threshold` per-fact state at all:
+#   * `thin-endpoint`  2/5 -> gated out at 0.8   (row 1's below-threshold state)
+#   * `thin` segment   2/5 -> gated out at 0.8   (row 2's below-threshold state)
+#   * `web-tier`       5/5 -> emitted, count 2, declares install:
+#   * `db-tier`        4/5 -> emitted, count 1, and the observed side has TWO
+#                             above-bar hosts in that group -> row 1 FAILS on
+#                             coverage, naming the uncovered one
+twin_config:
+  id: mini-cast
+  description: Miniature cast bundle fixture for the fidelity scorecard.
+  default_agents: false
+
+  params:
+    DEPLOY_MIN_OCCUPANCY: 0.8
+
+  segments:
+    - name: seg-corp
+      cidr: 10.90.0.0/24
+      zone_type: simple
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0}
+    - name: seg-data
+      cidr: 10.90.1.0/24
+      zone_type: simple
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0}
+    # Gated out at 0.8 -- with its only occupant, `thin-endpoint`.
+    - name: seg-thin
+      cidr: 10.90.2.0/24
+      zone_type: simple
+      observation: {windows_seen: 2, windows_total: 5, occupancy: 0.4}
+    # Synthetic: no observed counterpart at all. Reported `compiler`.
+    - name: internet-sink
+      cidr: 10.90.254.0/24
+      zone_type: simple
+
+  conduits:
+    - from: seg-corp
+      to: seg-data
+    - from: seg-corp
+      to: seg-thin
+    - from: seg-corp
+      to: internet-sink
+
+  nodes:
+    # Compiler-invented plumbing: never gated out, legs EVERY segment, and is
+    # never occupancy evidence (LES-210).
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      role: gw
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      nets:
+        - {segment: seg-corp, ip: 10.90.0.1}
+        - {segment: seg-data, ip: 10.90.1.1}
+        - {segment: seg-thin, ip: 10.90.2.1}
+        - {segment: internet-sink, ip: 10.90.254.1}
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0, role_confidence: 1.0}
+
+    - name: web-tier
+      image: debian-12-cloud@v1
+      role: web-tier
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-corp
+      count: 2
+      install:
+        - {pkg: nginx}
+        - {script: scripts/responder-web.sh}
+      # DECLARED listen set (`docs/WORK_ORDER_protocol_faithful_services.md`
+      # S1) on a node that ALSO installs: it rides on the app the `install:`
+      # block already synthesizes. Deliberately a SUBSET of what the export
+      # observed for this group (80/tcp AND 443/tcp), so the scorecard's
+      # informational delta reports a real `observed_not_declared` fact
+      # instead of a vacuous zero.
+      listen:
+        - {port: 80, proto: tcp}
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0, role_confidence: 0.9}
+
+    # count: 1 against TWO above-bar observed hosts in the same group.
+    - name: db-tier
+      image: debian-12-cloud@v1
+      role: db-tier
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-data
+      count: 1
+      # DECLARED listen on a node with NO `install:` at all -- the case that
+      # forces `expand.py` to synthesize an app purely to carry `App.listen`
+      # (an app with no install actions emits no op, so this adds nothing to
+      # the DAG). `8080/tcp` is declared and was never observed, so the
+      # scorecard's delta reports a real `declared_not_observed` fact too.
+      listen:
+        - {port: 5432, proto: tcp}
+        - {port: 8080, proto: tcp}
+      observation: {windows_seen: 4, windows_total: 5, occupancy: 0.8, role_confidence: 0.8}
+
+    - name: thin-endpoint
+      image: debian-12-cloud@v1
+      role: generic-endpoint
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: seg-thin
+      observation: {windows_seen: 2, windows_total: 5, occupancy: 0.4, role_confidence: 0.5}
+
+    # A WINDOWS node on `seg-corp` (M1): the probe is a stdlib python3
+    # script and the Windows images carry no python3, so this host must
+    # never be selected as a probe PEER -- while remaining a perfectly
+    # valid probe TARGET. Measured on the standing CorpAPCN twin before the
+    # OS filter existed: 28 of 45 targets were peered to Windows guests and
+    # the first refusal aborted the whole scorecard. It carries no observed
+    # counterpart, so it changes no row's arithmetic.
+    - name: win-endpoint
+      image: windows-server-2022@v1
+      role: win-endpoint
+      requires: [windows]
+      resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+      net: seg-corp
+      observation: {windows_seen: 5, windows_total: 5, occupancy: 1.0, role_confidence: 0.9}
+
+    - name: sink
+      image: debian-12-cloud@v1
+      role: internet-sink
+      requires: [linux]
+      resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+      net: internet-sink

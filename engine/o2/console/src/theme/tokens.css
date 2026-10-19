@@ -1,0 +1,149 @@
+/*
+ * The Console's design tokens: one surface palette and the six-class evidence
+ * palette, in light and dark.
+ *
+ * `docs/design/15-console-canvas.md` §6 makes evidence class the FILL COLOUR
+ * everywhere -- map, outline dots and inspector -- with confidence as
+ * saturation and a dashed outline for a ghost. §12 leaves the exact hues open
+ * for a `dataviz` pass before S3's first screen; these are that pass's
+ * starting point, chosen so the pass has something real to validate against:
+ *
+ *   observed    aqua, solid          referenced  aqua, hollow
+ *   imputed     violet, dotted       asserted    orange, ringed
+ *   imported    orange, hatched      compiler    grey
+ *   pending     sky, hatched         saved       sky, outlined
+ *
+ * The aqua/orange pair is not arbitrary: it is the same source-vs-twin pair
+ * the shipped fidelity report already uses (`reports/chasing-the-golden-twin.html`
+ * `--source` / `--twin`), so the two surfaces read as one product, and both
+ * halves were already chosen to hold on paper-white and on near-black.
+ *
+ * Redundant encoding is deliberate. Colour alone would fail for a
+ * colour-blind operator and in a screenshot: every class also carries a
+ * FILL STYLE token (`--ev-*-fill`, `--ev-*-stroke-style`), so `referenced` is
+ * distinguishable from `observed` by being hollow even in monochrome.
+ *
+ * Theme follows `prefers-color-scheme` and can be pinned with
+ * `<html data-theme="light|dark">` -- the same two-step the report uses.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- surface ------------------------------------------------------- */
+  --paper: #f7f6f3;
+  --paper-2: #eeece7;
+  --paper-3: #e6e3dc;
+  --ink: #14181d;
+  --ink-soft: #3d444c;
+  --neutral: #6a7078;
+  --hair: #dcd8d1;
+  --hair-soft: #e7e4de;
+  --focus: #2f6fb0;
+  --good: #3f7d4e;
+  --warn: #9a6a12;
+  --bad: #a33b30;
+  --shadow: 0 1px 2px #14181d0d;
+
+  /* --- evidence classes (precedence order, `14` §2) ------------------- */
+  --ev-asserted: #a8562a;
+  --ev-imported: #8a4a1f;
+  --ev-observed: #2b6b78;
+  --ev-referenced: #4f8b96;
+  --ev-imputed: #6b4fa8;
+  --ev-compiler: #6a7078;
+
+  /* --- editing states (`15` §8) --------------------------------------- */
+  --edit-pending: #2f6fb0;
+  --edit-saved: #1f5687;
+  --edit-applied: var(--ev-asserted);
+
+  /* --- ghosts (`15` §6, `13` §3.4) ------------------------------------ */
+  --ghost-stroke: var(--neutral);
+  --ghost-dash: 4 3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #101317;
+    --paper-2: #171b21;
+    --paper-3: #1e232a;
+    --ink: #e6e4df;
+    --ink-soft: #b3b0a9;
+    --neutral: #8b9098;
+    --hair: #2a2f37;
+    --hair-soft: #21262d;
+    --focus: #7cb6ec;
+    --good: #74b585;
+    --warn: #d3a44a;
+    --bad: #e0796c;
+    --shadow: 0 1px 2px #0000004d;
+
+    --ev-asserted: #e08a52;
+    --ev-imported: #c9793f;
+    --ev-observed: #5fb0c0;
+    --ev-referenced: #8fcbd6;
+    --ev-imputed: #a992e0;
+    --ev-compiler: #8b9098;
+
+    --edit-pending: #7cb6ec;
+    --edit-saved: #a8d2f5;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #101317;
+  --paper-2: #171b21;
+  --paper-3: #1e232a;
+  --ink: #e6e4df;
+  --ink-soft: #b3b0a9;
+  --neutral: #8b9098;
+  --hair: #2a2f37;
+  --hair-soft: #21262d;
+  --focus: #7cb6ec;
+  --good: #74b585;
+  --warn: #d3a44a;
+  --bad: #e0796c;
+  --shadow: 0 1px 2px #0000004d;
+
+  --ev-asserted: #e08a52;
+  --ev-imported: #c9793f;
+  --ev-observed: #5fb0c0;
+  --ev-referenced: #8fcbd6;
+  --ev-imputed: #a992e0;
+  --ev-compiler: #8b9098;
+
+  --edit-pending: #7cb6ec;
+  --edit-saved: #a8d2f5;
+}
+
+/*
+ * The class -> (colour, fill) mapping, so a view sets one class name and gets
+ * the whole encoding. `--ev-fill` is what an SVG shape or a chip background
+ * uses; `--ev-color` is its stroke and its text.
+ */
+.ev-asserted { --ev-color: var(--ev-asserted); --ev-fill: color-mix(in srgb, var(--ev-asserted) 22%, transparent); }
+.ev-imported { --ev-color: var(--ev-imported); --ev-fill: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ev-imported) 26%, transparent) 0 3px, transparent 3px 6px); }
+.ev-observed { --ev-color: var(--ev-observed); --ev-fill: color-mix(in srgb, var(--ev-observed) 24%, transparent); }
+.ev-referenced { --ev-color: var(--ev-referenced); --ev-fill: transparent; }
+.ev-imputed { --ev-color: var(--ev-imputed); --ev-fill: color-mix(in srgb, var(--ev-imputed) 16%, transparent); }
+.ev-compiler { --ev-color: var(--ev-compiler); --ev-fill: color-mix(in srgb, var(--ev-compiler) 14%, transparent); }
+.ev-pending { --ev-color: var(--edit-pending); --ev-fill: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--edit-pending) 26%, transparent) 0 3px, transparent 3px 6px); }
+.ev-saved { --ev-color: var(--edit-saved); --ev-fill: transparent; }
+/* Absent is not a class (`15` §6): a `null` `*_evidence_class` renders neutral,
+   never recoloured as one of the six. */
+.ev-none { --ev-color: var(--neutral); --ev-fill: transparent; }
+
+.ev-swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 1.5px solid var(--ev-color, var(--neutral));
+  border-radius: 3px;
+  background: var(--ev-fill, transparent);
+  vertical-align: -2px;
+}
+
+.ev-swatch.is-ghost {
+  border-style: dashed;
+}

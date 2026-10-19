@@ -1,0 +1,7 @@
+# lab.o2.yaml — stood up once, shared by every twin
+surface:
+  id: o2-surface           # only surface.id lives under surface:
+transport:                  # top-level sibling — NOT nested under surface:
+  cidr: 10.255.251.0/24
+sensors:                    # top-level sibling
+  - { id: sensor-a, type: tcpdump-sensor, transport_ip: 10.255.251.10 }

@@ -1,0 +1,101 @@
+# svc-engines -- the tap plan: TWO segment bindings to the standing O2
+# `suricata-sensor`, one for internal traffic and one for the external world.
+#
+# Modelled on `twin-configs/svc-verify/tap-svc-verify.yaml`, which bound one
+# segment; this twin has an `ext` segment carrying everything that would have
+# left the twin, and that half is where the browser engine's evidence lives.
+#
+# **`svc` -- the internal engines.** A `segment`-scope point resolves EVERY
+# port on that net at `rx` (`docs/WORK_ORDER_tap_scopes.md`, live-verified
+# 2026-07-28): the resolver, the web tier, the file server, the DC, AND the
+# `gw` router's own `svc` leg -- which is how all client-side traffic enters
+# the segment. Each frame is therefore captured exactly once. Kerberos, LDAP,
+# SMB, RPC, SNMP, SSH and internal DNS all terminate here.
+#
+# **`ext` -- the external world.** One host (the sink) and the router's `ext`
+# leg, so every flow the twin would have sent to the internet is captured
+# here: the browser engine's DNS lookups, its real-SNI TLS handshakes, HTTP/2
+# and QUIC, and the NTP exchange. Keeping it on its own binding means a read
+# never has to guess which side of the twin a flow belongs to -- the segment
+# says it.
+#
+# **`cli` is deliberately NOT bound.** Every engine emit crosses the router, so
+# a `cli` binding would capture the SAME frames a second time at the client's
+# own port (`rx` on `linux-client` catches what the client SENDS; `rx` on the
+# router's `svc`/`ext` leg catches the same frame arriving at its destination
+# segment). Double-capturing every flow inflates every count in step 4 and
+# makes a byte-volume read meaningless. The cost is that traffic which never
+# leaves `cli` -- e.g. chatter between `linux-client` and `win-member` -- is
+# invisible; this twin authors none, and the Windows-consumer chatter that
+# would have produced some is absent anyway (see the twin config's KNOWN LIMIT
+# on `win-member`).
+#
+# **Deliberately NOT `perimeter: wan`** (LES-143): the WAN uplink taps `vmbr0`,
+# which every twin's router shares, and `gre_port_for_bridge_sensor` is keyed
+# on `(bridge, sensor)` -- so a WAN binding from THIS twin to `o2-suricata`
+# would collide on one device name with any other twin doing the same, and
+# either twin's teardown would delete the other's live capture. A `segment`
+# binding is keyed on a twin-scoped `tebr_*`/`tev*` bridge and cannot collide.
+# The `ext` segment is this twin's honest substitute for a WAN tap, and it is
+# strictly better for the measurement: after E1's `measure` phase there IS no
+# WAN traffic, and `ext` is where the sink stands in for it.
+#
+# **`o2-suricata` is the STANDING O2 sensor, not one this plan creates**
+# (LES-177: "static validation OK" never means the referenced resource
+# exists). On `dev45` it is **VMID 883610**, capture interface **`gre-cap`**.
+#
+# > [!IMPORTANT]
+# > **That sensor was found DEAD and was restarted on 2026-09-21** -- a
+# > recurrence of GAP-067 (its Suricata had previously been dead for 40 days
+# > with `o2 status` reporting nothing wrong). Confirm it is EXISTS + RUNNING
+# > + FRESH before relying on it (LES-247: "present" is not "capturing"):
+# > `axrange o2 status --db <the DB the surface was deployed into>`, then at
+# > the sensor VM check that `eve.json`'s newest record is SECONDS old.
+# >
+# > **Its `eve.json` is ~720 MB of STALE data.** Do NOT truncate it (another
+# > consumer's history, and a truncation races the writer): take a BYTE
+# > OFFSET before generating traffic and read only what was appended after it
+# > --
+# >     OFF=$(stat -c %s /var/log/suricata/eve.json)     # before
+# >     tail -c +$((OFF+1)) /var/log/suricata/eve.json   # after
+# > This folder's README step 4 uses exactly that form for every engine proof.
+#
+# `target:` is the twin-config NAME, resolved to the newest live `svc-engines`
+# te deploy at apply time (LES-072: a literal deploy id would weld this file to
+# one minted deploy). `--target` overrides it.
+#
+# **Sensor resolution is state-DB-LOCAL** (GAP-069): `tap deploy` resolves
+# `o2-suricata` from the o2 deploy row in the SAME state DB, not from the
+# cluster. A sensor that is live and visible in `o2 status` against another DB
+# does not exist as far as this plan is concerned. See the README's "Which
+# state DB".
+# **Two sensors, the same frames** (2026-09-25). `XPress-SW-A` is the external
+# packetXpress/axquery appliance from `adapter.conf`'s `EXTERNAL_SENSORS`. It is
+# here because the network sensor is the primary device under test (user ruling,
+# 2026-09-21), and comparing sensors is only meaningful when they are fed
+# IDENTICAL traffic -- which per-tap sensor routing does by giving each
+# (bridge, sensor) pair its own gretap port and GRE key, not by teeing one
+# stream. Until this binding, every mirror on the host pointed at
+# `o2-suricata` alone and the appliance received nothing: its previous frames
+# came from the disco twin's tap plan, which went away when that twin was
+# destroyed on 2026-09-21.
+#
+# Neither sensor here is in-scenario, so NEITHER gets a `verify-capture`
+# heartbeat -- `tap deploy` says so per binding. Capture has to be confirmed
+# out of band on both (a gretap frame count on the appliance; the eve.json
+# offset read on the suricata VM).
+tap-plan:
+  target: svc-engines
+  bindings:
+    - selector: { scope: segment, target: svc }
+      sensors: [o2-suricata, XPress-SW-A]
+      # fanout, not exclusive: exclusive means "this segment's frames go to one
+      # sensor and no other", so it takes exactly 1 sensor by definition. Two
+      # sensors comparing the same traffic IS the fan-out case.
+      mode: fanout
+    - selector: { scope: segment, target: ext }
+      sensors: [o2-suricata, XPress-SW-A]
+      # fanout, not exclusive: exclusive means "this segment's frames go to one
+      # sensor and no other", so it takes exactly 1 sensor by definition. Two
+      # sensors comparing the same traffic IS the fan-out case.
+      mode: fanout

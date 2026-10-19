@@ -1,0 +1,25 @@
+# svc-engines -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every tier file stays
+# deployable on its own by path; the manifest adds
+# `--config svc-engines` and `--twin svc-engines [--variant <stem>]`.
+#
+# `containment:` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block (D3) -- not a second copy of the posture.
+# Standing live on dev45 as svc-engines-24131435 (its own state DB) -- do not
+# destroy. Cross-twin: scripts/build-sink-payload.sh reads the pit cast's
+# generated topology and twins/_shared/scripts/serve-sink.sh.
+twin:
+  id: svc-engines
+  description: >
+    Engine-verify twin for the protocol-engine round (bind9 resolver, nginx
+    TLS, Samba, a real DC, an any-IP sink); standing on dev45.
+  cluster: dev45
+  containment: contained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

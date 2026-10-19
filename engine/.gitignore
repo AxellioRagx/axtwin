@@ -1,0 +1,44 @@
+# Claude workflow sync state
+.claude-sync/
+.claude/settings.local.json
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Operator-local adapter config (contains the Proxmox API token).
+# Use adapter.conf.example as the template; copy and fill in real values
+# into adapter.conf, which stays out of version control.
+adapter.conf
+# Operator-local observability config (Grafana admin password, host targets).
+# Use o2/observability.conf.example as the template; the filled-in o2/observability.conf
+# stays out of version control (prior pattern pointed at the wrong path — fixed 2026-07-15).
+o2/observability.conf
+/state.db
+# Planner state stores anywhere (root, scenario-local --db, etc.) — runtime-only.
+**/state.db
+/.axrange/
+# Operator scratch deploy workspace (dev45)
+deploy-dev45/
+# Stage-1 research corpus output (regenerable; not versioned)
+corpus/
+# Console apply-history snapshots (`POST /api/imprints/{id}/apply` writes
+# `<bundle>/.history/<fingerprint>.json`; regenerable, runtime-only). The
+# operator's own `<id>.assertions.yaml` / `layout.json` beside a bundle stay
+# TRACKED -- they are the checked-in, diffable contract (D4).
+**/.history/

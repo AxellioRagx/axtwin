@@ -1,0 +1,71 @@
+# corp-twin -- variant: tap/default.yaml for a deploy at the REDUCED gate
+# `--param DEPLOY_MIN_OCCUPANCY=0.9` (the size that fits dev45's free RAM).
+# Identical to the default -- same two mirror points (External TAP on
+# wan1-isp/wan2-isp, MS120 SPAN on every segment the `ms120` switch VM
+# touches), same single sensor XPress-SW-A, same trunk/802.1Q and
+# once-per-segment-crossed reading notes (see tap/default.yaml) -- minus the
+# one segment the 0.9 gate removes on top of the default's six:
+#
+#   lab-172-16   (off-map; occupancy between 0.8 and 0.9)
+#
+# A binding on a missing segment is a resolve-time error. Every HQ VLAN/trunk
+# segment survives 0.9 (they are diagram-asserted, never gated); test
+# tests/test_corp_twin_device_parity.py pins every `target:` here against the
+# 0.9 expansion of te.yaml. Re-derive if the gate or te.yaml changes.
+#
+# `target: corp-twin` is the twin NAME, resolved to the newest live corp-twin
+# te deploy at apply time (LES-072); `--target` overrides.
+tap-plan:
+  target: corp-twin
+  bindings:
+    # ---- External TAP (WAN1 active, WAN2 standby) ------------------------
+    - selector: { scope: segment, target: wan1-isp }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: wan2-isp }
+      sensors: [XPress-SW-A]
+    # ---- MS120 SPAN: every port of the ms120 switch VM ---------------------
+    - selector: { scope: segment, target: vlan20 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: vlan1 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp25 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp26 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-sgs5240 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-axeprod }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-cos }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-labsw }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-3850 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: p17-hwlab2960s }
+      sensors: [XPress-SW-A]
+    # ---- MS120 SPAN: off-map subnets that survive the 0.9 gate --------
+    - selector: { scope: segment, target: lab-10-0-21 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-1-10 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-128-215 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-192 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-193 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-195 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-196 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-200 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-201 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-203 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-204 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-207 }
+      sensors: [XPress-SW-A]

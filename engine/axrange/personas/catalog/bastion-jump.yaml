@@ -1,0 +1,29 @@
+# mirrors real lateral-movement paths -- fans inward from one ingress point.
+persona:
+  id: bastion-jump
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: ssh
+      ports: [22]
+      peer_role: internet
+      direction: NS
+      cadence: "cyclic:1h"
+      volume: low
+    - proto: rdp
+      ports: [3389]
+      peer_role: internet
+      direction: NS
+      cadence: "cyclic:1h"
+      volume: low
+    - proto: ssh
+      ports: [22]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: "cyclic:1h"
+      volume: low
+  requires: [corp-workstation]
+  # GAP-032: assert against the OpenSSH server unit -- Debian's systemd unit
+  # name is `ssh` (not `sshd`), the daemon this bastion's SSH/RDP fan-in
+  # actually rides on.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: ssh }

@@ -1,0 +1,80 @@
+# Twin config: dmz-perimeter (docs/DESIGN_BRIEF_twin_model.md §6.2)
+#
+# Perimeter/edge, ingress-dominant. `internet` is a SIMULATED internet
+# segment -- a regular twin network the `edge` router is multi-homed onto,
+# distinct from the router's synthetic WAN uplink (addressable as
+# `perimeter: wan` by a standalone tap plan, `docs/design/06-taps-sensors.md`).
+# No tap-related content is authored here at all (`docs/
+# WORK_ORDER_tap_eligibility.md`, Authority: user, 2026-07-28) -- both
+# boundary points (internet<->dmz, dmz<->internal) are addressable by a tap
+# plan against this twin's published topology once deployed.
+twin_config:
+  id: dmz-perimeter
+  description: |
+    Perimeter/edge twin, ingress-dominant: a simulated internet segment, a
+    DMZ (reverse-proxy/WAF, a dmz-web farm, a mail relay, a VPN
+    concentrator, a bastion jump host), and an internal segment, joined by
+    one multi-homed edge router. Expanded from twin-config 'dmz-perimeter'
+    (docs/WORK_ORDER_twin_configs.md). For external->foothold exercises.
+
+  params:
+    N_DMZ_WEB: 3
+
+  segments:
+    - { name: internet, cidr: 10.64.0.0/24,  zone_type: vlan }   # simulated internet
+    - { name: dmz,      cidr: 10.64.10.0/24, zone_type: vlan }   # DMZ
+    - { name: internal, cidr: 10.64.20.0/24, zone_type: vlan }   # internal network
+
+  nodes:
+    - name: edge
+      role: edge
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: internet }
+        - { segment: dmz }
+        - { segment: internal }
+
+    # Reverse-proxy/WAF -- no persona yet ("reverse-proxy"/"waf" aren't in
+    # the delivered persona catalog, docs/DESIGN_BRIEF_twin_model.md §5.2).
+    - name: waf
+      role: waf
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: dmz
+      install: [{ pkg: nginx }]
+
+    - name: dmz-web
+      role: dmz-web
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      count: "${N_DMZ_WEB:3}"
+      net: dmz
+      install: [{ pkg: nginx }]
+
+    - name: mail-relay
+      role: mail-relay
+      image: ubuntu-server-22@v5
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      net: dmz
+      install: [{ pkg: postfix }]
+
+    - name: vpn-concentrator
+      role: vpn-concentrator
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: internal
+      install: [{ pkg: wireguard }]
+
+    - name: bastion-jump
+      role: bastion-jump
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      net: internal

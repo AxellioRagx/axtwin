@@ -1,0 +1,56 @@
+binding_schema_version: 1
+binding:
+  image: windows-server-2022
+  platform: proxmox
+  versions:
+    - id: v1
+      # template_vmid is WRITTEN by `axrange image build` (0 = not built yet).
+      # No real Windows Server template exists on the lab clusters; building one
+      # is the W0 live-verify step (needs the ISOs below + a cluster run).
+      storage: { type: template, node: any, template_vmid: 0 }
+      clone_mode: full
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf            # Windows Server 2022 UEFI boot
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+        tpm: { enabled: true, version: "2.0" }
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+      clone_estimate: 180
+      # Build recipe (docs/IMAGE_MANIFEST.md §3.8 / docs/SLICE_WINDOWS_AD.md §4).
+      # The operator supplies real URLs + checksums for their licensed/eval
+      # media; the values below are placeholders so the recipe parses. Unlike a
+      # Linux cloud image (a single qcow2 imported as the disk), a Windows build
+      # installs from an ISO driven by an autounattend.xml, with virtio-win
+      # drivers injected and qemu-guest-agent + cloudbase-init baked in
+      # SetupComplete, then sysprep /generalize seals it.
+      build:
+        base_image:                 # the Windows Server 2022 install ISO
+          url: https://software-static.download.prss.microsoft.com/PLACEHOLDER/SERVER_EVAL_x64FRE_en-us.iso
+          checksum: "0000000000000000000000000000000000000000000000000000000000000000"
+          checksum_algo: sha256
+          filename: windows-server-2022-eval.iso
+        disk_size: 48G
+        memory: 4096
+        cores: 4
+        windows:
+          # The WIM image Setup installs (autounattend /IMAGE/NAME). Eval ISO
+          # index 2 = Standard with the Desktop Experience.
+          edition: "Windows Server 2022 SERVERSTANDARD"
+          image_index: 2
+          locale: en-US
+          timezone: UTC
+          # Throwaway build-VM admin password; sysprep /generalize wipes it, and
+          # the operator sets the real one per-deploy via W1 specialization.
+          admin_password: "Axr4nge-Build!"
+          product_key: ""           # empty for the 180-day eval
+          virtio_iso:               # virtio-win drivers + QGA + guest tools
+            url: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+            checksum: "1111111111111111111111111111111111111111111111111111111111111111"
+            checksum_algo: sha256
+            filename: virtio-win.iso

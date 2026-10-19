@@ -1,0 +1,86 @@
+# docs/DESIGN_BRIEF_twin_model.md §5.2 — the volume workhorse.
+persona:
+  id: corp-workstation
+  os_family: windows
+  drive: scripted
+  emits:
+    - proto: dns
+      ports: [53]
+      peer_role: dns-resolver
+      # DNS is commonly hosted on the domain controller (`domain-controller`
+      # already covers Kerberos/LDAP/SMB below) rather than a dedicated
+      # resolver role -- a twin with no `dns-resolver` host is a perfectly
+      # realistic AD twin (2026-07-25 dev45 find, corp-enterprise), not a
+      # broken one. Optional: resolve-if-present, skip-with-warning if not.
+      optional: true
+      direction: EW
+      cadence: 24x7
+      volume: low
+    - proto: kerberos
+      ports: [88, 464]
+      peer_role: domain-controller
+      direction: EW
+      cadence: diurnal
+      volume: low
+    - proto: ldap
+      ports: [389, 636]
+      peer_role: domain-controller
+      direction: EW
+      cadence: diurnal
+      volume: low
+    - proto: smb
+      ports: [445]
+      peer_role: domain-controller
+      direction: EW
+      cadence: diurnal
+      volume: low
+    - proto: smb
+      ports: [445]
+      peer_role: file-server
+      # Optional for the same reason `dns-resolver` above is: `requires` means "structurally
+      # cannot function without", and a domain-joined workstation needs its DC, not a file
+      # share. A twin cast from a real network that happens to run no SMB server is a correct
+      # twin, and a hard peer here made the whole traffic profile unappliable to it
+      # (aximprint `docs/JOURNAL_corpapcn_fidelity.md` GAP-C5).
+      optional: true
+      direction: EW
+      cadence: diurnal
+      volume: med
+    - proto: https
+      ports: [443]
+      peer_role: egress-proxy
+      # Plenty of networks egress directly; a proxy is a policy choice, not a workstation
+      # dependency.
+      optional: true
+      direction: NS
+      cadence: diurnal
+      volume: med
+    - proto: smtp
+      ports: [587]
+      peer_role: mail-server
+      # Hosted mail is the common case; an on-prem mail server is not a workstation dependency.
+      optional: true
+      direction: EW
+      cadence: diurnal
+      volume: low
+    - proto: imap
+      ports: [993]
+      peer_role: mail-server
+      optional: true
+      direction: EW
+      cadence: diurnal
+      volume: low
+    - proto: print
+      ports: [631, 9100]
+      peer_role: print-server
+      # Printing is genuinely optional -- plenty of real twins (and
+      # `corp-enterprise`) carry no dedicated print server at all.
+      optional: true
+      direction: EW
+      cadence: "burst:30m"
+      volume: low
+  # Only the DC is structural: this persona models a DOMAIN-JOINED workstation, and
+  # without a domain controller that is not what it is. Everything else it talks to is
+  # resolve-if-present (GAP-C5).
+  requires: [domain-controller]
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true }

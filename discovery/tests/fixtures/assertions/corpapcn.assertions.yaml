@@ -1,0 +1,67 @@
+# A checked-in `axr-assertions/1` fixture exercising every record kind — the file
+# `docs/WORK_ORDER_reference_ingest.md` §8's "Unit tests" paragraph asks for.
+#
+# **Hand-authored, not derived from run data** (`LES-003`). The keys are real CorpAPCN entity
+# keys because that is the point of an end-to-end check against a read-only copy of the source
+# IR store, but nothing in this file was copied out of a capture: every value is a claim an
+# operator would make, and the notes say why.
+#
+# Also the worked example from axRange `docs/design/14-operator-assertions.md` §3, corrected
+# where the measured store disagrees with the note's illustration — see the segment record.
+schema: axr-assertions/1
+imprint: corpapcn-twin
+as_of: 2026-09-04T18:00:00Z
+source: "operator: raghu"
+add:
+  # `10.80.31.0/24` IS observed on this capture (one entity, the broadcast address, in 6 of 11
+  # windows) — the design note's illustration predates the deployment-scope change that stopped
+  # the cast pruning thinly-covered segments. So this record does NOT create it: what it supplies
+  # is the zone type, which no vantage can observe, and that is the more interesting half anyway.
+  - kind: segment
+    key: "10.80.31.0/24"
+    name: seg-10-80-31-0
+    zone_type: vlan
+    note: "the OT lab: a tagged VLAN, which no capture can reveal"
+  # A host the vantage never saw, on that segment, with the listen set that makes it a real
+  # service rather than an idle VM. Derives its segment from the key, so `segment:` is omitted
+  # deliberately here to exercise D11(a)'s derivation.
+  - kind: host
+    key: "address:10.80.31.10"
+    role: file-server
+    listen:
+      - {port: 445, proto: tcp}
+      - {port: 139, proto: tcp}
+    note: "the OT lab's file server; the tap sits north of it and never saw its traffic"
+  # ALREADY observed on this capture (an edge crosses the two), so this record confirms rather
+  # than creates — the honest outcome, and the one an operator gets when they assert something
+  # the wire also saw. It stays in the fixture because the design note's own example is exactly
+  # this pair, and because "confirmed, nothing created" is a case worth pinning.
+  - kind: conduit
+    key: "10.80.20.0/24|10.80.31.0/24"
+    note: "the OT lab reaches the DC segment through the core firewall"
+  # NOT observed: no edge crosses these two at this vantage, so this one genuinely enters the
+  # twin as `asserted`.
+  - kind: conduit
+    key: "10.80.31.0/24|10.80.72.0/24"
+    note: "the OT lab's jump path to the user VLAN; the tap never saw it"
+override:
+  # THE SECOND DOMAIN CONTROLLER (`docs/WORK_ORDER_reference_ingest.md` §2). The census reads it
+  # as `dns-resolver` at 0.7 because port 389 draws a genuine 2-2 vote; it answers on 88, 389,
+  # 445 and 53 and is a DC.
+  - key: "address:10.80.20.5"
+    field: role
+    value: domain-controller
+    note: "the second DC; the census read it as a resolver on a 2-2 port-389 vote"
+  - key: "address:10.80.20.5"
+    field: image
+    value: "windows-server-2022@v1"
+    note: "a DC runs Windows Server; the catalog default is a Debian cloud image"
+  - key: "address:10.80.20.5"
+    field: resources
+    value: {cpu: 4, ram: 8Gi, disk: 60Gi}
+    note: "sized for a DC rather than for the catalog's generic row"
+suppress:
+  - key: "address:1.1.1.1"
+    note: "out of scope: a public resolver, never part of this estate"
+  - key: "address:10.80.20.184"
+    note: "out of scope: a contractor laptop seen in 3 of 11 windows"

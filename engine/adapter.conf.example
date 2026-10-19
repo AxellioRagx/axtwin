@@ -1,0 +1,179 @@
+# axRange Proxmox adapter configuration
+# Copy to /etc/axrange/adapter.conf and fill in the operator-side values.
+# Env vars (PROXMOX_API_URL, OVS_SSH_KEY, etc.) override this file.
+
+# --- REST backend (Proxmox API) ---
+PROXMOX_API_URL=https://10.0.0.85:8006/api2/json
+# PVEAPIToken=<user>@<realm>!<token-id>=<secret>
+PROXMOX_API_TOKEN=PVEAPIToken=axr@pve!planner=REPLACE-WITH-TOKEN-SECRET
+# Set false for self-signed cluster certs (slice default; tighten in prod).
+PROXMOX_VERIFY_TLS=false
+
+# --- SSH backend (ovs-vsctl + hook install) ---
+OVS_SSH_HOST=10.0.0.85
+OVS_SSH_USER=ovs-operator
+OVS_SSH_KEY=~/.ssh/pxtwin1_ed25519
+
+# --- Guest cloud-init (optional) ---
+# SSH public key axrange injects into deployed VMs so the operator
+# can `ssh <ciuser>@<vm-ip>` after deploy. Leave empty to skip key
+# injection; `qm guest exec` from the Proxmox node still works.
+GUEST_SSH_PUBKEY_FILE=~/.ssh/pxtwin1_ed25519.pub
+
+# --- Cluster facts the planner needs ---
+# Default Proxmox node name (slice = single-node placement).
+DEFAULT_NODE=pxtwin1
+
+# --- Deploy-wide default password (docs/WORK_ORDER_access_facts.md Part A) ---
+# Fills every node/account login that has no password of its own (console +
+# SSH-by-password on Linux; Administrator/safemode/domain-admin on Windows).
+# An explicitly-set password (a binding's cloud_init password, a per-identity
+# IdentityEntry.password, an intentionally-weak AD account) still wins.
+# Unset keeps the historical lab-default constant shown below.
+# SECURITY: setting this (or even leaving it at the built-in default) turns ON
+# SSH password login lab-wide on every Linux node, with a well-known password --
+# understand the posture change before using this outside an isolated lab.
+# DEFAULT_PASSWORD=Axr4nge-Lab!
+
+# Sensor-agnostic te (2026-07-13, docs/WORK_ORDER_sensor_agnostic_te.md): no
+# SENSOR_TRANSPORT_IP / SENSOR_<ID>_TRANSPORT_IP / SENSOR_SSH_* /
+# SENSOR_CAPTURE_IFACE keys any more. A `te_` deploy wires NO mirror/gretap/
+# heartbeat of its own — it records tap-INTENT only (OP-MIR-005
+# record-tap-intent). The sensor's transport IP + vmid are discovered from
+# A1's standing O2 inventory by the A2 tap playout (`axrange tap deploy`)
+# at tap-bind time, never read from this file.
+
+# --- O2 surface (observability endpoints; consumed by `axrange o2 info`,
+# docs/WORK_ORDER_cli_lifecycle.md §3.4) ---
+# These live on the dedicated O2 server-stack VM, not in the deploy state
+# store, so this file is the one authoritative source. All optional; an
+# unconfigured endpoint is unknown, never derived from a guessed sensor IP.
+# O2_GRAFANA_URL=http://10.0.0.90:3000
+# O2_LOKI_URL=http://10.0.0.90:3100
+# O2_PROMETHEUS_URL=http://10.0.0.90:9090
+# O2_CALDERA_URL=http://10.0.0.90:8888
+# O2_WAZUH_URL=https://10.0.0.90:443
+
+# --- O2 services VM register + auto-resolve (docs/WORK_ORDER_access_facts.md
+# Part B) --- an alternative to hand-copying every O2_*_URL above: declare the
+# server-stack VM (vmid and/or name; vmid is preferred/faster) and `o2 info`
+# resolves its live IP over the Proxmox API and derives the five endpoint URLs
+# itself. A per-service O2_*_URL above still WINS over this for that service.
+# O2_SERVICES_VMID=102
+# O2_SERVICES_NAME=o2-services
+# Optional per-service port overrides; defaults shown (wazuh is https, the
+# rest are http).
+# O2_GRAFANA_PORT=3000
+# O2_LOKI_PORT=3100
+# O2_PROMETHEUS_PORT=9090
+# O2_CALDERA_PORT=8888
+# O2_WAZUH_PORT=443
+
+# Network sensor (OP-OVL deploy-network-sensor, Option C — docs/SLICE_OVERLAY.md
+# §4b). Standing Suricata network-sensor VM fed a mirror of the capture appliance's
+# capture iface; the defense overlay configures it per-scenario. Resolved at
+# deploy (plan is network-sensor-agnostic).
+# Leave unset unless a scenario declares a network sensor (overlays.defense observes:).
+# NETWORK_SENSOR_VMID=8001
+# NETWORK_SENSOR_IFACE=cap-mirror
+
+# --- In-scenario sensor capture retention (optional; tcpdump-sensor's
+# in-guest disk-%/file-count prune watchdog, config_exec/render.py) ---
+# Prune oldest pcaps once the capture filesystem's used% reaches HIGH, down
+# to below LOW (user decision 2026-07-17). Defaults 85/70 if unset (LOW is
+# clamped below HIGH if misconfigured).
+# CAPTURE_HIGH_WATER_PCT=85
+# CAPTURE_LOW_WATER_PCT=70
+# Independent of disk%: prune oldest once the pcap file count exceeds this
+# (catches idle-link inode growth from many tiny rotated files). Defaults
+# 2000 if unset.
+# CAPTURE_MAX_FILES=2000
+
+# --- Mirror gretap queueing (optional) ---
+# `attach-gre-tunnel` replaces the node-default qdisc on each mirror gretap
+# with `pfifo limit N` and sets txqueuelen N.
+#
+# Why: a new `ip link ... type gretap` inherits the NODE's default qdisc,
+# which on PVE 9.x is fq_codel -- an AQM whose job is to DROP packets to hold
+# latency down. That is correct for a congested uplink and exactly wrong for a
+# capture path: the mirrored copy is fire-and-forget, so a drop is lost
+# evidence and there is no sender to signal. Measured on dev45 2026-08-13:
+# 9,349 frames lost in a 90s window at ~2.38 Gbit/s with fq_codel, zero after
+# this change -- worth roughly a 60% increase in lossless mirror throughput.
+#
+# Asserted on EVERY run, not just on create, so a gretap built before this
+# change heals on the next `tap deploy` instead of keeping fq_codel forever.
+#
+# Set 0 to leave the node default alone (opt-out for a node whose qdisc is
+# managed elsewhere). Defaults 20000 if unset.
+# MIRROR_GRETAP_TXQUEUELEN=20000
+
+# --- Protected external nodes (optional; blast-radius guard) ---
+# Comma-separated allowlist of operator-managed nodes created BY HAND, outside
+# axrange's deploy lifecycle entirely, that no teardown (any tier -- te/tap/o2)
+# may ever destroy -- on top of the built-in default (XPress-SW, the
+# packetXpress sink/capture box). Unconditional, like a golden template: even
+# an `axrange o2 destroy` refuses these.
+# PROTECTED_EXTERNAL_NAMES=XPress-SW
+# Same idea, by vmid -- a review-hardening belt: a teardown refuses these
+# vmids even if the PVE display-name lookup fails to resolve (the fail-open
+# gap the name guard alone can't close). Auto-unioned with every
+# EXTERNAL_SENSORS[].vmid below -- you don't need to also list it here.
+# PROTECTED_EXTERNAL_VMIDS=250
+
+# --- Config-declared EXTERNAL sensors (optional) ---
+# A JSON list of operator-provisioned sensor nodes a tap plan may direct
+# traffic to WITHOUT them ever appearing in A1's standing O2 inventory --
+# e.g. the packetXpress XPress-SW sink/capture box. axRange NEVER provisions
+# or reaches into one of these: it only points a gretap's `remote` at
+# transport_ip. Declaring one here is SUFFICIENT to protect it from every
+# tier's teardown (id -> PROTECTED_EXTERNAL_NAMES, vmid ->
+# PROTECTED_EXTERNAL_VMIDS, both automatic) -- no double-declaration needed.
+#
+# Required manual steps on the XPress-SW side (operator-owned, once):
+#   1. Give it a transport NIC on the same isolated transport vnet/subnet
+#      axRange's tap playout uses, with the static IP you put in
+#      transport_ip below.
+#   2. `ip link add gre-cap type gretap external` (a FLOW-based gretap --
+#      accepts any GRE key, so it merges every tapped bridge's traffic that
+#      targets this sensor; matches capture_iface below).
+#   3. Run whatever capture tool you want against `gre-cap` (tcpdump,
+#      Suricata, the packetXpress agent, ...) -- axRange has no opinion and
+#      does not manage it.
+#
+# EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20","type":"packetxpress","capture_iface":"gre-cap"}]
+#
+# A hand-built tcpdump sensor can be declared here the SAME way, instead of
+# letting `axrange o2 deploy` synthesize one (deliberate, per-cluster choice):
+# build the VM by hand with its capture dir on a virtio-fs share mapped from a
+# Proxmox-host directory (so pcaps are host-readable AND survive VM rebuilds),
+# then declare it below. scripts/o2-pcaps-{list,fetch}.sh read that host dir.
+# Naming convention: <Type>-SW-<Letter> (mirrors XPress-SW / XPress-SW-A) — the
+# trailing letter is a per-instance tag, so a lab grows Tcpdump-SW-A, -B, …; keep
+# the adapter.conf id, the PVE VM name, and the host share subdir identical.
+# The entries coexist in one JSON list:
+# EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20","type":"packetxpress","capture_iface":"gre-cap"},{"id":"Tcpdump-SW-A","vmid":260,"transport_ip":"10.255.250.11","type":"tcpdump","capture_iface":"gre-cap"}]
+
+# --- Image build pipeline (axrange image build) ---
+# docs/IMAGE_BUILD.md §5.2: building needs a BROADER credential scope than the
+# deploy-time token (VM create / disk import / VM destroy / template convert).
+# Every BUILD_* key is OPTIONAL and falls back to its deploy-scope counterpart,
+# so a single-account lab can leave this whole section commented out.
+#
+# Broader REST token for building (falls back to PROXMOX_API_TOKEN):
+# BUILD_API_TOKEN=PVEAPIToken=axr@pve!imagebuild=REPLACE-WITH-TOKEN-SECRET
+# SSH identity with `qm` rights — root or a build-operator (falls back to OVS_SSH_*):
+# BUILD_SSH_USER=root
+# BUILD_SSH_KEY=~/.ssh/pxtwin1_ed25519
+# BUILD_SSH_HOST=10.0.0.85
+# Build target node (falls back to DEFAULT_NODE):
+# BUILD_NODE=pxtwin1
+# Storage for the build VM disk + resulting template:
+# BUILD_STORAGE=local-lvm
+# Bridge with internet access for the bake (apt installs qemu-guest-agent):
+# BUILD_BRIDGE=vmbr0
+# Storage that holds cloud-init snippets (must support snippets):
+# BUILD_SNIPPET_STORAGE=local
+# Local cache dir for downloaded upstream cloud images:
+# BUILD_CACHE_DIR=~/.axrange/cache
+

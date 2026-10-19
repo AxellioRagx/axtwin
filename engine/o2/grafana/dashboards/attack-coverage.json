@@ -1,0 +1,334 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "A4 detection scoring (docs/DESIGN_BRIEF_o2_measurement.md): attack ground-truth markers ([axr-truth], emitted by the activity runner over the truth->Loki shipper, config_exec/render.py) vs O2 detections (Suricata eve.json, shipped by Alloy), filterable by run-id. The per-technique COVERED/MISSED verdict itself is computed by axrange.measurement.coverage.join_coverage() (unit-tested) -- this dashboard is the manual-first operator view over the same two Loki streams that function joins, not a re-implementation of the join in LogQL (Loki can't cross-stream-join two independent log streams). A future automated scorer (o2control, deferred) would surface a computed covered/missed table here directly.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "Attack ground-truth: count of technique-labeled activity steps ATTEMPTED over time (the [axr-truth] marker stream), by technique.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "markers",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "sum by (technique) (count_over_time({job=\"axr-truth\", activity=~\"$activity\"} | pattern \"[axr-truth] run=<run> technique=<technique> host=<host> ts=<ts>\" | run=~\"$run_id\" [$__auto]))",
+          "legendFormat": "{{technique}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Ground truth: technique attempts over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "O2 detections: Suricata alert volume over time, by signature (the same stream suricata-alerts.json uses).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "alerts",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "right", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "sum by (signature) (count_over_time({job=\"suricata\", event_type=\"alert\"} [$__auto]))",
+          "legendFormat": "{{signature}}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Detections: alert volume over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "Technique-attempt matrix (ground truth): per-technique attempt count + host, for the selected run-id. This is the TRUTH side of the coverage matrix -- cross-reference against the detections table below by eye (the exact technique+host+Δ-window COVERED/MISSED verdict is computed by axrange.measurement.coverage.join_coverage(), unit-tested; a follow-on automated scorer would compute and surface it here directly instead of two side-by-side tables).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value #A" },
+            "properties": [
+              { "id": "displayName", "value": "attempts" },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+              { "id": "custom.width", "value": 120 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "attempts" }]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "topk(50, sum by (technique, host) (count_over_time({job=\"axr-truth\", activity=~\"$activity\"} | pattern \"[axr-truth] run=<run> technique=<technique> host=<host> ts=<ts>\" | run=~\"$run_id\" [$__range])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{technique}} / {{host}}",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Technique attempt matrix (ground truth)",
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "technique": 0, "host": 1, "Value #A": 2 },
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "Most frequent detection signatures in the selected range (Suricata) -- cross-reference against the truth matrix to the left.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value #A" },
+            "properties": [
+              { "id": "displayName", "value": "alerts" },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } },
+              { "id": "custom.width", "value": 120 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "alerts" }]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "topk(50, sum by (signature, dest_ip) (count_over_time({job=\"suricata\", event_type=\"alert\"} [$__range])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{signature}} -> {{dest_ip}}",
+          "queryType": "instant",
+          "refId": "A"
+        }
+      ],
+      "title": "Detections (Suricata signatures)",
+      "transformations": [
+        { "id": "labelsToFields", "options": { "mode": "columns" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "signature": 0, "dest_ip": 1, "Value #A": 2 },
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "Live tail of raw [axr-truth] ground-truth markers for the selected run/activity.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 17 },
+      "id": 5,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "{job=\"axr-truth\", activity=~\"$activity\"} | pattern \"[axr-truth] run=<run> technique=<technique> host=<host> ts=<ts>\" | run=~\"$run_id\" | line_format \"run={{.run}} technique={{.technique}} host={{.host}} ts={{.ts}}\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Ground truth markers (live)",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "axr-loki" },
+      "description": "Live tail of raw eve.json detection events (Suricata), for correlation against the ground-truth markers to the left.",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 17 },
+      "id": 6,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "axr-loki" },
+          "editorMode": "code",
+          "expr": "{job=\"suricata\", event_type=\"alert\"} | json | line_format \"[sev {{.alert_severity}}] {{.src_ip}} -> {{.dest_ip}} {{.proto}}  {{.alert_signature}}\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Detections (live)",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["axrange", "attack", "coverage", "measurement", "purple-team"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "loki", "uid": "axr-loki" },
+        "definition": "label_values({job=\"axr-truth\"}, activity)",
+        "description": "Filter by activity id (a Loki stream label on the truth marker stream).",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Activity",
+        "multi": true,
+        "name": "activity",
+        "options": [],
+        "query": "label_values({job=\"axr-truth\"}, activity)",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": ".*", "value": ".*" },
+        "description": "Filter by run-id (run=<uuid>, in the marker's log content, NOT a Loki label -- run-id is per-execution/high-cardinality by design, see config_exec/render.py::render_activity_runner). Regex-matched; leave as .* for all runs, or paste one run-id to scope a single attack replay.",
+        "hide": 0,
+        "label": "Run ID",
+        "name": "run_id",
+        "options": [{ "selected": true, "text": ".*", "value": ".*" }],
+        "query": ".*",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Attack coverage (A4 — ATT&CK ground truth vs detections)",
+  "uid": "axr-attack-coverage",
+  "version": 1,
+  "weekStart": ""
+}

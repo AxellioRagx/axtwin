@@ -1,0 +1,19 @@
+persona:
+  id: cast-generic-endpoint-light-local
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:109s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

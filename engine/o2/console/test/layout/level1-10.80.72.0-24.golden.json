@@ -1,0 +1,796 @@
+{
+  "width": 818,
+  "height": 376,
+  "segment": {
+    "name": "seg-10-80-72-0",
+    "observedCidr": "10.80.72.0/24",
+    "deployedCidr": null,
+    "zoneType": null,
+    "entities": 28,
+    "coverageSource": "inferred_from_traffic",
+    "hosts": [
+      {
+        "id": "address:10.80.72.10",
+        "address": "10.80.72.10",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.11",
+        "address": "10.80.72.11",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.12",
+        "address": "10.80.72.12",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.13",
+        "address": "10.80.72.13",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.14",
+        "address": "10.80.72.14",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.20",
+        "address": "10.80.72.20",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 6,
+        "occupancy": 0.6,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.200",
+        "address": "10.80.72.200",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "web-tier",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [
+          "443/tcp"
+        ],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.21",
+        "address": "10.80.72.21",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 6,
+        "occupancy": 0.6,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.22",
+        "address": "10.80.72.22",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 6,
+        "occupancy": 0.6,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.23",
+        "address": "10.80.72.23",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 6,
+        "occupancy": 0.6,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.30",
+        "address": "10.80.72.30",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.31",
+        "address": "10.80.72.31",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.32",
+        "address": "10.80.72.32",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.33",
+        "address": "10.80.72.33",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.34",
+        "address": "10.80.72.34",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.35",
+        "address": "10.80.72.35",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.36",
+        "address": "10.80.72.36",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.37",
+        "address": "10.80.72.37",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.38",
+        "address": "10.80.72.38",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.39",
+        "address": "10.80.72.39",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.40",
+        "address": "10.80.72.40",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.41",
+        "address": "10.80.72.41",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.42",
+        "address": "10.80.72.42",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.43",
+        "address": "10.80.72.43",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.44",
+        "address": "10.80.72.44",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.45",
+        "address": "10.80.72.45",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.46",
+        "address": "10.80.72.46",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.80.72.47",
+        "address": "10.80.72.47",
+        "locality": "local",
+        "segment": "10.80.72.0/24",
+        "role": "generic-endpoint",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 2,
+        "occupancy": 0.2,
+        "ghostReasons": [
+          "below-threshold"
+        ],
+        "isGhost": true,
+        "listenPorts": [],
+        "dialPorts": []
+      }
+    ],
+    "hostCount": 28,
+    "ghostCount": 22,
+    "deployedCount": 6,
+    "occupancy": 0.42857142857142805,
+    "roleHistogram": [
+      {
+        "role": "web-tier",
+        "count": 1
+      },
+      {
+        "role": "generic-endpoint",
+        "count": 27
+      }
+    ],
+    "roleBadges": [
+      {
+        "role": "generic-endpoint",
+        "count": 27
+      },
+      {
+        "role": "web-tier",
+        "count": 1
+      }
+    ],
+    "evidenceMix": [
+      {
+        "evidenceClass": "observed",
+        "count": 28
+      }
+    ],
+    "hasRouterLeg": false,
+    "northSouth": {
+      "bytes": 5080,
+      "flows": 8
+    },
+    "eastWest": {
+      "bytes": 150,
+      "flows": 2
+    }
+  },
+  "spine": {
+    "x": 404,
+    "y": 84,
+    "w": 150,
+    "h": 268
+  },
+  "routerLeg": null,
+  "bands": [
+    {
+      "role": "web-tier",
+      "box": {
+        "x": 24,
+        "y": 24,
+        "w": 290,
+        "h": 66
+      },
+      "spoke": {
+        "from": {
+          "x": 314,
+          "y": 57
+        },
+        "to": {
+          "x": 404,
+          "y": 57
+        }
+      },
+      "count": 1,
+      "collapsed": false,
+      "chips": [
+        {
+          "node": {
+            "id": "address:10.80.72.200",
+            "address": "10.80.72.200",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "web-tier",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [
+              "443/tcp"
+            ],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 32,
+            "y": 52,
+            "w": 132,
+            "h": 30
+          }
+        }
+      ],
+      "rungs": []
+    },
+    {
+      "role": "generic-endpoint",
+      "box": {
+        "x": 24,
+        "y": 106,
+        "w": 290,
+        "h": 142
+      },
+      "spoke": {
+        "from": {
+          "x": 314,
+          "y": 177
+        },
+        "to": {
+          "x": 404,
+          "y": 177
+        }
+      },
+      "count": 5,
+      "collapsed": false,
+      "chips": [
+        {
+          "node": {
+            "id": "address:10.80.72.10",
+            "address": "10.80.72.10",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "generic-endpoint",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 32,
+            "y": 134,
+            "w": 132,
+            "h": 30
+          }
+        },
+        {
+          "node": {
+            "id": "address:10.80.72.11",
+            "address": "10.80.72.11",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "generic-endpoint",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 174,
+            "y": 134,
+            "w": 132,
+            "h": 30
+          }
+        },
+        {
+          "node": {
+            "id": "address:10.80.72.12",
+            "address": "10.80.72.12",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "generic-endpoint",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 32,
+            "y": 172,
+            "w": 132,
+            "h": 30
+          }
+        },
+        {
+          "node": {
+            "id": "address:10.80.72.13",
+            "address": "10.80.72.13",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "generic-endpoint",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 174,
+            "y": 172,
+            "w": 132,
+            "h": 30
+          }
+        },
+        {
+          "node": {
+            "id": "address:10.80.72.14",
+            "address": "10.80.72.14",
+            "locality": "local",
+            "segment": "10.80.72.0/24",
+            "role": "generic-endpoint",
+            "roleConfidence": 0.7,
+            "roleEvidenceClass": "imputed",
+            "segmentEvidenceClass": "observed",
+            "windowsSeen": 10,
+            "occupancy": 1,
+            "ghostReasons": [],
+            "isGhost": false,
+            "listenPorts": [],
+            "dialPorts": []
+          },
+          "box": {
+            "x": 32,
+            "y": 210,
+            "w": 132,
+            "h": 30
+          }
+        }
+      ],
+      "rungs": []
+    },
+    {
+      "role": "below-threshold",
+      "box": {
+        "x": 24,
+        "y": 264,
+        "w": 290,
+        "h": 88
+      },
+      "spoke": {
+        "from": {
+          "x": 314,
+          "y": 308
+        },
+        "to": {
+          "x": 404,
+          "y": 308
+        }
+      },
+      "count": 22,
+      "collapsed": true,
+      "chips": [],
+      "rungs": [
+        {
+          "rung": "regular",
+          "count": 4
+        },
+        {
+          "rung": "transient",
+          "count": 18
+        }
+      ]
+    }
+  ],
+  "peers": [
+    {
+      "name": "seg-10-80-20-0",
+      "label": "10.80.20.0/24",
+      "cidr": "10.80.20.0/24",
+      "kind": "conduit",
+      "box": {
+        "x": 644,
+        "y": 84,
+        "w": 150,
+        "h": 40
+      }
+    }
+  ]
+}

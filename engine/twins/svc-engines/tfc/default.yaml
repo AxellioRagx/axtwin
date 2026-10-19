@@ -1,0 +1,90 @@
+# svc-engines -- the traffic profile: FOUR persona instances, all on the one
+# Linux engine client (work order §5 E0/E4/E5).
+#
+# **This file is slice E0's acceptance case.** E0's own wording: *"one host
+# carries `browser` + `command` + `scripted` as three distinct units;
+# heartbeat reports all three; stopping one leaves the others running."* Here
+# it is one `browser` and three `command` groups -- four distinct instances on
+# `linux-client`, each with its own `instance_id` (`{host_id}-{persona.id}`,
+# `o2control/traffic.py:1016`), its own unit name, its own in-guest paths and
+# its own op scope. The identity model already supports that; the blocker E0
+# lifts is ONE deliberate refusal (`claimed_hosts`, `traffic.py:969,1007-1014`
+# -- *"a host may carry exactly one persona instance"*).
+#
+# ---------------------------------------------------------------------------
+# **IF E0 HAS NOT LANDED WHEN THIS DEPLOYS** -- `tfc deploy` will refuse the
+# SECOND assignment below with that message, and the twin will be running one
+# engine instead of four.
+#
+# Collapse to ONE assignment and run the engines in SEQUENTIAL WINDOWS
+# (comment out three, apply, measure, swap, re-apply -- each window is its own
+# capture window and is labelled as such in the run log). Suggested order,
+# highest detection value first:
+#
+#     1. `svc-engines-ad-client`     kerberos + ldap + smb + rpc at the DC
+#                                    (also the emits that re-infer the DC --
+#                                    88/tcp AND 389/tcp, work order §5 E6)
+#     2. `svc-engines-browse`        DNS + real-SNI TLS + h2 + QUIC at the sink
+#     3. `svc-engines-file-client`   SMB byte volume + ssh at the file server
+#     4. `svc-engines-mgmt-client`   rdp + snmp + the DNS/NTP chain test
+#
+# Do NOT try to merge them into one persona document to dodge the refusal: a
+# single `drive:` per persona is a schema property, so a merged document would
+# have to drop either the browser or the command engines, which is the same
+# loss with the evidence hidden.
+# ---------------------------------------------------------------------------
+#
+# **PHASE WARNING -- read before applying `svc-engines-browse`.** That persona
+# resolves names in-guest (`knobs.resolve_via_dns: true`, the mode the user
+# ratified) and the twin's sink answers with the cast's REAL observed
+# addresses. Until the twin is in E1's `measure` phase, those addresses are
+# routable to the real internet through `gw`'s NAT. Apply the browse persona
+# only after the phase switch (README step 2); the other three target twin
+# hosts by role and are contained by topology regardless.
+#
+# **No `roles:` block and no `roles.yaml`.** The twin config already declares a
+# `role:` baseline on every node, and `build_twin_inventory` resolves role as
+# *tfc assignment -> clone-vm baseline -> none*
+# (`docs/WORK_ORDER_role_persona_tier.md` W1), so the baseline is what each
+# persona's `peer_role:` resolves against. A shared role map is what
+# `roles_from:` exists for when several profiles of one twin must agree on it;
+# one profile does not.
+#
+# `target:` is the twin-config NAME (LES-072/LES-175: name resolution is on the
+# apply AND destroy paths); `--target` overrides it.
+#
+# Each assignment pins its own `seed:` so a re-apply reproduces the same jitter
+# sequence AND the same render-time shuffle of `browse_names` -- a replay of a
+# window is comparable rather than merely similar. The seeds differ per
+# assignment on purpose: four instances sharing one seed would fire in
+# lock-step, which is both unrealistic and a needless burst at the sensor.
+traffic-profile:
+  target: svc-engines
+  assignments:
+    # 1. the web stack -- DNS + TLS(real SNI, JA3/JA4) + HTTP/1.1 + HTTP/2 + QUIC
+    - role: engine-client
+      persona: svc-engines-browse
+      schedule: 24x7
+      seed: 20260921
+    # 2. the AD group -- kerberos + ldap + smb + dcerpc at the real DC.
+    #    **Blocked by a one-line cross-slice mismatch today:** its RPC emit is
+    #    `proto: dcerpc` (E5's `_COMMAND_TEMPLATES` key, and the work order's
+    #    own name for it), while `personas.schema.KNOWN_PROTOS` carries `rpc`
+    #    and not `dcerpc` -- so PSN-040 errors on that emit until `dcerpc` is
+    #    added to that frozenset. Authoring `rpc` instead would validate and
+    #    then refuse at render, which is strictly worse; see the persona's own
+    #    comment on the emit.
+    - role: engine-client
+      persona: svc-engines-ad-client
+      schedule: 24x7
+      seed: 20260922
+    # 3. the file group -- SMB byte volume out of a real share, plus ssh
+    - role: engine-client
+      persona: svc-engines-file-client
+      schedule: 24x7
+      seed: 20260923
+    # 4. the management group -- rdp + snmp, plus the DNS/NTP chain test
+    - role: engine-client
+      persona: svc-engines-mgmt-client
+      schedule: 24x7
+      seed: 20260924

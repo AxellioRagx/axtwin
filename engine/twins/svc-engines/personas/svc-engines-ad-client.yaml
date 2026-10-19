@@ -1,0 +1,160 @@
+# svc-engines -- the AD protocol group (work order §5 E5, the Linux real-client
+# engine) against the twin's REAL domain controller.
+#
+# **Bundle-local, not catalog.** Loaded via `AXRANGE_PERSONAS_DIR`
+# (`axrange/personas/registry.py`), the same mechanism svc-verify's probe
+# persona and the golden cast's personas use. It is deliberately NOT shipped
+# into `axrange/personas/catalog/`: `drive: command`'s own rule is that no
+# catalog persona uses it yet, because shipping one would make it assignable
+# onto guests that cannot run it (the tools are in no base image -- GAP-056).
+# This twin's client installs them explicitly, so here it is safe.
+#
+# **Why this group is the detection-value one.** Kerberos/LDAP/SMB/RPC are
+# <1% of the cast's flows and carry most of its detection value (work order
+# §1): a TGS-REP's encryption type, an LDAP search filter, a UNC path, an RPC
+# interface UUID. None of those can be carried by filler bytes at a port --
+# they only exist if a real client speaks the protocol to a real server, which
+# is exactly what this persona and the `dc` node are for.
+#
+# **The listen-census consequence** (work order §5 E6, services order S3): a DC
+# that ANSWERS is not a DC that is RE-INFERRED. `roles.yaml`'s
+# `domain-controller` row needs **88/tcp AND 389/tcp together** in the observed
+# listen census, and a listen fact is only written from an ACCEPTED flow -- so
+# something has to actually DIAL both. The `kerberos` and `ldap` emits below
+# are that something; both resolve to TCP by derivation
+# (`personas.schema.default_transport` leaves everything not in `_UDP_PROTOS`
+# on TCP), which is the transport the census needs.
+#
+# **Containment, after the 2026-09-21 reversal (ruling 1).** `command`'s old
+# *"IP literals only, never guest-side name resolution"* rule is REVERSED, and
+# this persona is one of the reasons it had to be: `kinit` asks for a ticket
+# against an SPN (`cifs/dc.corp.axr.lab`), `ldapsearch` authenticates a
+# principal in a realm, `smbclient` connects to a UNC path. An IP literal
+# cannot express any of those. Containment is now a NETWORK property -- the
+# twin resolver is the only resolver, it forwards this realm to the DC and
+# everything else to the sink, and (after E1) the router denies real egress.
+#
+# **Every knob below is one E5's `_COMMAND_TEMPLATES` actually reads** -- the
+# rows landed 2026-09-21 (`kerberos`/`ldap`/`smb`/`dcerpc`/`rdp`/`ssh`/`snmp`,
+# `personas/drivers/command.py`) and this file is written against them, not
+# against a guess. Two consequences worth knowing before reading on: an
+# unmapped proto is a loud refusal at render (never a silent skip), but an
+# unread KNOB is silent -- the template falls back to its own default and the
+# engine quietly measures something slightly different (LES-001). The knob
+# names are therefore not decoration; check them against the driver if this
+# persona ever looks subtly wrong.
+persona:
+  id: svc-engines-ad-client
+  os_family: linux          # `drive: command` is Linux-only, by design
+  drive: command
+
+  emits:
+    # kinit/kvno against the KDC. 88/tcp is HALF the DC's re-inference
+    # requirement (see the header); the UDP half of Kerberos happens anyway
+    # when the KDC's reply is small, and `transport:` is deliberately left
+    # DERIVED rather than pinned so the tool chooses as a real client would.
+    - { proto: kerberos, ports: [88], peer_role: domain-controller,
+        direction: EW, cadence: "cyclic:120s", volume: low }
+    # ldapsearch against the DC. The other half of the census requirement, and
+    # the emit that puts a real search filter and a real base DN on the wire.
+    - { proto: ldap, ports: [389], peer_role: domain-controller,
+        direction: EW, cadence: "cyclic:120s", volume: low }
+    # smbclient against the DC's own shares (SYSVOL/NETLOGON). This is the
+    # KERBEROS-authenticated SMB path -- the twin's Samba file server is not
+    # domain-joined, so the genuinely Kerberised SMB session can only happen
+    # here. Byte volume is the file server's job, not this one's.
+    - { proto: smb, ports: [445], peer_role: domain-controller,
+        direction: EW, cadence: "cyclic:120s", volume: low }
+    # rpcclient against the DC. **Port 445, not 135** -- `rpcclient` has no
+    # port flag at all: it dials SMB (445, named pipes) and negotiates the RPC
+    # interface over it, so the template sets `uses_port=False` and an emit
+    # that pins 135 is refused loudly rather than silently driving 445. The
+    # endpoint mapper and the DYNAMIC high ports an RPC call moves to
+    # (49667/49669/49677 are in the cast's dial census -- the "~6% unlabelled
+    # internal" of work order §1) appear as a CONSEQUENCE of a real RPC
+    # conversation; they are never declared as listen ports (GAP-064:
+    # ephemeral allocations are not services).
+    #
+    # `proto: rpc` -- one spelling across the Linux table, the Windows table
+    # and PSN-040's vocabulary (the Linux template was keyed `dcerpc` when
+    # this persona was written; renamed 2026-09-21 so authoring, validation
+    # and render agree).
+    - { proto: rpc, ports: [445], peer_role: domain-controller,
+        direction: EW, cadence: "cyclic:120s", volume: low }
+
+  # PSN-090: every hard peer_role is declared, and it is a role THIS twin
+  # publishes (`dc` carries `role: domain-controller`). LES-193 -- a profile
+  # that parses and references real persona ids can still be unbindable
+  # against the twin it targets.
+  requires: [domain-controller]
+
+  knobs:
+    # ---- CONTENT for the `command` templates (work order §3.2: `knobs` is
+    # free-form, so per-engine content rides here exactly as `knobs.dns_qname`
+    # does -- no schema change). Every key below is one
+    # `command._resolve_client_knobs` actually reads; it fail-louds on a
+    # malformed value and has a working default for every knob, so a typo'd
+    # KEY is the one failure mode that stays silent. Check them against the
+    # driver if the engine ever looks subtly wrong.
+    #
+    # **No credential here, ever.** A persona is catalog content (git-
+    # versioned, shared across twins), so it names WHO authenticates and
+    # WHICH SOURCE the secret comes from, never the secret --
+    # `_resolve_client_knobs` refuses a secret-looking knob by name.
+    # `auth_credential: default` resolves to adapter.conf's `DEFAULT_PASSWORD`
+    # at RUN time (`o2control.traffic.PersonaBackend`), written into a 0600
+    # in-guest file the argv references. That is exactly why svc-engines.yaml
+    # gives `alice` NO explicit password: `create-domain-user` falls back to
+    # the same `DEFAULT_PASSWORD`, so the account and the engine agree.
+    auth_user: alice
+    auth_domain: corp                 # the NetBIOS name (smbclient -W, xfreerdp /d:)
+    auth_realm: CORP.AXR.LAB          # the Kerberos realm -- NOT derivable from `corp`
+    auth_credential: default
+
+    # Dial the DC BY NAME. `target_name` replaces the orchestrator-resolved
+    # peer IP in every argv this persona renders, which is the whole point of
+    # the 2026-09-21 containment reversal: a ticket is issued against an SPN
+    # and an SMB session opens a UNC path -- neither is expressible as an IP.
+    # It is persona-wide, which is fine here because every emit targets the
+    # same host.
+    target_name: dc.corp.axr.lab
+
+    # kerberos: `kinit alice@CORP.AXR.LAB` (AS-REQ/AS-REP -> TGT), then the
+    # template's own FOLLOW-UP `kvno <spn>` (TGS-REQ/TGS-REP -> service
+    # ticket). The follow-up is where the detection value is: an RC4 TGS-REP
+    # is the kerberoasting signature, and a `kinit` alone never produces one.
+    kerberos_spn: cifs/dc.corp.axr.lab
+
+    # ldap: GSSAPI (`ldapsearch -Y GSSAPI`), i.e. bind with the Kerberos
+    # ticket this persona's own `kerberos` emit put in the instance-scoped
+    # ccache (`KRB5CCNAME` is pinned per instance, so two personas on one host
+    # never fight over it). That is what a real domain client does, and it
+    # puts a SECOND Kerberos exchange on the wire besides the kinit.
+    #
+    # ORDERING CAVEAT, recorded: emits fire on their own cadences, so the
+    # first ldapsearch after start may run before the first kinit and fail
+    # with "No Kerberos credentials available". It self-corrects on the next
+    # cycle. If that first-cycle failure is not acceptable, drop `ldap_sasl`
+    # and add `ldap_bind_dn: cn=alice,ou=Finance,dc=corp,dc=axr,dc=lab` for a
+    # simple bind -- but note the DN then depends on `identity.users[].ou`,
+    # which is exactly the coupling GSSAPI avoids.
+    ldap_sasl: gssapi
+    ldap_base_dn: dc=corp,dc=axr,dc=lab
+    ldap_filter: (objectClass=user)
+
+    # smb: the DC's SYSVOL, the one share every domain user can read, over a
+    # session authenticated as `alice`. `smb_file` is the 4 MiB probe file
+    # `scripts/prepare-dc.ps1` leaves there -- a `get` of a MISSING path still
+    # completes the SMB conversation (so the sensor still labels it `smb`) but
+    # climbs the persona's `fails=` counter every cycle, and a counter nobody
+    # can explain is worse than no counter at all (LES-245).
+    smb_share: SYSVOL
+    smb_file: axr-probe.bin
+
+    # dcerpc: one allowlisted `rpcclient` command. `srvinfo` is the cheapest
+    # real DCE/RPC call there is -- a SRVSVC bind plus one query, i.e. an
+    # endpoint negotiation and a named-pipe conversation, with none of the
+    # recon flavour `enumdomusers` would add to a benign persona.
+    rpc_command: srvinfo
+    schedule: 24x7
+    seed_jitter: true

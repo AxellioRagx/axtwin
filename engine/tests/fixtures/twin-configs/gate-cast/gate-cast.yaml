@@ -1,0 +1,169 @@
+# Fixture "cast" twin-config for the deploy gate
+# (`docs/WORK_ORDER_deploy_gate.md` §9.2) -- shaped like what aximprint's
+# emit-all compiler hands back, NOT like a hand-authored `twin-configs/`
+# config: every observed node/segment carries an `observation:` block, and
+# the compiler-invented router (`gw`) carries one only so the router
+# exemption has something to print.
+#
+# **The shape it reproduces (LES-185):** the standing cast
+# `twin-configs-cast/corpapcn-twin/corpapcn-twin.yaml` has ONE `kind: router`
+# `gw` with a leg on **every one of its 27 segments**, and that single fact
+# is what broke the first cut of the segment cascade -- an exempt router
+# legging everything made every segment permanently "occupied" and turned
+# every below-bar segment into a hard error. `gw` here legs **all four**
+# segments for exactly that reason: a fixture whose router touched only some
+# of them could not have caught it.
+#
+# Occupancies span the ladder the work order asks for -- 1/11, 2/11, 8/11,
+# 9/11, 11/11 -- so the gating table at 0.0 / 0.5 / 0.8 / 0.9 / 1.0 is a real
+# selection each time. `worker` is the `count: 3` group that STRADDLES the
+# 0.8 bar and must be kept or dropped as ONE unit (the 2026-09-04 ruling: a
+# group carries its weakest member's numbers).
+#
+# NOTE the `identity:`/`data:` entries deliberately point at hosts that are
+# emitted at EVERY threshold (`always-on`, `core-strong`). A reference to a
+# gating-out host is a HARD error (work order §4.3 step 6), which would make
+# the gating table unassertable above 0.5 -- the tests that exercise that
+# error mutate a loaded copy of this config instead.
+twin_config:
+  id: gate-cast
+  description: Deploy-gate fixture -- observation blocks across the occupancy ladder.
+
+  params:
+    # Declared even though 0.8 is axRange's built-in default (work order
+    # §10.6), so `twin-config show` displays the bar and a `--param`
+    # override coerces against a declared FLOAT.
+    DEPLOY_MIN_OCCUPANCY: 0.8
+
+  segments:
+    - name: core
+      cidr: 10.60.0.0/24
+      zone_type: simple
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0}
+    # No block at all: never gated by its own observation -- it can only
+    # leave by the cascade, when its last emitted node does.
+    - name: edge
+      cidr: 10.60.1.0/24
+      zone_type: simple
+    - name: thin
+      cidr: 10.60.2.0/24
+      zone_type: simple
+    # Gated by its OWN block above 2/11. Its only member (`ghost-host`) is
+    # thinner still, so the two can never disagree -- a segment gated out
+    # from under an emitted node is a hard error, not a silent repair.
+    - name: ghost
+      cidr: 10.60.3.0/24
+      zone_type: simple
+      observation: {windows_seen: 2, windows_total: 11, occupancy: 0.181818}
+
+  conduits:
+    - from: core
+      to: edge
+    - from: core
+      to: thin
+    - from: core
+      to: ghost
+
+  nodes:
+    # Compiler-invented plumbing carrying a thin block: never gated out, and
+    # SAID SO in the report (`kept: router 'gw' ... routers are never gated`).
+    # Legs EVERY segment, exactly like the real cast's `gw` -- so a segment
+    # the gate removes must prune this router's leg with it, and a router leg
+    # must never count as "this segment is occupied".
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      nets:
+        - segment: core
+        - segment: edge
+        - segment: thin
+        - segment: ghost
+      observation: {windows_seen: 2, windows_total: 11, occupancy: 0.181818}
+
+    # No block => always emitted, at every threshold, forever.
+    - name: always-on
+      role: always-on
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: core
+
+    # The only NON-router occupant of `edge`. Without it `edge` would drop at
+    # every threshold, because a router leg does not make a segment occupied
+    # -- which is itself the rule under test, so the fixture needs one
+    # segment held up by a host and one (`thin`) held up by nothing.
+    - name: edge-host
+      role: edge-host
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: edge
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0}
+
+    # 11/11: in even at a 1.0 threshold. No `role_confidence` -- absent is
+    # NOT the same as 0.0 (it is only compared as 0.0 by the optional
+    # DEPLOY_MIN_ROLE_CONFIDENCE gate, which is off by default).
+    - name: core-strong
+      role: file-server
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: core
+      observation: {windows_seen: 11, windows_total: 11, occupancy: 1.0}
+
+    # 9/11 = 0.818182: in at 0.8, out at 0.9.
+    - name: core-mid
+      role: db-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: core
+      observation:
+        {windows_seen: 9, windows_total: 11, occupancy: 0.818182, role_confidence: 0.92}
+
+    # 8/11, count: 3 -- the straddling group. All three go, or none: the cast
+    # keeps no per-host identity inside a group. Written at FULL float
+    # precision (what a producer emits), which is what proves a printed
+    # remedy can be pasted back: a `%g`-rounded `0.727273` sits just BELOW
+    # this value and re-running at it would refuse the node again.
+    - name: worker
+      role: worker
+      image: debian-12-cloud@v1
+      requires: [linux]
+      count: 3
+      net: core
+      observation:
+        {windows_seen: 8, windows_total: 11, occupancy: 0.7272727272727273,
+         role_confidence: 0.4}
+
+    # 1/11: in only at a 0.0 threshold. Multi-homed, and the ONLY node on
+    # `thin` -- so above 0.0 `thin` empties and the `core->thin` conduit
+    # loses its referent.
+    - name: bridge-host
+      role: bridge
+      image: debian-12-cloud@v1
+      requires: [linux]
+      nets:
+        - segment: core
+        - segment: thin
+      observation:
+        {windows_seen: 1, windows_total: 11, occupancy: 0.090909, role_confidence: 0.1}
+
+    # 1/11, on the segment that is gated out by its own block: both leave
+    # together above 2/11, so they never disagree.
+    - name: ghost-host
+      role: ghost
+      image: debian-12-cloud@v1
+      requires: [linux]
+      nets:
+        - segment: core
+        - segment: ghost
+      observation: {windows_seen: 1, windows_total: 11, occupancy: 0.090909}
+
+  identity:
+    users:
+      - id: localadmin
+        host: always-on
+
+  data:
+    - dataset: crown-jewels
+      on_role: core-strong
+      classification: confidential
+      crown_jewel: true

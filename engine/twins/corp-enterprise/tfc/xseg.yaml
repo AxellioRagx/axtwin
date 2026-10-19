@@ -1,0 +1,70 @@
+# Traffic profile: corp-enterprise / cross-segment.
+#
+# Companion to tap-gw-span.yaml. That tap plan SPANs all five gw router ports,
+# which see ONLY routed traffic -- so this profile exists to make sure there
+# is routed traffic to see. Every assignment below drives a persona whose
+# peer_roles live on a different segment from the host running it:
+#
+#   attacker              corp-lan     -> server-vlan   (file-server, DC)
+#   file-server           server-vlan  -> dmz           (dmz-web, proxy, mail)
+#   mail-server           dmz          -> server-vlan   (DC, file-server)
+#   egress-proxy          dmz          -> server-vlan
+#   dmz-web               dmz          -> server-vlan
+#   monitoring-collector  mgmt         -> all three other segments
+#   corp-workstation x6   corp-lan     -> server-vlan + dmz  (shipped persona)
+#
+# All four segments are therefore both a source and a destination of routed
+# traffic, and each of gw's four LAN legs carries flows in both directions --
+# which is what makes `perimeter`'s derived `both` direction meaningful rather
+# than merely permitted.
+#
+# WHY NODE-LEVEL ASSIGNMENTS for the three DMZ hosts instead of one shared
+# role: re-roling them (the roles-loadgen.yaml approach) would remove
+# `mail-server`/`egress-proxy`/`dmz-web` from the twin's published roles, and
+# the other xseg personas resolve those exact roles as their peers. Node
+# assignments keep roles.yaml intact so every peer_role still resolves.
+#
+# The six Windows workstations keep the shipped `corp-workstation` persona,
+# which is ALREADY cross-segment (its peers are the DC and file-server on
+# server-vlan, the proxy and mail-server on dmz). They are breadth rather
+# than throughput: a PowerShell emitter measured ~40x weaker per host than a
+# Linux one.
+#
+# VOLUME NOTE: gw has 1 vCPU, and unlike the intra-segment loadgen-* family
+# every byte here transits it. Volumes are deliberately moderate -- one
+# `high` UDP carrier per persona at cyclic:2s (~6 Mbit/s each) plus low/med
+# TCP fidelity emits, for roughly 40-60 Mbit/s of routed load. To push
+# harder, raise the carrier cadence rather than adding senders, and watch
+# gw's CPU before trusting the number.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles.yaml
+
+  assignments:
+    - node: attacker
+      persona: xseg-corp-to-srv
+      schedule: 24x7
+
+    - node: file-server
+      persona: xseg-srv-to-dmz
+      schedule: 24x7
+
+    - node: mail-server
+      persona: xseg-dmz-to-srv
+      schedule: 24x7
+
+    - node: egress-proxy
+      persona: xseg-dmz-to-srv
+      schedule: 24x7
+
+    - node: dmz-web
+      persona: xseg-dmz-to-srv
+      schedule: 24x7
+
+    - node: monitoring-collector
+      persona: xseg-mgmt-poll
+      schedule: 24x7
+
+    - role: corp-workstation
+      persona: corp-workstation
+      schedule: 24x7

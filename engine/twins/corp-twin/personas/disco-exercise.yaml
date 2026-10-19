@@ -1,0 +1,114 @@
+# Iteration 2 fix: a client persona that connects to the twin's OWN internal servers on
+# their declared ports. The cast personas only dial the sink roles (northbound), so the
+# internal listeners (web-tier 80/443, dns-resolver 53/123, DC 88/389/445/3268, file-server 445,
+# workstation 3389/135) were declared but never received a client connection -> invisible to a
+# traffic-based re-discovery. Each emit below drives an east-west connection to a serving role.
+persona:
+  id: disco-exercise
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: http
+    ports: [80]
+    peer_role: web-tier
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:3s
+    volume: med
+  - proto: https
+    ports: [443]
+    peer_role: web-tier
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:3s
+    volume: med
+  - proto: dns
+    ports: [53]
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:2s
+    volume: med
+  - proto: dns
+    ports: [53]
+    peer_role: dns-resolver
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:6s
+    volume: low
+  - proto: ntp
+    ports: [123]
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:9s
+    volume: low
+  - proto: kerberos
+    ports: [88]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:4s
+    volume: med
+  - proto: ldap
+    ports: [389]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:4s
+    volume: med
+  - proto: smb
+    ports: [445]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  - proto: smb
+    ports: [445]
+    peer_role: file-server
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  - proto: rdp
+    ports: [3389]
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:7s
+    volume: low
+  - proto: rpc
+    ports: [135]
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:7s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

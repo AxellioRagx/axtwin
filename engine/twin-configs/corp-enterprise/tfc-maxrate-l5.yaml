@@ -1,0 +1,36 @@
+# corp-enterprise -- max-capture-rate ramp, rung 5 (dev45, 2026-08-13).
+#
+# Rung 4 topped out at ~1.59 Gbit/s with every stage of the capture chain
+# still clean, and the sender's python3 pegged at 94% of one core. That is a
+# GENERATION ceiling, not a capture ceiling: the scripted driver's rendered
+# client is a single-threaded loop, so one persona instance == one saturated
+# CPU thread, and the only way to offer more load is more SENDING HOSTS.
+#
+# Rung 5 therefore widens from 3 senders to 5 by adding one sender on each of
+# two more segments, each aimed at a peer role that lives on its OWN segment
+# so nothing crosses corp-enterprise's 1-vCPU `gw` router:
+#   dmz         mail-server + egress-proxy + dmz-web  -> each other  (3)
+#   corp-lan    attacker -> the 6 corp-workstations              (1)
+#   server-vlan file-server -> domain-controller                 (1)
+#
+# The two new senders are assigned by `node:` rather than by role, which
+# avoids inventing roles whose only purpose is to name a single host -- the
+# peer roles (`corp-workstation`, `domain-controller`) already exist as the
+# twin's own baseline roles.
+#
+# Pair with tap-maxrate-wide.yaml, which taps all three of those segments;
+# tap-maxrate-dmz.yaml would mirror only the dmz third of this load.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles-loadgen.yaml
+
+  assignments:
+    - role: loadgen
+      persona: loadgen-l4
+      schedule: 24x7
+    - node: attacker
+      persona: loadgen-corp
+      schedule: 24x7
+    - node: file-server
+      persona: loadgen-srv
+      schedule: 24x7

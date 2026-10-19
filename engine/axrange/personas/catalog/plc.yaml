@@ -1,0 +1,26 @@
+# deterministic interval -- ideal anomaly baseline.
+persona:
+  id: plc
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: modbus
+      ports: [502]
+      peer_role: hmi
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: low
+    - proto: dnp3
+      ports: [20000]
+      peer_role: hmi
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: low
+    - proto: ethernet-ip
+      ports: [44818]
+      peer_role: hmi
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: low
+  requires: [hmi]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

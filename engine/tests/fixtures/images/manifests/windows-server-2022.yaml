@@ -1,0 +1,35 @@
+manifest_schema_version: 1
+
+image:
+  id: windows-server-2022
+  description: |
+    Windows Server 2022 (21H2) Standard, Desktop Experience — the AD-DS-capable
+    domain-controller baseline. Reproduced from the Microsoft evaluation ISO +
+    virtio-win drivers by `axrange image build` (docs/SLICE_WINDOWS_AD.md W0).
+    `role: adds` promotion to an actual DC is the W2 increment, not this image.
+  os:
+    family: windows
+    distribution: windows-server-2022
+    version: "21H2"
+    architecture: x86_64
+  versions:
+    - id: v1
+      released: 2026-06-16
+      status: current
+      provides:
+        - windows
+        - host:uefi
+        - kernel:powershell-5plus
+        - kernel:dotnet-clr
+      install_support:
+        # winget/choco are declared; the Windows provision path (bake_windows)
+        # uses choco. `role: [adds, dns]` is what W2's DC promotion needs.
+        pkg: [winget, choco]
+        config: true
+        role: [adds, dns, iis]
+        container: false
+        script: true
+      # Windows Setup + specialize + guest-tools install is slow vs. a Linux
+      # cloud image; budget generously (first boot of a clone, W1).
+      first_boot_budget: 1200
+      size_estimate: 24Gi

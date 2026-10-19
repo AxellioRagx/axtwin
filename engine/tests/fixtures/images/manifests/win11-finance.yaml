@@ -1,0 +1,68 @@
+manifest_schema_version: 1
+
+image:
+  id: win11-finance
+  description: Windows 11 Pro 23H2 finance baseline (test fixture).
+  os:
+    family: windows
+    distribution: windows-11-pro
+    version: "23H2"
+    architecture: x86_64
+  versions:
+    - id: v4
+      released: 2026-05-10
+      status: current
+      provides:
+        - windows
+        - host:uefi
+        - host:secure-boot
+        - host:tpm
+        - kernel:edr-hooks
+        - kernel:dotnet-clr
+        - kernel:powershell-5plus
+      install_support:
+        pkg: [winget, choco]
+        config: true
+        role: [adds, iis, hyper-v]
+        container: false
+        script: true
+      first_boot_budget: 300
+      size_estimate: 40Gi
+
+    - id: v3
+      released: 2026-02-14
+      status: deprecated
+      replacement: v4
+      provides:
+        - windows
+        - host:uefi
+        - host:secure-boot
+        - host:tpm
+        - kernel:dotnet-clr
+        - kernel:powershell-5plus
+      install_support:
+        pkg: [winget, choco]
+        config: true
+        role: [adds, iis]
+        container: false
+        script: true
+      first_boot_budget: 300
+      size_estimate: 38Gi
+
+    - id: v2
+      released: 2025-09-01
+      status: withdrawn
+      replacement: v3
+      provides:
+        - windows
+        - host:uefi
+        - kernel:dotnet-clr
+        - kernel:powershell-5plus
+      install_support:
+        pkg: [winget]
+        config: true
+        role: [adds]
+        container: false
+        script: true
+      first_boot_budget: 360
+      size_estimate: 35Gi

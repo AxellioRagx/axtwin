@@ -1,0 +1,24 @@
+# GENERATED capture-rate ladder persona (2026-10-01): cast-generic-endpoint-light-local scaled x6.
+# Mode burst: every emit cyclic:N -> burst:max(1.0,N/6)s, message size/count unchanged.
+# Message size and count unchanged (only the firing interval and the intra-firing gap change).
+# Rule and rationale: docs/reference/capture-rate/2026-10-01-corp-twin-ladder.md
+persona:
+  id: cast-generic-endpoint-light-local-burstwx6
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:18.2s
+    volume: low
+    bytes: 64
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

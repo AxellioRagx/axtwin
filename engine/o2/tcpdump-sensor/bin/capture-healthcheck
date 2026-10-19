@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+#
+# capture-healthcheck — periodic health probe for the capture appliance.
+#
+# Exit 0 if all checks pass. Otherwise exit 1, with one PROBLEM: line per
+# failing check on stderr. Designed for cron / systemd-timer / Nagios-style
+# scrapers, and for humans (run it after install, after config changes).
+#
+# Checks (see docs/tcpdump-sensor/README.md §6):
+#   1. capture.service is active.
+#   2. Newest pcap mtime is fresh (within HEALTHCHECK_MAX_PCAP_AGE).
+#   3. CAPTURE_IF is in PROMISC mode.
+#   4. NIC RX drops counter has not advanced since last invocation.
+#   5. Disk usage on CAPTURE_DIR is below HARD_THRESHOLD_PCT.
+#   6. NIC offloads (gro/lro/tso/gso) are OFF.
+
+# We intentionally avoid `set -e` here — we collect all problems and report
+# at the end rather than bail on the first one.
+set -uo pipefail
+
+CONF="${CAPTURE_CONF:-/etc/capture/capture.conf}"
+
+if [ ! -r "$CONF" ]; then
+    echo "PROBLEM: missing or unreadable $CONF" >&2
+    exit 1
+fi
+# shellcheck disable=SC1090
+. "$CONF"
+
+: "${CAPTURE_IF:?CAPTURE_IF unset in $CONF}"
+: "${CAPTURE_DIR:?CAPTURE_DIR unset in $CONF}"
+: "${HARD_THRESHOLD_PCT:?HARD_THRESHOLD_PCT unset in $CONF}"
+: "${HEALTHCHECK_MAX_PCAP_AGE:=400}"
+
+problems=()
+notes=()
+
+# ---- 1. Service active ------------------------------------------------------
+# Set HEALTHCHECK_SKIP_SERVICE=1 to bypass this check (used by
+# o2/tcpdump-sensor/test/smoke.sh, which runs tcpdump directly rather than via
+# systemd).
+
+service_active=0
+if [ "${HEALTHCHECK_SKIP_SERVICE:-0}" = "1" ]; then
+    service_active=1
+    notes+=("HEALTHCHECK_SKIP_SERVICE=1; skipping systemctl is-active check")
+elif systemctl is-active --quiet capture.service; then
+    service_active=1
+else
+    problems+=("capture.service is not active")
+fi
+
+# ---- 2. Newest pcap freshness ----------------------------------------------
+# Skip if service is stopped — fresh-pcap check would just duplicate the
+# already-reported service-down PROBLEM.
+
+newest=""
+age=0
+if [ "$service_active" -eq 1 ]; then
+    if [ -d "$CAPTURE_DIR" ]; then
+        newest=$(find "$CAPTURE_DIR" -type f -name 'cap-*.pcap*' \
+                 -printf '%T@ %p\n' 2>/dev/null \
+                 | sort -n | tail -1 | awk '{print $2}')
+        if [ -z "$newest" ]; then
+            problems+=("no pcap files found under $CAPTURE_DIR")
+        else
+            age=$(( $(date +%s) - $(stat -c %Y "$newest") ))
+            if [ "$age" -gt "$HEALTHCHECK_MAX_PCAP_AGE" ]; then
+                problems+=("newest pcap age=${age}s exceeds limit ${HEALTHCHECK_MAX_PCAP_AGE}s ($newest)")
+            fi
+        fi
+    else
+        problems+=("CAPTURE_DIR '$CAPTURE_DIR' does not exist")
+    fi
+fi
+
+# ---- 3. PROMISC mode --------------------------------------------------------
+
+if ip link show "$CAPTURE_IF" 2>/dev/null | grep -q PROMISC; then
+    :
+else
+    if ip link show "$CAPTURE_IF" >/dev/null 2>&1; then
+        problems+=("$CAPTURE_IF is not in PROMISC mode")
+    else
+        problems+=("$CAPTURE_IF does not exist")
+    fi
+fi
+
+# ---- 4. NIC RX drops delta --------------------------------------------------
+# We persist last-seen drops at /var/lib/capture/last-rx-drops.<iface>.
+# A positive delta between invocations indicates the kernel dropped packets
+# from the capture path.
+
+state_dir=/var/lib/capture
+prev_drops_file="$state_dir/last-rx-drops.$CAPTURE_IF"
+
+# /proc/net/dev column layout for an interface row:
+#   1=iface:   2=rxBytes  3=rxPackets  4=rxErrs  5=rxDrop  6=rxFifo ...
+# Match on literal "$CAPTURE_IF:" at start of field 1 to avoid substring
+# matches (eth1 vs eth10).
+curr_drops=$(awk -v want="${CAPTURE_IF}:" '$1 == want { print $5 }' /proc/net/dev 2>/dev/null)
+if [ -z "${curr_drops:-}" ]; then
+    notes+=("could not read RX drop counter for $CAPTURE_IF")
+else
+    prev_drops=$(cat "$prev_drops_file" 2>/dev/null || echo "")
+    if [ -d "$state_dir" ]; then
+        echo "$curr_drops" > "$prev_drops_file" 2>/dev/null || \
+            notes+=("could not write $prev_drops_file (state dir not writable?)")
+    fi
+    if [ -n "$prev_drops" ] && [ "$prev_drops" -ge 0 ] 2>/dev/null; then
+        delta=$(( curr_drops - prev_drops ))
+        if [ "$delta" -gt 0 ]; then
+            problems+=("NIC RX drops +${delta} since last healthcheck on $CAPTURE_IF (total: $curr_drops)")
+        fi
+    fi
+fi
+
+# ---- 5. Disk usage ----------------------------------------------------------
+
+pct=$(df --output=pcent "$CAPTURE_DIR" 2>/dev/null | tail -1 | tr -dc 0-9 || echo "")
+if [ -z "$pct" ]; then
+    notes+=("could not determine disk usage for $CAPTURE_DIR")
+elif [ "$pct" -ge "$HARD_THRESHOLD_PCT" ]; then
+    problems+=("disk usage ${pct}% >= hard threshold ${HARD_THRESHOLD_PCT}%")
+fi
+
+# ---- 6. NIC offloads --------------------------------------------------------
+
+if command -v ethtool >/dev/null 2>&1; then
+    for off in generic-receive-offload large-receive-offload tcp-segmentation-offload generic-segmentation-offload; do
+        state=$(ethtool -k "$CAPTURE_IF" 2>/dev/null | awk -v o="$off:" '$1 == o {print $2}')
+        if [ "$state" = "on" ]; then
+            problems+=("offload $off is ON for $CAPTURE_IF (must be off; rerun install.sh or ethtool -K $CAPTURE_IF gro off lro off tso off gso off)")
+        fi
+    done
+else
+    notes+=("ethtool not installed; cannot verify NIC offload state")
+fi
+
+# ---- Output -----------------------------------------------------------------
+
+if [ ${#notes[@]} -gt 0 ]; then
+    printf 'NOTE: %s\n' "${notes[@]}"
+fi
+
+if [ ${#problems[@]} -eq 0 ]; then
+    if [ -n "$newest" ]; then
+        echo "OK: tcpdump active; newest pcap age=${age}s; disk ${pct:-?}%"
+    else
+        echo "OK"
+    fi
+    exit 0
+else
+    printf 'PROBLEM: %s\n' "${problems[@]}" >&2
+    exit 1
+fi

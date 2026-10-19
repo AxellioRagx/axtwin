@@ -1,0 +1,119 @@
+# GENERATED capture-rate ladder persona (2026-10-01): cast-domain-controller-local scaled x6.
+# Mode burst: every emit cyclic:N -> burst:max(1.0,N/6)s, message size/count unchanged.
+# Message size and count unchanged (only the firing interval and the intra-firing gap change).
+# Rule and rationale: docs/reference/capture-rate/2026-10-01-corp-twin-ladder.md
+persona:
+  id: cast-domain-controller-local-burstwx6
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: dns-resolver
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+    bytes: 64
+  - proto: dns
+    ports:
+    - 53
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: burst:1s
+    volume: low
+    bytes: 64
+  - proto: rdp
+    ports:
+    - 3389
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  - proto: http
+    ports:
+    - 80
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: burst:1s
+    volume: low
+  - proto: nbns
+    ports:
+    - 137
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  - proto: udp
+    ports:
+    - 138
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: burst:1s
+    volume: low
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: burst:1s
+    volume: low
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  - proto: tcp
+    ports:
+    - 135
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  - proto: udp
+    ports:
+    - 68
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: burst:1s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

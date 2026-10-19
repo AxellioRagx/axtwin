@@ -1,0 +1,22 @@
+# Traffic profile: datacenter / default (see corp-enterprise/tfc-default.yaml
+# for why this lives here rather than inline in the twin config).
+#
+# Three of these five roles run a persona of a DIFFERENT name -- `db-primary`
+# and `db-replica` both drive `db-tier`, and `nas-storage` drives
+# `file-server`. Two distinct roles sharing one persona is the clearest case
+# for keeping role (what a host IS, and what personas resolve `peer_role:`
+# against) separate from persona (what it DOES).
+traffic-profile:
+  target: datacenter
+
+  assignments:
+    - role: web-tier
+      persona: web-tier
+    - role: db-primary
+      persona: db-tier
+    - role: db-replica
+      persona: db-tier
+    - role: nas-storage
+      persona: file-server
+    - role: monitoring-collector
+      persona: monitoring-collector

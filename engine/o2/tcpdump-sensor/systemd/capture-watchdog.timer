@@ -1,0 +1,14 @@
+[Unit]
+Description=Run capture-watchdog every 60 seconds
+
+[Timer]
+# Fire 60 seconds after the timer activates, then every 60s thereafter.
+# AccuracySec keeps clusters of capture appliances from synchronizing their watchdog runs
+# under systemd's default 1-minute accuracy bucket.
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=capture-watchdog.service
+
+[Install]
+WantedBy=timers.target

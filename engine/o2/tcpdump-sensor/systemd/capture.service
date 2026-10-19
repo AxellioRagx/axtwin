@@ -1,0 +1,88 @@
+[Unit]
+Description=Cyber-range capture appliance (tcpdump on mirrored capture NIC)
+Documentation=file:///usr/share/doc/capture/README.md
+Documentation=https://github.com/axellio/cyber-range/tree/main/o2/tcpdump-sensor
+After=network-online.target systemd-udev-settle.service
+Wants=network-online.target
+# We do not bind to a specific NIC at unit level because CAPTURE_IF is set
+# in /etc/capture/capture.conf and may change. capture-start validates.
+#
+# Don't enter a crash loop if something fundamental is wrong (missing NIC,
+# bad config, btrfs/zfs at /captures). After 5 restarts in 120s, give up
+# and require an explicit `systemctl reset-failed && systemctl start`.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/capture/capture.conf
+ExecStart=/usr/local/bin/capture-start
+
+# Restart policy: tcpdump should be supervised aggressively (within the
+# StartLimit set in [Unit] above).
+Restart=on-failure
+RestartSec=5s
+
+# Stop semantics: tcpdump on SIGTERM closes the current pcap cleanly.
+KillSignal=SIGTERM
+TimeoutStopSec=20s
+
+# We start as root because tcpdump needs CAP_NET_RAW + CAP_NET_ADMIN to open
+# AF_PACKET on the NIC, and capture-start needs root for ethtool and
+# `install -d` of user-owned directories. tcpdump then drops to CAPTURE_USER
+# via its own -Z flag once the socket is open.
+User=root
+Group=root
+
+# --- Sandboxing -------------------------------------------------------------
+# Hardening directives below assume tcpdump's needs:
+#   reads:  /etc/capture/capture.conf, /proc/net/dev, /sys/class/net/*
+#   writes: /captures, /var/lib/capture
+#   net:    AF_PACKET on CAPTURE_IF; no outbound sockets
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_PACKET
+SystemCallArchitectures=native
+# Allowlist starts at @system-service, denies the four hardening
+# categories, then re-allows the specific syscalls tcpdump actually needs.
+# Surfaced 2026-05-29 by binary-search test on Debian 12 / glibc 2.36:
+#   @chown    — pcap files chowned to CAPTURE_USER post drop-priv
+#   bpf       — kernel-side packet filter programs
+#   setuid    — `tcpdump -Z $CAPTURE_USER` drops UID after opening NIC
+#   setgid    — same, GID
+#   setgroups — clears supplementary groups before the drop
+#   capset    — drops capabilities once the NIC socket is open
+# Earlier slice MVP shipped this with SystemCallFilter cleared as a
+# known security regression; this commit closes that gap.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @debug @mount
+SystemCallFilter=@chown bpf setuid setgid setgroups capset
+
+# capture-start writes pcaps under /captures and runtime state under
+# /var/lib/capture. Both must be writable; nothing else needs to be.
+ReadWritePaths=/captures /var/lib/capture
+
+# Logging: tcpdump's stderr (drop counters, packet stats on SIGINFO) goes to
+# journald and is greppable via `journalctl -u capture.service`.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=capture
+
+[Install]
+WantedBy=multi-user.target

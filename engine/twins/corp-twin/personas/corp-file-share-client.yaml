@@ -1,0 +1,34 @@
+# The SMB that §7 measured (docs/WORK_ORDER_corp_twin.md): 2.2 GB -- a quarter of all bytes
+# -- in three flows from ONE 10.80.20 endpoint (bw-mbp15) to the file server 10.80.75.245,
+# plus a trickle of workstation -> DC SMB (cast-corp-workstation-heavy-local). Not a cast
+# persona: the cast had no SMB-to-file-server emit at all, so live run 3 measured one SMB flow
+# (2026-09-28, §11). Assigned to the one twin host standing in for that endpoint
+# (`generic-endpoint-heavy-10-80-20-core01`), in addition to its cast persona.
+#
+# Bulk tier, pinned bytes: 64 connections x 512 KiB every 30 s ~= 9 Mbit/s, sized so the
+# static model (tests/test_corp_twin_mix.py) puts SMB at ~25 % of the offered bytes beside
+# the endpoints' TLS. The scripted payload is not SMB -- the file server's smbd reads each
+# connection's tagged bytes as non-session NetBIOS frames and drains them (unverified live:
+# run 4 checks SMB bytes on the vlan64 / transit taps). Real smbclient transfers are the
+# `command` driver's (`smb`), which needs smbclient in the client image and a share + file on
+# the server -- a redeploy, not a profile re-apply.
+persona:
+  id: corp-file-share-client
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: smb
+    ports:
+    - 445
+    peer_role: file-server
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:30s
+    volume: bulk
+    bytes: 524288
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

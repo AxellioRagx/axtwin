@@ -1,0 +1,125 @@
+scenario_schema_version: 1
+
+scenario:
+  id: dfir-hunt-lab
+  version: 1
+  description: |
+    Corpus-derived DFIR / threat-hunting lab (Stage-2 of the scenario-ai-research).
+
+    NEW archetype. The corpus has a clear investigation-centric strand distinct
+    from rule-based detection: "How To Investigate PCAPs for SOC Analysts", the
+    Blue Team Labs Online / CyberDefenders walkthroughs ("Deep Blue", "Retired"
+    digital-forensics labs with Redline — file hashes, PowerShell scripts,
+    scheduled-task persistence), Mandiant FLARE VM for malware RE, "host forensics
+    and log parsing", and "detecting sophisticated obfuscation techniques". Where
+    soc-detection-lab is detection-rule-centric and purple-team-range is
+    exercise-centric, this is INVESTIGATION-centric: an analyst hunts through
+    captured PCAPs, host artifacts, and logs after a (simulated) compromise to
+    recover IOCs and reconstruct the attack.
+
+    Two segments behind a router: an ENTERPRISE segment with a compromised Linux
+    victim (planted, benign forensic artifacts — suspicious persistence, a beacon
+    stub, tampered logs) and a Windows endpoint; and a SOC/INVESTIGATION segment
+    with a DFIR analyst workstation (OSS kit: Volatility3, tshark, Sleuth Kit,
+    YARA, Zeek-offline) and a Security-Onion-style hunt stack (OpenSearch + Zeek +
+    Suricata). The victim is tapped, so its mirrored traffic becomes the PCAP
+    evidence the analyst investigates — the platform's capture plane IS the
+    evidence source for the corpus's "investigate the PCAP" pattern.
+
+    SCOPE — deployable here: Infrastructure (enterprise + soc segments, router) +
+    Apps & Tools on the Linux hosts (planted artifacts, DFIR kit, hunt stack).
+    Passes `axrange validate` and `axrange plan`. DEFERRED (designed, not
+    deployed; CORPUS_DIGEST.md §5):
+      - the COMPROMISE activity that generates the evidence (OP-ACT) — here the
+        artifacts are planted statically by the victim script as a stand-in;
+      - live PCAP-from-sensor retrieval into the hunt stack (sensor integration);
+      - Windows DFIR tooling (Redline/FLARE) — Windows provisioning is deferred,
+        so the Windows endpoint is a telemetry-source substrate;
+      - the hunt detection-content overlay (Sigma hunts, IOC matching) via OP-OVL.
+
+layers:
+  infra:
+    networks:
+      # gateways are the gw router's LAN IPs (router slice Phase 2: egress NAT +
+      # enterprise<->soc routing for log/evidence shipping).
+      - { id: enterprise, cidr: 10.30.10.0/24, vlan: 210, gateway: 10.30.10.1 }
+      - { id: soc,        cidr: 10.30.20.0/24, vlan: 211, gateway: 10.30.20.1 }
+    nodes:
+      # Router — egress NAT + inter-segment routing. Multi-homed across
+      # enterprise/soc; tapped so the enterprise<->soc boundary (evidence
+      # shipping/routing between the scene and the investigation segment)
+      # is itself a capturable tap point, not just each segment separately.
+      - id: gw
+        kind: router
+        nets:
+          - { net: enterprise, ip: 10.30.10.1 }
+          - { net: soc,        ip: 10.30.20.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+
+      # --- Enterprise segment (the scene) -------------------------------------
+      # Compromised Linux victim — planted benign forensic artifacts. Tapped, so
+      # its traffic becomes the PCAP evidence at the sensor.
+      - id: victim
+        kind: host
+        nets: [ { net: enterprise, ip: 10.30.10.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:audit]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      # Windows endpoint — Sysmon-style telemetry source (substrate). Tapped.
+      - id: workstation
+        kind: host
+        nets: [ { net: enterprise, ip: 10.30.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+
+      # --- SOC / investigation segment ----------------------------------------
+      # DFIR analyst workstation — the OSS forensics kit (FLARE/Redline equivalent).
+      - id: analyst
+        kind: host
+        nets: [ { net: soc, ip: 10.30.20.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # Hunt stack — Security-Onion-style NSM + log search (OpenSearch + Zeek).
+      - id: hunt
+        kind: host
+        nets: [ { net: soc, ip: 10.30.20.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime, kernel:ebpf]
+        resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+  apps:
+    # Compromised victim: plant benign forensic artifacts for the investigation.
+    - id: victim-artifacts
+      install:
+        - { pkg: tcpdump }
+        - { pkg: cron }
+        - { script: ./scripts/victim_artifacts.sh }
+    # DFIR analyst kit: packet/disk/memory/YARA tooling + a hunt playbook.
+    - id: dfir-kit
+      install:
+        - { pkg: tshark }
+        - { pkg: tcpdump }
+        - { pkg: sleuthkit }
+        - { pkg: yara }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: jq }
+        - { script: ./scripts/dfir_kit.sh }
+    # Hunt stack: OpenSearch single-node + Zeek (offline PCAP) + Suricata.
+    - id: hunt-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { pkg: zeek }
+        - { pkg: suricata }
+        - { pkg: jq }
+        - { script: ./scripts/hunt_stack.sh }
+  activity: []
+
+bindings:
+  - { app: victim-artifacts, host: victim }
+  - { app: dfir-kit,         host: analyst }
+  - { app: hunt-stack,       host: hunt }

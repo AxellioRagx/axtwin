@@ -1,0 +1,29 @@
+# corp-twin -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every file stays deployable on
+# its own (`axrange tap deploy twins/corp-twin/tap/default.yaml`); the
+# manifest adds `--twin corp-twin [--variant <stem>]` and `--config corp-twin`.
+#
+# `containment: contained` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block -- not a second copy of the phase. The live
+# phase is what `axrange te info` reads back from `hq-mx`.
+twin:
+  id: corp-twin
+  description: >
+    The corporate HQ network CORP APCN captures, as one contained twin: the
+    real VLAN plan behind an MX85-shaped edge, the axquery discovery cast's
+    hosts and traffic, and the two real mirror points (External TAP, MS120
+    SPAN) delivered to XPress-SW-A. Design: docs/WORK_ORDER_corp_twin.md.
+  cluster: dev45
+  containment: contained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+      variants: [tap/uplink-span.yaml, tap/fanout-suricata.yaml, tap/gate90.yaml]
+    tfc:
+      default: tfc/default.yaml
+      # caprate-max: gate90's assignments at the highest drop-free, protocol-healthy offered load
+      # (2026-10-01, docs/reference/capture-rate/2026-10-01-corp-twin-ladder.md); 0.9-gate deploy only.
+      variants: [tfc/roles.yaml, tfc/exercise.yaml, tfc/gate90.yaml, tfc/caprate-max.yaml]

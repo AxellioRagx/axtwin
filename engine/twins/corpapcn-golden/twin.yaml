@@ -1,0 +1,23 @@
+# corpapcn-golden -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every tier file stays
+# deployable on its own by path; the manifest adds
+# `--config corpapcn-golden` and `--twin corpapcn-golden [--variant <stem>]`.
+#
+# `containment:` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block (D3) -- not a second copy of the posture.
+# An aximprint cast: generated/ holds the id-stemmed topology export and
+# provenance sidecar the imprint API reads (axrange/twinconfig/bundle.py).
+twin:
+  id: corpapcn-golden
+  description: >
+    Cast of CORP APCN (pit-03de65ec67-1787823960, 2026-09-06): the Console's
+    golden fixture.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/cast.yaml
+    tfc:
+      default: tfc/cast.yaml

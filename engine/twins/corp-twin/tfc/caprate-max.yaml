@@ -1,0 +1,108 @@
+# corp-twin -- variant: the CAPTURE-RATE CEILING profile (2026-10-01, docs/reference/capture-rate/
+# 2026-10-01-corp-twin-ladder.md): tfc/gate90.yaml's 84 assignments (same nodes, roles, seeds,
+# schedules) with the offered load raised to the highest rung that kept BOTH zero drops on the
+# whole mirror/capture chain AND the traffic's protocol health within the baseline's noise.
+#
+# How it scales (generator `gen_variant.py 6 --mode burst --min-interval 1 --keep ...`, recorded in the log):
+#   * every emit of the scaled personas fires up to 6x as often (cyclic:N -> burst:max(1, N/6)s;
+#     the 5 s emits clamp at 1 s = x5), with
+#     its messages back-to-back instead of 0.05-0.5 s apart; message SIZE and COUNT are unchanged
+#     (bigger messages do not help: caddy/smbd reset the personas' filler streams after the first
+#     window, so only more connections raise the load);
+#   * the three Windows corp-workstation personas stay UNSCALED (their gate90 ids): scaled, they
+#     made the Windows DC retransmit/dup-ACK on 88/389/3268 (rung R4);
+#   * x8, x12, x16 were capture-clean (zero drops) but made the single external sink (2 vCPU,
+#     caddy) retransmit -- the twin's own limit for this mix; x8 failed 1 of 3 samples over 35 min.
+# Measured (final soak F2, 33 min): 29,945 pps / 244.2 Mbit/s captured at XPress-SW-A, 59.0 M packets,
+# every drop counter 0, protocol-health ratios within the baseline's noise in 3 of 3 samples.
+# Needs the mirror-path state in scripts/mirror-mtu-path.sh (dev45) and GRO off on the sensor
+# (o2/tcpdump-sensor/README.md "Capture offloads and the transport MTU") for the zero-reorder
+# capture; without them it is still drop-free but 5-6 % of TCP segments are captured out of order.
+# **Contain first** (as gate90). Apply against the 0.9-gate deploy only.
+traffic-profile:
+  target: corp-twin
+  assignments:
+  - { role: domain-controller, persona: cast-domain-controller-local-burstwx6, seed: 1845549234, intensity: 50.85925925925926 }
+  - { role: file-server, persona: cast-file-server-burstwx6, seed: 3763576788, intensity: 0.1037037037037037 }
+  - { node: corp-workstation-10-80-48-core01, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-48-core02, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-72-core, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-75-core, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-192-168-core01, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-192-168-core02, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-heavy-10-80-20-core, persona: cast-corp-workstation-heavy-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-64-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-78-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-79-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: dns-resolver-10-0-21-core, persona: cast-dns-resolver-local-burstwx6, schedule: 24x7 }
+  - { node: dns-resolver-10-20-193-core, persona: cast-dns-resolver-burstwx6, schedule: 24x7 }
+  - { node: dns-resolver-10-20-196-core, persona: cast-dns-resolver-burstwx6, schedule: 24x7 }
+  - { node: dns-resolver-10-80-64-core, persona: cast-dns-resolver-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-1-10-core, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core01, persona: cast-generic-endpoint-chatter-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core03, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core04, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core05, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core06, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core07, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core08, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-196-core01, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-196-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-203-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-203-core02, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-204-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-204-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-207-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-207-core02, persona: cast-generic-endpoint-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-64-core, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-73-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-73-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-75-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-75-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-77-core01, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-77-core02, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-192-168-core, persona: cast-generic-endpoint-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-1-10-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-128-215-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-192-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-193-core01, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-193-core02, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-195-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core01, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core02, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core03, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core04, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-201-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-204-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core01, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core01, persona: corp-file-share-client-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core02, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core03, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core04, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-34-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-64-core01, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-64-core02, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-65-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-74-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-75-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-76-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-77-core, persona: cast-generic-endpoint-heavy-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-79-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-192-168-core, persona: cast-generic-endpoint-heavy-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-20-207-core, persona: cast-generic-endpoint-light-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-64-core, persona: cast-generic-endpoint-light-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-65-core, persona: cast-generic-endpoint-light-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-72-core01, persona: cast-generic-endpoint-light-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-72-core02, persona: cast-generic-endpoint-light-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-75-core, persona: cast-generic-endpoint-light-local-burstwx6, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-78-core, persona: cast-generic-endpoint-light-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-20-193-core, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core01, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core02, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core03, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core01, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core02, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core03, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-75-core01, persona: cast-web-tier-burstwx6, schedule: 24x7 }
+  - { node: web-tier-10-80-75-core02, persona: cast-web-tier-burstwx6, schedule: 24x7 }

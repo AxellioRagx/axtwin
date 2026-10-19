@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --page:#f7f8f9; --surface:#fcfcfb; --ink:#14171a; --muted:#6b7280;
+      --border:rgba(20,23,26,0.22); --seg:#eef1f4; --o2:#f0f3f6;
+      --accent:#2a78d6; --accent-soft:#dbe9fb;
+      --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);
+      line-height:1.5;-webkit-font-smoothing:antialiased;}
+    a{color:var(--accent);} a:hover{color:#1b5aa8;}
+    .wrap{padding:40px 44px;}
+    .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.13em;
+      text-transform:uppercase;color:var(--muted);}
+    h1{margin:7px 0 8px;font-size:33px;letter-spacing:-0.02em;font-weight:650;}
+    .sub{margin:0 0 22px;color:var(--muted);max-width:78ch;font-size:15px;line-height:1.55;}
+    .band{display:flex;align-items:center;gap:13px;border-radius:10px;padding:13px 18px;font-size:13.5px;}
+    .hold{background:var(--accent-soft);border:1px solid var(--accent);color:var(--ink);margin-bottom:20px;}
+    .hold .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+      color:var(--accent);font-weight:700;flex:0 0 auto;}
+    .hold code{font-family:var(--mono);font-size:.92em;color:var(--ink);}
+    .lanes{display:flex;flex-direction:column;gap:14px;margin-bottom:20px;}
+    .lane{display:flex;align-items:stretch;gap:16px;}
+    .lane-hd{flex:0 0 214px;display:flex;flex-direction:column;gap:6px;justify-content:center;
+      border-left:3px solid var(--accent);padding-left:14px;}
+    .lane-hd .tk{font-size:14.5px;font-weight:660;letter-spacing:-0.01em;}
+    .lane-hd .mt{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+    .repo{font-family:var(--mono);font-size:10px;letter-spacing:.03em;border-radius:5px;padding:3px 7px;}
+    .repo.ax{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);}
+    .repo.im{background:var(--o2);color:var(--muted);border:1px solid var(--border);}
+    .seam{font-family:var(--mono);font-size:10.5px;color:var(--muted);}
+    .flag{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;border-radius:4px;padding:2px 6px;}
+    .flag.near{background:#e6f2ea;color:#2f7a52;border:1px solid #9dc9af;}
+    .flag.new{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);}
+    .steps{flex:1;display:flex;align-items:center;gap:10px;}
+    .step{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:9px;
+      padding:12px 13px;font-size:12.4px;line-height:1.42;min-height:66px;display:flex;
+      flex-direction:column;justify-content:center;gap:3px;}
+    .step b{font-weight:640;font-size:12.8px;}
+    .step .tag{font-family:var(--mono);font-size:10px;color:var(--accent);}
+    .step .tag.done{color:#2f7a52;}
+    .arrow{flex:0 0 auto;color:var(--muted);opacity:.7;}
+    .converge{display:flex;align-items:center;gap:13px;background:var(--surface);
+      border:1px solid var(--border);border-radius:10px;padding:15px 18px;margin-bottom:16px;}
+    .converge .n{flex:0 0 auto;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.05em;}
+    .converge .t{font-size:13px;color:var(--ink);line-height:1.5;}
+    .converge .t b{font-weight:640;}
+    .serial{background:var(--o2);border:1px solid var(--border);border-left:3px solid var(--muted);color:var(--ink);}
+    .serial .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;flex:0 0 auto;}
+    .serial .t{font-size:12.8px;color:var(--muted);line-height:1.5;}
+    .serial .t b{color:var(--ink);font-weight:640;}
+  </style>
+</helmet>
+<div class="wrap">
+  <div class="eyebrow">integration &middot; parallelization</div>
+  <h1>Three tracks, two repos</h1>
+  <p class="sub">What fans out now, what holds fixed, and where the cluster serializes. The config-out
+    contract already exists in code &mdash; synth is near-done and axRange&rsquo;s expander already
+    accepts it &mdash; so the real parallel effort is the Console (Track&nbsp;C).</p>
+
+  <div class="band hold">
+    <span class="k">Hold fixed</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11 V7 a4 4 0 0 1 8 0 v4"></path></svg>
+    <span>axRange <code>twin_config</code> / <code>tfc</code> / <code>tap</code> <b>schema pin</b> (<code>scenario_schema_version&nbsp;3</code>) &mdash; both sides build against one version.</span>
+  </div>
+
+  <div class="lanes">
+    <!-- Track A -->
+    <div class="lane">
+      <div class="lane-hd">
+        <div class="tk">A &middot; synth &rarr; deployable</div>
+        <div class="mt"><span class="repo im">aximprint</span><span class="seam">seam &#9313;</span><span class="flag near">near-done</span></div>
+      </div>
+      <div class="steps">
+        <div class="step"><b>synth v1</b><span>compiler + network_ir</span><span class="tag done">&#10003; complete</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>expander accepts</b><span>38 nets / 197 nodes / 0 warnings</span><span class="tag done">&#10003; done</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>live round-trip</b><span>deploy on dev45 <span style="color:var(--muted)">&middot; cluster-gated</span></span></div>
+      </div>
+    </div>
+    <!-- Track B -->
+    <div class="lane">
+      <div class="lane-hd">
+        <div class="tk">B &middot; ingest breadth</div>
+        <div class="mt"><span class="repo im">aximprint</span><span class="seam">seam &#9312;</span></div>
+      </div>
+      <div class="steps">
+        <div class="step"><b>Zeek plugin</b><span>first ingest path</span><span class="tag done">&#10003; done</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>Suricata plugin</b><span>normalize to the event model</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>packetXpress</b><span>via <code style="font-family:var(--mono)">xtract</code>/<code style="font-family:var(--mono)">axapi</code></span><span class="tag done">&#10003; read side ready</span></div>
+      </div>
+    </div>
+    <!-- Track C -->
+    <div class="lane">
+      <div class="lane-hd">
+        <div class="tk">C &middot; Console + deploy</div>
+        <div class="mt"><span class="repo ax">axRange</span><span class="seam">UI</span><span class="flag new">greenfield</span></div>
+      </div>
+      <div class="steps">
+        <div class="step"><b>Console UI</b><span>the operator screen</span><span class="tag done">&#10003; designed</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>read + provenance</b><span>belief store &rarr; the sidecar shape</span></div>
+        <span class="arrow"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg></span>
+        <div class="step"><b>&ldquo;deploy as twin&rdquo;</b><span>action &rarr; <code style="font-family:var(--mono)">te &middot; tfc &middot; tap</code></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="converge">
+    <span class="n">PHASE&nbsp;3</span>
+    <span class="t"><b>Reconcile &mdash; seams &#9314;&#9315;.</b> deploy &rarr; recapture &rarr; a second aximprint &rarr; drift &amp; coverage. The serialized tail: needs a real deploy first (Track&nbsp;A&rsquo;s live round-trip lands here too), so it&rsquo;s last by nature.</span>
+  </div>
+
+  <div class="band serial">
+    <span class="k">Serializes on dev45</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7 v5 l3 2"></path></svg>
+    <span class="t">The planner&rsquo;s cross-process lease + the gated live-verify queue twin deploys on the cluster; each run needs your go-ahead. <b>Code / test / review across the tracks runs concurrently &mdash; only the on-cluster proof queues.</b></span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

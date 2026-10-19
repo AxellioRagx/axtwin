@@ -1,0 +1,19 @@
+# Grafana dashboard provider — loads the axRange dashboards (JSON) from the
+# mounted /var/lib/grafana/dashboards directory. Provisioned so dashboards live
+# in git, not in Grafana's DB.
+
+apiVersion: 1
+
+providers:
+  - name: axRange
+    orgId: 1
+    folder: axRange
+    type: file
+    disableDeletion: false
+    # Allow the operator to tweak in the UI; changes are NOT written back to the
+    # JSON (provisioned). updateIntervalSeconds re-reads the files for git pulls.
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

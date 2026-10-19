@@ -1,0 +1,21 @@
+# svc-verify -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every tier file stays
+# deployable on its own by path; the manifest adds
+# `--config svc-verify` and `--twin svc-verify [--variant <stem>]`.
+#
+# `containment:` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block (D3) -- not a second copy of the posture.
+twin:
+  id: svc-verify
+  description: >
+    Verify twin for the row-5 server half: aximprint's real serve-*.sh recipes
+    (bind9, nginx TLS, chrony) plus a real AD DS DC and a joined client.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

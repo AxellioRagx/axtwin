@@ -1,0 +1,10 @@
+# web-lab.tfc.yaml   →   axrange tfc apply web-lab --profile web-lab.tfc.yaml
+traffic_profile:
+  twin: web-lab
+  assignments:
+    - host: web
+      persona: web-tier             # real-service: nginx serving on :80
+    - host: client
+      persona: web-client           # scripted: HTTP GETs at 10.20.0.10
+      intensity: 1.0
+      schedule: 24x7

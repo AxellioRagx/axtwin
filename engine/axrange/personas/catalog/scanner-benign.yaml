@@ -1,0 +1,42 @@
+# An AUTHORIZED vulnerability scan: enormous flow count, trivial bytes.
+#
+# The value here is not volume -- it is that this is benign traffic shaped
+# exactly like reconnaissance. A range whose blue team can only distinguish
+# "scan" from "not scan" teaches a habit that fails on contact with a real
+# network, where sanctioned scanning runs on a schedule. This persona is the
+# false-positive source that forces detection rules to be tuned on something
+# other than "saw a port sweep".
+#
+# `peer_scope: all` fans each emit across every host holding the role
+# (excluding this instance's own), so flow count scales with twin size --
+# `volume: high` cycles 24 probes over the 6 ports, per host.
+persona:
+  id: scanner-benign
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: tcp
+      ports: [22, 80, 443, 445, 3389, 5985]
+      peer_role: corp-workstation
+      peer_scope: all
+      bytes: 64
+      direction: EW
+      cadence: "burst:15m"
+      volume: high
+    - proto: snmp
+      ports: [161]
+      peer_role: monitoring-collector
+      transport: udp
+      bytes: 128
+      direction: EW
+      cadence: "burst:15m"
+      volume: med
+    # The credentialed half of an authenticated scan.
+    - proto: ssh
+      ports: [22]
+      peer_role: bastion-jump
+      direction: EW
+      cadence: "burst:15m"
+      volume: low
+  requires: [corp-workstation, monitoring-collector, bastion-jump]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

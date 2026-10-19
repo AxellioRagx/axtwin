@@ -1,0 +1,649 @@
+{
+  "scorecard_version": "1",
+  "generated_at": "2026-09-05T00:00:00Z",
+  "verdict": "incomplete",
+  "subject": {
+    "deploy_id": "mini-cast-golden",
+    "scenario_id": "mini-cast",
+    "plan_id": "mini-cast-cca2b770",
+    "ir_hash": "cca2b7705f03d34fe7b5ba81373bd475b741051c132368c6358a5a0797463523",
+    "deploy_status": "completed",
+    "tier": "te",
+    "hosts": 6,
+    "hosts_deployed": 6,
+    "planned_not_deployed": 0,
+    "segments": 3,
+    "deploy_threshold": {
+      "confirmed": true,
+      "config_id": "mini-cast",
+      "gate_active": true,
+      "threshold": 0.8,
+      "threshold_source": "deploy gate (confirmed by ir_hash re-expansion)",
+      "min_occupancy": 0.8,
+      "min_role_confidence": 0.0,
+      "emitted_nodes": 6,
+      "gated_nodes": [
+        "thin-endpoint"
+      ],
+      "gated_segments": [
+        "seg-thin"
+      ],
+      "reason": null
+    }
+  },
+  "reference": {
+    "bundle": "<BUNDLE-DIR>",
+    "bundle_id": "mini-cast",
+    "pit_id": "pit-mini-0000000001",
+    "network": "minicorp",
+    "vantage": "https://10.1.0.2:0-5",
+    "windows": 5,
+    "as_of": 1787823960.0,
+    "census": {
+      "entities_total": 9,
+      "local": 8,
+      "placed": 8,
+      "with_role": 6
+    },
+    "topology_schema_version": "1.3",
+    "topology_export": "present",
+    "provenance_sidecar": "absent",
+    "provenance_schema": null,
+    "evidence_source": "re-derived from topology export",
+    "provenance_fields": 0,
+    "overridden_fields": [],
+    "overridden_field_count": 0,
+    "fingerprint": "absent",
+    "twin_groups": 6,
+    "twin_segments": 4,
+    "expanded_nodes": 7,
+    "expanded_hosts": 6,
+    "observed_nodes": 9,
+    "observed_edges": 4,
+    "observed_segments": 4
+  },
+  "gate_set": {
+    "policy": "category: structural + behavioral (spec \u00a73.3)",
+    "gating": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "provisional": [
+      6,
+      8,
+      9,
+      10
+    ],
+    "deferred": [
+      4,
+      6,
+      7
+    ],
+    "reported": [
+      9,
+      11
+    ]
+  },
+  "rows": [
+    {
+      "row": 1,
+      "dimension": "asset",
+      "category": "structural",
+      "channel": "wire+reference",
+      "status": "gates",
+      "verdict": "fail",
+      "provisional": false,
+      "reason": null,
+      "granularity": "group",
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 6,
+        "referenced": 0,
+        "imputed": 5,
+        "compiler": 5,
+        "unclassified": 1
+      },
+      "measured": {
+        "windows": 5,
+        "threshold_occupancy": 0.8,
+        "threshold_windows_seen": 4.0,
+        "threshold_source": "deploy gate (confirmed by ir_hash re-expansion)",
+        "observed_placed": 8,
+        "observed_above_threshold": 6,
+        "observed_below_bar": 2,
+        "observed_below_bar_hosts": [
+          "address:10.1.0.14",
+          "address:10.1.2.11"
+        ],
+        "observed_below_bar_hosts_count": 2,
+        "below_deploy_threshold_nodes": [
+          "thin-endpoint"
+        ],
+        "below_deploy_threshold_nodes_count": 1,
+        "role_less_above_threshold": [
+          "address:10.1.0.13"
+        ],
+        "role_less_above_threshold_count": 1,
+        "uncovered_groups": [
+          {
+            "role": "db-tier",
+            "segment": "seg-data",
+            "observed_above_threshold": 2,
+            "emitted": 1,
+            "unreproduced": [
+              "address:10.1.1.12"
+            ]
+          },
+          {
+            "role": "generic-endpoint",
+            "segment": "seg-missing",
+            "observed_above_threshold": 1,
+            "emitted": 0,
+            "unreproduced": [
+              "address:10.1.3.11"
+            ]
+          }
+        ],
+        "uncovered_groups_count": 2,
+        "unreproduced_hosts": [
+          "address:10.1.0.13",
+          "address:10.1.1.12",
+          "address:10.1.3.11"
+        ],
+        "unreproduced_hosts_count": 3,
+        "unreproduced_host_count": 3,
+        "twin_groups_deployed": 5,
+        "twin_hosts_deployed": 6,
+        "planned_not_deployed": [],
+        "planned_not_deployed_count": 0,
+        "evidence_source": "re-derived from topology export",
+        "evidence_note": "counts one segment-placement fact and one role fact per evaluated observed host, read from the export's own *_evidence_class fields, plus the TWIN side's facts -- read from the provenance sidecar's `fields` when one was consumed (`evidence_source: sidecar fields`), else one `compiler` fact per emitted group (image/sizing). A fact the reference declares no class for is `unclassified`, never promoted to `observed`.",
+        "deploy_gate": {
+          "confirmed": true,
+          "config_id": "mini-cast",
+          "gate_active": true,
+          "threshold": 0.8,
+          "threshold_source": "deploy gate (confirmed by ir_hash re-expansion)",
+          "min_occupancy": 0.8,
+          "min_role_confidence": 0.0,
+          "emitted_nodes": 6,
+          "gated_nodes": [
+            "thin-endpoint"
+          ],
+          "gated_segments": [
+            "seg-thin"
+          ],
+          "reason": null
+        }
+      },
+      "clauses": [
+        {
+          "clause": "occupancy",
+          "verdict": "fail",
+          "detail": "3 of 6 observed placed hosts at or above windows_seen >= 4 are covered by their (role, segment) group; role-less (and therefore absent from the cast): 1",
+          "reason": null,
+          "evidence_class": null,
+          "scored": true
+        },
+        {
+          "clause": "os_family",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "the topology export carries no OS attribute; OS family is imputed from the inferred role and is not scored until the reference channel lands (spec \u00a73.1, ruled 2026-09-04)",
+          "evidence_class": "imputed",
+          "scored": false
+        },
+        {
+          "clause": "image_and_sizing",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "image and resources are catalog defaults chosen by the cast compiler, reported as `compiler` and not scored (spec \u00a73.1)",
+          "evidence_class": "compiler",
+          "scored": false
+        },
+        {
+          "clause": "below_deploy_threshold",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "1 node spec(s) are observed, below deploy threshold at DEPLOY_MIN_OCCUPANCY=0.8 -- reported, never failed (\u00a73.4)",
+          "evidence_class": null,
+          "scored": false
+        }
+      ]
+    },
+    {
+      "row": 2,
+      "dimension": "topology",
+      "category": "structural",
+      "channel": "wire",
+      "status": "gates",
+      "verdict": "fail",
+      "provisional": false,
+      "reason": null,
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 7,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 1,
+        "unclassified": 0
+      },
+      "measured": {
+        "observed_segments": 4,
+        "twin_segments_declared": 4,
+        "twin_segments_deployed": 3,
+        "twin_segments_attached": 3,
+        "missing_segments": [
+          "seg-missing"
+        ],
+        "missing_segments_count": 1,
+        "missing_segment_count": 1,
+        "below_threshold_segments": [
+          "seg-thin"
+        ],
+        "below_threshold_segments_count": 1,
+        "twin_only_segments": [
+          "internet-sink"
+        ],
+        "twin_only_segments_count": 1,
+        "declared_not_attached": [],
+        "declared_not_attached_count": 0,
+        "attached_not_declared": [],
+        "attached_not_declared_count": 0,
+        "observed_cross_segment_pairs": 3,
+        "pairs_touching_missing_segment": [
+          "seg-corp|seg-missing"
+        ],
+        "pairs_touching_missing_segment_count": 1,
+        "pairs_without_router_leg": [],
+        "pairs_without_router_leg_count": 0,
+        "pairs_out_of_deployment_scope": [
+          "seg-corp|seg-thin"
+        ],
+        "pairs_out_of_deployment_scope_count": 1,
+        "router_segments": 3,
+        "planned_not_deployed": [],
+        "planned_not_deployed_count": 0,
+        "evidence_source": "re-derived from topology export",
+        "deploy_gate": {
+          "confirmed": true,
+          "config_id": "mini-cast",
+          "gate_active": true,
+          "threshold": 0.8,
+          "threshold_source": "deploy gate (confirmed by ir_hash re-expansion)",
+          "min_occupancy": 0.8,
+          "min_role_confidence": 0.0,
+          "emitted_nodes": 6,
+          "gated_nodes": [
+            "thin-endpoint"
+          ],
+          "gated_segments": [
+            "seg-thin"
+          ],
+          "reason": null
+        }
+      },
+      "clauses": [
+        {
+          "clause": "segment_mapping",
+          "verdict": "fail",
+          "detail": "2 of 4 observed segments map to a deployed twin segment; with none: 1; below the deploy threshold: 1",
+          "reason": null,
+          "evidence_class": null,
+          "scored": true
+        },
+        {
+          "clause": "cross_segment_routing",
+          "verdict": "fail",
+          "detail": "1 of 3 observed local cross-segment pairs have both ends deployed and a router leg on each; touching a segment the twin lacks: 1; with no router leg: 0; out of deployment scope: 1",
+          "reason": null,
+          "evidence_class": null,
+          "scored": true
+        },
+        {
+          "clause": "below_deploy_threshold",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "1 observed segment(s) and 1 pair(s) are observed, below deploy threshold (deploy gate (confirmed by ir_hash re-expansion)) -- reported, never failed (\u00a73.4)",
+          "evidence_class": null,
+          "scored": false
+        },
+        {
+          "clause": "twin_only_segments",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "1 twin segment(s) have no observed counterpart (internet-sink) -- synthetic, chosen by the cast compiler; reported as `compiler`, not scored",
+          "evidence_class": "compiler",
+          "scored": false
+        }
+      ]
+    },
+    {
+      "row": 3,
+      "dimension": "configuration",
+      "category": "structural",
+      "channel": "reference",
+      "status": "gates",
+      "verdict": "pass",
+      "provisional": false,
+      "reason": null,
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 4,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {
+        "groups_with_install": 1,
+        "declared_hosts": 2,
+        "declared_actions": 4,
+        "unapplied": [],
+        "unapplied_count": 0,
+        "hosts_missing_from_roster": [],
+        "hosts_missing_from_roster_count": 0,
+        "planned_not_deployed": [],
+        "planned_not_deployed_count": 0,
+        "provision_app_completed": 2,
+        "run_script_completed": 2,
+        "evidence_source": "re-derived from topology export",
+        "conditional_ops_note": "provision-app and run-script are CONDITIONAL ops -- they fire only for a host whose group declares install: (LES-095), so their op counts are not a coverage measure. Host existence comes from the inventory, built from unconditional clone-vm, and only hosts whose clone-vm COMPLETED are scored. Only COMPLETED op rows are read (LES-113/LES-159)."
+      },
+      "clauses": [
+        {
+          "clause": "declared_vs_applied",
+          "verdict": "pass",
+          "detail": "4 of 4 declared install actions across 2 placed host(s) are applied",
+          "reason": null,
+          "evidence_class": null,
+          "scored": true
+        },
+        {
+          "clause": "role_to_install_mapping",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "the role-to-install mapping lives in aximprint's role catalog, which axRange must not import; it is reported imputed and never scored (ruled spec \u00a78.2)",
+          "evidence_class": "imputed",
+          "scored": false
+        }
+      ]
+    },
+    {
+      "row": 4,
+      "dimension": "state",
+      "category": "operational",
+      "channel": "reference+in-guest",
+      "status": "deferred",
+      "verdict": "not-computed",
+      "provisional": false,
+      "reason": "deferred for the first golden (spec \u00a73.3/\u00a78.1); run it with --include-deferred, where it is reported and never gates",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {
+        "declared_listen_hosts": 3,
+        "declared_listen_facts": 4,
+        "declared_not_observed": 1,
+        "observed_not_declared": 2,
+        "declared_not_observed_facts": [
+          {
+            "host": "db-tier",
+            "port": 8080,
+            "transport": "tcp"
+          }
+        ],
+        "declared_not_observed_facts_count": 1,
+        "observed_not_declared_facts": [
+          {
+            "host": "web-tier01",
+            "port": 443,
+            "transport": "tcp"
+          },
+          {
+            "host": "web-tier02",
+            "port": 443,
+            "transport": "tcp"
+          }
+        ],
+        "observed_not_declared_facts_count": 2,
+        "declared_note": "the DECLARED listen set (App.listen) is reported against the observed one for diagnosis only -- a declaration is not evidence and enters no verdict rule; row 4 (in-guest ss) and row 5 (a protocol-aware probe) remain the measurement of record"
+      },
+      "clauses": []
+    },
+    {
+      "row": 5,
+      "dimension": "protocol",
+      "category": "behavioral",
+      "channel": "wire",
+      "status": "gates",
+      "verdict": "not-computed",
+      "provisional": false,
+      "reason": "the in-guest probe did not run (--no-probe, or ?probe=false) -- 3 observed listen fact(s) across 3 host(s) are unmeasured",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 3
+      },
+      "measured": {
+        "observed_listen_facts": 3,
+        "observed_listen_hosts": 3,
+        "observed_placed_hosts": 8,
+        "port_set": [
+          "443/tcp",
+          "5432/tcp",
+          "80/tcp"
+        ],
+        "port_set_count": 3,
+        "excluded_total": 1,
+        "excluded_not_a_service": 0,
+        "excluded_no_probe": 0,
+        "excluded_below_deploy_threshold": 1,
+        "excluded_facts": [
+          {
+            "fact": "address:10.1.2.11:53/udp",
+            "port": 53,
+            "transport": "udp",
+            "reason": "observed host is observed, below deploy threshold (deploy gate (confirmed by ir_hash re-expansion)) -- reported, never failed",
+            "category": "below deploy threshold"
+          }
+        ],
+        "excluded_facts_count": 1,
+        "declared_listen_hosts": 3,
+        "declared_listen_facts": 4,
+        "declared_not_observed": 1,
+        "observed_not_declared": 2,
+        "declared_not_observed_facts": [
+          {
+            "host": "db-tier",
+            "port": 8080,
+            "transport": "tcp"
+          }
+        ],
+        "declared_not_observed_facts_count": 1,
+        "observed_not_declared_facts": [
+          {
+            "host": "web-tier01",
+            "port": 443,
+            "transport": "tcp"
+          },
+          {
+            "host": "web-tier02",
+            "port": 443,
+            "transport": "tcp"
+          }
+        ],
+        "observed_not_declared_facts_count": 2,
+        "declared_note": "the DECLARED listen set (App.listen) is reported against the observed one for diagnosis only -- a declaration is not evidence and enters no verdict rule; row 4 (in-guest ss) and row 5 (a protocol-aware probe) remain the measurement of record",
+        "denominator_note": "the denominator is the observed SERVICE listens on deployed hosts at or above the deploy threshold. Excluded, each published above with its own reason and count: 443/udp, 3389/udp, 9997/tcp as 'no protocol-aware probe'; every port >= 49152 (the IANA dynamic/ephemeral floor), 7680/tcp as 'not a service'; and every fact below the deploy threshold (reported, never failed). The exclusion set is derived from axrange.fidelity.probe._EXCLUSIONS, never restated -- see docs/PRODUCT_GAPS.md GAP-061..064 for why each one is in it.",
+        "evidence_source": "re-derived from topology export"
+      },
+      "clauses": [
+        {
+          "clause": "below_deploy_threshold",
+          "verdict": "not-computed",
+          "detail": null,
+          "reason": "1 observed listen fact(s) are observed, below deploy threshold (deploy gate (confirmed by ir_hash re-expansion)) -- excluded from the denominator, reported, never failed (\u00a73.4)",
+          "evidence_class": null,
+          "scored": false
+        }
+      ]
+    },
+    {
+      "row": 6,
+      "dimension": "performance",
+      "category": "operational",
+      "channel": "wire",
+      "status": "deferred",
+      "verdict": "not-computed",
+      "provisional": true,
+      "reason": "deferred by the category rule (spec \u00a73.3) AND needs the fingerprint seam file (\u00a78.2), which no cast bundle carries yet; its tolerance stays provisional until spec v1.1 (spec \u00a78.3)",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {},
+      "clauses": []
+    },
+    {
+      "row": 7,
+      "dimension": "security",
+      "category": "operational",
+      "channel": "reference+wire",
+      "status": "deferred",
+      "verdict": "not-computed",
+      "provisional": false,
+      "reason": "deferred for the first golden (spec \u00a78.1): the reference channel (LDIF directory export) is unbuilt, and the firewall clause is a recorded reproduction gap that cannot pass in v1 regardless of input quality (spec \u00a73.2)",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {},
+      "clauses": []
+    },
+    {
+      "row": 8,
+      "dimension": "dependency",
+      "category": "structural",
+      "channel": "wire",
+      "status": "reported",
+      "verdict": "not-computed",
+      "provisional": true,
+      "reason": "the fingerprint seam file (<id>.fingerprint.json, docs/WORK_ORDER_fidelity_scorecard.md \u00a78.2) is absent -- rows 8/9/10 need BOTH sides' axis dicts plus a recapture of the deployed twin, and axRange cannot import aximprint's shape_fingerprint.py to compute one",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {},
+      "clauses": []
+    },
+    {
+      "row": 9,
+      "dimension": "temporal",
+      "category": "behavioral",
+      "channel": "wire",
+      "status": "reported",
+      "verdict": "not-computed",
+      "provisional": true,
+      "reason": "the fingerprint seam file (<id>.fingerprint.json, docs/WORK_ORDER_fidelity_scorecard.md \u00a78.2) is absent -- rows 8/9/10 need BOTH sides' axis dicts plus a recapture of the deployed twin, and axRange cannot import aximprint's shape_fingerprint.py to compute one; row 9 additionally needs an hourly activity envelope over a >= 24 h capture (\u00a78.3)",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {},
+      "clauses": []
+    },
+    {
+      "row": 10,
+      "dimension": "behavioral",
+      "category": "behavioral",
+      "channel": "wire",
+      "status": "reported",
+      "verdict": "not-computed",
+      "provisional": true,
+      "reason": "the fingerprint seam file (<id>.fingerprint.json, docs/WORK_ORDER_fidelity_scorecard.md \u00a78.2) is absent -- rows 8/9/10 need BOTH sides' axis dicts plus a recapture of the deployed twin, and axRange cannot import aximprint's shape_fingerprint.py to compute one",
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {},
+      "clauses": []
+    },
+    {
+      "row": 11,
+      "dimension": "visual",
+      "category": "\u2014",
+      "channel": "console",
+      "status": "reported",
+      "verdict": "not-attested",
+      "provisional": false,
+      "reason": null,
+      "granularity": null,
+      "evidence": {
+        "asserted": 0,
+        "imported": 0,
+        "observed": 0,
+        "referenced": 0,
+        "imputed": 0,
+        "compiler": 0,
+        "unclassified": 0
+      },
+      "measured": {
+        "how": "compare the Console's ImprintTopologyPanel against DeployedTopology side by side, then record the attestation with --attest-visual \"<note>\""
+      },
+      "clauses": []
+    }
+  ],
+  "warnings": [
+    "provenance sidecar absent (this bundle was installed before the installer copied the sidecar, or was produced by an older cast) -- evidence classes are RE-DERIVED by axRange from the topology export, not read from the producer (docs/WORK_ORDER_fidelity_scorecard.md \u00a78.1)"
+  ]
+}

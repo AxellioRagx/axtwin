@@ -1,0 +1,25 @@
+persona:
+  id: web-tier
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: https
+      ports: [443]
+      peer_role: internet
+      direction: NS
+      cadence: 24x7
+      volume: high
+    - proto: mysql
+      ports: [3306]
+      peer_role: db-tier
+      optional: true
+      direction: EW
+      cadence: 24x7
+      volume: med
+  # A web tier with no database behind it is a static site or a reverse proxy --
+  # realistic, and common in a twin cast from real traffic where no DB was observed.
+  # Not structural (GAP-C5).
+  requires: []
+  # GAP-032: assert against nginx -- the HTTP(S)-inbound daemon fronting
+  # this tier before its own backend->db-tier calls.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: nginx }

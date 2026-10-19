@@ -1,0 +1,127 @@
+scenario_schema_version: 1
+
+scenario:
+  id: vuln-management-lab
+  version: 1
+  description: |
+    Corpus-derived Vulnerability Management lab (Stage-2 of the scenario-ai-research).
+
+    NEW archetype (the 324-video corpus made vulnerability management one of its
+    largest themes — 29 videos): the Josh Madakor "Vulnerability Management with
+    Tenable" labs, "Vulnerability Management Program from start to finish", STIG
+    compliance scanning, Greenbone/OpenVAS scanning, patch management, and the
+    "scan -> triage -> remediate -> rescan" lifecycle. Tenable/Nessus are
+    commercial; the deployable OSS stand-in is Greenbone Community Edition.
+
+    The range is a scan/target split joined by a router: a MANAGEMENT segment with
+    the Greenbone scanner + an analyst/triage host, and a SERVERS segment holding a
+    deliberately vulnerable mixed-OS fleet (an outdated web stack, a weak-services
+    Linux box in the Metasploitable mould, and a Windows target). The scanner
+    sweeps the servers segment across the router; targets are tapped so scan and
+    (deferred) exploit traffic reaches the capture sensor.
+
+    SCOPE — deployable here: Infrastructure (mgmt + servers segments, router) +
+    Apps & Tools on the Linux hosts (Greenbone scanner, vulnerable web + weak
+    services, analyst kit). Passes `axrange validate` and `axrange plan`. DEFERRED
+    (designed, not deployed; CORPUS_DIGEST.md §5):
+      - the scan/remediate ACTIVITY (kick a Greenbone scan, triage findings, apply
+        patches, rescan to confirm closure) via OP-ACT;
+      - STIG/CIS hardening + patch application as `config`/`role` install kinds;
+      - the remediation-tracking overlay (findings -> tickets -> SLA) via OP-OVL.
+    The Windows target deploys as substrate (its weak-config is part of the
+    deferred Windows provisioning).
+
+layers:
+  infra:
+    networks:
+      # gateways are the gw router's LAN IPs (router slice Phase 2: egress NAT +
+      # mgmt<->servers routing so the scanner can reach the fleet).
+      - { id: mgmt,    cidr: 10.90.10.0/24, vlan: 120, gateway: 10.90.10.1 }
+      - { id: servers, cidr: 10.90.20.0/24, vlan: 121, gateway: 10.90.20.1 }
+    nodes:
+      # Router — egress NAT + inter-segment routing (scanner -> fleet).
+      # Multi-homed across mgmt/servers; tapped so the scan traffic crossing
+      # the mgmt<->servers boundary is itself a capturable tap point.
+      - id: gw
+        kind: router
+        nets:
+          - { net: mgmt,    ip: 10.90.10.1 }
+          - { net: servers, ip: 10.90.20.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+
+      # --- Management segment --------------------------------------------------
+      # Greenbone Community vulnerability scanner (the OSS Tenable/Nessus stand-in),
+      # run containerized.
+      - id: scanner
+        kind: host
+        nets: [ { net: mgmt, ip: 10.90.10.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+      # Analyst / triage host — track findings, drive the remediation lifecycle.
+      - id: analyst
+        kind: host
+        nets: [ { net: mgmt, ip: 10.90.10.20 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+
+      # --- Servers segment (the vulnerable fleet) ------------------------------
+      # Outdated web stack — an obvious scan finding. Tapped.
+      - id: web-old
+        kind: host
+        nets: [ { net: servers, ip: 10.90.20.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Weak-services Linux box (Metasploitable mould) — anon FTP, open share. Tapped.
+      - id: linux-tgt
+        kind: host
+        nets: [ { net: servers, ip: 10.90.20.20 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Windows target — substrate; the corpus's mixed-OS scan fleet. Tapped.
+      - id: win-tgt
+        kind: host
+        nets: [ { net: servers, ip: 10.90.20.30 } ]
+        image: win11-finance@v4
+        requires: [windows]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+  apps:
+    # Greenbone Community Edition via Docker compose (the scanner).
+    - id: scanner-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { pkg: jq }
+        - { script: ./scripts/scanner_setup.sh }
+    # Analyst kit: scanning/recon + a findings tracker scaffold.
+    - id: analyst-kit
+      install:
+        - { pkg: nmap }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: jq }
+        - { script: ./scripts/analyst_setup.sh }
+    # Outdated/vulnerable web stack (a scan finding surface).
+    - id: web-old-stack
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+        - { script: ./scripts/web_old.sh }
+    # Deliberately weak services (anon FTP, world-readable share) — lab target.
+    - id: weak-svc
+      install:
+        - { pkg: vsftpd }
+        - { pkg: samba }
+        - { script: ./scripts/weak_services.sh }
+  activity: []
+
+bindings:
+  - { app: scanner-stack, host: scanner }
+  - { app: analyst-kit,   host: analyst }
+  - { app: web-old-stack, host: web-old }
+  - { app: weak-svc,      host: linux-tgt }

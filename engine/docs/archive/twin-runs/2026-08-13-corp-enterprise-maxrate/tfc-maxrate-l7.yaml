@@ -1,0 +1,37 @@
+# corp-enterprise -- max-capture-rate ramp, rung 7 (dev45, 2026-08-13).
+#
+# The twin's FULL generating capacity: 12 senders, every host that can emit.
+#   dmz          mail-server + egress-proxy + dmz-web   loadgen-l4     (3, Linux)
+#   corp-lan     attacker -> the workstation fleet      loadgen-corp   (1, Linux)
+#   server-vlan  file-server -> domain-controller       loadgen-srv    (1, Linux)
+#   corp-lan     the 6 corp-workstations, meshed        loadgen-win    (6, Windows)
+#   mgmt         monitoring-collector -> gw             loadgen-mgmt   (1, Linux)
+#
+# Measured split at rung 6: the 5 Linux senders offer ~2,449 Mbit/s (~490 each,
+# each pegging one core), the 6 Windows senders ~80 Mbit/s (~13 each). The
+# PowerShell emitter is roughly 40x weaker per host, so the fleet is breadth,
+# not a second Linux-scale step -- rung 7's real addition is the 6th Linux
+# sender on mgmt.
+#
+# Pair with tap-maxrate-all.yaml (all four segments). Pairing it with the
+# three-segment wide plan would generate mgmt traffic that is never captured.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles-loadgen.yaml
+
+  assignments:
+    - role: loadgen
+      persona: loadgen-l4
+      schedule: 24x7
+    - node: attacker
+      persona: loadgen-corp
+      schedule: 24x7
+    - node: file-server
+      persona: loadgen-srv
+      schedule: 24x7
+    - role: corp-workstation
+      persona: loadgen-win
+      schedule: 24x7
+    - node: monitoring-collector
+      persona: loadgen-mgmt
+      schedule: 24x7

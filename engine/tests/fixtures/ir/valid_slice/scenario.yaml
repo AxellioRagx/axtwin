@@ -1,0 +1,49 @@
+scenario_schema_version: 1
+
+scenario:
+  id: slice-demo
+  version: 1
+  description: |
+    First-slice demo scenario (docs/ADAPTER.md §6).
+
+    Two Linux hosts on one network (capture is now a standalone tap-plan
+    concern against the deployed twin's published topology -- `docs/
+    WORK_ORDER_tap_eligibility.md`, Authority: user, 2026-07-28 -- not
+    authored here). The operator generates traffic by hand (ping/iperf
+    between h-a and h-b) after deploy; a tap plan's per-VM OVS mirror sends
+    frames out a GRE tunnel to the capture sensor, which writes pcaps to
+    /captures/.
+
+    Maps to ADAPTER.md §6 done-criteria 1-5:
+      1. axrange validate         passes on this file
+      2. axrange plan             shows the ~16-op DAG with correct ordering
+      3. axrange deploy           brings up both VMs, attached + mirrored
+      4. manual ping/iperf        produces pcaps in the sensor's /captures/
+      5. axrange status           shows the per-op tree from the state store
+
+layers:
+  infra:
+    networks:
+      - id: corp
+        cidr: 10.10.0.0/24
+        vlan: 10
+        gateway: 10.10.0.1
+    nodes:
+      - id: h-a
+        kind: host
+        nets:
+          - { net: corp, ip: 10.10.0.10 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      - id: h-b
+        kind: host
+        nets:
+          - { net: corp, ip: 10.10.0.11 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  apps: []
+  activity: []
+
+bindings: []

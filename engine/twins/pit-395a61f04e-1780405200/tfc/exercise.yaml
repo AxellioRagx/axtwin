@@ -1,0 +1,29 @@
+# Iteration 2/3: drive the client roles to exercise the twin's internal servers.
+#
+# Iteration 2 (Linux, disco-exercise): the Linux client roles (generic-endpoint, unroled-endpoint,
+# web-tier) dial the internal servers on their declared ports. This recovered every Linux-served
+# service (HTTPS/HTTP/DNS/SMB) but left the Windows-served ones (Kerberos/LDAP/RPC/RDP) flat --
+# Windows Firewall refused the Linux clients dialing in from other subnets.
+#
+# Iteration 3 (Windows, disco-exercise-win): corp-workstation is RE-ADDED here, now assigned the
+# WINDOWS branch persona disco-exercise-win (os_family: windows). This SUPERSEDES the Iteration 2
+# note that removed corp-workstation: that removal existed only because disco-exercise is
+# os_family: linux and a /bin/sh launch over the Windows QGA failed (16 failed ops). The Windows
+# persona runs natively on the win11 workstations (PowerShell/Scheduled Task) AND makes the
+# domain-joined workstations dial the DC (Kerberos 88, LDAP 389/3268, SMB 445) and each other
+# (RPC 135, RDP 3389) as native Windows-to-Windows domain traffic -- expected to pass where the
+# Linux clients were refused.
+#
+# tfc deploy ids are keyed on the twin (plan_id = tfc-<twin>), so this re-applies onto the
+# existing tfc deploy rather than creating a separate one.
+traffic-profile:
+  target: pit-395a61f04e-1780405200
+  assignments:
+  - role: generic-endpoint
+    persona: disco-exercise
+  - role: unroled-endpoint
+    persona: disco-exercise
+  - role: web-tier
+    persona: disco-exercise
+  - role: corp-workstation
+    persona: disco-exercise-win

@@ -1,0 +1,19 @@
+# /etc/udev/rules.d/99-capture-promisc.rules
+#
+# Puts the cyber-range capture NIC into PROMISC mode at boot. This is the
+# ONLY mechanism that sets PROMISC for the capture appliance: tcpdump itself
+# runs with -p (no auto-toggle), because tcpdump's automatic PROMISC handling
+# is coarse (only set/cleared at tcpdump start/stop, lost on rotation in some
+# edge cases) and we want a single authoritative source of truth.
+#
+# This file is a template. o2/tcpdump-sensor/install.sh substitutes @CAPTURE_IF@ with the
+# value of CAPTURE_IF from /etc/capture/capture.conf at install time. The
+# substituted, on-disk file is /etc/udev/rules.d/99-capture-promisc.rules.
+#
+# NOTE: NIC offloads (gro/lro/tso/gso) are NOT set here. capture-start (in
+# capture.service ExecStart) re-applies `ethtool -K ... off off off off` on
+# every service start, which is robust against driver reload, NIC reset,
+# and operator-applied ethtool changes.
+
+ACTION=="add", SUBSYSTEM=="net", NAME=="@CAPTURE_IF@", RUN+="/usr/sbin/ip link set %k promisc on"
+ACTION=="change", SUBSYSTEM=="net", NAME=="@CAPTURE_IF@", RUN+="/usr/sbin/ip link set %k promisc on"

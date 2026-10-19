@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aximprint"
+version = "0.0.1"
+description = "Learn a network's imprint from sensor metadata; cast it as a digital twin config"
+# 3.11 is the floor because `acquire/auth.py` reads config.toml with the stdlib `tomllib`,
+# added in 3.11 (inherited from xtract's own floor, CHANGELOG 2026-08-04 tomllib decision,
+# ratified as D4 of docs/WORK_ORDER_merge_xtract_acquire.md — measured free: both
+# interpreters on the reference host are already 3.12.13, so no venv rebuild).
+requires-python = ">=3.11"
+# Deliberately thin (CLAUDE.md "Design authority and the risk gate") — `requests`,
+# `acquire`'s only runtime dependency beyond the stdlib, is NOT here: it lives in the
+# `acquire` extra below (D4), so the discovery pipeline installs and runs with no
+# acquisition stack present at all.
+dependencies = ["duckdb>=0.10", "pyyaml>=6.0"]
+
+[project.optional-dependencies]
+# `ruff` here (fix round, docs/WORK_ORDER_merge_xtract_acquire.md D7) so the gate's
+# MEANING — which ruff version `CLAUDE_VERIFY_STEPS`' `ruff check src/aximprint/acquire
+# tests/acquire` runs under — lives in this repo's own dependency graph rather than in
+# whatever `ruff` binary happens to be first on a given host's PATH (previously
+# `~/.local/bin/ruff`, a host tool with no version pin recorded anywhere in-repo).
+dev = ["pytest>=8.0", "ruff"]
+# `pip install -e ".[acquire]"` — required only for `aximprint acquire {streams,pcap,harvest}`
+# (docs/WORK_ORDER_merge_xtract_acquire.md D4). A missing extra fails loud, naming this
+# exact command, rather than an ImportError traceback (`cli._dispatch_acquire`).
+acquire = ["requests>=2.28"]
+
+[project.scripts]
+# ONE entry point (D3): no `xtract` console script, no alias. `aximprint acquire
+# {streams,pcap,harvest}` is a verb of this same command, wired in `cli._dispatch_acquire`.
+aximprint = "aximprint.cli:main"
+
+[tool.setuptools.packages.find]
+# Unmodified by the xtract merge on purpose: `where = ["src"]` with no include/exclude
+# already auto-discovers every directory under src/aximprint/ that has an __init__.py —
+# `acquire` and `acquire.harvest` included, verified — so the destination's simpler
+# discovery-based mechanism supersedes the source repo's explicit
+# `packages = ["xtract", "xtract.harvest"]` list; nothing to reconcile beyond confirming
+# that (docs/WORK_ORDER_merge_xtract_acquire.md step 6).
+where = ["src"]
+
+[tool.setuptools.package-data]
+# `catalog/roles.yaml` is CONTENT (CONVENTIONS §3, "catalogs and templates are data files"),
+# so package discovery alone does not ship it — discovery finds Python modules, and a
+# non-`.py` file in an installed package is invisible without this. Without it,
+# `aximprint.catalog.roles` imports fine from a source checkout and raises `CatalogError` on an
+# installed wheel: the worst shape of failure, because it passes every test run from the repo.
+"aximprint.catalog" = ["*.yaml"]
+# `schemas/axr-assertions-1.schema.json` is the same shape of problem, one directory over
+# (2026-09-05): a published contract artifact, not a Python module, so discovery alone would
+# leave `aximprint assertions schema` raising `FileNotFoundError` on an installed wheel while
+# passing every test run from the repo. `schemas/` deliberately has no `__init__.py` -- it holds
+# no code and a data-only package would enter `tests/test_acquire_layering.py`'s top-level
+# census for nothing -- so the glob is declared on the parent package.
+"aximprint" = ["schemas/*.json"]
+
+[tool.ruff]
+# xtract's own settings, restored (fix round, docs/WORK_ORDER_merge_xtract_acquire.md
+# D7): the merge staged this table OUT along with the rest of xtract's pyproject.toml
+# and never carried it across, so a whole-repo `ruff check .` started linting
+# `scripts/` — the vendored Claude workflow template, not this project's own code — and
+# that alone accounted for 33 of the findings behind the 113 -> 146 jump this fix round
+# measured. `CLAUDE_VERIFY_STEPS`' own gate (`D7`) only ever runs `ruff check
+# src/aximprint/acquire tests/acquire`, which `extend-exclude` doesn't affect either way
+# — this table matters for any OTHER invocation (a developer running `ruff check .` by
+# hand, or a future whole-repo gate) not to blame this project for a template it merely
+# vendors.
+extend-exclude = ["scripts"]
+# Matches `requires-python = ">=3.11"` above (inherited from xtract's own floor, D4) —
+# keeps ruff's per-version rule selection and syntax checks aligned with the actual
+# floor instead of guessing it from the host interpreter running the linter.
+target-version = "py311"
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+# Five acquire test files (moved verbatim, docs/WORK_ORDER_merge_xtract_acquire.md) do
+# `from tests.acquire.conftest import pcap_body` — an absolute import that only resolves
+# if the repo root is on `sys.path`. `python -m pytest` adds it implicitly (how `-m`
+# works); the bare `pytest` / `.venv/bin/pytest` console scripts `.claude/settings.json`
+# allowlists do NOT, and failed collection on all seven affected files with
+# `ModuleNotFoundError: No module named 'tests'` before this line existed. `pythonpath`
+# is pytest's own supported mechanism for exactly this (prepends to `sys.path` for the
+# whole test session, both collection and run) — preferred over a `conftest.py`
+# `sys.path` hack because it is declared once, here, rather than repeated/risking drift
+# across every directory that needs it.
+pythonpath = ["."]
+markers = [
+    # Keeps the pipeline's inner loop fast: the tester runs `-m 'not slow'` while
+    # iterating and the full suite at the gate (docs/WORKFLOW.md, verification tiers).
+    "slow: genuinely slow tests (large synthetic captures, multi-hour window spans, real sleeps)",
+    # The explicit, narrow opt-out from tests/conftest.py's repo-wide non-loopback network
+    # denial (fix round, docs/WORK_ORDER_merge_xtract_acquire.md — the credentials-on-host
+    # finding). Required here because of --strict-markers above. Nothing in this suite
+    # uses it today; a test reaching for it is a signal to stop and report why, not a
+    # routine escape hatch — see tests/conftest.py's module docstring.
+    "allow_network: explicitly opts a test out of tests/conftest.py's non-loopback network denial",
+]

@@ -1,0 +1,34 @@
+# svc-verify -- the tap plan §9.2 calls for: "a `tap` plan binding the
+# segment to a standing O2 `suricata-sensor`".
+#
+# ONE binding, on the SERVER segment. Every probe (§9.2 step 3) and every
+# persona emit (step 5) terminates on a host in `svc`, and a `segment`-scope
+# point resolves EVERY port on that net -- the three Linux servers, the DC,
+# and the router's own `svc` leg (through which all client-side traffic
+# arrives) -- at `rx`, so each frame is captured exactly once
+# (`docs/WORK_ORDER_tap_scopes.md`, live-verified 2026-07-28). That is what
+# makes step 4 -- `eve.json` carrying `dns`/`tls`/`ntp`/`krb5`/`ldap`/`smb`
+# rather than bare `tcp`/`udp` -- decidable at all.
+#
+# `target:` is the twin-config NAME, resolved to the newest live `svc-verify`
+# te deploy at apply time (LES-072: a literal deploy id would weld this file
+# to one minted deploy). `--target` overrides it.
+#
+# **Deliberately NOT `perimeter: wan`** (LES-143): the WAN uplink taps
+# `vmbr0`, which every twin's router shares, and `gre_port_for_bridge_sensor`
+# is keyed on `(bridge, sensor)` -- so a WAN binding from THIS twin to
+# `o2-suricata` would collide on one device name with any other twin doing
+# the same, and either twin's teardown would delete the other's live capture.
+# The standing `corp-enterprise` twin is up on dev45. A `segment` binding is
+# keyed on a twin-scoped `tebr_*`/`tev*` bridge and cannot collide.
+#
+# **`o2-suricata` is the STANDING O2 sensor, not one this plan creates**
+# (LES-177: "static validation OK" never means the referenced resource
+# exists). Confirm it with `axrange o2 status` BEFORE applying -- see this
+# folder's README, step 0.
+tap-plan:
+  target: svc-verify
+  bindings:
+    - selector: { scope: segment, target: svc }
+      sensors: [o2-suricata]
+      mode: exclusive

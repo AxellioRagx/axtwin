@@ -1,0 +1,415 @@
+{
+  "width": 818,
+  "height": 264,
+  "segment": {
+    "name": "seg-10-20-193-0",
+    "observedCidr": "10.20.193.0/24",
+    "deployedCidr": null,
+    "zoneType": "vlan",
+    "entities": 18,
+    "coverageSource": "inferred_from_traffic",
+    "hosts": [
+      {
+        "id": "address:10.20.193.20",
+        "address": "10.20.193.20",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [
+          "7680/tcp"
+        ],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.21",
+        "address": "10.20.193.21",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.22",
+        "address": "10.20.193.22",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.23",
+        "address": "10.20.193.23",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.24",
+        "address": "10.20.193.24",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.25",
+        "address": "10.20.193.25",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.26",
+        "address": "10.20.193.26",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.27",
+        "address": "10.20.193.27",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.28",
+        "address": "10.20.193.28",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.29",
+        "address": "10.20.193.29",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.30",
+        "address": "10.20.193.30",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.31",
+        "address": "10.20.193.31",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.32",
+        "address": "10.20.193.32",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.33",
+        "address": "10.20.193.33",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.34",
+        "address": "10.20.193.34",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.35",
+        "address": "10.20.193.35",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.36",
+        "address": "10.20.193.36",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      },
+      {
+        "id": "address:10.20.193.37",
+        "address": "10.20.193.37",
+        "locality": "local",
+        "segment": "10.20.193.0/24",
+        "role": "corp-workstation",
+        "roleConfidence": 0.7,
+        "roleEvidenceClass": "imputed",
+        "segmentEvidenceClass": "observed",
+        "windowsSeen": 10,
+        "occupancy": 1,
+        "ghostReasons": [],
+        "isGhost": false,
+        "listenPorts": [],
+        "dialPorts": []
+      }
+    ],
+    "hostCount": 18,
+    "ghostCount": 0,
+    "deployedCount": 18,
+    "occupancy": 1,
+    "roleHistogram": [
+      {
+        "role": "corp-workstation",
+        "count": 18
+      }
+    ],
+    "roleBadges": [
+      {
+        "role": "corp-workstation",
+        "count": 18
+      }
+    ],
+    "evidenceMix": [
+      {
+        "evidenceClass": "observed",
+        "count": 18
+      }
+    ],
+    "hasRouterLeg": true,
+    "northSouth": {
+      "bytes": 60,
+      "flows": 9
+    },
+    "eastWest": {
+      "bytes": 0,
+      "flows": 0
+    }
+  },
+  "spine": {
+    "x": 404,
+    "y": 84,
+    "w": 150,
+    "h": 120
+  },
+  "routerLeg": {
+    "x": 404,
+    "y": 24,
+    "w": 150,
+    "h": 44
+  },
+  "bands": [
+    {
+      "role": "corp-workstation",
+      "box": {
+        "x": 24,
+        "y": 24,
+        "w": 290,
+        "h": 62
+      },
+      "spoke": {
+        "from": {
+          "x": 314,
+          "y": 55
+        },
+        "to": {
+          "x": 404,
+          "y": 55
+        }
+      },
+      "count": 18,
+      "collapsed": true,
+      "chips": [],
+      "rungs": [
+        {
+          "rung": "core",
+          "count": 18
+        }
+      ]
+    }
+  ],
+  "peers": [
+    {
+      "name": "seg-10-20-192-0",
+      "label": "10.20.192.0/24",
+      "cidr": "10.20.192.0/24",
+      "kind": "conduit",
+      "box": {
+        "x": 644,
+        "y": 84,
+        "w": 150,
+        "h": 40
+      }
+    },
+    {
+      "name": "seg-10-80-20-0",
+      "label": "10.80.20.0/24",
+      "cidr": "10.80.20.0/24",
+      "kind": "conduit",
+      "box": {
+        "x": 644,
+        "y": 136,
+        "w": 150,
+        "h": 40
+      }
+    },
+    {
+      "name": "__gateway__",
+      "label": "gateway → egress",
+      "cidr": null,
+      "kind": "gateway",
+      "box": {
+        "x": 644,
+        "y": 188,
+        "w": 150,
+        "h": 40
+      }
+    }
+  ]
+}

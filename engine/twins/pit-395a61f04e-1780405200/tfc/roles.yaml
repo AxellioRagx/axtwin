@@ -1,0 +1,17 @@
+traffic-profile:
+  target: pit-395a61f04e-1780405200
+  assignments:
+    - role: corp-workstation
+      persona: cast-corp-workstation-local
+    - role: dns-resolver
+      persona: cast-dns-resolver-local
+    - role: domain-controller
+      persona: cast-domain-controller-local
+    - role: file-server
+      persona: cast-file-server
+    - role: generic-endpoint
+      persona: cast-generic-endpoint-local
+    - role: unroled-endpoint
+      persona: cast-generic-endpoint-local
+    - role: web-tier
+      persona: cast-web-tier

@@ -1,0 +1,27 @@
+# pit-395a61f04e-1780405200 -- the root manifest (docs/WORK_ORDER_twin_consolidation.md §2;
+# loader: axrange/twinconfig/manifest.py). Wiring only: which file is each
+# tier's default and which are its variants. Every tier file stays
+# deployable on its own by path; the manifest adds
+# `--config pit-395a61f04e-1780405200` and `--twin pit-395a61f04e-1780405200 [--variant <stem>]`.
+#
+# `containment:` is a CLAIM the loader checks against te.yaml's
+# `twin_config.egress:` block (D3) -- not a second copy of the posture.
+# The folder name is the twin id (D2): deploy names, state-DB history and the
+# Console imprint id key off it. generated/tap.emitted.yaml is aximprint's
+# sensor-less tap template (does not validate); tap/xpress.yaml is its
+# hand-completed form. The three tier files that pinned the destroyed deploy
+# pit-395a61f04e-1780405200-3caf94a1 now target the twin id.
+twin:
+  id: pit-395a61f04e-1780405200
+  description: >
+    The axquery discovery-loop cast of CORP APCN (2026-09-08; was
+    twin-configs-cast/corpapcn-disco). The folder keeps the real twin id (D2).
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/xpress.yaml
+    tfc:
+      default: tfc/cast.yaml
+      variants: [tfc/roles.yaml, tfc/exercise.yaml]

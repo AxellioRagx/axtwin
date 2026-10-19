@@ -1,0 +1,40 @@
+# The modern enterprise elephant flow: multi-hundred-MB container layer pulls
+# and artifact pushes, arriving as bursts rather than a steady stream. Also
+# the persona that puts real load on the twin's WAN uplink, which the
+# `perimeter: wan` tap scope otherwise has almost nothing to capture.
+persona:
+  id: ci-build-farm
+  os_family: linux
+  drive: scripted
+  emits:
+    # `bulk` + `burst:` = 64 MiB back-to-back every 5 minutes. Note this only
+    # materializes as bytes if something is LISTENING on the peer port -- a
+    # refused TCP connect is 2 packets, not 64 MiB. The guest log's `fails=`
+    # counter is the operator's tell. (UDP emits have no such dependency.)
+    - proto: https
+      ports: [443]
+      peer_role: egress-proxy
+      direction: NS
+      cadence: "burst:5m"
+      volume: bulk
+    - proto: rsync
+      ports: [873]
+      peer_role: file-server
+      direction: EW
+      cadence: "burst:10m"
+      volume: high
+    - proto: git
+      ports: [22]
+      peer_role: file-server
+      direction: EW
+      cadence: "cyclic:60s"
+      volume: med
+    - proto: dns
+      ports: [53]
+      peer_role: dns-resolver
+      optional: true
+      direction: EW
+      cadence: "cyclic:30s"
+      volume: low
+  requires: [egress-proxy, file-server]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true }

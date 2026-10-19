@@ -1,0 +1,1 @@
+net1: virtio=BC:24:11:70:84:02,bridge=o2v7dc98,queues=8

@@ -1,0 +1,7 @@
+# web-lab.tap.yaml   →   axrange tap deploy web-lab --plan web-lab.tap.yaml
+tap_plan:
+  twin: web-lab                     # binds to the deployed twin's published tap points
+  bindings:
+    - tap_point: web                # the tappable host the twin published
+      sensor: sensor-a              # a standing Lab sensor (from lab.o2.yaml)
+      mode: exclusive               # or: fanout

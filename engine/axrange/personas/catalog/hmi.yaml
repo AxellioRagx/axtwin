@@ -1,0 +1,19 @@
+persona:
+  id: hmi
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: modbus
+      ports: [502]
+      peer_role: plc
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: low
+    - proto: opcua
+      ports: [4840]
+      peer_role: historian
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: low
+  requires: [plc, historian]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

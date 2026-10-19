@@ -1,0 +1,28 @@
+# Sustained NS cover traffic (~3 Mbit/s): an HLS/DASH segment pull every few
+# seconds. The point is not realism for its own sake -- it is that attack
+# traffic which stands out trivially on an idle segment becomes genuinely
+# hard to spot underneath this, which is the honest test of a detection rule.
+persona:
+  id: streaming-media-client
+  os_family: linux
+  drive: scripted
+  emits:
+    # Targets `egress-proxy` (a real twin role) rather than the reserved
+    # `internet` token: reserved tokens resolve to no peer IP at all, so an
+    # emit aimed at one is logged-and-skipped by the guest client and puts
+    # nothing on the wire. Corporate streaming egresses via the proxy anyway.
+    - proto: https
+      ports: [443]
+      peer_role: egress-proxy
+      direction: NS
+      cadence: "cyclic:4s"
+      volume: high
+    - proto: dns
+      ports: [53]
+      peer_role: dns-resolver
+      optional: true
+      direction: EW
+      cadence: "cyclic:60s"
+      volume: low
+  requires: [egress-proxy]
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true }

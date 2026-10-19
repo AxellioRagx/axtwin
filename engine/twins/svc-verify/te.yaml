@@ -1,0 +1,275 @@
+# Twin config: svc-verify -- the purpose-built THROWAWAY twin for the gated
+# `dev45` live-verify of row 5's server half
+# (`docs/WORK_ORDER_protocol_faithful_services.md` §9.2, verbatim: *"a small
+# purpose-built throwaway twin: a `gw` router (apt egress), one bind9
+# resolver, one nginx web-tier, one chrony host, one `windows-server-2022`
+# DC, one `win11-finance` member with `joins:`, one Linux client carrying a
+# `drive: command` persona, and a `tap` plan binding the segment to a
+# standing O2 `suricata-sensor`"*).
+#
+# **Why a throwaway and not the standing twin.** §9.2 is explicit: NEVER
+# against `te corpapcn-twin-0e4f7d58` -- it is do-not-destroy, it is
+# scorecard run 1's subject, and giving it a declared listen set would trip
+# `--update`'s mutation refusal by the server half's own design (§7.2). And
+# §7.2's other half applies here too (LES-096): an already-`completed` op
+# never sees a new input, so proving anything new needs a NEW twin, which is
+# what this is.
+#
+# **What it proves that a green test suite cannot** (§8's "as built" note):
+# `ss -lnH -tu` matching the declared set, `dig` returning NOERROR with an
+# ANSWER, a completed TLS handshake, `PartOfDomain=True`, and -- the half
+# that cannot be faked in-guest -- `eve.json` carrying `dns`/`tls`/`ntp`/
+# `krb5`/`ldap`/`smb` instead of bare `tcp`/`udp` at the standing
+# `o2-suricata`. See this folder's README.md for the runnable step list.
+#
+# **The three Linux server recipes are the REAL ones**, copied BYTE-IDENTICAL
+# from the freshly-installed golden cast
+# (`twin-configs-cast/corpapcn-golden/scripts/`) -- aximprint's real-daemon
+# `serve-*.sh` output, not a hand-written stand-in. Proving the recipes on
+# seven VMs before the 138-VM-class cast deploy is exactly the sequence §9.2's
+# blockquote calls for. Their original filenames are kept so the provenance
+# (which cast node group each came from) stays readable; the README maps
+# file -> host.
+#
+# **Disposable by construction.** Nothing here is content anyone should reuse:
+# it exists to be deployed once, probed, and destroyed. The vulnerable-AD
+# weakening `corp-enterprise` carries is deliberately absent -- this twin is
+# not an exercise target.
+twin_config:
+  id: svc-verify
+  description: |
+    Throwaway verify twin for the row-5 server half: a bind9 resolver, an
+    nginx TLS web tier and a chrony time source running aximprint's REAL
+    serve-*.sh recipes, a real AD DS domain controller with a joined Windows
+    member, and a Linux probe client carrying the `drive: command` protocol
+    tool set -- all behind one `gw` router for apt egress, on two segments.
+    Deploy, run the README's probe list, destroy.
+
+  # LES-070: a focused verify twin that is not itself testing agent
+  # enrollment turns the default-ON agent sweep OFF. Not for want of egress
+  # (the `gw` router has it) -- for op-count and failure-surface: a
+  # node-exporter/wazuh install on seven hosts is traffic and risk that has
+  # nothing to do with whether bind9 answers a query.
+  default_agents: false
+
+  # No `params:`. The bind9 zone inside the copied recipe hardcodes
+  # `corp.axr.lab`, so a parameterized DOMAIN would let the twin's forest name
+  # drift away from the zone the recipe actually serves. The realm is the LAB
+  # realm by ruling (D4, Authority: user, 2026-09-04): the observed
+  # `AXELLIO.DOM` is RECORDED, never reproduced -- only the DC's short
+  # hostname (`axdc01`) follows the observation.
+  #
+  # No `observation:` blocks either. This is HAND-AUTHORED content, not a
+  # cast: a block here would assert an occupancy nobody ever measured
+  # (`TwinConfigObservation`'s own docstring -- "no block means always
+  # emitted"). The deploy gate is therefore a no-op for this twin, which is
+  # correct: it has nothing observed to gate.
+
+  segments:
+    # Servers. This is the segment the tap plan binds (tap-svc-verify.yaml):
+    # every probe and every persona emit terminates on a host here, so one
+    # segment-scope binding captures all six protocols exactly once.
+    - { name: svc, cidr: 10.66.10.0/24, zone_type: simple }
+    # Clients. Separate from `svc` so the probe traffic actually crosses the
+    # router -- the same shape every real cast has, and the reason the tap's
+    # `rx` mirror on the router's `svc` leg is worth proving.
+    - { name: cli, cidr: 10.66.20.0/24, zone_type: simple }
+
+  nodes:
+    # ---- the router -------------------------------------------------------
+    # Debian/nftables (NOT VyOS -- the shipped-config shape, `corp-enterprise`
+    # and every cast `gw`). It is what gives every Linux host apt egress, and
+    # the serve-*.sh recipes apt-install bind9/nginx/chrony at run time (D3
+    # (b): server packages stay runtime installs; only the CLIENT tools are
+    # meant to be baked, GAP-056).
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # NOTE the router's legs are deliberately NOT pinned, unlike every host
+      # below. `expand.py`'s allocator records a segment's `gateway:` only on
+      # the branch that AUTO-assigns a lone router leg (`_IpAlloc` /
+      # "A LONE router leg on a segment (no explicit gateway) gets the
+      # segment's gateway address"); pinning the leg skips that branch, the
+      # network is emitted with NO `gateway`, and `pass1_emit` then gives
+      # every non-router host `gateway: None` in its ipconfig -- no default
+      # route, no apt egress, and every `axr_pkg` in the serve recipes fails
+      # in-guest with nothing upstream saying why. Validation passes either
+      # way. Leaving these unset yields exactly the same addresses (.1 is the
+      # first host of each CIDR) AND the gateway.
+      nets:
+        - { segment: svc }
+        - { segment: cli }
+
+    # ---- the three Linux servers -----------------------------------------
+    # Every IP here is PINNED (rather than left to the sequential allocator)
+    # so the README's probe commands are literal and paste-able -- LES-211's
+    # spirit applied to a runbook. `expand.py` writes a concrete `ip:` into
+    # the IR for every leg regardless, so pinning changes nothing structural.
+    #
+    # `install:` mirrors the golden cast's own wiring EXACTLY: the `pkg:`
+    # actions the recipe's package list names, then the `{script: ...}`
+    # action that configures and starts the daemon
+    # (`corpapcn-golden.yaml`'s `dns-resolver-10-20-196-core` /
+    # `web-tier-10-80-72-core` node blocks are the precedent).
+    #
+    # `listen:` is the DECLARED set (S1 / D2(b)). It deliberately declares
+    # what the recipe actually BINDS on this twin, not the cast's observed
+    # census -- this is a verify twin, not an observation reproduction, and
+    # §9.2 step 2's "matches its declared set exactly" needs an exact
+    # expected set to compare against. Concretely that means bind9's 53/tcp
+    # is declared alongside 53/udp: `listen-on { any; }` binds both, and the
+    # cast declares only what its source was SEEN serving.
+    - name: svc-dns
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: svc, ip: 10.66.10.11 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns-resolver-10-80-64-core.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+
+    - name: svc-web
+      role: web-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: svc, ip: 10.66.10.12 }]
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web-tier-10-80-72-core.sh }
+      listen:
+        - { port: 443, proto: tcp }
+
+    # The chrony host. The recipe copied onto it is the cast's
+    # `dns-resolver-10-20-196-core` one, which serves 123/udp (chrony) AND
+    # 53/udp (bind9) -- there is no chrony-ONLY recipe among aximprint's 14,
+    # because no source host was seen serving 123 and nothing else. Copied
+    # whole rather than cut down (the task's "do not rewrite the recipes"),
+    # so this host declares bind9's ports too and is a second, redundant
+    # resolver. That redundancy is free and honest; inventing a chrony-only
+    # recipe would have been neither.
+    - name: svc-ntp
+      role: ntp-server
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: svc, ip: 10.66.10.13 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { pkg: chrony }
+        - { script: scripts/serve-dns-resolver-10-20-196-core.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+        - { port: 123, proto: udp }
+
+    # ---- the Windows half (S3) -------------------------------------------
+    # TWO lines of authoring (`install:` + `provides:`) reproduce ten
+    # service ports, because AD DS brings DNS, the KDC, LDAP + CLDAP, SMB,
+    # the Global Catalog, the RPC endpoint mapper and W32Time up as a
+    # CONSEQUENCE of being a DC (work order §2 reading 1). The short
+    # hostname follows the OBSERVED one (`hostname:axdc01`); the realm does
+    # not (D4).
+    #
+    # The declared set is the `ad-cast` fixture's, verbatim: the observed
+    # twelve ports minus the two dynamic RPC allocations (49669/49682),
+    # which are ephemeral rather than services (GAP-064) and must never be
+    # declared just to make a census match.
+    - name: axdc01
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      nets: [{ segment: svc, ip: 10.66.10.21 }]
+      install: [{ role: adds }]
+      provides: [{ domain: corp.axr.lab }]
+      listen:
+        - { port: 53, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 88, proto: tcp }
+        - { port: 88, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 135, proto: tcp }
+        - { port: 389, proto: tcp }
+        - { port: 389, proto: udp }
+        - { port: 445, proto: tcp }
+        - { port: 3268, proto: tcp }
+
+    # The joined member. `joins:` is the explicit domain-join declaration;
+    # the join op points this host's DNS at the DC itself, which is why no
+    # resolver wiring is authored for it (`config_exec/render.py::
+    # render_join_to_domain`). 135/tcp and 137/udp are Windows built-ins on
+    # a domain member; 3389 is the one port Windows ships OFF, turned on by
+    # the `enable-rdp.ps1` script copied from the `ad-cast` fixture.
+    - name: win-member
+      role: corp-workstation
+      image: win11-finance@v4
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+      nets: [{ segment: cli, ip: 10.66.20.21 }]
+      joins: corp.axr.lab
+      install: [{ script: scripts/enable-rdp.ps1 }]
+      listen:
+        - { port: 135, proto: tcp }
+        - { port: 137, proto: udp }
+        - { port: 3389, proto: tcp }
+
+    # ---- the probe client -------------------------------------------------
+    # Carries the `drive: command` tool set AND every tool §9.2 step 3's
+    # operator cross-check needs. GAP-056 says this set belongs in an image
+    # bake (D3 (b)) and is exactly why the client half's own live-verify is
+    # still blocked -- installing it at run time is a deliberate, documented
+    # bypass for a THROWAWAY twin (it would trip `--update`'s mutation
+    # refusal on a standing one, which is the whole reason GAP-056 exists).
+    #
+    # No `listen:`: this host serves nothing, and ABSENT is how a twin says
+    # "no claim" -- `listen: []` is refused at the author
+    # (`expand._check_listen`, LES-226) precisely so it cannot be confused
+    # with one.
+    - name: probe-client
+      role: probe-client
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: cli, ip: 10.66.20.11 }]
+      install:
+        # `drive: command`'s five v1 templates need exactly three binaries
+        # beyond the base image (`personas.drivers.command.required_binaries`
+        # returns curl/dig/ntpdate/ping for this twin's persona):
+        - { pkg: dnsutils }        # dig      -- proto: dns
+        - { pkg: curl }            # curl     -- proto: http / https
+        # (`ping` is iputils-ping, already in the base cloud image.)
+        # The rest are the operator cross-check tools of §9.2 step 3, which
+        # the automated persona never runs:
+        - { pkg: ldap-utils }      # ldapsearch -- rootDSE against the DC
+        - { pkg: smbclient }       # smbclient  -- share list from the DC
+        - { pkg: krb5-user }       # kinit      -- a real TGT from the KDC
+        # `ntpdate` is the ONE ambiguous name -- Debian ships that binary as
+        # `ntpdate` on bullseye and `ntpsec-ntpdate` on bookworm, and a
+        # `pkg:` action naming the wrong one FAILS THE DEPLOY (Ansible's apt
+        # module fails the task -> provision-app fails -> halt) rather than
+        # degrading. The script tries both and fail-louds on neither. One
+        # script action per app is the limit (`pass1_emit._emit_apps`), and
+        # this is that one.
+        - { script: scripts/install-ntpdate.sh }
+
+  # LAB DEFAULTS, and imputed -- all of them. Nothing observed carries a
+  # password, a group or an OU (work order §5.3), so this population is
+  # invented and must never read as reproduction evidence. `alice` carries an
+  # EXPLICIT password so the README's `kinit` step is exact regardless of what
+  # `DEFAULT_PASSWORD` is set to in the operator's adapter.conf.
+  identity:
+    domain: corp.axr.lab
+    users:
+      - { id: alice, groups: [Domain Users], ou: Finance, password: "Axr4nge-Lab!" }
+      - { id: bob-admin, groups: [Domain Admins], ou: IT }

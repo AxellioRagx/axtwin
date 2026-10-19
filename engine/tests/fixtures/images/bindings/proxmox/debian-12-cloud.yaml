@@ -1,0 +1,39 @@
+binding_schema_version: 1
+binding:
+  image: debian-12-cloud
+  platform: proxmox
+  versions:
+    - id: v1
+      storage: { type: template, node: any, volid: "infra-lvm:base-610-disk-0", template_vmid: 610 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: debian, sysprep_required: false }
+      hardware:
+        # i440fx (pc) — not q35. Q35's IDE-on-ICH9 doesn't expose the
+        # cloud-init CD as /dev/sr0 in the Debian generic-cloud kernel, so
+        # cloud-init's ds-identify never finds the cidata and the whole
+        # cloud-init pipeline is masked. CHANGELOG 2026-05-29.
+        machine: pc
+        bios: seabios
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-pci
+        agent: true
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 60
+      # Build recipe (docs/IMAGE_MANIFEST.md §3.8 / docs/IMAGE_BUILD.md §5.1).
+      # `axrange image build debian-12-cloud` reproduces template 610 from the
+      # upstream Debian 12 generic-cloud image plus a qemu-guest-agent bake.
+      build:
+        base_image:
+          url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+          checksum_url: https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
+          checksum_algo: sha512
+          filename: debian-12-genericcloud-amd64.qcow2
+        disk_size: 8G
+        # qemu-guest-agent preinstall + auto-start is baked implicitly by the
+        # pipeline (docs/IMAGE_BUILD.md §3 step 4). `ansible` is baked so the
+        # config-class slice can run playbooks inside clones over the guest
+        # agent (docs/SLICE_CONFIG.md §2, ratified 2026-06-02).
+        provision:
+          - { pkg: ansible }

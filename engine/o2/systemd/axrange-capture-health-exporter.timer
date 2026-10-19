@@ -1,0 +1,14 @@
+# Fires the axRange capture-health exporter every 30s. Matches Prometheus'
+# 30s scrape_interval so each scrape sees a fresh textfile.
+
+[Unit]
+Description=Run axRange capture-health exporter every 30 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+Unit=axrange-capture-health-exporter.service
+
+[Install]
+WantedBy=timers.target

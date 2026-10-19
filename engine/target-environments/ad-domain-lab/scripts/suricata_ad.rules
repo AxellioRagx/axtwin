@@ -1,0 +1,29 @@
+# axRange — Active Directory attack-chain detection (blue team / OP-OVL defense).
+# Scores the OP-ACT AD kill chain (recon -> LLMNR -> SMB/LDAP enum -> AS-REP roast
+# -> Kerberoast -> DCSync). Direction-agnostic (any->any) + content/threshold so
+# they fire on mirrored capture regardless of Suricata HOME_NET. Local SID block
+# 9000000+. The purple-team loop: red generates, these rules detect.
+
+# 1. RECON — AD service-port sweep (nmap/enum touching many AD ports fast).
+alert tcp any any -> any [88,135,139,389,445,464,636,3268] (msg:"AXR-AD recon: AD service-port sweep"; flow:to_server; flags:S; threshold:type both, track by_src, count 6, seconds 30; classtype:attempted-recon; sid:9000001; rev:1;)
+
+# 2. LLMNR poisoning surface — LLMNR name query (Responder's no-cred entry vector).
+alert udp any any -> any 5355 (msg:"AXR-AD LLMNR query (Responder poisoning surface)"; threshold:type limit, track by_src, count 1, seconds 60; classtype:bad-unknown; sid:9000002; rev:1;)
+
+# 3. SMB enumeration / lateral — SMB2 session to a server (null-session enum, PtH).
+alert tcp any any -> any 445 (msg:"AXR-AD SMB connection (enum/lateral)"; flow:to_server,established; content:"|fe|SMB"; threshold:type limit, track by_src, count 1, seconds 60; classtype:protocol-command-decode; sid:9000003; rev:1;)
+
+# 4. LDAP enumeration — LDAP to the DC (anonymous bind / SPN discovery).
+alert tcp any any -> any [389,3268] (msg:"AXR-AD LDAP enumeration"; flow:to_server,established; threshold:type limit, track by_src, count 1, seconds 60; classtype:attempted-recon; sid:9000004; rev:1;)
+
+# 5. Kerberos tooling — AS-REQ/TGS-REQ to the DC (AS-REP roast / Kerberoast clients).
+alert tcp any any -> any 88 (msg:"AXR-AD Kerberos request (roasting tooling)"; flow:to_server,established; threshold:type limit, track by_src, count 1, seconds 60; classtype:attempted-recon; sid:9000005; rev:1;)
+
+# 6. KERBEROASTING — a TGS issued with RC4 (etype 23 / 0x17): the offline-crackable
+#    service ticket. ASN.1 [0] etype INTEGER 23 in the KRB reply.
+alert tcp any 88 -> any any (msg:"AXR-AD Kerberoasting: RC4 (etype 23) Kerberos ticket"; flow:to_client,established; content:"|a0 03 02 01 17|"; classtype:attempted-recon; sid:9000006; rev:1;)
+
+# 7. DCSYNC — DRSUAPI interface bind (DsGetNCChanges replication = credential theft).
+#    Interface UUID e3514235-4b06-11d1-ab04-00c04fc2dcd2, little-endian in the
+#    DCE/RPC bind. The gold-standard network signature for DCSync.
+alert tcp any any -> any any (msg:"AXR-AD DCSYNC: DRSUAPI replication bind (credential theft)"; flow:to_server,established; content:"|35 42 51 e3 06 4b d1 11 ab 04 00 c0 4f c2 dc d2|"; classtype:successful-admin; sid:9000007; rev:1;)

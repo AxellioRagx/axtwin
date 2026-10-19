@@ -1,0 +1,63 @@
+# os_family: windows, not the cast's linux (corp-twin live run 3, 2026-09-28): every
+# corp-workstation host in this twin is a Windows image (win11-finance@v4), and a linux
+# persona there launches sh/python3 over QGA -> "Failed to execute child process" on every
+# attempt. `tfc validate` now refuses the mismatch (docs/WORK_ORDER_corp_twin.md §11).
+persona:
+  id: cast-corp-workstation-heavy
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: ssh
+    ports:
+    - 22
+    peer_role: internet-sink-8
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:90s
+    volume: high
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-4
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:90s
+    volume: high
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-2
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:90s
+    volume: high
+  - proto: http
+    ports:
+    - 80
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:90s
+    volume: high
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:90s
+    volume: high
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

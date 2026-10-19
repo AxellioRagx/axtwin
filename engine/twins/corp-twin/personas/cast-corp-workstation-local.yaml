@@ -1,0 +1,155 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): HTTPS med -> high (a workstation's web is TLS,
+# ~28:1 over HTTP), HTTP low, DNS 64 B, NTP 48 B low, segment chatter med -> low.
+persona:
+  id: cast-corp-workstation-local
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: http
+    ports:
+    - 80
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:20s
+    volume: low
+  - proto: dns
+    ports:
+    - 53
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:20s
+    volume: med
+    bytes: 64
+  - proto: dns
+    ports:
+    - 53
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:20s
+    volume: med
+    bytes: 64
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:20s
+    volume: high
+  - proto: kerberos
+    ports:
+    - 88
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: med
+  - proto: ntp
+    ports:
+    - 123
+    peer_role: domain-controller
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+    bytes: 48
+  - proto: ldap
+    ports:
+    - 389
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: med
+  - proto: ldap
+    ports:
+    - 389
+    peer_role: domain-controller
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: med
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  - proto: tcp
+    ports:
+    - 3000
+    peer_role: generic-endpoint
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  - proto: nbns
+    ports:
+    - 137
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  - proto: ssdp
+    ports:
+    - 1900
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  - proto: ldap
+    ports:
+    - 3268
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: med
+  - proto: udp
+    ports:
+    - 67
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:20s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

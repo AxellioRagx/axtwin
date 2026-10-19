@@ -1,0 +1,20 @@
+# corp-enterprise -- max-capture-rate ramp, rung 4 of 4 (dev45, 2026-08-13).
+#
+# Applies the loadgen-l4 persona to the shared 3-host DMZ mesh defined in
+# roles-loadgen.yaml. Swap rungs on the STANDING twin with:
+#   axrange tfc deploy twin-configs/corp-enterprise/tfc-maxrate-l4.yaml \
+#     --target corp-enterprise
+# No node is redeployed; the previous rung's instances are de-scoped
+# automatically (LES-112/LES-113), which is why each rung uses a DISTINCT
+# persona id rather than one persona edited in place.
+#
+# See axrange/personas/catalog/loadgen-l1.yaml for the family rationale and
+# the per-rung load shapes.
+traffic-profile:
+  target: corp-enterprise
+  roles_from: roles-loadgen.yaml
+
+  assignments:
+    - role: loadgen
+      persona: loadgen-l4
+      schedule: 24x7

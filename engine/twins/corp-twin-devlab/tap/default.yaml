@@ -1,0 +1,17 @@
+# corp-twin-devlab -- minimal tap plan: the WAN view (External TAP analogue)
+# and the MS120's two uplinks, both to XPress-SW-A. sfp25 is the trunk to
+# read VLAN tags off (`tcpdump -e` shows 802.1Q, vlan 20/48/64/935 ...);
+# sfp26 is STP-BLOCKED, so it must carry BPDUs only -- a data frame there is
+# a loop. See docs/WORK_ORDER_corp_twin.md §11 (devlab steps).
+#
+# Contain first: `axrange te egress corp-twin-devlab --phase measure`
+# (tap deploy refuses an uncontained target).
+tap-plan:
+  target: corp-twin-devlab
+  bindings:
+    - selector: { scope: segment, target: wan1-isp }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp25 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp26 }
+      sensors: [XPress-SW-A]

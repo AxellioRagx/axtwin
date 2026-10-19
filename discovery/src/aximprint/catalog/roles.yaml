@@ -1,0 +1,616 @@
+# aximprint role catalog — `docs/WORK_ORDER_synth_v1.md` phase 2.
+#
+# One row joins three things that must not drift apart: the EVIDENCE that infers a role
+# (`requires`), the axRange PERSONA that role is assigned in a `tfc` profile, and the twin
+# CONTENT (`image`/`resources`/`install`) a twin_config node needs and that traffic metadata
+# can never supply. Splitting them across files is how a role gets inferred with no image, or
+# an image row survives a role nobody infers any more.
+#
+# A data file, not code (CONVENTIONS §3, "Catalogs and templates are data files"). Everything
+# below the `requires`/`confidence` pair is CONTENT: it is `provenance: defaulted` in the
+# synthesized config, always, no matter how well the role matched. This is `Q26` point 3's own
+# prediction taken as the answer — *"if `image:` falls back to a catalog default for 90% of
+# nodes regardless, the honest answer may be that the provenance marking matters more than the
+# coverage."* It does not close `Q26`; it makes `Q26` non-blocking.
+#
+# ── MATCHING ────────────────────────────────────────────────────────────────────────────────
+# A row matches an entity when EVERY port in `requires` is in that entity's observed
+# `listen_ports` for the window. Subset, not equality: a real domain controller serves a dozen
+# ports and no fixed signature would survive contact with one.
+#
+# Rows are tried MOST SPECIFIC FIRST (most `requires` entries), ties broken by the order they
+# appear here. That ordering is what makes overlap safe rather than ambiguous: a DC also serves
+# 445, so `file-server` matches it too — `domain-controller` wins because it demands two ports.
+# Add a row that overlaps an existing one and the ordering, not the author, decides.
+#
+# ── PORTS DO NOT MEAN THE SAME THING IN axRange's PERSONA CATALOG ───────────────────────────
+# Do NOT derive this table from `axrange/personas/catalog/*.yaml`'s `emits[].ports`. Measured
+# 2026-08-14: that field's meaning DEPENDS ON `drive:`. For `drive: scripted` (14 personas) the
+# scripted driver calls `send_tcp(tag, peer, port, …)` — the ports are the port on the PEER,
+# i.e. a port some OTHER role listens on. For `drive: real-service` (12 personas) the driver is
+# "a no-op emitter" that never reads them, and the block documents the service that persona
+# HOSTS — its own listening ports. So `corp-workstation`'s `ports: [88, 464]` and
+# `file-server`'s `ports: [445]` point in opposite directions, and a derivation that read them
+# uniformly would label every client host with its server's role. Authored here instead, with
+# their catalog as informed input rather than as a source.
+#
+# ── persona_cadence: HOW LONG A CAPTURE HAS TO BE TO HAVE SEEN THIS ROLE ────────────────────
+# `docs/WORK_ORDER_visibility_and_vantage.md` D12. The **longest** cadence among that persona's
+# `emits[]`, in axRange's own vocabulary (`24x7`, `diurnal`, `cyclic:<dur>`, `burst:<dur>`), so
+# each row can be audited against `axrange/personas/catalog/<persona>.yaml` by eye. `null` iff
+# `persona` is null — a role axRange ships no persona for implies no cadence, which is a real
+# state and not a gap (same discipline as `persona` itself).
+#
+# Copied here rather than read from axRange at runtime: that catalog is a separate repo on its own
+# release cadence and is not a dependency of this one. Measured 2026-08-17 across all 28 personas
+# and 92 emits — 26 `24x7`, 22 `diurnal`, the rest `cyclic:`/`burst:` — which is the census
+# D12 rests on. The compiler warns when a PIT's span is shorter than the cadence of a persona it
+# is assigning: a `diurnal` assignment off a 3-hour capture is a claim the evidence cannot
+# support, and the current baseline IS 3 hours.
+#
+# ── WHAT IS MEASURED AND WHAT IS NOT ────────────────────────────────────────────────────────
+# `measured_on_baseline` says whether a row actually fired on the 2026-08-11 real capture. A
+# row that has never matched anything is a plausible rule, not a verified one, and the two must
+# stay tellable apart (`LES-006`, amendment 3: a claim resting on an unmeasured property has to
+# say it is unmeasured). Unmeasured rows are kept because this is a catalog, not a census of
+# one network — but nobody should read them as evidence that they work.
+
+# What a node gets when no rule matched — including, since 2026-09-04, the ROLE it carries.
+# On the 2026-08-11 baseline 178 of 197 placed hosts match no rule, so this is the common case,
+# not the corner. Every field it supplies is `defaulted` in the compiled config's provenance
+# sidecar, `role:` included — nothing inferred it.
+#
+# ── `role: unroled-endpoint` (`docs/WORK_ORDER_deployment_scope.md` D4, Authority: user) ────────
+# This block used to say **Not a role**: a host matching nothing reached the twin with `role:`
+# absent, which axRange accepts. That was right while the compiler DROPPED those hosts and only
+# the residue of a filter reached here. It stopped being right when the cast started emitting
+# every placed host (D1): a node group is keyed on `(role, band, segment, rung)`, so a role-less
+# population has no key to collapse on, and `twin_config` has no other place to say what these
+# hosts are.
+#
+# NOT `generic-endpoint`, which is the tempting answer and the wrong one. That is an INFERRED
+# role in this catalog, held by 102 of 141 placed hosts on the CorpAPCN baseline, and it asserts
+# something specific — *this host consumes services and serves none* — on the evidence of a
+# 443/53/123 dial. A host that matched NOTHING did not match that either. Merging the two under
+# one name would also hand hosts with no observed behaviour `generic-endpoint`'s traffic-
+# generating persona, manufacturing conversations the source never had in the very artifact
+# being measured on the wire.
+#
+# So: an image rule and NO persona. That is an established shape here (`dns-resolver` has a role
+# and no persona) — the node is present because it was observed, not because it does anything.
+# It reaches `twin_config` with a role, lands in the compiler's `personaless_roles`, and gets no
+# `tfc` assignment. `scripts/check_role_fixed_point.py` cannot ask the round-trip question of it
+# at all (there is no `requires:` to re-serve), which is why that script skips it BY NAME with
+# the reason stated rather than counting a vacuous row as green (`LES-125`).
+#
+# It is unreachable from `match_role` by construction, exactly like `synthetic:` below: this
+# block is not in `roles:`, so no evidence can ever name it.
+default:
+  role: unroled-endpoint
+  image: debian-12-cloud@v1
+  resources: {cpu: 1, ram: 2Gi, disk: 20Gi}
+  install: []
+
+roles:
+  # ── measured on the 2026-08-11 baseline ───────────────────────────────────────────────────
+
+  - role: domain-controller
+    persona: domain-controller
+    persona_cadence: "cyclic:15m"
+    requires: ["88/tcp", "389/tcp"]     # Kerberos KDC + LDAP: jointly, only a DC
+    confidence: 0.9
+    measured_on_baseline: true
+    image: windows-server-2022@v1
+    resources: {cpu: 4, ram: 8Gi, disk: 60Gi}
+    install: [{role: adds}]
+    # RESTORED to `[{role: adds}]` on 2026-09-05, and the ruling that unblocks it is
+    # `axrange/docs/WORK_ORDER_protocol_faithful_services.md` §10.1 **D1(a) + D4** (Authority:
+    # user): a real DC now, with the **lab realm `corp.axr.lab`** as the forest name -- imputed,
+    # marked as such, and NOT the observed one. That is what dissolves the objection this row
+    # carried for three months. `role: adds` must be paired with `provides: [{domain: <fqdn>}]`,
+    # and the fqdn is now a lab constant this project is entitled to supply
+    # (`synth/services.py::LAB_REALM`, emitted by `synth/compiler.py` beside this row's install
+    # action) rather than the single most identifying string in the source network.
+    #
+    # WHAT THE ROW BUYS, and it is not one port: AD DS brings DNS, the KDC, LDAP + CLDAP, SMB,
+    # the Global Catalog, the RPC endpoint mapper and its dynamic ports, plus W32Time on 123 --
+    # as a CONSEQUENCE of being a domain controller, not as twelve provisioning steps. The
+    # observed listen census for `hostname:axdc01` is exactly that profile (12 ports), and until
+    # this row a `windows-server-2022@v1` node answered none of them.
+    #
+    # The 2026-09-04 correction below stands and is why the row's history is worth keeping.
+    #
+    # THE FALSE PREMISE, stated so a reader can recognise it if it resurfaces: *"nothing in a
+    # capture supplies an AD forest name -- `ir_identity` on the CorpAPCN run carries only
+    # external DNS (apple.com, meraki.net)."* The wire carries the forest name plainly.
+    # Read-only against `capcn-ir6.duckdb` (PIT `pit-63994c9543-1787823960`, 11 windows), and
+    # reproduced on the 2026-09-02 re-materialization of the same capture:
+    #
+    #     kerberos / host   BW-L$/AXELLIO.DOM                observed
+    #     kerberos / host   desktop-21n0pq1$/AXELLIO.DOM     observed
+    #     kerberos / user   matthew.admin/AXELLIO.DOM        observed
+    #     kerberos / user   Guest@AXELLIO.DOM/AXELLIO.DOM    observed
+    #     ntlm     / host   axdc01.Axellio.dom               observed   <- the DC itself
+    #     ntlm     / host   AxeHyperV-01.Axellio.dom         observed
+    #
+    # `ir_identity` on that run is 730 rows: 708 `dns` (`referenced`, the external names the
+    # old comment saw) plus 22 `observed` kerberos/ntlm/dhcp rows -- and the realm is in every
+    # one of the first two kinds. The 708 were the visible majority and the 22 were the answer.
+    #
+    # WHAT IS ACTUALLY IN THE WAY, which is a parser gap and not an evidence one: the realm
+    # survives only inside `Identifier.raw`. `windowing/entities.py`'s Kerberos parse drops the
+    # realm by design (`components = parts[:-1]`) and `raw` has no column at the IR boundary, so
+    # nothing downstream -- including this catalog's consumer -- can read it as a fact. Closing
+    # that is `docs/WORK_ORDER_reference_ingest.md` S5 (the realm as a first-class `ir_policy`
+    # row); making the DC serve 88/389 in the twin is S4, which needs S5's realm plus the
+    # identity compile step. Both are scoped work, not a capture limitation.
+    #
+    # The original reasoning -- *"emitting a domain name nothing had extracted would fabricate
+    # the single most identifying string in the twin"* -- was RIGHT, and D4 answers it rather
+    # than overriding it: the twin's forest is `corp.axr.lab`, a lab constant, `imputed` in the
+    # sidecar. No observed name is fabricated because no observed name is used. The realm the
+    # wire DOES carry stays a scheduled IR fact (`docs/WORK_ORDER_reference_ingest.md` S5) and
+    # is deliberately NOT what the twin deploys under.
+    # Two ports, deliberately. Either alone is weak — LDAP is served by plenty of directory
+    # appliances and 88 shows up on Kerberized services — but a host doing both IS the domain's
+    # KDC. Highest specificity in the table, which is also what makes it beat `file-server` on
+    # the same host: every DC here serves 445 as well.
+
+  - role: corp-workstation
+    persona: corp-workstation
+    persona_cadence: diurnal
+    requires: ["3389/tcp"]              # RDP: something a workstation ACCEPTS
+    confidence: 0.75
+    measured_on_baseline: true
+    image: win11-finance@v4
+    resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+    install: []
+    # The largest population on the baseline (~9 hosts). Confidence is 0.75, not higher,
+    # because RDP is equally a server's management path — this rule cannot tell a workstation
+    # from an administered Windows server, and says so rather than pretending 3389 is a desktop
+    # marker. `image` is the only Windows CLIENT image axRange ships; its `finance` slug is
+    # content this project has no evidence for, which is exactly why it is `defaulted`.
+
+  - role: corp-workstation
+    persona: corp-workstation
+    persona_cadence: diurnal
+    requires: ["3389/udp"]             # RDP's UDP transport
+    confidence: 0.75
+    measured_on_baseline: false
+    image: win11-finance@v4
+    resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+    install: []
+    # A BUG FIX, not a new signature (`docs/JOURNAL_corpapcn_fidelity.md` GAP-C1). The row above
+    # names only `3389/tcp`, but RDP since Windows 8/2012 negotiates a UDP transport alongside
+    # TCP and prefers it; on the CorpAPCN capture the UDP side is what several hosts were
+    # observed accepting. Same role, same confidence, same content — only the port differs.
+
+  - role: corp-workstation
+    persona: corp-workstation
+    persona_cadence: diurnal
+    requires: ["7680/tcp"]             # Windows Delivery Optimization peer cache
+    confidence: 0.7
+    measured_on_baseline: false
+    image: win11-finance@v4
+    resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+    install: []
+    # 7680 is Delivery Optimization, the peer-to-peer Windows Update cache. It exists on
+    # Windows and essentially nowhere else, so it is a strong OS marker — but it says
+    # "a Windows host", not "a desktop", which is why it sits at 0.7 rather than higher and
+    # under the same honest caveat the 3389 row carries about servers.
+
+  - role: file-server
+    persona: file-server
+    persona_cadence: diurnal
+    requires: ["445/tcp"]               # SMB
+    confidence: 0.7
+    measured_on_baseline: true
+    image: ubuntu-server-22@v5
+    resources: {cpu: 2, ram: 4Gi, disk: 100Gi}
+    install: [{pkg: samba}]
+    # Ordered AFTER `domain-controller`, which is the whole point of specificity ordering: a DC
+    # serves 445 too and must not be demoted to a file server. Disk is sized up from the
+    # sme-flat reference (30Gi) because a file server is the one role whose disk is its job.
+
+  - role: web-tier
+    persona: web-tier
+    persona_cadence: 24x7
+    requires: ["443/tcp"]
+    confidence: 0.6
+    measured_on_baseline: true
+    image: ubuntu-server-22@v5
+    resources: {cpu: 2, ram: 4Gi, disk: 20Gi}
+    install: [{pkg: nginx}]
+    # The weakest row that still earns its place. 443 says "terminates TLS" and nothing about
+    # what is behind it — `egress-proxy`, `dmz-web` and `web-tier` are indistinguishable on port
+    # evidence alone, and this project has no way to separate them today. 0.6 is the honest
+    # reading of "some HTTPS service", and picking the least specific of the three candidate
+    # personas is the conservative choice.
+    #
+    # DECLARED AHEAD OF `dns-resolver`, deliberately (`docs/WORK_ORDER_proto_weight_rows.md`
+    # D1b + D2 — Authority: user, 2026-09-02). The two rows tie on specificity, one required
+    # port each, so a host answering on both 53/udp and 443/tcp is roled by declaration order
+    # and by nothing else: volume never enters `match_role`. The host that does answer on both
+    # is the cast twin's own internet sink — its responder binds the ports the personas dial at
+    # it, 53 among them — and until this move it re-inferred as `dns-resolver` on that one port
+    # and relabelled every edge landing on it (iteration 17: `generic-endpoint->web-tier`
+    # 315 -> 3, `->dns-resolver` 773). The sink stands in for "everything outside", and what is
+    # outside this network is overwhelmingly web: the source has 204 `web-tier` entities and
+    # 202 of them are external, against a DNS that is 17 of 711 outbound rows. So on a 53/443
+    # tie the answer is web-tier.
+    #
+    # Blast radius, measured rather than assumed. `ROLE_CATALOG` is the one inference table
+    # every capture reads, so this decides how EVERY host serving both ports is roled, on every
+    # network this project ingests. The source's listen census showed ZERO hosts serving both
+    # 53/udp and 443/tcp, so no source role flips on the baseline. Applied to the catalog
+    # itself and not to a sink-only seam (D2): the sink is re-inferred through the ordinary
+    # catalog like any other host, and a private precedence for it would make the twin's
+    # inference stop matching the source's.
+    #
+    # The wrinkle, recorded so it reads as accepted and not as an oversight: a LOWER-confidence
+    # row (this one, 0.6) now out-ranks a HIGHER-confidence one (`dns-resolver`, 0.7) on a
+    # specificity tie. Confidence is what a row asserts about the evidence once it has matched;
+    # it has never been the tiebreak, and making it one would hand the sink back to
+    # `dns-resolver` by the back door. The `80/tcp` row below stays where it was, behind
+    # `dns-resolver`: cleartext HTTP is weaker evidence than TLS, and only the 53/443 tie was
+    # ruled on.
+
+  - role: dns-resolver
+    persona: null
+    persona_cadence: null
+    requires: ["53/udp"]
+    confidence: 0.7
+    measured_on_baseline: true
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 2Gi, disk: 20Gi}
+    install: [{pkg: bind9}]
+    # `persona: null` is a REAL state, not a gap: axRange ships no `dns-resolver` persona, and
+    # its `corp-workstation` persona says so itself — that emit is `optional: true` with a
+    # comment that "a twin with no `dns-resolver` host is a perfectly realistic AD twin". A role
+    # is what a host IS; a persona is what it DOES, and axRange's own `roles.yaml` keeps them
+    # separate for this reason. Such a node reaches `twin_config` with a role and simply gets no
+    # `tfc` assignment.
+    #
+    # Declared AFTER the `443/tcp` `web-tier` row on purpose: on the specificity tie between the
+    # two, the sink of "everything outside" must read as web-tier. That row carries the reason
+    # (D1b, `docs/WORK_ORDER_proto_weight_rows.md`); do not re-sort these rows by role.
+
+  - role: web-tier
+    persona: web-tier
+    persona_cadence: 24x7
+    requires: ["80/tcp"]
+    confidence: 0.5
+    measured_on_baseline: true
+    image: ubuntu-server-22@v5
+    resources: {cpu: 2, ram: 4Gi, disk: 20Gi}
+    install: [{pkg: nginx}]
+    # A SECOND row for one role, which the table allows on purpose: cleartext HTTP is weaker
+    # evidence than TLS (it is also every embedded device's admin page), so it gets its own
+    # confidence rather than being folded into the 443 row's.
+
+  # ── declared but NOT exercised by the 2026-08-11 baseline ─────────────────────────────────
+  # Plausible rules, unverified against real traffic. Kept because a catalog outlives one
+  # capture; flagged because "never fired" and "fired correctly" must not read the same.
+
+  - role: mail-server
+    persona: mail-server
+    persona_cadence: diurnal
+    requires: ["25/tcp"]
+    confidence: 0.8
+    measured_on_baseline: false
+    image: ubuntu-server-22@v5
+    resources: {cpu: 2, ram: 4Gi, disk: 60Gi}
+    install: [{pkg: postfix}]
+
+  - role: egress-proxy
+    persona: egress-proxy
+    persona_cadence: 24x7
+    requires: ["3128/tcp"]              # Squid's default port
+    confidence: 0.8
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 2Gi, disk: 20Gi}
+    install: [{pkg: squid}]
+    # Added 2026-08-27 from a live observation, not from the port registry: the
+    # `corp-enterprise` twin's proxy was seen ACCEPTING on 3128 (`SF` flows, listen census) and
+    # matched nothing, so it fell to the default and was dropped as role-less. Unlike 80/443 —
+    # whose `web-tier` row says out loud it cannot separate a proxy from a web server — 3128 is
+    # a genuinely discriminating port: it is Squid's default and essentially nothing else's,
+    # which is why this sits at 0.8 rather than the 0.5/0.6 the HTTP rows carry.
+    #
+    # `measured_on_baseline: false` is correct and is NOT a contradiction of "observed live":
+    # that flag means the 2026-08-11 baseline capture, which this row postdates and which never
+    # contained a proxy. See `docs/JOURNAL_imprint_loop.md` GAP-L4.
+
+  # ── dial-evidence rows (`docs/JOURNAL_imprint_loop.md` GAP-L5) ─────────────────────────────
+  # These match on what a host CONNECTS TO, not what it answers on, and they exist because a
+  # pure client produces no listen evidence at all: on the corp-enterprise reference twin, 8 of
+  # 13 hosts accepted nothing, matched nothing, and were dropped from the cast twin as
+  # role-less — taking two of the four segments with them.
+  #
+  # They sort BELOW every listen-bearing row by construction (0 `requires`), so a server is
+  # never demoted to a client of itself. Confidence is capped below the listen rows' on
+  # purpose: dialling a port is weaker evidence about what a host IS than answering on one.
+
+  - role: corp-workstation
+    persona: corp-workstation
+    persona_cadence: diurnal
+    requires: []
+    dials: ["88/tcp"]                  # Kerberos to a KDC
+    confidence: 0.7
+    measured_on_baseline: false
+    image: win11-finance@v4
+    resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+    install: []
+    # 88 alone, not 88+389 jointly, and that is measured rather than cautious: matching is
+    # PER-WINDOW, and on the reference capture each workstation dialled 88 about once per
+    # 60 s window while dialling 443 forty times. A two-port rule would need both in the same
+    # window and would fire on a fraction of them. One port that only domain members ever dial
+    # beats two that rarely co-occur in a single window.
+    #
+    # It deliberately does NOT match the twin's `attacker` host, which dialled 389 and 445 but
+    # never 88 — a genuine distinction the evidence supports, and the reason this row is not
+    # widened to "any AD port".
+
+  - role: monitoring-collector
+    persona: monitoring-collector
+    persona_cadence: "cyclic:1m"
+    requires: []
+    dials: ["9100/tcp"]                # Prometheus node_exporter scrape
+    confidence: 0.75
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 2, ram: 4Gi, disk: 40Gi}
+    install: [{pkg: prometheus}]
+    # The scrape direction is the whole signal: a collector is defined by reaching OUT to many
+    # exporters, so it is invisible to a listen census by nature, not by accident. Higher
+    # confidence than the workstation row because 9100 is a single-purpose port — essentially
+    # nothing but a Prometheus client dials it — whereas 88 is merely domain-specific.
+
+  - role: monitoring-collector
+    persona: monitoring-collector
+    persona_cadence: "cyclic:1m"
+    requires: ["9090/tcp"]             # Prometheus server's own API/UI
+    confidence: 0.75
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 4, ram: 8Gi, disk: 100Gi}
+    install: [{pkg: prometheus}]
+    # The 9997 row above infers this role from a Splunk indexer's receiving port, and then
+    # installs `prometheus` -- which serves 9090 and never 9997. So a twin node built for this
+    # role could not be re-inferred as it (`docs/JOURNAL_corpapcn_fidelity.md` GAP-C8): the
+    # detection signature and the deployed reality disagreed.
+    #
+    # This row closes that by keying on the port the install actually serves. Both rows are
+    # kept: 9997 is a real collector signature on a Splunk estate, 9090 is a real one on a
+    # Prometheus estate, and a catalog should recognise both rather than pick a house style.
+
+  - role: hypervisor
+    persona: null
+    persona_cadence: null
+    requires: ["8006/tcp"]             # Proxmox VE management UI/API
+    confidence: 0.85
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 4, ram: 8Gi, disk: 60Gi}
+    install: []
+    # 8006 is Proxmox's management port and effectively nothing else's, hence 0.85 — as
+    # discriminating as 3128 is for Squid. `persona: null` is the truthful state: axRange ships
+    # no hypervisor persona, so such a node reaches the twin with a role and no `tfc`
+    # assignment, exactly as `dns-resolver` does.
+
+  - role: monitoring-collector
+    persona: monitoring-collector
+    persona_cadence: "cyclic:1m"
+    requires: ["9997/tcp"]             # Splunk forwarder -> indexer receiving port
+    confidence: 0.7
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 4, ram: 8Gi, disk: 100Gi}
+    install: []
+    # A host ACCEPTING on 9997 is the indexer, not the forwarder — the direction is the whole
+    # signal, and it is the receiving end that is the collector. Mapped to
+    # `monitoring-collector` rather than a new `log-indexer` role because axRange's persona of
+    # that name already models "reaches out to many hosts and ingests telemetry", which is the
+    # behaviour to reproduce; a second role with the same behaviour would be vocabulary
+    # without meaning. Disk sized up: an indexer's disk is its job.
+
+  - role: db-tier
+    persona: db-tier
+    persona_cadence: 24x7
+    requires: ["5432/tcp"]
+    confidence: 0.85
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 4, ram: 8Gi, disk: 60Gi}
+    install: [{pkg: postgresql}]
+
+  - role: bastion-jump
+    persona: bastion-jump
+    persona_cadence: "cyclic:1h"
+    requires: ["22/tcp"]
+    confidence: 0.4
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 2Gi, disk: 20Gi}
+    install: []
+    # Lowest confidence here for a reason worth stating: on a Linux estate essentially EVERY
+    # host answers on 22, so this rule is nearly contentless as a role discriminator. It is
+    # last in the table so anything more specific wins, and 0.4 says out loud that a bare SSH
+    # listener is barely evidence of a role at all.
+
+  # ── the residue, and the most debatable row in this file ───────────────────────────────────
+  #
+  # LAST, deliberately, and lowest-confidence in the table.
+  #
+  # On the CorpAPCN capture 130 of 141 placed hosts matched nothing, and 124 of those 130 accept
+  # NO connections at all — their entire evidence is dialling 443, 53, 123 and 22, the universal
+  # background of any host on any network. No additional port rule can separate them, because
+  # there is nothing there to separate: a file server and a laptop both resolve DNS, sync NTP
+  # and fetch HTTPS.
+  #
+  # Leaving them role-less means a twin carrying 11% of the network's hosts and a correspondingly
+  # tiny share of its traffic, which for a FIDELITY twin is the dominant error. So this row
+  # exists — but it is written to claim only what was actually observed.
+  #
+  # `generic-endpoint` asserts: *this host consumes services and serves none.* It does NOT assert
+  # workstation, server, laptop or OS, and that restraint is the whole point — `corp-workstation`
+  # would have been the tempting label and would have been a fabrication, since a headless server
+  # dialling 443 matches this evidence exactly as well.
+  #
+  # Ordering does the safety work, so no extra gate is needed: every listen-bearing row sorts
+  # above every dial row, and this is the last dial row, so it can only ever catch what nothing
+  # else claimed. A host with a real service keeps its real role.
+  #
+  # 0.35 is the lowest confidence in this catalog and says out loud that dialling 443 is barely
+  # evidence of anything. Read the caveat, not just the role.
+  - role: generic-endpoint
+    persona: generic-endpoint
+    persona_cadence: "cyclic:30s"
+    requires: []
+    dials: ["443/tcp"]
+    confidence: 0.35
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+  # Two more rows for the SAME role, on the same argument as the 443 row above and at lower
+  # confidence still. Matching is per-window, and a quiet endpoint may dial DNS or NTP in a
+  # window where it makes no HTTPS request at all — on CorpAPCN the 443 row alone reached 39 of
+  # the 124 serving-nothing hosts, and these two reach most of the rest.
+  #
+  # "Dials a resolver" is close to contentless as a discriminator, and 0.3 says so. It is kept
+  # because for a FIDELITY twin the useful claim is not what the host is but THAT it is: a host
+  # that resolves names and syncs time is a real endpoint generating real background traffic,
+  # and omitting it understates the network by one host every time.
+  - role: generic-endpoint
+    persona: generic-endpoint
+    persona_cadence: "cyclic:30s"
+    requires: []
+    dials: ["53/udp"]
+    confidence: 0.3
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+  - role: generic-endpoint
+    persona: generic-endpoint
+    persona_cadence: "cyclic:30s"
+    requires: []
+    dials: ["123/udp"]
+    confidence: 0.3
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+  # Same role, two more link-local discovery signatures. SSDP and mDNS are what an endpoint does
+  # to find printers and media devices; both are sent to a multicast group rather than a host,
+  # which is why the dial evidence exists even though there is no peer to point at.
+  - role: generic-endpoint
+    persona: generic-endpoint
+    persona_cadence: "cyclic:30s"
+    requires: []
+    dials: ["1900/udp"]
+    confidence: 0.3
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+  - role: generic-endpoint
+    persona: generic-endpoint
+    persona_cadence: "cyclic:30s"
+    requires: []
+    dials: ["5353/udp"]
+    confidence: 0.3
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+  # The direction matters, and it is the OPPOSITE of the 9997 listen row above. A host ACCEPTING
+  # on 9997 is the Splunk indexer (-> monitoring-collector); a host DIALLING it is a forwarder
+  # shipping its logs there. Same port, two roles, told apart by which end of the connection the
+  # host is on -- which is exactly what `requires` vs `dials` is for.
+  - role: log-shipper
+    persona: log-shipper
+    persona_cadence: 24x7
+    requires: []
+    dials: ["9997/tcp"]
+    confidence: 0.6
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 2Gi, disk: 20Gi}
+    install: []
+
+  # HSRP. Only routers and L3 switches speak it -- it is the protocol by which they elect which
+  # of them owns a virtual gateway address -- so this is among the most discriminating dial
+  # signatures available, unlike the 443/53/123 background above. Mapped to the
+  # `broadcast-chatter` persona because that is what HSRP IS on the wire: periodic multicast
+  # announcements to a fixed group, not a client/server exchange.
+  #
+  # A distinct role rather than `gw`: the compiler SYNTHESIZES a `gw` router to join the twin's
+  # segments, and a second source of that role would collide with it. These are the real
+  # network's own L3 devices, observed, and they sit in the twin as what they are.
+  - role: network-device
+    persona: broadcast-chatter
+    persona_cadence: 24x7
+    requires: []
+    dials: ["1985/udp"]
+    confidence: 0.7
+    measured_on_baseline: false
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+
+# ── SYNTHETIC CONTENT ROWS ────────────────────────────────────────────────────────────────────
+#
+# Deliberately NOT under `roles:`, and the separation is the safety property rather than
+# tidiness. Every row above is an EVIDENCE RULE: it exists to be matched against an observed
+# host's ports, and `match_role` walks exactly that list. The four rows below describe nodes no
+# capture could ever have observed, so putting them in the same table would mean either
+# fabricating `requires`/`dials` evidence for them (a rule that fires on a real host and labels
+# it "the internet") or a `synthetic: true` flag the matcher has to remember to honour. Held in
+# their own block, being un-inferrable is structural: `match_role` cannot reach them at all.
+#
+# Same reason there is no `confidence:` or `measured_on_baseline:` here — both are statements
+# about evidence, and there is none to describe. `LES-006`: a field with nothing behind it is
+# worse than an absent one.
+#
+# WHAT THEY ARE. `docs/JOURNAL_corpapcn_fidelity.md` GAP-C17: 85% of the source's edges leave
+# the network and an air-gapped twin can place none of them, so its hosts manufacture LOCAL
+# edges to stay busy instead (measured: `generic-endpoint->web-tier` local, source 3, twin 225).
+# The `internet-sink-*` family is a synthetic node group INSIDE the twin, on its own segment,
+# that those conversations are aimed at instead -- addressed BY ROLE, which is what makes the
+# containment structural (`synth/personas.py::SINK_ROLE` has the full argument).
+#
+# The sizes are 1/2/4/8 so a persona can compose any external fan-out in 1..15 as a binary
+# subset of `peer_scope: all` emits; see `synth/personas.py::SINK_BUCKETS`. Measured on the
+# source: median 2, mean 4.485, max 53 distinct external peers per host, so 7 of its 132
+# externally-talking hosts sit above 15 and are clamped.
+#
+# Sized DOWN, not defaulted. These are 15 VMs whose entire job is to accept a connection and
+# echo it (`synth/responder.py`), so the `default:` block's 2Gi/20Gi would spend 30Gi of RAM and
+# 300Gi of disk on a sink -- more than the twin's real hosts -- for no benefit whatsoever.
+# `debian-12-cloud@v1` because the responder is a POSIX `python3` script and every Debian cloud
+# image ships one.
+synthetic:
+  internet-sink-1:
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+  internet-sink-2:
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+  internet-sink-4:
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []
+  internet-sink-8:
+    image: debian-12-cloud@v1
+    resources: {cpu: 1, ram: 1Gi, disk: 10Gi}
+    install: []

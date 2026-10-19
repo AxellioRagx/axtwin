@@ -1,0 +1,45 @@
+scenario_schema_version: 1
+
+scenario:
+  id: overlay-data-demo
+  version: 1
+  seed: 1337
+  description: |
+    Minimal data-overlay scenario for the OP-OVL seed-dataset engine tests
+    (docs/SLICE_OVERLAY.md). One host with an app (so seed-dataset gates on the
+    host's provision-app) and a synthetic crown-jewel dataset planted on it.
+
+layers:
+  infra:
+    networks:
+      - { id: corp, cidr: 10.10.0.0/24, vlan: 10, gateway: 10.10.0.1 }
+    nodes:
+      - id: app-srv
+        kind: host
+        nets: [ { net: corp, ip: 10.10.0.10 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+  apps:
+    - id: fileshare
+      install:
+        - { pkg: nginx }
+  activity: []
+
+bindings:
+  - { app: fileshare, host: app-srv }
+
+overlays:
+  data:
+    - id: crown-jewels
+      host: app-srv
+      path: /srv/data/customers.csv
+      classification: PII
+      crown_jewel: true
+      synthetic_size: 8Ki
+  defense:
+    - id: host-audit
+      tool: auditd
+      installed_on: [app-srv]
+      ruleset: axrange-baseline
+      config: ./auditd.rules

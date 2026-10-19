@@ -1,0 +1,111 @@
+# Rebalanced to §7's measured mix (corp-twin live run 3, 2026-09-28; docs/WORK_ORDER_corp_twin.md
+# §11, pinned by tests/test_corp_twin_mix.py): QUIC low x 1200 B, HTTP low, SMB repointed sink ->
+# domain-controller (§7's workstation SMB goes to the DC), the other `high` emits -> med.
+# os_family: windows, not the cast's linux (corp-twin live run 3, 2026-09-28): every
+# corp-workstation host in this twin is a Windows image (win11-finance@v4), and a linux
+# persona there launches sh/python3 over QGA -> "Failed to execute child process" on every
+# attempt. `tfc validate` now refuses the mismatch (docs/WORK_ORDER_corp_twin.md §11).
+persona:
+  id: cast-corp-workstation-heavy-local
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: ssh
+    ports:
+    - 22
+    peer_role: web-tier
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:118s
+    volume: high
+  - proto: https
+    ports:
+    - 443
+    peer_role: sink
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:118s
+    volume: low
+    bytes: 1200
+  - proto: http
+    ports:
+    - 80
+    peer_role: sink
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:118s
+    volume: low
+  - proto: smb
+    ports:
+    - 445
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: kerberos
+    ports:
+    - 88
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: tcp
+    ports:
+    - 135
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: ldap
+    ports:
+    - 389
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: ldap
+    ports:
+    - 389
+    peer_role: domain-controller
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:118s
+    volume: med
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

@@ -1,0 +1,30 @@
+persona:
+  id: cast-web-tier
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: http
+    ports:
+    - 80
+    peer_role: internet-sink-4
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  - proto: ssh
+    ports:
+    - 22
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

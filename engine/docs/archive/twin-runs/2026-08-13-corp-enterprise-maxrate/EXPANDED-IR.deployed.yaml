@@ -1,0 +1,209 @@
+bindings:
+- {app: domain-controller-app, host: domain-controller}
+- {app: file-server-app, host: file-server}
+- {app: mail-server-app, host: mail-server}
+- {app: egress-proxy-app, host: egress-proxy}
+- {app: dmz-web-app, host: dmz-web}
+- {app: monitoring-collector-app, host: monitoring-collector}
+- {app: attacker-app, host: attacker}
+layers:
+  activity: []
+  apps:
+  - id: domain-controller-app
+    install:
+    - {role: adds}
+    provides:
+    - {domain: corp.axr.lab}
+  - id: file-server-app
+    install:
+    - {pkg: samba}
+  - id: mail-server-app
+    install:
+    - {pkg: postfix}
+  - id: egress-proxy-app
+    install:
+    - {pkg: squid}
+  - id: dmz-web-app
+    install:
+    - {pkg: nginx}
+  - id: monitoring-collector-app
+    install:
+    - {pkg: prometheus}
+  - id: attacker-app
+    install:
+    - {pkg: nmap}
+    - {pkg: python3-pip}
+    - {pkg: git}
+    - {pkg: hashcat}
+    - {pkg: john}
+    - {pkg: ldap-utils}
+    - {pkg: smbclient}
+    - {pkg: netcat-traditional}
+    - {pkg: python3-impacket}
+  infra:
+    networks:
+    - {cidr: 10.62.0.0/24, gateway: 10.62.0.1, id: corp-lan, vlan: 10}
+    - {cidr: 10.62.10.0/24, gateway: 10.62.10.1, id: server-vlan, vlan: 20}
+    - {cidr: 10.62.20.0/24, gateway: 10.62.20.1, id: dmz, vlan: 30}
+    - {cidr: 10.62.30.0/24, gateway: 10.62.30.1, id: mgmt, vlan: 40}
+    nodes:
+    - id: gw
+      image: debian-12-cloud@v1
+      kind: router
+      nets:
+      - {ip: 10.62.0.1, net: corp-lan}
+      - {ip: 10.62.10.1, net: server-vlan}
+      - {ip: 10.62.20.1, net: dmz}
+      - {ip: 10.62.30.1, net: mgmt}
+      requires: [linux]
+      resources: {cpu: 1, disk: 10Gi, ram: 1Gi}
+      role: gw
+    - id: domain-controller
+      image: windows-server-2022@v1
+      kind: host
+      nets:
+      - {ip: 10.62.10.2, net: server-vlan}
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: domain-controller
+    - id: file-server
+      image: ubuntu-server-22@v5
+      kind: host
+      nets:
+      - {ip: 10.62.10.3, net: server-vlan}
+      requires: [linux, kernel:container-runtime]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: file-server
+    - id: mail-server
+      image: ubuntu-server-22@v5
+      kind: host
+      nets:
+      - {ip: 10.62.20.2, net: dmz}
+      requires: [linux]
+      resources: {cpu: 2, disk: 20Gi, ram: 2Gi}
+      role: mail-server
+    - id: egress-proxy
+      image: debian-12-cloud@v1
+      kind: host
+      nets:
+      - {ip: 10.62.20.3, net: dmz}
+      requires: [linux]
+      resources: {cpu: 1, disk: 10Gi, ram: 1Gi}
+      role: egress-proxy
+    - id: dmz-web
+      image: ubuntu-server-22@v5
+      kind: host
+      nets:
+      - {ip: 10.62.20.4, net: dmz}
+      requires: [linux]
+      resources: {cpu: 2, disk: 20Gi, ram: 2Gi}
+      role: dmz-web
+    - id: monitoring-collector
+      image: debian-12-cloud@v1
+      kind: host
+      nets:
+      - {ip: 10.62.30.2, net: mgmt}
+      requires: [linux]
+      resources: {cpu: 2, disk: 20Gi, ram: 2Gi}
+      role: monitoring-collector
+    - id: corp-workstation01
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.2, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: corp-workstation02
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.3, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: corp-workstation03
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.4, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: corp-workstation04
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.5, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: corp-workstation05
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.6, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: corp-workstation06
+      image: win11-finance@v4
+      joins: corp.axr.lab
+      kind: host
+      nets:
+      - {ip: 10.62.0.7, net: corp-lan}
+      requires: [windows, kernel:powershell-5plus]
+      resources: {cpu: 2, disk: 60Gi, ram: 4Gi}
+      role: corp-workstation
+    - id: attacker
+      image: debian-12-cloud@v1
+      kind: host
+      nets:
+      - {ip: 10.62.0.8, net: corp-lan}
+      requires: [linux]
+      resources: {cpu: 2, disk: 20Gi, ram: 2Gi}
+      role: attacker
+overlays:
+  data:
+  - {classification: pii, crown_jewel: true, host: file-server, id: customer-pii,
+    path: /srv/customer-pii/data, synthetic_size: 2Gi}
+  identity:
+  - domain: corp.axr.lab
+    groups: [Domain Users]
+    id: alice
+    ou: Finance
+    type: user
+  - domain: corp.axr.lab
+    groups: [Domain Admins]
+    id: bob-admin
+    ou: IT
+    type: user
+  - domain: corp.axr.lab
+    groups: [Domain Users]
+    id: svc-sql
+    ou: Service Accounts
+    password: Summer2024!
+    spn: MSSQLSvc/sql01.corp.axr.lab:1433
+    type: user
+  - asrep_roastable: true
+    domain: corp.axr.lab
+    groups: [Domain Users]
+    id: jsmith
+    ou: Finance
+    password: Password123
+    type: user
+scenario: {description: "AD workhorse enterprise twin: corp-lan/server-vlan/dmz/mgmt
+    behind a\nrouter with WAN egress, a full AD domain, and crown-jewel PII data on\n\
+    the file server. Expanded from twin-config 'corp-enterprise'\n(docs/WORK_ORDER_twin_configs.md).\n\
+    \nNo tap-related content here (`docs/WORK_ORDER_tap_eligibility.md`,\nAuthority:
+    user, 2026-07-28) -- a twin config authors no capture\nintent at all; corp-lan/server-vlan/dmz
+    (segment), a corp-lan<->dmz\nboundary at the router, and the twin's WAN egress
+    leg (perimeter: wan)\nare all addressable by a standalone tap plan against the
+    deployed\ntwin's published topology -- see `twin-configs/corp-enterprise/tap-*.yaml`.\n",
+  id: corp-enterprise, version: 1}
+scenario_schema_version: 1

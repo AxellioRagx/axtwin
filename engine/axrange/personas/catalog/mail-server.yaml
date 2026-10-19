@@ -1,0 +1,26 @@
+persona:
+  id: mail-server
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: smtp
+      ports: [25, 587]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: diurnal
+      volume: med
+    - proto: imap
+      ports: [993]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: diurnal
+      volume: med
+    - proto: smtp
+      ports: [25]
+      peer_role: egress
+      direction: NS
+      cadence: diurnal
+      volume: low
+  requires: [corp-workstation]
+  # GAP-032: assert against Postfix -- this role's MTA.
+  knobs: { intensity: 1.0, schedule: business-hours, seed_jitter: true, service_name: postfix }

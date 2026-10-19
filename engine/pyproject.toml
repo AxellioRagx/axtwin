@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axrange"
+version = "0.1.0"
+description = "Cyber-range platform CLI: scenario IR parser, validator, and op registry"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "axRange" }]
+
+dependencies = [
+    "pydantic>=2.6",
+    "ruamel.yaml>=0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "httpx>=0.27",       # Starlette TestClient (axrange/api tests)
+    "pytest-xdist>=3.5", # parallel full suite: `pytest -q -n auto` (docs/WORKFLOW.md)
+    # Pillow is optional: scripts/shrink_image.py needs it; its tests skip without it.
+]
+# Control-plane API (axrange/api/ + `axrange serve`, docs/DESIGN_BRIEF_api.md).
+# Optional + lazy-imported so the engine/CLI run without a web stack installed.
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+]
+# Stage-1 research subsystem (scenario_ai_research/research). OSS-only, heavy + optional;
+# lazy-imported so the pipeline is testable on fakes without these installed.
+research = [
+    "yt-dlp>=2024.1",
+    "faster-whisper>=1.0",
+]
+
+[project.scripts]
+axrange = "axrange.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["axrange*"]
+exclude = ["tests*", "o2*", "docs*", "scripts*"]
+
+# Non-Python artifacts that are LOAD-BEARING AT IMPORT, not samples:
+# `axrange/api/schemas/axr-assertions-1.schema.json` is the vendored
+# cross-repo vocabulary `console_files` derives its closed sets from, so a
+# wheel built without it fails to import that module (loudly, by design).
+[tool.setuptools.package-data]
+"axrange.api" = ["schemas/*.json", "fixtures/imprints/*/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: real-sleep / heartbeat-TTL / multiprocessing timing tests (excluded from the fast inner loop via -m 'not slow')",
+    "live: needs a real Proxmox cluster (none in v1; not exercised by the suite)",
+]

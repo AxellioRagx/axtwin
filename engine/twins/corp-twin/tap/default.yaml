@@ -1,0 +1,113 @@
+# corp-twin -- the DEFAULT tap plan: the two real mirror points, delivered to
+# the CORP APCN analogue (docs/WORK_ORDER_corp_twin.md §9).
+#
+#   real (image (1).png)                     twin
+#   ---------------------------------------  -------------------------------------
+#   External TAP on the Comcast uplinks,     `segment` bindings on wan1-isp and
+#   OUTSIDE the MX85 (one per uplink)        wan2-isp -- the ISP side of hq-mx
+#   MS120 SPAN port                          `segment` bindings on EVERY segment
+#                                            the `ms120` switch VM has a port on
+#                                            (its two SFP uplinks, its trunks to
+#                                            the access switches and the 3850,
+#                                            its access ports) + the off-map /24s
+#   Aggregator -> CORP APCN                  both points -> XPress-SW-A (the
+#                                            packetXpress/axquery appliance)
+#
+# **External TAP = wan1-isp/wan2-isp, NOT `perimeter: wan`** (LES-143): the WAN
+# uplink taps vmbr0, which every twin's router shares -- a WAN binding here
+# would collide on one gretap device with any other twin's (svc-engines is
+# standing) and either teardown would delete the other's capture. And after
+# the `measure` flip NOTHING crosses vmbr0: every external flow is policy-
+# routed across wan1-isp to the sink, so wan1-isp IS the WAN view. wan2-isp
+# is the standby uplink: expect ~0 frames there, which is the point.
+#
+# **MS120 SPAN = `segment` scope on every segment ms120 touches.** Since the
+# device-parity round the MS120 is a VM (a VLAN-aware bridge,
+# scripts/serve-l2switch.sh), so its SPAN is literally its ports: `segment`
+# resolves EVERY port on the net at `rx`. Two properties a reader of the
+# capture must know:
+#   * **802.1Q.** sfp25/sfp26 and the `t-ms120-*` segments are TRUNKS: frames
+#     there carry the REAL VLAN tag (20, 64, 935, ...; VLAN1 untagged as the
+#     native VLAN), exactly as a SPAN of a real trunk port delivers them. The
+#     access segments (vlan20, vlan1, p17-hwlab2960s) are untagged.
+#   * **Once per segment crossed.** A frame from a vlan64 host to hq-mx crosses
+#     t-ms120-sgs5240 AND sfp25, so it is captured twice (a real SPAN of both
+#     ports does the same). sfp26 is STP-blocked: ~0 frames bar BPDUs.
+#     Intra-VLAN traffic that stays on one access switch (vlan64 host to
+#     vlan64 host on the SGS-5240) never crosses the MS120 and is NOT seen --
+#     also as the real SPAN.
+# The off-map lab /24s keep their direct hq-mx legs (they are routed in
+# through HQ, which the diagram does not detail), bound as before.
+#
+# **One sensor, no `mode:`** -- a 1-element `sensors:` list is exclusive in
+# effect. XPress-SW-A is an EXTERNAL sensor (adapter.conf `EXTERNAL_SENSORS`),
+# not in-scenario, so no `verify-capture` heartbeat: confirm delivery by the
+# per-key gretap counters on the appliance (runbook §11 step 6). For the
+# suricata comparison feed, tap/fanout-suricata.yaml.
+#
+# NOT bound, because the DEFAULT gate (DEPLOY_MIN_OCCUPANCY=0.8) leaves the
+# deployed twin without them and a binding on a missing segment is a
+# resolve-time error: the six off-map segments it gates (lab-10-110-240,
+# lab-10-112-140, lab-10-20-198, lab-10-21-161, lab-10-55-10, lab-10-64-7 --
+# occupancy 0.22-0.78). Deployed at a lower threshold? Add them. (vlan1,
+# vlan32 and vlan40 no longer vanish at the default gate: the switch VMs
+# carrying them keep them -- G14 closed, work order §8.)
+#
+# `target: corp-twin` is the twin NAME, resolved to the newest live corp-twin
+# te deploy at apply time (LES-072); `--target` overrides.
+tap-plan:
+  target: corp-twin
+  bindings:
+    # ---- External TAP (WAN1 active, WAN2 standby) ------------------------
+    - selector: { scope: segment, target: wan1-isp }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: wan2-isp }
+      sensors: [XPress-SW-A]
+    # ---- MS120 SPAN: every port of the ms120 switch VM ---------------------
+    - selector: { scope: segment, target: vlan20 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: vlan1 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp25 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: sfp26 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-sgs5240 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-axeprod }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-cos }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-labsw }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: t-ms120-3850 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: p17-hwlab2960s }
+      sensors: [XPress-SW-A]
+    # ---- MS120 SPAN: off-map subnets that survive the default gate --------
+    - selector: { scope: segment, target: lab-10-0-21 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-1-10 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-128-215 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-192 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-193 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-195 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-196 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-200 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-201 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-203 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-204 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-10-20-207 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lab-172-16 }
+      sensors: [XPress-SW-A]

@@ -1,0 +1,13 @@
+# Build inputs and outputs of the Console SPA. Kept HERE rather than in the
+# repo root, following the sibling Grafana plugin's convention: a component
+# owns its own ignores, so moving or removing the component takes them with
+# it.
+#
+# `package-lock.json` is deliberately NOT ignored -- it is the reproducible
+# dependency set `npm ci` installs.
+node_modules/
+dist/
+
+# Vite / npm scratch
+.vite/
+*.log

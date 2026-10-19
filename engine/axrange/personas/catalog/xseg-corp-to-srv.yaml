@@ -1,0 +1,48 @@
+# Cross-segment persona: corp-lan -> server-vlan.
+#
+# The `xseg-*` family exists to drive traffic that ROUTES. Every other
+# persona family in this catalog is deliberately intra-segment (the
+# `loadgen-*` family says so explicitly: corp-enterprise's gw has 1 vCPU, so
+# a cross-segment flow measures the router rather than the capture path).
+# That is exactly backwards for a router SPAN -- a `perimeter`-scoped tap
+# (twin-configs/corp-enterprise/tap-gw-span.yaml) sees ONLY routed traffic,
+# so an intra-segment mesh is invisible to it. These personas pin every
+# `peer_role:` to a role that lives on a DIFFERENT segment, guaranteeing each
+# flow crosses gw and lands on the SPAN.
+#
+# Volume is deliberately moderate. Each persona carries one UDP `netflow`
+# emit as its guaranteed-volume carrier (a UDP datagram reaches the wire
+# whether or not anything is listening, and chunks at the MTU for real packet
+# rate) plus realistic TCP emits aimed at daemons the twin actually runs --
+# samba on file-server:445, AD on domain-controller:389. TCP only materializes
+# byte volume against a REAL listener; a refused connect is 2 packets, not a
+# transfer (the `fails=` counter in the guest log is the tell), which is why
+# the UDP carrier is what the rate is built on and the TCP emits are fidelity.
+persona:
+  id: xseg-corp-to-srv
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [2055]
+      peer_role: file-server
+      transport: udp
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: high
+    - proto: smb
+      ports: [445]
+      peer_role: file-server
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: med
+    - proto: ldap
+      ports: [389]
+      peer_role: domain-controller
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:15s"
+      volume: med
+  requires: [file-server, domain-controller]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

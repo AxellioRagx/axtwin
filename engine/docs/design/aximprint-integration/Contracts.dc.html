@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --page:#f7f8f9; --surface:#fcfcfb; --ink:#14171a; --muted:#6b7280;
+      --border:rgba(20,23,26,0.22); --seg:#eef1f4; --o2:#f0f3f6;
+      --accent:#2a78d6; --accent-soft:#dbe9fb; --ok:#2f7a52; --ok-soft:#e6f2ea;
+      --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);
+      line-height:1.5;-webkit-font-smoothing:antialiased;}
+    a{color:var(--accent);} a:hover{color:#1b5aa8;}
+    .wrap{padding:40px 44px;}
+    .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.13em;
+      text-transform:uppercase;color:var(--muted);}
+    h1{margin:7px 0 8px;font-size:33px;letter-spacing:-0.02em;font-weight:650;}
+    .sub{margin:0 0 22px;color:var(--muted);max-width:76ch;font-size:15px;line-height:1.55;}
+    .callout{display:flex;gap:14px;align-items:flex-start;background:var(--o2);
+      border:1px solid var(--border);border-radius:10px;padding:15px 18px;margin-bottom:24px;}
+    .callout svg{flex:0 0 auto;margin-top:1px;}
+    .callout .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;
+      text-transform:uppercase;color:var(--accent);margin-bottom:3px;}
+    .callout .t{font-size:13.5px;color:var(--ink);line-height:1.55;}
+    .callout code{font-family:var(--mono);font-size:.92em;color:var(--ink);}
+    .grid{display:grid;grid-template-columns:repeat(2, minmax(0,1fr));gap:16px;margin-bottom:26px;}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:11px;
+      padding:17px 19px;display:flex;flex-direction:column;gap:9px;}
+    .card .hd{display:flex;align-items:center;gap:11px;}
+    .badge{flex:0 0 auto;width:27px;height:27px;border-radius:50%;background:var(--accent);
+      color:#fff;font-family:var(--mono);font-size:13px;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    .card h3{margin:0;font-size:15.5px;font-weight:640;letter-spacing:-0.01em;}
+    .dir{font-family:var(--mono);font-size:11.5px;color:var(--accent);
+      background:var(--accent-soft);border-radius:5px;padding:5px 9px;display:inline-block;
+      align-self:flex-start;}
+    .row{display:flex;gap:9px;font-size:12.8px;line-height:1.5;}
+    .row .lab{flex:0 0 62px;color:var(--muted);font-weight:600;}
+    .row .val{color:var(--ink);}
+    .row .val code{font-family:var(--mono);font-size:.92em;}
+    .phase-h{font-family:var(--mono);font-size:11px;letter-spacing:.13em;
+      text-transform:uppercase;color:var(--muted);margin:2px 0 12px;}
+    .phases{display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:16px;}
+    .phase{background:var(--surface);border:1px solid var(--border);border-radius:11px;
+      padding:16px 18px;position:relative;display:flex;flex-direction:column;gap:7px;}
+    .phase .n{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700;letter-spacing:.06em;}
+    .phase h4{margin:0;font-size:15px;font-weight:640;}
+    .phase p{margin:0;font-size:12.6px;color:var(--muted);line-height:1.55;}
+    .phase .seam{margin-top:auto;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+      border-top:1px solid var(--border);padding-top:9px;}
+    .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono);
+      color:var(--ok);background:var(--ok-soft);border-radius:20px;padding:3px 9px;}
+  </style>
+</helmet>
+<div class="wrap">
+  <div class="eyebrow">integration &middot; contracts &amp; rollout</div>
+  <h1>The seams, precisely</h1>
+  <p class="sub">What crosses each boundary, in which direction, in what format &mdash; and the order
+    we build it. Two repositories, one contract at each seam.</p>
+
+  <div class="callout">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#2a78d6" stroke-width="1.7"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 8 L4 12 L7 16"></path><path d="M17 8 L20 12 L17 16"></path>
+      <path d="M13.5 6 L10.5 18"></path>
+    </svg>
+    <div>
+      <div class="k">Coupling boundary &mdash; one-directional</div>
+      <div class="t">aximprint may import axRange&rsquo;s <code>validator</code> / <code>planner</code> /
+        <code>op-catalog</code> to validate the config it emits; <b>axRange imports nothing from
+        aximprint</b>. aximprint is an independent project on its own repo &mdash; the same rule that
+        already governs <code>scenario_ai_research</code>.</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="hd"><span class="badge">1</span><h3>Metadata in</h3></div>
+      <span class="dir">axRange O2 sensors &rarr; aximprint ingest</span>
+      <div class="row"><span class="lab">Crosses</span><span class="val">Sensor-generated metadata &mdash; Zeek logs (<code>conn</code>, <code>dns</code>, <code>ssl</code>, &hellip;) first; Suricata &amp; packetXpress later.</span></div>
+      <div class="row"><span class="lab">Format</span><span class="val">Raw sensor logs &rarr; normalized event model (<code>Flow / Identity / Service / Alert / SensorHealth</code>) via a per-sensor ingest plugin.</span></div>
+      <div class="row"><span class="lab">Note</span><span class="val">aximprint is <b>not a sensor</b>; it runs <em>on</em> a sensor host and normalizes what the sensor emits.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><span class="badge">2</span><h3>Config out &mdash; the front door</h3></div>
+      <span class="dir">aximprint synth &rarr; axRange te &middot; tfc &middot; tap</span>
+      <div class="row"><span class="lab">Crosses</span><span class="val"><code>twin_config</code> (structure) + <code>tfc</code> traffic profile (behavior) + <code>tap</code> plan (capture vantage).</span></div>
+      <div class="row"><span class="lab">Format</span><span class="val">axRange tier YAML &mdash; deterministic, per-field provenance, passes <code>axrange validate</code> unchanged.</span></div>
+      <div class="row"><span class="lab">Note</span><span class="val">The missing front door: derives a config from real traffic instead of hand-authoring it.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><span class="badge">3</span><h3>Recapture</h3></div>
+      <span class="dir">axRange deployed twin &rarr; O2 sensors &rarr; aximprint&prime;</span>
+      <div class="row"><span class="lab">Crosses</span><span class="val">The deployed twin&rsquo;s own live traffic, captured through the same tap &amp; sensor plane.</span></div>
+      <div class="row"><span class="lab">Format</span><span class="val">Identical to seam &#9312; &mdash; a second aximprint instance ingests it with no new contract.</span></div>
+      <div class="row"><span class="lab">Note</span><span class="val">Reuses the standing O2 capture plane; nothing new on the wire.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="hd"><span class="badge">4</span><h3>Reconcile</h3></div>
+      <span class="dir">aximprint drift report &rarr; operator / axRange</span>
+      <div class="row"><span class="lab">Crosses</span><span class="val">Drift &amp; persona-coverage report; a tap-placement recommendation for axRange&rsquo;s EW/NS visibility model.</span></div>
+      <div class="row"><span class="lab">Format</span><span class="val">Report + an updated <code>tap</code> plan. Round-trip self-test gates promotion.</span></div>
+      <div class="row"><span class="lab">Note</span><span class="val">Only meaningful because synth is deterministic &mdash; a replay reproduces the same twin.</span></div>
+    </div>
+  </div>
+
+  <div class="phase-h">Phased rollout</div>
+  <div class="phases">
+    <div class="phase">
+      <span class="n">PHASE 1</span>
+      <h4>Front door</h4>
+      <p><code style="font-family:var(--mono);font-size:.9em">aximprint synth</code> &rarr; a draft <code style="font-family:var(--mono);font-size:.9em">twin_config</code>+<code style="font-family:var(--mono);font-size:.9em">tfc</code>+<code style="font-family:var(--mono);font-size:.9em">tap</code>, validated against axRange and hand-deployed. Round-trip self-test against a twin axRange already deploys from a hand-written config.</p>
+      <span class="seam">closes seam &#9313;</span>
+    </div>
+    <div class="phase">
+      <span class="n">PHASE 2</span>
+      <h4>Live ingest</h4>
+      <p>axRange O2 sensors stream metadata into aximprint on the sensor host &mdash; learn a real network, or a standing twin, as-of a chosen time T.</p>
+      <span class="seam">closes seam &#9312;</span>
+    </div>
+    <div class="phase">
+      <span class="n">PHASE 3</span>
+      <h4>Reconcile</h4>
+      <p>Deploy &rarr; recapture &rarr; a second aximprint &rarr; drift &amp; coverage report &rarr; tune. The self-test gates promotion of a learned config.</p>
+      <span class="seam">closes seams &#9314; &#9315;</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

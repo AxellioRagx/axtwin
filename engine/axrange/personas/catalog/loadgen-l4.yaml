@@ -1,0 +1,28 @@
+# Load-test persona, step 4 of 4 -- the top rung. See loadgen-l1.yaml for the
+# family rationale.
+#
+# Step 4: `bulk` volume fanned out across the whole mesh. Every instance sends
+# 64 MiB to EACH of its peers per fire, continuously (see the l3 note on the
+# fire out-running its own interval). With three hosts in the `loadgen` role
+# that is three concurrent single-threaded senders x 2 peers each.
+#
+# This rung exists to push past the point where something drops. If the chain
+# is still lossless here, the binding constraint is traffic GENERATION, not
+# capture -- the honest conclusion in that case is a floor ("at least X"), not
+# a ceiling, and the fix is more hosts in the mesh rather than a bigger
+# volume tier, because a single Python sender thread is the per-instance cap.
+persona:
+  id: loadgen-l4
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: loadgen
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: bulk
+      peer_scope: all
+  requires: [loadgen]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

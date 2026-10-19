@@ -1,0 +1,68 @@
+# corpapcn-twin -- capture every segment to XPress-SW-A.
+#
+# One `segment` binding per segment, which resolves to EVERY port on that net including the
+# router's own leg, rx-only (the derived direction for a multi-port scope), so each frame is
+# captured exactly once. There is no wildcard selector and that is fine: the list is generated
+# from the twin config, so it cannot drift from the twin it taps.
+#
+# Segment scope rather than the 5-port router SPAN of loop 1: this experiment compares the
+# TWIN'S OWN traffic against the source network's, so intra-segment traffic must be visible.
+# A router-port SPAN would omit it by construction and understate the twin.
+#
+# verify-capture is loud-skipped for XPress-SW-A by design (no QGA); capture is confirmed
+# out-of-band over SSH.
+tap-plan:
+  target: corpapcn-twin
+  bindings:
+    - selector: { scope: segment, target: seg-10-1-10-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-192-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-193-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-194-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-195-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-196-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-200-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-203-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-204-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-20-207-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-21-161-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-20-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-32-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-34-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-48-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-64-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-65-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-72-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-73-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-74-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-75-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-76-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-77-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-78-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-10-80-79-0 }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: seg-192-168-0-0 }
+      sensors: [XPress-SW-A]

@@ -1,0 +1,25 @@
+# Load-test persona -- extra sender for the max-capture-rate run (dev45,
+# 2026-08-13). Same shape as loadgen-l4 (bulk / 1s / UDP / fan-out), but
+# aimed at the 'domain-controller' role so the flow stays INSIDE the server-vlan segment.
+#
+# Why a separate persona per segment instead of one big shared 'loadgen'
+# role: corp-enterprise's gw router has 1 vCPU, so any cross-segment flow
+# measures the router, not the capture path. Pinning each sender's peer_role
+# to a role that lives on its OWN segment keeps every datagram off the
+# router. See loadgen-l1.yaml for the family rationale and the
+# peer_scope self-resolution trap.
+persona:
+  id: loadgen-srv
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: domain-controller
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: bulk
+      peer_scope: all
+  requires: [domain-controller]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

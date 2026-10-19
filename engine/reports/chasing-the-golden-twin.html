@@ -1,0 +1,1401 @@
+<title>Chasing the Golden Twin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --paper:      #f7f6f3;
+    --paper-2:    #eeece7;
+    --ink:        #14181d;
+    --ink-soft:   #3d444c;
+    --neutral:    #6a7078;
+    --hair:       #dcd8d1;
+    --hair-soft:  #e7e4de;
+    --source:     #2b6b78;
+    --source-bg:  #2b6b781a;
+    --twin:       #a8562a;
+    --twin-bg:    #a8562a1a;
+    --good:       #3f7d4e;
+    --warn:       #9a6a12;
+    --bad:        #a33b30;
+    --shadow:     0 1px 2px #14181d0d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:     #101317;
+      --paper-2:   #171b21;
+      --ink:       #e6e4df;
+      --ink-soft:  #b3b0a9;
+      --neutral:   #8b9098;
+      --hair:      #2a2f37;
+      --hair-soft: #21262d;
+      --source:    #5fb0c0;
+      --source-bg: #5fb0c022;
+      --twin:      #e08a52;
+      --twin-bg:   #e08a5222;
+      --good:      #74b585;
+      --warn:      #d3a44a;
+      --bad:       #e0796c;
+      --shadow:    0 1px 2px #0000004d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:     #101317;
+    --paper-2:   #171b21;
+    --ink:       #e6e4df;
+    --ink-soft:  #b3b0a9;
+    --neutral:   #8b9098;
+    --hair:      #2a2f37;
+    --hair-soft: #21262d;
+    --source:    #5fb0c0;
+    --source-bg: #5fb0c022;
+    --twin:      #e08a52;
+    --twin-bg:   #e08a5222;
+    --good:      #74b585;
+    --warn:      #d3a44a;
+    --bad:       #e0796c;
+    --shadow:    0 1px 2px #0000004d;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 1.25rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 45rem; margin: 0 auto; }
+  .wide { max-width: 62rem; margin: 0 auto; }
+
+  /* ---- masthead ---- */
+  header.top {
+    max-width: 62rem; margin: 0 auto; padding: 4.5rem 0 0;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .72rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--neutral); margin: 0 0 1.1rem;
+  }
+  h1 {
+    font-family: Fraunces, Georgia, serif;
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-size: clamp(2.5rem, 6vw, 4.1rem);
+    line-height: 1.02;
+    letter-spacing: -.02em;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.2rem; line-height: 1.55; color: var(--ink-soft);
+    max-width: 42rem; margin: 0 0 2.2rem;
+  }
+  .byline {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem;
+    color: var(--neutral); border-top: 1px solid var(--hair);
+    padding-top: .9rem; margin-bottom: 3.5rem;
+    display: flex; flex-wrap: wrap; gap: .35rem 1.6rem;
+  }
+
+  h2 {
+    font-family: Fraunces, Georgia, serif;
+    font-weight: 600; font-size: 1.85rem; line-height: 1.15;
+    letter-spacing: -.012em;
+    margin: 3.6rem 0 .3rem; text-wrap: balance;
+  }
+  h2 .num {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem; font-weight: 500;
+    color: var(--twin); display: block; margin-bottom: .55rem; letter-spacing: .1em;
+  }
+  h3 {
+    font-family: "IBM Plex Sans", sans-serif; font-weight: 600;
+    font-size: 1.06rem; letter-spacing: -.005em;
+    margin: 2.2rem 0 .5rem;
+  }
+  p { margin: 0 0 1.1rem; }
+  .lede { font-size: 1.06rem; color: var(--ink-soft); margin-bottom: 1.8rem; }
+
+  code, .mono { font-family: "IBM Plex Mono", monospace; font-size: .88em; }
+  code {
+    background: var(--paper-2); padding: .1em .35em; border-radius: 3px;
+    border: 1px solid var(--hair-soft);
+  }
+  .src { color: var(--source); font-weight: 500; }
+  .twn { color: var(--twin); font-weight: 500; }
+  strong { font-weight: 600; }
+
+  /* ---- verdict panel ---- */
+  .verdict {
+    border: 1px solid var(--hair); border-left: 3px solid var(--twin);
+    background: var(--paper-2); border-radius: 3px;
+    padding: 1.5rem 1.6rem; margin: 0 0 2rem;
+  }
+  .verdict p:last-child { margin-bottom: 0; }
+  .verdict .tag {
+    font-family: "IBM Plex Mono", monospace; font-size: .7rem;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--twin);
+    display: block; margin-bottom: .6rem;
+  }
+
+  /* ---- scoreboard ---- */
+  .board { display: grid; gap: 1px; background: var(--hair); border: 1px solid var(--hair);
+           border-radius: 3px; overflow: hidden; margin: 1.6rem 0 2rem;
+           grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .cell { background: var(--paper); padding: 1rem 1.1rem; }
+  .cell .k { font-family: "IBM Plex Mono", monospace; font-size: .68rem;
+             letter-spacing: .09em; text-transform: uppercase; color: var(--neutral);
+             display: block; margin-bottom: .45rem; }
+  .cell .v { font-family: "IBM Plex Mono", monospace; font-size: 1.5rem;
+             font-weight: 500; letter-spacing: -.02em; display: block; line-height: 1.1; }
+  .cell .n { font-size: .78rem; color: var(--neutral); display: block; margin-top: .3rem; }
+  .v.ok  { color: var(--good); }
+  .v.mid { color: var(--warn); }
+  .v.no  { color: var(--bad); }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 1.4rem 0 1.8rem;
+            border: 1px solid var(--hair); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { padding: .58rem .8rem; text-align: left; border-bottom: 1px solid var(--hair-soft); }
+  thead th {
+    font-family: "IBM Plex Mono", monospace; font-size: .69rem; font-weight: 500;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--neutral);
+    background: var(--paper-2); border-bottom: 1px solid var(--hair);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-family: "IBM Plex Mono", monospace;
+                   font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.lbl { font-family: "IBM Plex Mono", monospace; font-size: .84rem; white-space: nowrap; }
+  tr.best td { background: var(--twin-bg); }
+  .delta-good { color: var(--good); }
+  .delta-bad  { color: var(--bad); }
+  .best-cell  { color: var(--good); font-weight: 500; }
+  caption {
+    caption-side: bottom; text-align: left; font-size: .82rem; color: var(--neutral);
+    padding: .7rem .8rem; border-top: 1px solid var(--hair-soft);
+  }
+
+  /* ---- figures ---- */
+  figure { margin: 2rem 0; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+  figcaption { font-size: .84rem; color: var(--neutral); margin-top: .7rem;
+               padding-left: .1rem; max-width: 42rem; }
+
+  /* ---- pre ---- */
+  pre {
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem; line-height: 1.55;
+    background: var(--paper-2); border: 1px solid var(--hair); border-radius: 3px;
+    padding: .95rem 1.1rem; overflow-x: auto; margin: 1.3rem 0;
+  }
+
+  /* ---- iteration ledger ---- */
+  .iter { border-top: 1px solid var(--hair); padding: 1.4rem 0 .4rem; }
+  .iter-head { display: flex; align-items: baseline; gap: .85rem; flex-wrap: wrap;
+               margin-bottom: .55rem; }
+  .iter-n { font-family: "IBM Plex Mono", monospace; font-size: .82rem; font-weight: 500;
+            color: var(--twin); }
+  .iter-t { font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 1.18rem;
+            letter-spacing: -.01em; }
+  .iter-r { font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+            padding: .12rem .5rem; border-radius: 2px; border: 1px solid var(--hair);
+            color: var(--neutral); white-space: nowrap; }
+  .iter-r.win  { color: var(--good); border-color: currentColor; }
+  .iter-r.loss { color: var(--bad);  border-color: currentColor; }
+  .iter-r.trade { color: var(--warn); border-color: currentColor; }
+  .iter p { margin-bottom: .8rem; }
+
+  /* ---- recommendation cards ---- */
+  .rec {
+    border: 1px solid var(--hair); border-radius: 3px; padding: 1.3rem 1.4rem;
+    margin: 1.1rem 0; background: var(--paper);
+  }
+  .rec-head { display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap;
+              margin-bottom: .7rem; }
+  .rec-rank { font-family: "IBM Plex Mono", monospace; font-size: 1.15rem;
+              font-weight: 500; color: var(--twin); }
+  .rec-title { font-weight: 600; font-size: 1.04rem; }
+  .rec-meta { margin-left: auto; display: flex; gap: .45rem; }
+  .chip {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; letter-spacing: .05em;
+    padding: .14rem .5rem; border-radius: 2px; border: 1px solid var(--hair);
+    color: var(--neutral); white-space: nowrap;
+  }
+  .chip.hi { color: var(--good); border-color: currentColor; }
+  .chip.md { color: var(--warn); border-color: currentColor; }
+  .chip.done { color: var(--source); border-color: currentColor; }
+  .rec p:last-child { margin-bottom: 0; }
+  .rec .why {
+    font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--ink-soft);
+    background: var(--paper-2); border-left: 2px solid var(--hair);
+    padding: .55rem .8rem; margin: .8rem 0; white-space: pre-wrap; overflow-x: auto;
+  }
+
+  .scale-key {
+    display: flex; gap: .6rem; align-items: baseline;
+    font-size: .92rem; color: var(--ink-soft);
+    background: var(--source-bg); border-left: 2px solid var(--source);
+    padding: .75rem 1rem; margin: 0 0 1.6rem; border-radius: 0 3px 3px 0;
+  }
+  .scale-key .arrow { color: var(--source); font-weight: 600; }
+  .scale-key a { color: var(--source); text-decoration-thickness: 1px;
+                 text-underline-offset: 2px; }
+
+  ul, ol { margin: 0 0 1.1rem; padding-left: 1.3rem; }
+  li { margin-bottom: .42rem; }
+
+  .note {
+    border-left: 2px solid var(--source); background: var(--source-bg);
+    padding: .9rem 1.1rem; margin: 1.5rem 0; font-size: .93rem;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .t { font-family: "IBM Plex Mono", monospace; font-size: .7rem;
+             letter-spacing: .1em; text-transform: uppercase; color: var(--source);
+             display: block; margin-bottom: .45rem; }
+
+  hr.sec { border: none; border-top: 1px solid var(--hair); margin: 3.5rem 0 0; }
+
+  footer {
+    max-width: 62rem; margin: 4rem auto 0; padding-top: 1.4rem;
+    border-top: 1px solid var(--hair);
+    font-family: "IBM Plex Mono", monospace; font-size: .76rem; color: var(--neutral);
+  }
+  @media (max-width: 40rem) {
+    body { font-size: 16px; }
+    header.top { padding-top: 2.5rem; }
+    .rec-meta { margin-left: 0; width: 100%; }
+  }
+</style>
+
+<header class="top">
+  <p class="eyebrow">Digital-twin fidelity · axRange × aximprint · dev45</p>
+  <h1>Chasing the Golden Twin</h1>
+  <p class="standfirst">
+    Nineteen iterations spent casting a synthetic replica of a live corporate network from
+    its own packet capture, deploying it to a real cluster, capturing it back through the
+    same tap, and measuring the gap. The twin got measurably closer, then stopped. The reason
+    it stopped turned out to be more useful than any score it reached, and it changed what
+    “golden” means.
+  </p>
+  <p class="byline">
+    <span>CorpAPCN → <span class="twn">corpapcn-twin</span></span>
+    <span>138 VMs · 27 segments · 24 personas · 15-host internet sink</span>
+    <span>2026-08-27 → 09-03</span>
+  </p>
+</header>
+
+<main class="wrap">
+
+  <div class="verdict">
+    <span class="tag">Verdict · after iteration 19</span>
+    <p><strong>The loop is closed, and not because the twin is golden.</strong> The axis that
+    decides convergence oscillated in a band for six straight iterations. Iteration 19 hit its
+    own target and regressed two of its three must-not-regress axes, which the run's own rule
+    calls a trade. The mechanism is measurable: two thirds of the source's local edge kinds
+    cannot exist in the twin at all, so every tuning pass re-weights the third that can.</p>
+    <p>The most useful output is the correction to the objective. A traffic-shape distance is
+    neither the goal, an attack-and-defense range, nor a proxy for what that goal depends on.
+    Fidelity is now a closed specification, and the work has moved to the half of it the
+    wire cannot see.</p>
+  </div>
+
+  <p class="scale-key">
+    <span class="arrow">↓</span> <strong>TVD = <em>total variation distance</em>. It is a
+    distance, not a score: <span class="mono">0.000</span> is identical,
+    <span class="mono">1.000</span> is disjoint.</strong> Lower is better on every number
+    below — read <span class="mono">0.016</span> as “about 1.6% of the twin's hosts would
+    have to change role to match”. Its companion, Jaccard, runs the other way — see
+    <a href="#directions">the two directions</a>.
+  </p>
+
+  <div class="board">
+    <div class="cell"><span class="k">Role census TVD</span><span class="v ok">0.057</span><span class="n">i19 · best 0.016 at i14</span></div>
+    <div class="cell"><span class="k">Role edges TVD</span><span class="v mid">0.406</span><span class="n">i19 · 0.411 of it from one catalog line</span></div>
+    <div class="cell"><span class="k">Role edges <em>local</em></span><span class="v no">0.593</span><span class="n">the deciding axis · best 0.533 at i18</span></div>
+    <div class="cell"><span class="k">Fan-out <em>local</em> TVD</span><span class="v mid">0.290</span><span class="n">i19 · was 0.785 at i10</span></div>
+    <div class="cell"><span class="k">External edge share</span><span class="v mid">0.815</span><span class="n">source 0.848 · was 0.110 at i14</span></div>
+  </div>
+
+  <h2><span class="num">01</span>What the loop actually does</h2>
+
+  <p class="lede">
+    A digital twin is only worth having if it behaves like the thing it copies. This loop
+    exists to put a number on “behaves like”.
+  </p>
+
+  <p>
+    The source is <span class="src">CorpAPCN</span>, a live corporate network observed
+    through a packetXpress capture appliance. aximprint ingests that capture with Zeek,
+    infers an entity/role/segment model, and <em>casts</em> a twin: a twin-config, a set of
+    synthesised traffic personas, and a tap plan. axRange deploys the twin onto a Proxmox
+    cluster, mirrors every host port back to the same appliance, and the capture is pulled
+    back out and run through the <em>identical</em> pipeline.
+  </p>
+
+  <p>
+    That last part is the whole design. Both sides go through the same Zeek → ingest →
+    materialise path, so any difference in the resulting fingerprint is the twin — never
+    the instrument.
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 900 210" role="img" aria-label="The closed fidelity loop: a live network is captured and ingested into a belief store, cast into a twin, deployed to a cluster, mirrored back to the same capture appliance, and both captures are reduced to shape fingerprints that are compared; the difference drives the next cast.">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1.2" marker-end="url(#ar)" opacity=".55">
+        <line x1="150" y1="52" x2="228" y2="52"/>
+        <line x1="352" y1="52" x2="430" y2="52"/>
+        <line x1="554" y1="52" x2="632" y2="52"/>
+        <line x1="756" y1="66" x2="756" y2="112"/>
+        <line x1="672" y1="140" x2="594" y2="140"/>
+        <line x1="470" y1="140" x2="392" y2="140"/>
+        <line x1="268" y1="140" x2="190" y2="140"/>
+        <line x1="112" y1="126" x2="112" y2="80"/>
+      </g>
+
+      <g font-family="IBM Plex Mono, monospace" font-size="12">
+        <g>
+          <rect x="22" y="34" width="128" height="36" rx="3" fill="none" stroke="var(--source)" stroke-width="1.6"/>
+          <text x="86" y="57" text-anchor="middle" fill="var(--source)">live capture</text>
+        </g>
+        <g>
+          <rect x="228" y="34" width="124" height="36" rx="3" fill="none" stroke="currentColor" opacity=".75"/>
+          <text x="290" y="57" text-anchor="middle" fill="currentColor">ingest · IR</text>
+        </g>
+        <g>
+          <rect x="430" y="34" width="124" height="36" rx="3" fill="none" stroke="currentColor" opacity=".75"/>
+          <text x="492" y="57" text-anchor="middle" fill="currentColor">cast</text>
+        </g>
+        <g>
+          <rect x="632" y="34" width="124" height="36" rx="3" fill="none" stroke="var(--twin)" stroke-width="1.6"/>
+          <text x="694" y="57" text-anchor="middle" fill="var(--twin)">deploy 138 VMs</text>
+        </g>
+        <g>
+          <rect x="672" y="122" width="150" height="36" rx="3" fill="none" stroke="var(--twin)" stroke-width="1.6"/>
+          <text x="747" y="145" text-anchor="middle" fill="var(--twin)">tap → appliance</text>
+        </g>
+        <g>
+          <rect x="470" y="122" width="124" height="36" rx="3" fill="none" stroke="currentColor" opacity=".75"/>
+          <text x="532" y="145" text-anchor="middle" fill="currentColor">same pipeline</text>
+        </g>
+        <g>
+          <rect x="268" y="122" width="124" height="36" rx="3" fill="none" stroke="currentColor" opacity=".75"/>
+          <text x="330" y="145" text-anchor="middle" fill="currentColor">fingerprint</text>
+        </g>
+        <g>
+          <rect x="52" y="122" width="138" height="36" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+          <text x="121" y="145" text-anchor="middle" fill="currentColor">compare · diff</text>
+        </g>
+      </g>
+      <text x="121" y="184" font-family="IBM Plex Mono, monospace" font-size="11" fill="currentColor" opacity=".6">the diff drives the next cast</text>
+    </svg>
+    <figcaption>
+      Both captures traverse the same Zeek→ingest→materialise path, so a difference in the
+      fingerprint is attributable to the twin rather than to the instrument. Teal is the real
+      network; sienna is the replica.
+    </figcaption>
+  </figure>
+
+  <h3>What a fingerprint is — and what it deliberately is not</h3>
+
+  <p>
+    Two different networks share no addresses, so nothing address-keyed can compare them.
+    What can be compared is <em>shape</em>: role census, role-to-role edges, fan-out degree
+    distribution, and, from iteration 15, the share of edges that leave the network. Each
+    axis is reported separately, with key-set overlap (Jaccard) and distribution shape (total
+    variation distance) kept apart.
+  </p>
+
+  <h3 id="directions">Two kinds of number, running in opposite directions</h3>
+
+  <p>
+    Each axis reports both, and mixing them up inverts the reading — so it is worth stating
+    plainly:
+  </p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Measure</th><th>Kind</th><th class="num">Perfect</th><th>Answers</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="lbl">Jaccard</td><td>similarity</td><td class="num src">1.000</td>
+          <td>Does the twin have the same <em>vocabulary</em> — the same roles, the same edges existing at all?</td>
+        </tr>
+        <tr>
+          <td class="lbl">TVD</td><td>distance</td><td class="num twn">0.000</td>
+          <td>Are those things in the same <em>proportions</em>?</td>
+        </tr>
+      </tbody>
+      <caption>
+        Neither is a match probability. Jaccard is set overlap; TVD is a distance between
+        distributions.
+      </caption>
+    </table>
+  </div>
+
+  <p>
+    <strong>Total variation distance</strong> is the standard statistical distance between
+    two distributions — half the sum of absolute differences once both are normalised:
+  </p>
+
+  <pre>TVD(P,Q) = ½ Σ |P(x) − Q(x)|        range 0 … 1</pre>
+
+  <p>
+    Two ways to read it. As <em>transport</em>: the share of probability mass you would have
+    to move to turn one distribution into the other — which is why the number converts
+    directly into “how many hosts are in the wrong role”. As a <em>bound</em>: the largest
+    gap in probability the two distributions can assign to any single event, so at
+    <span class="mono">0.016</span> no question of the form “what role is a random host?”
+    gets answers more than 1.6 points apart. It is also scale-free, which is what lets a
+    122-host network be compared against a 121-host one without either dominating.
+  </p>
+
+  <p>
+    At iteration 14 the role census scored Jaccard <span class="mono">0.778</span> <em>and</em>
+    TVD <span class="mono">0.016</span>. Both are good — they simply count up and down
+    respectively. Worked out in full, that <span class="mono">0.016</span> was:
+  </p>
+
+  <pre>role                  source        twin          |Δp|
+generic-endpoint     102 (.8361)  103 (.8512)    .01517
+corp-workstation       6 (.0492)    6 (.0496)    .00041
+dns-resolver           4 (.0328)    4 (.0331)    .00027
+network-device         4 (.0328)    4 (.0331)    .00027
+web-tier               2 (.0164)    2 (.0165)    .00014
+log-shipper            1 (.0082)    1 (.0083)    .00007
+monitoring-collector   1 (.0082)    1 (.0083)    .00007
+domain-controller      1 (.0082)    0            .00820
+hypervisor             1 (.0082)    0            .00820
+                                          sum =  .03279
+                                    TVD = ½·sum = .0164</pre>
+
+  <p>
+    In plain terms: <strong>you would have to reassign about 1.6% of the twin's hosts — call
+    it two of 121 — to make its role mix identical to the source's.</strong> Half of that
+    residual is the two roles the twin deliberately omits (no capture supplies an AD forest
+    name; nothing serves Proxmox 8006 inside a VM), and most of the rest is having 103
+    endpoints where the source has 102. That axis was finished at iteration 14; what remained
+    was exclusions, not error.
+  </p>
+
+  <h3 id="dimensions">The five dimensions, defined</h3>
+
+  <p>
+    Every number on the scoreboard comes from one script, <code>shape_fingerprint.py</code>,
+    and shares one apparatus. Both captures are reduced to a materialised IR: <em>entities</em>
+    — hosts, each stamped by the sensor as local or not, placed on a segment, and given an
+    inferred role — and <em>edge rows</em>, one per source, destination and protocol per
+    60-second window, so a ten-minute span is about eleven windows. One predicate gates every
+    locality-sensitive axis: an entity is local if the sensor said so <em>and</em> its segment
+    is not in the external override, which on the twin side is the sink's CIDR only. An
+    endpoint the materialiser could not resolve counts as external, deliberately.
+  </p>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">1</span>
+      <span class="iter-t">Role census</span>
+      <span class="iter-r">hosts to re-role</span>
+    </div>
+    <p>
+      The distribution of local, placed, roled hosts over roles. TVD reads directly as the
+      share of hosts you would have to re-role to match; Jaccard shows roles the twin lacks
+      or invents. It says nothing about how hosts talk. Effectively finished at i14
+      (<span class="mono">0.016</span>), with the residual being roles the twin deliberately
+      omits; i19's <span class="mono">0.057</span> is three real resolvers losing their role
+      evidence.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">2</span>
+      <span class="iter-t">Role edges</span>
+      <span class="iter-r">conversation mix, all destinations</span>
+    </div>
+    <p>
+      Every edge row whose two endpoints both carry a role becomes a key
+      <code>src_role→dst_role</code>; the axis is the distribution over those keys, external
+      destinations included. Two blind spots drove the loop: it rewards manufacturing local
+      traffic to match an externally dominated total (i14's retraction), and it moves with role
+      <em>attribution</em> rather than with traffic, since a host's inferred role relabels every
+      edge landing on it (i17–i19). Its fall from <span class="mono">0.878</span> to
+      <span class="mono">0.406</span> at i19 was 0.411 from a catalog line and 0.005 from the
+      fresh capture.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">3</span>
+      <span class="iter-t">Role edges, local</span>
+      <span class="iter-r loss">the deciding axis</span>
+    </div>
+    <p>
+      The same count restricted to rows whose destination is local under the gate; the twin's
+      sink edges are excluded. This is the subset an air-gapped twin can actually produce, and
+      the axis that decides convergence. It is the one that read as a band, and section 04
+      gives the reason: 12 of the source's 18 local keys cannot exist in the twin.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">4</span>
+      <span class="iter-t">Fan-out, local</span>
+      <span class="iter-r">how widely hosts talk</span>
+    </div>
+    <p>
+      Per source host, the number of edge rows to local destinations, bucketed and then
+      distributed:
+    </p>
+    <pre>bucket   1   |   2–5   |   6–20   |   21+        (edge rows out of the host)</pre>
+    <p>
+      It compares how widely hosts talk, not to whom. Degree counts rows, so one peer over
+      three protocols counts three. The local variant exists because the source's hosts are
+      locally sparse — most of their peers are external. Its i16 reading of
+      <span class="mono">0.162</span> was inflated by ICMP rows that were really dead-port
+      replies; the clean value is <span class="mono">0.290</span>.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">5</span>
+      <span class="iter-t">External edge share</span>
+      <span class="iter-r">outbound share vs the source</span>
+    </div>
+    <p>
+      The fraction of all edge rows whose destination is not local — counting unresolved
+      endpoints and, on the twin, the sink segment. A proportion rather than a distance,
+      judged by closeness to the source's <span class="mono">0.848</span> from either side. It
+      is role-free, so a catalog change cannot move it, and it is the axis the sink was built
+      to move.
+    </p>
+  </div>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Dimension</th><th class="num">i19</th><th class="num">Best</th><th>Reads as</th></tr></thead>
+      <tbody>
+        <tr><td class="lbl">role_census TVD</td><td class="num">0.057</td><td class="num">0.016 (i14)</td><td>hosts to re-role</td></tr>
+        <tr><td class="lbl">role_edges TVD</td><td class="num">0.406</td><td class="num">0.406 (i19)</td><td>conversation mix, all destinations</td></tr>
+        <tr class="best"><td class="lbl">role_edges_local TVD</td><td class="num">0.593</td><td class="num">0.533 (i18)</td><td>conversation mix the twin can produce</td></tr>
+        <tr><td class="lbl">fan_out_local TVD</td><td class="num">0.290</td><td class="num">0.280 (i18)</td><td>how widely hosts talk locally</td></tr>
+        <tr><td class="lbl">external edge share</td><td class="num">0.815</td><td class="num">0.864 (i18)</td><td>outbound share, source 0.848</td></tr>
+      </tbody>
+      <caption>
+        Two all-destination siblings — role edges and plain fan-out — are also reported, and
+        were demoted once the locality split showed they could converge while the structure
+        diverged.
+      </caption>
+    </table>
+  </div>
+
+  <p>
+    Two things the five have in common are worth stating. Every one of them counts edge rows,
+    so none sees protocol, bytes, timing or session shape: the twin's byte-pusher DNS and a
+    real query score identically. And they are all shape, never content. That is why the
+    fidelity specification in section 05 keeps all of them as one behavioural row with a
+    tolerance, rather than as the objective.
+  </p>
+
+  <div class="note">
+    <span class="t">Why there is no single score</span>
+    <p>
+      One blended number would have hidden every important result in this run. In iteration
+      10 a change improved the target axis and regressed three others tenfold. In iteration
+      13 an improvement <em>lowered</em> edge-set overlap because the twin stopped emitting
+      fake edges it had been sharing with the source. In iteration 19 the target axis halved
+      while the deciding axis regressed. A scalar would have moved slightly in the “right”
+      direction every time and told nobody anything.
+    </p>
+  </div>
+
+  <h2><span class="num">02</span>The trajectory</h2>
+
+  <p>
+    Iterations 0–9 did the coarse work: role coverage went from <span class="mono">7.8%</span>
+    to <span class="mono">86.5%</span>, and a cast that had been re-creating the lab's own
+    gateway address on a LAN leg — killing egress — was fixed. Iterations 10–14 are where the
+    fidelity question got sharp. Iteration 15 gave the twin an internet edge and a new
+    138-VM identity; 16 through 19 ran as traffic-tier changes against that one standing twin,
+    its config byte-identical each time, so the iterations are comparable at all.
+  </p>
+
+  <figure class="wide">
+    <svg viewBox="0 0 620 300" role="img" aria-label="Line chart of total variation distance across iterations 10 to 19 for five axes. Role census stays near zero throughout. Role edges falls to 0.468 at iteration 14, jumps to 0.887 at 17 when the sink read as a DNS resolver, and drops to 0.406 at 19 after the catalog reorder. Fan-out falls sharply at 15 when the internet sink lands. Local fan-out improves from 0.785 to about 0.29 and then holds. The ringed local role-edges series, measured from iteration 14, reads 0.595, 0.618, 0.742, 0.589, 0.533 and 0.593: a band, not a trend.">
+        <g stroke="currentColor" opacity=".18" stroke-width="1">
+          <line x1="60" y1="40"  x2="600" y2="40"/>
+          <line x1="60" y1="82"  x2="600" y2="82"/>
+          <line x1="60" y1="124" x2="600" y2="124"/>
+          <line x1="60" y1="166" x2="600" y2="166"/>
+          <line x1="60" y1="208" x2="600" y2="208"/>
+          <line x1="60" y1="250" x2="600" y2="250"/>
+        </g>
+        <g font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".6" text-anchor="end">
+          <text x="52" y="44">1.0</text>
+          <text x="52" y="86">0.8</text>
+          <text x="52" y="128">0.6</text>
+          <text x="52" y="170">0.4</text>
+          <text x="52" y="212">0.2</text>
+          <text x="52" y="254">0.0</text>
+        </g>
+        <g font-family="IBM Plex Mono, monospace" font-size="10" fill="currentColor" opacity=".6" text-anchor="middle">
+          <text x="70"  y="272">i10</text>
+          <text x="123" y="272">i11</text>
+          <text x="177" y="272">i12</text>
+          <text x="230" y="272">i13</text>
+          <text x="283" y="272">i14</text>
+          <text x="337" y="272">i15</text>
+          <text x="390" y="272">i16</text>
+          <text x="443" y="272">i17</text>
+          <text x="497" y="272">i18</text>
+          <text x="550" y="272">i19</text>
+        </g>
+
+        <line x1="337" y1="40" x2="337" y2="250" stroke="var(--source)" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>
+        <text x="341" y="262" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--source)" opacity=".8">sink</text>
+
+        <polyline fill="none" stroke="var(--twin)" stroke-width="2.2"
+                  points="70,141.2 123,127.6 177,122.3 230,141.2 283,151.7 337,144.4 390,154.9 443,63.7 497,65.6 550,164.7"/>
+        <polyline fill="none" stroke="var(--source)" stroke-width="2.2"
+                  points="70,243.1 123,244.8 177,244.8 230,245.0 283,246.6 337,243.1 390,243.1 443,243.1 497,243.1 550,238.0"/>
+        <polyline fill="none" stroke="currentColor" stroke-width="1.5" opacity=".55" stroke-dasharray="5 3"
+                  points="70,142.7 123,155.5 177,122.1 230,141.6 283,134.1 337,194.4 390,146.3 443,168.9 497,162.0 550,145.8"/>
+        <polyline fill="none" stroke="currentColor" stroke-width="1.5" opacity=".8" stroke-dasharray="2 3"
+                  points="70,85.2 123,116.7 177,118.3 230,137.4 283,137.9 337,129.9 390,189.1 443,189.1 497,191.2 550,189.1"/>
+        <polyline fill="none" stroke="currentColor" stroke-width="2" opacity=".9"
+                  points="283,125.1 337,120.2 390,94.2 443,126.3 497,138.1 550,125.5"/>
+
+        <g fill="var(--twin)">
+          <circle cx="70" cy="141.2" r="3"/><circle cx="123" cy="127.6" r="3"/>
+          <circle cx="177" cy="122.3" r="3"/><circle cx="230" cy="141.2" r="3"/>
+          <circle cx="283" cy="151.7" r="3"/><circle cx="337" cy="144.4" r="3"/>
+          <circle cx="390" cy="154.9" r="3"/><circle cx="443" cy="63.7" r="3"/>
+          <circle cx="497" cy="65.6" r="3"/><circle cx="550" cy="164.7" r="3.8"/>
+        </g>
+        <g fill="var(--source)">
+          <circle cx="70" cy="243.1" r="3"/><circle cx="123" cy="244.8" r="3"/>
+          <circle cx="177" cy="244.8" r="3"/><circle cx="230" cy="245.0" r="3"/>
+          <circle cx="283" cy="246.6" r="3"/><circle cx="337" cy="243.1" r="3"/>
+          <circle cx="390" cy="243.1" r="3"/><circle cx="443" cy="243.1" r="3"/>
+          <circle cx="497" cy="243.1" r="3"/><circle cx="550" cy="238.0" r="3.8"/>
+        </g>
+        <g fill="var(--paper)" stroke="currentColor" stroke-width="2">
+          <circle cx="283" cy="125.1" r="4.5"/><circle cx="337" cy="120.2" r="4.5"/>
+          <circle cx="390" cy="94.2" r="4.5"/><circle cx="443" cy="126.3" r="4.5"/>
+          <circle cx="497" cy="138.1" r="4.5"/><circle cx="550" cy="125.5" r="4.5"/>
+        </g>
+        <circle cx="497" cy="163.7" r="4" fill="none" stroke="var(--twin)" stroke-width="1.4" stroke-dasharray="2 2"/>
+
+        <g font-family="IBM Plex Mono, monospace" font-size="10">
+          <line x1="62" y1="18" x2="86" y2="18" stroke="var(--twin)" stroke-width="2.2"/>
+          <text x="92" y="21.5" fill="var(--twin)">role_edges</text>
+
+          <line x1="168" y1="18" x2="192" y2="18" stroke="var(--source)" stroke-width="2.2"/>
+          <text x="198" y="21.5" fill="var(--source)">role_census</text>
+
+          <line x1="282" y1="18" x2="306" y2="18" stroke="currentColor" stroke-width="1.5" opacity=".55" stroke-dasharray="5 3"/>
+          <text x="312" y="21.5" fill="currentColor" opacity=".7">fan_out</text>
+
+          <line x1="374" y1="18" x2="398" y2="18" stroke="currentColor" stroke-width="1.5" opacity=".8" stroke-dasharray="2 3"/>
+          <text x="404" y="21.5" fill="currentColor" opacity=".7">fan_out local</text>
+
+          <circle cx="508" cy="18" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <text x="518" y="21.5" fill="currentColor" opacity=".7">role_edges local</text>
+        </g>
+    </svg>
+    <figcaption>
+      Total variation distance, lower is closer. The dotted vertical marks iteration 15, when
+      the internet sink landed and the twin's fan-out dropped in one step.
+      <span class="twn">Role edges</span> jumps at 17 when the sink began reading as a DNS
+      resolver and falls at 19 when a catalog line fixed that; the dashed sienna ring at i18 is
+      the same capture re-scored under the fixed catalog, 0.411, showing the drop was the
+      catalog's, not the traffic's. The ringed series is the deciding axis, local role edges:
+      six measurements, one band. Iteration 16's local fan-out is plotted at its clean value;
+      the recorded 0.162 was inflated by an artifact explained at i17.
+    </figcaption>
+  </figure>
+
+  <div class="scroll wide">
+    <table>
+      <caption>Iterations 10–19. <strong>TVD rows: lower is better</strong> (0 = identical). The external-share row is a proportion, read against the source's 0.848. Green marks each row's best value. Iteration 16's local fan-out is the recorded value; its clean value is 0.290.</caption>
+      <thead>
+        <tr>
+          <th>Axis</th><th class="num">i10</th><th class="num">i11</th><th class="num">i12</th>
+          <th class="num">i13</th><th class="num">i14</th><th class="num">i15</th><th class="num">i16</th>
+          <th class="num">i17</th><th class="num">i18</th><th class="num">i19</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="lbl">role_census TVD</td>
+          <td class="num">0.033</td><td class="num">0.025</td><td class="num">0.025</td>
+          <td class="num">0.024</td><td class="num best-cell">0.016</td><td class="num">0.033</td>
+          <td class="num">0.033</td><td class="num">0.033</td><td class="num">0.033</td><td class="num">0.057</td>
+        </tr>
+        <tr>
+          <td class="lbl">role_edges TVD</td>
+          <td class="num">0.518</td><td class="num">0.583</td><td class="num">0.608</td>
+          <td class="num">0.518</td><td class="num">0.468</td><td class="num">0.503</td>
+          <td class="num">0.453</td><td class="num delta-bad">0.887</td><td class="num">0.878</td><td class="num best-cell">0.406</td>
+        </tr>
+        <tr class="best">
+          <td class="lbl">role_edges_local TVD</td>
+          <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+          <td class="num">—</td><td class="num">0.595</td><td class="num">0.618</td>
+          <td class="num delta-bad">0.742</td><td class="num">0.589</td><td class="num best-cell">0.533</td><td class="num">0.593</td>
+        </tr>
+        <tr>
+          <td class="lbl">fan_out TVD</td>
+          <td class="num">0.511</td><td class="num">0.450</td><td class="num">0.609</td>
+          <td class="num">0.516</td><td class="num">0.552</td><td class="num best-cell">0.265</td>
+          <td class="num">0.494</td><td class="num">0.386</td><td class="num">0.419</td><td class="num">0.496</td>
+        </tr>
+        <tr>
+          <td class="lbl">fan_out_local TVD</td>
+          <td class="num">0.785</td><td class="num">0.635</td><td class="num">0.627</td>
+          <td class="num">0.536</td><td class="num">0.534</td><td class="num">0.572</td>
+          <td class="num">0.162*</td><td class="num">0.290</td><td class="num best-cell">0.280</td><td class="num">0.290</td>
+        </tr>
+        <tr>
+          <td class="lbl">external edge share</td>
+          <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+          <td class="num">—</td><td class="num">0.110</td><td class="num">0.805</td>
+          <td class="num">0.665</td><td class="num">0.886</td><td class="num best-cell">0.864</td><td class="num">0.815</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Read the highlighted row. <strong>0.595, 0.618, 0.742, 0.589, 0.533, 0.593.</strong> Five
+    iterations of real work on the axis that decides convergence produced a band, not a trend.
+    Everything else on the table was a lever the twin could pull; this row is the one it could
+    not, and section 04 shows why.
+  </p>
+
+  <h2><span class="num">03</span>The ledger</h2>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i10</span>
+      <span class="iter-t">Activity banding</span>
+      <span class="iter-r loss">net regression</span>
+    </div>
+    <p>
+      The source's <code>generic-endpoint</code> role spans three orders of magnitude — median
+      2,012 bytes per window, max 2,862,768, a <strong>1,423× spread</strong>. One persona
+      synthesised from the role <em>mean</em> made every host identical, so the twin had no
+      heavy hitters. Splitting each role into heavy/base/light bands, each synthesised from
+      its own band's observations, produced genuinely differentiated rates.
+    </p>
+    <p>
+      It improved the target axis and regressed three others — fan-out tenfold. Right
+      diagnosis, wrong lever: banding fixes <em>how much</em> each host talks; the dominant
+      error was <em>how many peers</em> it talks to.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i11</span>
+      <span class="iter-t">Measured emit budgets</span>
+      <span class="iter-r win">5 of 6 axes</span>
+    </div>
+    <p>
+      The synthesiser gave every persona up to twelve emits. Measured against the source's
+      own edge-rows-per-host, that single constant was wrong in <em>both directions at once</em>
+      — over-serving the twin's most numerous role and starving its busiest:
+    </p>
+    <pre>role                source   twin
+generic-endpoint       3.0    8.0   2.7x too chatty
+corp-workstation      16.0    5.0   3x too quiet
+dns-resolver           6.0    5.5   already right</pre>
+    <p>Per-role budgets replaced the constant. The 6–20 fan-out bucket fell from 104 hosts to 7.</p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i12</span>
+      <span class="iter-t">Weight-ranked selection</span>
+      <span class="iter-r">flat</span>
+    </div>
+    <p>
+      A budget says how many emits; selection decides which. Ranking by dial-port
+      <em>frequency</em> was blind to how much conversation a port carried. Ranking by observed
+      flows fixed each persona in isolation — and the aggregate barely moved, because a role
+      edge is <code>Σ(hosts × emits)</code> and <strong>band population dominates that sum</strong>.
+    </p>
+    <p>
+      It also became clear the channel was broken: with nothing listening, every edge was a
+      two-packet refused connect. Tuning proportions measured through failures would have
+      been fitting noise, and any fit achieved against refusals would have to be undone once
+      conversations completed. That deferral was the most consequential judgement of the run.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i13</span>
+      <span class="iter-t">Listeners</span>
+      <span class="iter-r win">6 of 7 axes</span>
+    </div>
+    <p>
+      Nothing in the twin answered. Every client emit at a service role hit a bare VM whose
+      kernel returned ICMP port-unreachable, so the twin's <strong>most common protocol was an
+      error message</strong>:
+    </p>
+    <pre>before : icmp 225, udp 148, tcp 145, ntp 39, ssl 3, dns 1
+after  : udp 149, icmp 141, tcp  99, http 35, dns 2, ssl 2
+source : tcp 446, ssl 422, ntp 176, dns 87, udp 85, icmp 76</pre>
+    <p>
+      A synthesised responder gave each dialled role a listener on exactly the ports something
+      dials at it. <code>http</code> appeared for the first time; 103 fabricated reverse edges
+      vanished. The residual matched a known bug exactly — the host whose listener worked
+      improved, the host whose listener <em>silently</em> failed did not move.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i14</span>
+      <span class="iter-t">Proportional budgets — and the correction</span>
+      <span class="iter-r loss">misleading win</span>
+    </div>
+    <p>
+      Allocating each budget across destination roles in the source's proportions closed the
+      dominant error almost exactly as projected: <code>generic-endpoint→web-tier</code> went
+      134 → 228 against a source 298. Best scores of the run so far. Zero twin-only roles.
+    </p>
+    <p>
+      Then splitting the source's edges by destination locality showed what that target really
+      was:
+    </p>
+    <pre>source role edge                   local  external
+generic-endpoint->web-tier             3       295
+corp-workstation->web-tier             0        76
+generic-endpoint->dns-resolver        38        31
+generic-endpoint->domain-controller   29         0</pre>
+    <p>
+      <strong>202 of the source's 204 <code>web-tier</code> entities are external.</strong> The
+      target being chased was 295 internet edges and 3 local ones, and the fit drove the twin
+      to manufacture <span class="twn">225 local web-tier edges against a source that has 3</span>.
+      The aggregate converged while the structure diverged. The local variant of the axis was
+      added here and became the one that decides.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i15</span>
+      <span class="iter-t">The internet sink</span>
+      <span class="iter-r win">outbound axis moves</span>
+    </div>
+    <p>
+      The twin got somewhere external to spend its outbound share: four sink roles held by
+      1, 2, 4 and 8 hosts — 15 VMs on a dedicated segment — so a persona composes its external
+      fan-out from a binary subset. It is reached <strong>by role, never by address</strong>;
+      the persona schema has no address field, so nothing in the twin can name a destination
+      outside it. That is the safety constraint from the earlier recommendation, made
+      structural rather than chosen. The old twin was destroyed and a 138-VM successor stood up.
+    </p>
+    <p>
+      The external edge share went <span class="mono">0.110 → 0.805</span> against a source of
+      <span class="mono">0.848</span>, and all-edges fan-out halved. The local axes did not
+      move: <code>role_edges_local</code> <span class="mono">0.595 → 0.618</span>. The sink fixed
+      where traffic goes, not what the twin's hosts say to each other.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i16</span>
+      <span class="iter-t">Population-level allocation</span>
+      <span class="iter-r loss">unreadable</span>
+    </div>
+    <p>
+      Budgets were re-derived at the population level, with <code>-local</code> and
+      <code>-chatter</code> persona variants so a role's local presence could be carried by a
+      few hosts rather than smeared across all of them. Local fan-out appeared to collapse to
+      <span class="mono">0.162</span>, the best number of the loop, while the deciding axis
+      went the other way to <span class="mono">0.742</span>, the worst.
+    </p>
+    <p>
+      Both were wrong, in the same direction, for the same reason — but that could not be read
+      from the numbers. The projection said local fan-out should land near 0.290; it was
+      dismissed as overfitting. It was not.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i17</span>
+      <span class="iter-t">Emit ports and responder ports must move together</span>
+      <span class="iter-r win">the repair</span>
+    </div>
+    <p>
+      The allocator had changed which ports carried the sink emits, and the responders were
+      deliberately held back so the repo would mirror deployed reality. <strong>228 emits
+      landed on dead ports.</strong> Each cost twice: the conversation it should have produced
+      was missing, and the guest's kernel answered with an ICMP port-unreachable that Zeek
+      recorded with the <em>replier</em> as originator — scored as a <em>local</em> edge, the
+      exact axis being judged.
+    </p>
+    <pre>ICMP local rows                     220
+web-tier->generic-endpoint          197   predicted 197
+dns-resolver->generic-endpoint       23   predicted  23</pre>
+    <p>
+      Predicted from row counting before the run, measured exactly. The correct responders
+      were pushed to 19 guests and verified in-guest with <code>ss -lnH -tu</code>, never
+      trusted from a unit's <code>is-active</code>. Re-measured with the personas untouched:
+      external share <span class="mono">0.886</span>, local fan-out <span class="mono">0.290</span>
+      — precisely the projection iteration 16 had rejected. A projection that disagrees with a
+      corrupted measurement has not been refuted.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i18</span>
+      <span class="iter-t">Protocol fidelity drives role attribution</span>
+      <span class="iter-r win">best of the loop</span>
+    </div>
+    <p>
+      Of the 24 protocol names the emit ranker could produce, <strong>19 were tokens the
+      observed edges never carry</strong> — <code>https</code>, <code>kerberos</code>,
+      <code>ldap</code>, <code>smb</code> — so those ports scored a permanent zero and always
+      sorted last. Port 443 could not spend the 243 rows of TLS weight it had earned; port 53
+      could, and won. The twin dialled the sink on 53 <strong>773 times</strong> against a source
+      whose DNS is 17 of 711 outbound rows.
+    </p>
+    <p>
+      An alias table gave every emittable protocol an explicit decision. Outbound rows at 443
+      went 0 → 168, and <code>role_edges_local</code> reached <span class="mono">0.533</span>,
+      the best of the loop. But the sink still read as a DNS resolver, because the role
+      catalog is first-match-wins and volume never enters it — which relabels hundreds of
+      edges at once. That was the correction to a deferred gap: a protocol mix does not change
+      how many edges exist, but it changes which ports carry them, which decides a host's
+      inferred role, which relabels every edge landing on it.
+    </p>
+  </div>
+
+  <div class="iter">
+    <div class="iter-head">
+      <span class="iter-n">i19</span>
+      <span class="iter-t">Rows, not flows — and the catalog's tie</span>
+      <span class="iter-r trade">target hit, a trade</span>
+    </div>
+    <p>
+      Two halves. The emit ranking sorted ports by observed <em>flows</em> while every
+      fingerprint axis counts edge <em>rows</em>; DNS is many small flows per row, TLS fewer
+      and fatter, so the ranking was sorted on a quantity the score does not use — 53 won on
+      flows in all six persona groups, 443 won on rows in five. And the catalog decided the
+      sink's role by declaration order on a tie between a 53/udp row and a 443/tcp row.
+    </p>
+    <p>
+      The obvious fix — require a second port for a DNS resolver — was built, then measured
+      against the source, then <strong>not taken</strong>: 13 of the source's 15 resolvers carry
+      <code>{53/udp}</code> as their entire listen evidence, so the rule would have stripped the
+      reference's own resolvers from 15 to 1. Declaring the 443 row first flips exactly the 15
+      sink hosts and zero source hosts, brute-forced over every listen subset. Re-scoring the
+      iteration-18 capture under that one line gave <code>role_edges</code>
+      <span class="mono">0.411</span>; the fresh capture measured <span class="mono">0.406</span>.
+    </p>
+    <p>
+      Target hit: 14 of 15 sinks read as web-tier. And two of the three must-not-regress axes
+      regressed — <code>role_edges_local</code> <span class="mono">0.533 → 0.593</span>,
+      external share <span class="mono">0.864 → 0.815</span> away from the source's 0.848. By
+      the iteration's own rule, a trade. The loop closed here.
+    </p>
+  </div>
+
+  <hr class="sec">
+
+  <h2><span class="num">04</span>Why the deciding axis reads as a band</h2>
+
+  <p class="lede">
+    Three ceilings were named at iteration 14 as things tuning could not reach. Iteration 15
+    lowered one. The other two stood, and iteration 19 showed what they add up to.
+  </p>
+
+  <h3>1 · No internet edge — closed by the sink</h3>
+
+  <p>
+    This was the dominant ceiling, and it explains why fan-out was the one axis that never
+    improved through iteration 14 while everything around it did. The diagram below is the
+    twin as it was then; the sink is what changed it.
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 820 250" role="img" aria-label="Comparison diagram. In the source network, a host sends 85 percent of its conversations outward to 596 external peers and only a small share to local peers. In the twin before iteration 15, the same host has no external destination at all, so 100 percent of its traffic lands on local peers, making its local degree far too high.">
+      <g font-family="IBM Plex Mono, monospace" font-size="12">
+
+        <text x="30" y="28" fill="var(--source)" font-size="12.5">SOURCE · CorpAPCN</text>
+        <circle cx="90" cy="120" r="22" fill="none" stroke="var(--source)" stroke-width="1.8"/>
+        <text x="90" y="124" text-anchor="middle" fill="var(--source)" font-size="10">host</text>
+
+        <g stroke="var(--source)" stroke-width="1" opacity=".45">
+          <line x1="112" y1="112" x2="196" y2="72"/>
+          <line x1="112" y1="120" x2="196" y2="120"/>
+          <line x1="112" y1="128" x2="196" y2="168"/>
+        </g>
+        <rect x="196" y="52" width="128" height="136" rx="3" fill="none" stroke="var(--source)" stroke-width="1.6" stroke-dasharray="4 3"/>
+        <text x="260" y="112" text-anchor="middle" fill="var(--source)" font-size="11">596 external</text>
+        <text x="260" y="130" text-anchor="middle" fill="var(--source)" font-size="11">peers</text>
+        <text x="260" y="206" text-anchor="middle" fill="var(--source)" font-size="13">85% of edges</text>
+
+        <line x1="90" y1="142" x2="90" y2="180" stroke="currentColor" stroke-width="1" opacity=".5"/>
+        <rect x="34" y="180" width="112" height="30" rx="3" fill="none" stroke="currentColor" opacity=".55"/>
+        <text x="90" y="199" text-anchor="middle" fill="currentColor" font-size="10.5" opacity=".8">local peers</text>
+        <text x="90" y="228" text-anchor="middle" fill="currentColor" font-size="12" opacity=".8">0.32 edges/host</text>
+
+        <line x1="410" y1="30" x2="410" y2="230" stroke="currentColor" opacity=".2"/>
+
+        <text x="452" y="28" fill="var(--twin)" font-size="12.5">TWIN · before i15</text>
+        <circle cx="512" cy="120" r="22" fill="none" stroke="var(--twin)" stroke-width="1.8"/>
+        <text x="512" y="124" text-anchor="middle" fill="var(--twin)" font-size="10">host</text>
+
+        <rect x="618" y="52" width="128" height="136" rx="3" fill="none" stroke="currentColor" opacity=".25" stroke-dasharray="4 3"/>
+        <text x="682" y="115" text-anchor="middle" fill="currentColor" opacity=".4" font-size="11">no external</text>
+        <text x="682" y="133" text-anchor="middle" fill="currentColor" opacity=".4" font-size="11">destination</text>
+        <line x1="600" y1="80" x2="640" y2="160" stroke="var(--bad)" stroke-width="2" opacity=".7"/>
+        <line x1="640" y1="80" x2="600" y2="160" stroke="var(--bad)" stroke-width="2" opacity=".7"/>
+
+        <g stroke="var(--twin)" stroke-width="1.6">
+          <line x1="512" y1="142" x2="470" y2="180"/>
+          <line x1="512" y1="142" x2="512" y2="180"/>
+          <line x1="512" y1="142" x2="554" y2="180"/>
+        </g>
+        <rect x="440" y="180" width="146" height="30" rx="3" fill="none" stroke="var(--twin)" stroke-width="1.6"/>
+        <text x="513" y="199" text-anchor="middle" fill="var(--twin)" font-size="10.5">local peers</text>
+        <text x="513" y="228" text-anchor="middle" fill="var(--twin)" font-size="12">100% lands here</text>
+      </g>
+    </svg>
+    <figcaption>
+      The source's hosts look quiet locally <em>because</em> most of their traffic goes out the
+      WAN — 118 endpoints produce just 38 local DNS edges, 0.32 per host. Before the sink, the
+      twin's endpoints had nowhere else to put theirs. After it, the external share sits
+      within a few points of the source's, on both sides of it depending on the iteration.
+    </figcaption>
+  </figure>
+
+  <h3>2 · Persona emits are port-shaped, not protocol-faithful</h3>
+
+  <p>
+    The <code>scripted</code> driver pushes arbitrary bytes at a port number. So the twin's
+    BIND9 receives garbage on :53, never answers a real query, and Zeek records a bare
+    <code>udp</code> exchange. The source is <code>ssl</code>/<code>dns</code>/<code>ntp</code>-shaped;
+    the twin cannot be, at any persona setting, until emits speak their protocols. Iteration
+    18 showed this is not only a realism problem: which ports carry the edges decides which
+    role a host is inferred to hold, and that relabels every edge landing on it.
+  </p>
+
+  <h3>3 · Windows nodes get no responder</h3>
+
+  <p>
+    The synthesised responder is a POSIX shell action; delivered to a Windows guest it runs as
+    PowerShell and dies on the first heredoc. Five nodes — including the domain controller —
+    still refuse every connection and under-produce their forward edges.
+  </p>
+
+  <h3>What they add up to</h3>
+
+  <p>
+    At iteration 19, <strong>12 of the source's 18 local role-edge kinds were absent from the
+    twin entirely</strong>, and the twin overshot on the six it had —
+    <code>generic-endpoint→dns-resolver</code> at 77 against a source 38. Every edge that would
+    land on the domain controller cannot exist because the domain controller answers nothing;
+    workstation-to-workstation traffic is not modelled at all. You cannot close a
+    distribution gap by re-weighting mass when two thirds of the keys do not exist. Each
+    cheap iteration redistributed the same six keys and traded one axis against another,
+    which is exactly what the highlighted row in section 02 records.
+  </p>
+
+  <pre>source local edge kinds            18
+present in the twin                  6   (overshot)
+absent from the twin                12   (DC answers nothing; no ws→ws)</pre>
+
+  <hr class="sec">
+
+  <h2><span class="num">05</span>What golden means now</h2>
+
+  <p class="lede">
+    The loop closed on a correction to its objective, not on a score. The correction has three
+    parts.
+  </p>
+
+  <p>
+    <strong>The fingerprint was never the goal, and it is not a proxy for it either.</strong>
+    The platform exists to run attack-and-defense experiments. What makes those valid is that
+    hosts speak real protocols so detection rules can fire, that the identity structure creates
+    real attack paths, that segmentation constrains lateral movement the way the real network
+    does, and that benign traffic is realistic enough to give a meaningful false-positive
+    rate. A fan-out distance measures none of those. A twin could score zero on every axis and
+    still be useless for detection engineering, because its DNS is a byte-pusher aimed at
+    port 53.
+  </p>
+
+  <p>
+    <strong>Fidelity is a specification, not a distance.</strong> Eleven rows, each tagged with
+    where its evidence can come from and how strong that evidence is:
+  </p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Row</th><th>Category</th><th>Evidence channel</th><th>State at i19</th></tr></thead>
+      <tbody>
+        <tr><td class="lbl">asset</td><td>structural</td><td>wire + reference</td><td>existence and role from the wire; image and sizing are catalog defaults</td></tr>
+        <tr><td class="lbl">topology</td><td>structural</td><td>wire (L3), reference (L2)</td><td>segments and a router; no fabric below L3</td></tr>
+        <tr><td class="lbl">configuration</td><td>structural</td><td>reference</td><td>not observable from traffic; role-level installs only</td></tr>
+        <tr><td class="lbl">state</td><td>operational</td><td>reference + in-guest</td><td>services up; synthetic data</td></tr>
+        <tr><td class="lbl">protocol</td><td>behavioral</td><td>wire</td><td>ports today; a real-client driver is built, its server half pending</td></tr>
+        <tr><td class="lbl">performance</td><td>operational</td><td>wire</td><td>volume levers; sizing imputed</td></tr>
+        <tr><td class="lbl">security</td><td>operational</td><td>reference + wire</td><td>AD weaknesses can be authored, never derived; firewall policy not reproducible</td></tr>
+        <tr><td class="lbl">dependency</td><td>structural</td><td>wire</td><td>the role-edge graph; 6 of 18 local kinds present</td></tr>
+        <tr><td class="lbl">temporal</td><td>behavioral</td><td>wire</td><td>business-hours gating, unmeasured</td></tr>
+        <tr><td class="lbl">behavioral</td><td>behavioral</td><td>wire</td><td>the six axes above, now a tolerance rather than an objective</td></tr>
+        <tr><td class="lbl">visual</td><td>—</td><td>console</td><td>learned and deployed topology side by side</td></tr>
+      </tbody>
+      <caption>
+        Evidence classes are the three aximprint already stamps on every assertion — observed,
+        referenced, imputed — and imputed never masquerades as observed. A scorecard row
+        therefore reports three states per fact, never one number.
+      </caption>
+    </table>
+  </div>
+
+  <p>
+    <strong>The half the wire cannot see is an observation gap, not a reproduction gap.</strong>
+    Configuration, state and security posture are nearly invisible to a sensor, and those are
+    the rows an attack path depends on. The platform can already build a rich, deliberately
+    weak Active Directory forest — promotion, users, service principals, dangerous ACL edges,
+    delegation — live-verified down to a real DCSync in July. The cast never emits one, because
+    the imprint has no directory evidence to derive it from. That is filled by injecting known
+    information under the existing <em>referenced</em> evidence class: a directory export
+    first, a host inventory second, device configs, security-tool baselines, operator-asserted
+    facts. Posture is injected, never secrets.
+  </p>
+
+  <h3>Where the earlier recommendations went</h3>
+
+  <div class="rec">
+    <div class="rec-head">
+      <span class="rec-rank">01</span>
+      <span class="rec-title">An internet edge for the twin</span>
+      <span class="rec-meta"><span class="chip done">done · i15</span></span>
+    </div>
+    <p>
+      Built as recommended, including the safety constraint made structural: the sink is
+      reachable by role only, and moving its address range left every persona file
+      byte-identical. External share went from 0.110 to within a few points of the source.
+    </p>
+  </div>
+
+  <div class="rec">
+    <div class="rec-head">
+      <span class="rec-rank">02</span>
+      <span class="rec-title">Protocol-faithful emitters</span>
+      <span class="rec-meta"><span class="chip done">client half built</span><span class="chip hi">promoted to core</span></span>
+    </div>
+    <p>
+      A <code>drive: command</code> persona driver now runs real clients — <code>dig</code>,
+      <code>curl</code>, <code>ntpdate</code>, <code>ping</code> — with containment enforced on
+      the final argument list, including the proxy and rc-file paths that a naive guard misses.
+      Its server half, a sink that answers with real services, is the next piece, and it means
+      a fresh twin rather than the standing one. This is the protocol row of the spec, and
+      the one detection depends on.
+    </p>
+  </div>
+
+  <div class="rec">
+    <div class="rec-head">
+      <span class="rec-rank">03</span>
+      <span class="rec-title">A Windows responder</span>
+      <span class="rec-meta"><span class="chip">superseded</span></span>
+    </div>
+    <p>
+      An echo listener on Windows would make edges land; it would not make the domain
+      controller a domain controller. Under the spec the fix is a real, promoted DC derived
+      from a directory export, using machinery that already exists. The problem stands; the
+      solution changed.
+    </p>
+  </div>
+
+  <div class="rec">
+    <div class="rec-head">
+      <span class="rec-rank">04</span>
+      <span class="rec-title">A fidelity scorecard, and a reference-ingest channel</span>
+      <span class="rec-meta"><span class="chip hi">the new work</span></span>
+    </div>
+    <p>
+      Per row: observed, referenced or imputed, against reproduced — computed from the cast's
+      provenance sidecar, the deployed twin's published inventory and in-guest checks, and
+      shown behind the imprint screen the console already has. On the observation side, a
+      non-sensor ingest that takes point-in-time snapshots — a directory export, an inventory —
+      into the identity and unseen tables that already exist, and a compiler step that emits
+      the identity block the twin config already accepts. Drift becomes a re-imprint diffed
+      against the golden spec, applied through the incremental update path.
+    </p>
+  </div>
+
+  <div class="rec">
+    <div class="rec-head">
+      <span class="rec-rank">05</span>
+      <span class="rec-title">Per-rule firewall policy</span>
+      <span class="rec-meta"><span class="chip hi">promoted</span></span>
+    </div>
+    <p>
+      The one reproduction gap injection cannot fill. The twin's routers ship a permissive
+      forward policy and the conduit policy field turned out to be inert. Reachability is
+      segments and routes today, not policy, so the security row cannot pass until the IR
+      can express one.
+    </p>
+  </div>
+
+  <h3>Three words, three things</h3>
+  <ul>
+    <li><strong>Fidelity</strong> — how faithfully a build reproduces the source <em>at imprint
+        time</em>. An acceptance property, judged by the spec.</li>
+    <li><strong>Golden</strong> — a build that passed the spec at a stated version. The artifact
+        experiments run against; the scorecard lives in git beside it.</li>
+    <li><strong>Drift</strong> — how far the live network has moved away from a golden twin
+        <em>since</em>. A maintenance property: re-imprint later, diff against the spec.</li>
+  </ul>
+  <p>
+    The loop conflated all three by using a distance as a tuning objective. Distance survives as
+    a measurement; it is no longer the objective. The spec's first golden is certified for
+    attack-path and detection experiments, which is the capability the platform demonstrated
+    in July and had not exercised since.
+  </p>
+
+  <hr class="sec">
+
+  <h2><span class="num">06</span>What the loop found in the platform</h2>
+
+  <p class="lede">
+    A fidelity experiment is an unusually thorough integration test. Chasing the twin surfaced
+    defects nothing else had — through iteration 14 and again through 19.
+  </p>
+
+  <div class="scroll">
+    <table>
+      <caption>All fixed, tested and committed during the run.</caption>
+      <thead><tr><th>Defect</th><th>Why it mattered</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="lbl">inventory not<br>tombstone-aware</td>
+          <td>A twin's published roster reported <strong>196 hosts for a 123-host twin</strong> after an incremental removal. Every consumer — tap resolution, traffic assignment, the API, the console — saw hosts that no longer existed.</td>
+        </tr>
+        <tr>
+          <td class="lbl">tap de-scope vs<br>deleted VMs</td>
+          <td>Together with the above, this made the platform's own printed remediation advice — “still references removed host(s), re-apply it” — <strong>impossible to follow</strong>: the re-apply failed 73 ops every time.</td>
+        </tr>
+        <tr>
+          <td class="lbl">twin config could not<br>use a script install</td>
+          <td>Script paths resolved against the tempdir the expansion landed in, so every relative path resolved to <code>/tmp/</code> and failed to read.</td>
+        </tr>
+        <tr>
+          <td class="lbl">no opt-out from the<br>default-agent sweep</td>
+          <td>A twin config had no way to reach a field that exists in the IR. Agents also emit traffic with no counterpart in the source — contaminating the very fingerprint the twin is judged by.</td>
+        </tr>
+        <tr>
+          <td class="lbl">hardcoded 30s<br>HTTP timeout</td>
+          <td>Every other transport knob was a flag. A busy twin makes each extraction <em>window</em> large, so the default became unreachable — the fidelity work succeeding is what exposed it.</td>
+        </tr>
+        <tr>
+          <td class="lbl">a gate that passed<br>by skipping</td>
+          <td>The role fixed-point check printed <code>skip</code> and exited 0 whenever a module was missing — which was every run in the project's own environment. An acceptance criterion had been satisfiable by a skip for weeks.</td>
+        </tr>
+        <tr>
+          <td class="lbl">emit-port protocol<br>tokens never matched</td>
+          <td>19 of 24 emittable protocol names were tokens the observed edges never carry, so those ports scored zero forever and DNS won every ranking by default.</td>
+        </tr>
+        <tr>
+          <td class="lbl">responders held back<br>from a re-cast</td>
+          <td>Emit ports moved, listener ports did not, and 228 dead-port emits were recorded as 220 local edges on the axis under judgement — an artifact predicted to the row before the run and measured exactly.</td>
+        </tr>
+        <tr>
+          <td class="lbl">a unit test that<br>reached the cluster</td>
+          <td>A tap-reshard test passed only by opening a real SSH session through a gitignored config in the working directory, and failed in any clean checkout. Found because a review ran in a worktree.</td>
+        </tr>
+        <tr>
+          <td class="lbl">out-of-band pushes<br>with no record</td>
+          <td>Responders were pushed to 19 guests over the guest agent twice, so the persisted op rows stopped describing the guests. A supported content-only re-apply now exists to replace the escape hatch.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Two long-pending live-verifications were closed as a side effect of needing them:
+    <strong>incremental twin update with a real node removal</strong> (196 → 123 VMs, 976 op
+    rows tombstoned, the removal sweep exercised for the first time) and
+    <strong><code>run-script</code></strong> across 7 hosts with a fail-loud check proving the
+    delivered script did its job rather than merely executing.
+  </p>
+
+  <div class="note">
+    <span class="t">Two measurement traps worth knowing</span>
+    <p>
+      The removal sweep runs <em>after</em> the executor, so an interrupted update leaves the
+      entire removed generation live and still running personas. Capturing in that window
+      blends two twin generations into one perfectly plausible fingerprint. And roles are baked
+      at ingest time: a change to the role catalog is invisible to a fingerprint re-run and
+      only shows up after re-ingesting the stored logs, which is how iteration 19's catalog
+      line was attributed on the iteration-18 capture before the new one was taken.
+    </p>
+  </div>
+
+  <h2><span class="num">07</span>Method notes</h2>
+
+  <ul>
+    <li><strong>Identical pipeline both sides.</strong> Same Zeek, same ingest window (60s),
+        same materialisation. Only the harvest chunk size differs, and it does not affect the
+        fingerprint.</li>
+    <li><strong>Fixed 10-minute capture span</strong> across every iteration. Changing it
+        would make the distances non-comparable and defeat the point of tracking them.</li>
+    <li><strong>New axes are added, never substituted.</strong> <code>fan_out_local</code>,
+        <code>role_edges_local</code> and the external share sit beside the originals so
+        earlier iterations stay comparable.</li>
+    <li><strong>One standing twin from iteration 15.</strong> Iterations 16 to 19 changed only
+        personas and responders; the twin config was checked byte-identical each time rather
+        than assumed, so a 138-VM rebuild never entered the comparison.</li>
+    <li><strong>Failures must be loud.</strong> Silent-success bugs shaped this run repeatedly:
+        an extraction error hidden behind a filter's exit code, a listener whose unit reported
+        healthy while one port had crashed on bind, a fixed-point gate that skipped and passed.
+        A responder serving <em>some</em> of its ports is worse than one that fails outright,
+        because the fingerprint then blames the personas.</li>
+    <li><strong>Predict before measuring.</strong> Iteration 17's artifact was sized to the row
+        before the run; iteration 19's catalog line was scored on the previous capture before
+        the new one. When a projection and a measurement disagree, the question is which of the
+        two is wrong — and the default guess went the wrong way once already in this loop.</li>
+  </ul>
+
+  <p>
+    The standing twin offers <strong>1.33 MB/s against the source's own 1.330</strong> and
+    remains deployed as the first subject of the scorecard. Every iteration's fingerprint
+    store and the loop's inputs are kept outside the scratch directories that produced them.
+  </p>
+
+</main>
+
+<footer class="wide">
+  <p>
+    corpapcn-twin-0e4f7d58 · 138 VMs on dev45 · journal at
+    <span class="mono">docs/JOURNAL_corpapcn_fidelity.md</span> · the specification at
+    <span class="mono">docs/design/13-golden-twin-fidelity.md</span> ·
+    fingerprints reproducible via <span class="mono">scripts/compare_twin_to_source.sh</span>
+  </p>
+</footer>

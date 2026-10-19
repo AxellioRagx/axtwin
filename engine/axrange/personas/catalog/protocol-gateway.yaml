@@ -1,0 +1,36 @@
+# IT/OT conduit -- key detection point. Bridges Modbus/OPC-UA (OT side) to
+# MQTT/HTTPS (IT side); its own north-south crossing is the point of the role.
+persona:
+  id: protocol-gateway
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: modbus
+      ports: [502]
+      peer_role: plc
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: low
+    - proto: opcua
+      ports: [4840]
+      peer_role: historian
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: low
+    - proto: mqtt
+      ports: [8883]
+      peer_role: corp-workstation
+      direction: NS
+      cadence: "24x7"
+      volume: med
+    - proto: https
+      ports: [443]
+      peer_role: corp-workstation
+      direction: NS
+      cadence: "24x7"
+      volume: low
+  requires: [plc, historian, corp-workstation]
+  # GAP-032: assert against Mosquitto -- the IT-side MQTT broker this
+  # conduit's own north-south crossing (the point of the role) actually
+  # terminates on.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: mosquitto }

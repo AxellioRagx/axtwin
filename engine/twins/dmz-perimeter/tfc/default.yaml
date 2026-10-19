@@ -1,0 +1,17 @@
+# Traffic profile: dmz-perimeter / default (see corp-enterprise/tfc-default.yaml
+# for why this lives here rather than inline in the twin config).
+#
+# `mail-relay` runs the `mail-server` persona -- another role/persona name
+# split the pre-2026-08-04 single field could not express.
+traffic-profile:
+  target: dmz-perimeter
+
+  assignments:
+    - role: dmz-web
+      persona: dmz-web
+    - role: mail-relay
+      persona: mail-server
+    - role: vpn-concentrator
+      persona: vpn-concentrator
+    - role: bastion-jump
+      persona: bastion-jump

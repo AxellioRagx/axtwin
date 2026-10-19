@@ -1,0 +1,156 @@
+# corp-twin -- the DEFAULT traffic profile: the discovery cast's own baseline
+# (twin-configs-cast/corpapcn-disco/tfc.yaml), retargeted onto this twin.
+#
+# What changed from the cast's file, and nothing else:
+#   * `target:` -> corp-twin (the twin NAME, resolved to its newest live te
+#     deploy -- the cast's file pinned a destroyed deploy's id, LES-072).
+#   * node ids resolved against THIS twin's default-gate expansion: an entry
+#     naming a `count > 1` group stem is fanned out to its clones (`...core`
+#     -> `...core01..NN`, same persona), and 45 entries naming hosts
+#     the default gate removes (transient/regular, occupancy < 0.8) are
+#     dropped -- a `node:` that is not a host is a hard error at apply
+#     (o2control/traffic.py). Re-derive this file if you deploy at a different
+#     DEPLOY_MIN_OCCUPANCY.
+#   * the personas it names are this twin's copies in `personas/`, where every
+#     `peer_role: internet-sink-N` became `peer_role: sink` (one sink here;
+#     work order §7, gap G7). Loaded automatically when this file is applied
+#     from inside the twin folder or via `--twin corp-twin`.
+#
+# Judge the resulting mix against the cast's measured one (work order §7):
+# DNS the flow majority, external TLS the byte majority (6.3 of ~9 GB), SMB
+# ~2.2 GB internal, Kerberos/LDAP/RPC/RDP small but present.
+#
+# Live run 3 (2026-09-28, work order §11) measured the cast personas far off
+# that mix (bulk NTP/NetBIOS from the file server, no SMB, TLS:HTTP ~1:1);
+# they were rebalanced in `personas/`, and ONE assignment beyond the cast's
+# was added: `corp-file-share-client` on generic-endpoint-heavy-10-80-20-core01,
+# the SMB client §7 measured (121 -> 122). tests/test_corp_twin_mix.py pins
+# the modelled mix for this file and tfc/gate90.yaml.
+#
+# **Contain first.** Apply only after `hq-mx` is in `measure` and `te info`
+# says `measure -- CONTAINED` (runbook §11 step 2).
+traffic-profile:
+  target: corp-twin
+  assignments:
+  - { role: domain-controller, persona: cast-domain-controller-local, seed: 1845549234, intensity: 50.85925925925926 }
+  - { role: file-server, persona: cast-file-server, seed: 3763576788, intensity: 0.1037037037037037 }
+  - { node: corp-workstation-10-80-20-core01, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-20-core02, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-20-core03, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-20-core04, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-20-core05, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-20-core06, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-48-core01, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-48-core02, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-72-core, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-10-80-75-core, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-192-168-core01, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-192-168-core02, persona: cast-corp-workstation-local, schedule: 24x7 }
+  - { node: corp-workstation-heavy-10-80-20-core, persona: cast-corp-workstation-heavy-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-64-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-78-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: corp-workstation-light-10-80-79-core, persona: cast-corp-workstation-light-local, schedule: 24x7 }
+  - { node: dns-resolver-10-0-21-core, persona: cast-dns-resolver-local, schedule: 24x7 }
+  - { node: dns-resolver-10-20-193-core, persona: cast-dns-resolver, schedule: 24x7 }
+  - { node: dns-resolver-10-20-196-core, persona: cast-dns-resolver, schedule: 24x7 }
+  - { node: dns-resolver-10-80-64-core, persona: cast-dns-resolver, schedule: 24x7 }
+  - { node: generic-endpoint-10-1-10-core, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core01, persona: cast-generic-endpoint-chatter, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core03, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core04, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core05, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core06, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core07, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-193-core08, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-196-core01, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-196-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core03, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core04, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core05, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core06, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core07, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-200-core08, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-203-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-203-core02, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-204-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-204-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-207-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-20-207-core02, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-20-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-20-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-20-core03, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-20-core04, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-64-core, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core01, persona: cast-generic-endpoint-chatter, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core02, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core03, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core04, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core05, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-72-core06, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-73-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-73-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-75-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-75-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-77-core01, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-77-core02, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-10-80-79-core, persona: cast-generic-endpoint-local, schedule: 24x7 }
+  - { node: generic-endpoint-192-168-core, persona: cast-generic-endpoint, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-1-10-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-128-215-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-192-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-193-core01, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-193-core02, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-195-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core01, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core02, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core03, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-200-core04, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-201-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-20-204-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core01, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core01, persona: corp-file-share-client, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core02, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core03, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-20-core04, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-34-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-64-core01, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-64-core02, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-65-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core01, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core02, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core03, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core04, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core05, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core06, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core07, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core08, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-72-core09, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-73-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-74-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-75-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-76-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-77-core, persona: cast-generic-endpoint-heavy-local, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-10-80-79-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-heavy-192-168-core, persona: cast-generic-endpoint-heavy, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-20-193-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-20-196-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-20-207-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-64-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-65-core, persona: cast-generic-endpoint-light-local, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-72-core01, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-72-core02, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-75-core, persona: cast-generic-endpoint-light-local, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-76-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: generic-endpoint-light-10-80-78-core, persona: cast-generic-endpoint-light, schedule: 24x7 }
+  - { node: web-tier-10-20-193-core, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core01, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core02, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-34-core03, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core01, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core02, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-72-core03, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-75-core01, persona: cast-web-tier, schedule: 24x7 }
+  - { node: web-tier-10-80-75-core02, persona: cast-web-tier, schedule: 24x7 }

@@ -1,0 +1,30 @@
+persona:
+  id: cast-file-server
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: ntp
+    ports:
+    - 123
+    peer_role: internet-sink-8
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:32s
+    volume: bulk
+  - proto: udp
+    ports:
+    - 138
+    peer_role: internet-sink-1
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:32s
+    volume: bulk
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

@@ -1,0 +1,143 @@
+# svc-engines -- the MANAGEMENT protocol group: RDP, SNMP, DNS and NTP
+# (work order §5 E5).
+#
+# **Bundle-local, not catalog** (see `svc-engines-ad-client.yaml`'s header).
+#
+# The three engines here are the ones whose peers are NOT the DC and NOT the
+# file server, grouped so each `drive: command` instance has a readable
+# subject: remote access (`rdp`), device management (`snmp`), and the two
+# infrastructure protocols that prove the E3 name-service chain end to end
+# (`dns`, `ntp`).
+#
+# **The `dns` emit is the chain's acceptance test, running unattended.** Its
+# qname is a REAL EXTERNAL NAME the cast observed (`github.com`, from
+# `twin-configs-cast/corpapcn-disco/topology.json`'s `observations.dns.names`),
+# and the only server that can answer it is the sink -- via the resolver's
+# forward-only default. So a NOERROR+ANSWER here means all of: the client's
+# resolv.conf points at the twin resolver, the resolver forwarded, the sink's
+# root zone carries the observed name, and the answer came back. A SERVFAIL
+# means the chain is broken, which is exactly what E3 needs measured rather
+# than assumed. (`dns` is the ONE proto in this file that E5 does not have to
+# add -- it is in `_COMMAND_TEMPLATES` today, so this emit fires from the
+# moment the twin is up.)
+#
+# **The `ntp` emit's peer is the SINK**, not a twin NTP server: the sink runs
+# chrony with `local stratum 8` precisely so a client's NTP exchange COMPLETES
+# with nothing upstream (`_shared/scripts/serve-sink.sh`). `ntpdate -q` is
+# query-only and never steps the guest clock -- the DC's Kerberos depends on
+# twin time, and a persona that quietly re-times a domain member would produce
+# KRB_AP_ERR_SKEW failures that look like a broken KDC (LES-194).
+#
+# **`rdp` needs `enable-rdp.ps1` to have run** on `win-member` -- Windows ships
+# 3389 OFF, and an RDP emit at a host that is not listening is an RST, which is
+# indistinguishable at the sensor from the filler-traffic failure this whole
+# round exists to remove.
+#
+# **Written against E5's landed templates** (`rdp`/`snmp` rows,
+# `personas/drivers/command.py`, 2026-09-21); `dns` and `ntp` are the shipped
+# ones. An unmapped proto is a loud refusal at render -- but an unread KNOB is
+# silent, so the names below are checked against
+# `command._resolve_client_knobs`, not guessed.
+persona:
+  id: svc-engines-mgmt-client
+  os_family: linux
+  drive: command
+
+  emits:
+    # xfreerdp +auth-only against the joined Windows member: a real X.224
+    # connection request, a real TLS/CredSSP handshake and (with NLA on, which
+    # `enable-rdp.ps1` sets) a real Kerberos/NTLM exchange inside it -- then it
+    # disconnects instead of holding a session. That is the difference between
+    # a flow the sensor labels `rdp` and one it labels `tcp`.
+    - { proto: rdp, ports: [3389], peer_role: corp-workstation,
+        direction: EW, cadence: "cyclic:180s", volume: low }
+    # snmpget against the file server's read-only agent. UDP by derivation
+    # (`snmp` is in `personas.schema._UDP_PROTOS`), which is what a real SNMP
+    # poll is -- driving it over a TCP connect would produce traffic that
+    # looks nothing like SNMP on a capture.
+    - { proto: snmp, ports: [161], peer_role: file-server,
+        direction: EW, cadence: "cyclic:180s", volume: low }
+    # dig at the twin resolver, for an EXTERNAL observed name -- the chain
+    # test described in the header.
+    - { proto: dns, ports: [53], peer_role: dns-resolver,
+        direction: EW, cadence: "cyclic:60s", volume: low }
+    # ntpdate -q at the sink.
+    - { proto: ntp, ports: [123], peer_role: sink,
+        direction: EW, cadence: "cyclic:180s", volume: low }
+    # ssh into the file server, as an admin would. It lives HERE and not on
+    # the file persona (where it used to, until 2026-09-21) because `knobs`
+    # are persona-wide and the file persona is deliberately
+    # `auth_credential: none` -- so its ssh could only ever produce
+    # `Permission denied (publickey,password)`, exit 255, on every firing: a
+    # real KEX and a session that never completed (measured, dev45;
+    # LES-001). This persona authenticates, so the session COMPLETES: KEX,
+    # userauth, a channel, and the remote command's exit status. It is also
+    # the only emit in this twin whose first bytes are a plaintext banner --
+    # the sink's own detection tiebreak uses exactly that (work order §5 E2).
+    - { proto: ssh, ports: [22], peer_role: file-server,
+        direction: EW, cadence: "cyclic:120s", volume: low }
+
+  # PSN-090: every hard peer_role, and every one is a role this twin publishes
+  # -- `corp-workstation` (win-member), `file-server` (files), `dns-resolver`
+  # (resolver), `sink` (sink).
+  requires: [corp-workstation, file-server, dns-resolver, sink]
+
+  knobs:
+    # `dns_qname` is read by the SHIPPED `dns` template (`command._build_dns`).
+    # Trailing dot + the template's own `+nosearch`: the guest's search list
+    # is never consulted, so this cannot silently become
+    # `github.com.svc.axr.lab`.
+    dns_qname: "github.com."
+
+    # ---- who this client authenticates as -----------------------------------
+    # `rdp` and `snmp` are both `credential_required=True` rows, so this
+    # persona must name a credential SOURCE (never a secret --
+    # `_resolve_client_knobs` refuses a secret-looking knob by name).
+    # `default` = adapter.conf's `DEFAULT_PASSWORD`, resolved at run time,
+    # which is also what `create-domain-user` gives `alice` (svc-engines.yaml
+    # authors no explicit password, precisely so the two agree).
+    auth_user: alice
+    auth_domain: corp                 # xfreerdp /d:corp -- NLA authenticates at the DC
+    auth_realm: CORP.AXR.LAB
+    auth_credential: default
+
+    # **No `target_name`.** It is persona-WIDE, and this persona's four emits
+    # have four different peers (win-member / files / resolver / sink) -- one
+    # name here would be sent at all of them, which is a silently wrong
+    # answer rather than a loud one. These three engines are all address-
+    # addressable in practice (`xfreerdp /cert-ignore`, `snmpget <host:port>`,
+    # `dig @<server>`), so they use the orchestrator-resolved peer IP. The
+    # name-bound engines live in the AD and file personas, where every emit
+    # shares one peer.
+
+    # snmp: the community comes from `snmp_community_source`, never from a
+    # persona literal. `public` is the only sane choice here -- the
+    # alternative (`credential`) would put the lab-wide DEFAULT_PASSWORD on
+    # the wire in clear as an SNMPv2c community. `serve-file-server.sh`
+    # configures `rocommunity public` to match.
+    snmp_community_source: public
+    # NUMERIC OID: the driver's validator accepts `^[0-9]+(\.[0-9]+){2,}$`
+    # only, so the readable spelling (`sysDescr.0`) is refused at render --
+    # this is 1.3.6.1.2.1.1.1.0, i.e. sysDescr.0.
+    snmp_oid: "1.3.6.1.2.1.1.1.0"
+
+    # ssh: the LOCAL account `serve-file-server.sh` creates on the file
+    # server, NOT the domain's `alice` (that host is not domain-joined, so
+    # `alice` means nothing there). `ssh_user` defaults to `auth_user`, so
+    # naming it here is what keeps the login off alice. The password is the
+    # same lab-wide DEFAULT_PASSWORD `auth_credential: default` already
+    # resolves -- the recipe sets that account's password to the same string
+    # for exactly this reason -- and it reaches ssh through
+    # `sshpass -f <0600 file>`, never the argv (`command._build_ssh`).
+    ssh_user: axr
+    # A no-op remote command: the point is that the SESSION completes, not
+    # that anything happens on the far side. `_REMOTE_CMD_RE` refuses
+    # anything with shell metacharacters anyway.
+    ssh_remote_command: "true"
+    # Addressed by the orchestrator-resolved peer IP like this persona's other
+    # three emits (there is no persona-wide `target_name` here, and there
+    # cannot be -- four emits, four peers). Nothing is lost: ssh carries no
+    # name on the wire at all, so the only difference from dialing
+    # `files.svc.axr.lab` is one A lookup that the dns emit already makes.
+    schedule: 24x7
+    seed_jitter: true

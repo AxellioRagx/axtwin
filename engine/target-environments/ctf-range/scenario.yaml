@@ -1,0 +1,131 @@
+scenario_schema_version: 1
+
+scenario:
+  id: ctf-range
+  version: 2
+  description: |
+    Corpus-derived Capture-the-Flag (CTF) range (Stage-2 of the scenario-ai-research).
+
+    Synthesized by Claude Code from the 324-video cyber-range knowledge corpus
+    (scenario_ai_research/stage2/CORPUS_DIGEST.md). CTF/competitive training is a recurring
+    corpus pattern (HTB / TryHackMe / Blue Team Labs Online walkthroughs, "CTF
+    challenges for advanced threat hunting", "community threat hunts as capture-
+    the-flag", campaigns "with structured missions and a scoring system"). The
+    archetype is a flat arena: a player/attacker kit box, a CTFd scoreboard, a mix
+    of vulnerable challenge hosts (web, service/pwn, and a Windows box), and a SOC
+    sensor so the range can be run blue-team (detect the solves).
+
+    Single flat segment by design — players reach all challenge hosts on one L2
+    vnet — plus a router for egress (the player kit, CTFd image, and challenge
+    packages pull from the internet).
+
+    SCOPE — deployable here: Infrastructure + Apps & Tools on the Linux hosts.
+    The challenge setup scripts plant flags and stand up vulnerable services via
+    `script`/`pkg`; CTFd runs containerized. Passes `axrange validate` and
+    `axrange plan`. DEFERRED (designed, not deployed; CORPUS_DIGEST.md §5):
+    automated scoring/solve-detection + player activity (OP-ACT), rich per-
+    challenge config beyond the planted flags (the `config` install kind), the
+    Windows challenge box's setup (Windows pkg/role install), and the blue-team
+    detection overlay (OP-OVL). The Windows host deploys as substrate.
+
+layers:
+  infra:
+    networks:
+      - { id: arena, cidr: 10.70.10.0/24, vlan: 90, gateway: 10.70.10.1 }  # gateway = gw router
+    nodes:
+      # Egress/NAT gateway (router slice Phase 2): WAN uplink for player kit,
+      # CTFd image pull, and challenge package installs.
+      - id: gw
+        kind: router
+        nets: [ { net: arena, ip: 10.70.10.1 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Player / attacker box — the arena's offensive kit ("Kali" equivalent).
+      - id: player
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.66 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # CTFd scoreboard — run containerized (corpus: containerized labs / Docker).
+      - id: scoreboard
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.10 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux, kernel:container-runtime]
+        resources: { cpu: 2, ram: 2Gi, disk: 20Gi }
+      # Web challenge — vulnerable web app with a planted flag. Tapped (monitored).
+      - id: web-chal
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.20 } ]
+        image: ubuntu-server-22@v5
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Service / pwn challenge — a deliberately weak network service. Tapped.
+      - id: svc-chal
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.30 } ]
+        image: debian-12-cloud@v1
+        requires: [linux]
+        resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      # Windows challenge box — deploys as substrate; its setup is deferred
+      # (Windows pkg/role install kinds not implemented in v1). Tapped.
+      - id: win-chal
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.40 } ]
+        image: win11-finance@v4
+        requires: [windows]
+        resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      # SOC sensor — lets the CTF run blue-team (detect solves/attacks).
+      - id: detect
+        kind: host
+        nets: [ { net: arena, ip: 10.70.10.50 } ]
+        image: debian-12-cloud@v1
+        requires: [linux, kernel:ebpf, kernel:audit]
+        resources: { cpu: 2, ram: 4Gi, disk: 40Gi }
+  apps:
+    # Player kit: scan/brute/web tools (pkg) + pip-sourced exploitation libs (script).
+    - id: player-kit
+      install:
+        - { pkg: nmap }
+        - { pkg: netcat-traditional }
+        - { pkg: python3-pip }
+        - { pkg: hydra }
+        - { pkg: gobuster }
+        - { pkg: sqlmap }
+        - { pkg: git }
+        - { script: ./scripts/player_setup.sh }
+    # CTFd scoreboard via Docker compose.
+    - id: ctfd
+      install:
+        - { pkg: docker.io }
+        - { pkg: docker-compose-v2 }
+        - { script: ./scripts/ctfd_up.sh }
+    # Web challenge: nginx + PHP, then a vulnerable app + planted flag.
+    - id: web-challenge
+      install:
+        - { pkg: nginx }
+        - { pkg: php-fpm }
+        - { script: ./scripts/web_challenge.sh }
+    # Service/pwn challenge: socat-fronted weak service + planted flag.
+    - id: svc-challenge
+      install:
+        - { pkg: socat }
+        - { script: ./scripts/svc_challenge.sh }
+    # SOC sensor for blue-team play.
+    - id: sensor-stack
+      install:
+        - { pkg: suricata }
+        - { pkg: zeek }
+        - { pkg: tcpdump }
+        - { pkg: jq }
+        - { script: ./scripts/sensor_setup.sh }
+  activity: []
+
+bindings:
+  - { app: player-kit,    host: player }
+  - { app: ctfd,          host: scoreboard }
+  - { app: web-challenge, host: web-chal }
+  - { app: svc-challenge, host: svc-chal }
+  - { app: sensor-stack,  host: detect }

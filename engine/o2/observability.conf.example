@@ -1,0 +1,166 @@
+# observability.conf — axRange observability stack (Phase 1: telemetry)
+#
+# Single source of truth for the Grafana + Loki + Prometheus stack and the glue
+# that feeds it (the network-sensor Alloy shipper, the capture-health
+# exporter). Copy to observability.conf and edit; observability.conf is
+# gitignored, this .example is the reference and stays in git.
+#
+# Consumed by:
+#   compose/docker-compose.yml          (via `env_file` / ${VAR} interpolation)
+#   alloy/config.alloy                  (via env vars — see the runbook)
+#   exporters/capture-health-exporter.sh   (sourced as shell on the CAPTURE host)
+#   the bring-up runbook in README.md
+#
+# Rules of the road (same as o2/tcpdump-sensor/capture.conf):
+#   * KEY=value, one per line. No spaces around =.
+#   * Quote values that contain spaces.
+#   * This file is data, not code: no command substitution, no shell logic.
+#   * docker-compose interpolates ${VAR} from this file when started with
+#     `--env-file ../observability.conf` (see the runbook).
+
+# =============================================================================
+# Deploy host (where docker-compose runs the Grafana/Loki/Prometheus stack)
+# =============================================================================
+#
+# DECISION (2026-06-21): default deploy host is THE ORCHESTRATOR (this box).
+# The alternative — running the stack on a dedicated worker VM — is documented
+# in README.md "Host options".
+#
+# This value is documentation only (nothing reads it programmatically); it
+# records the intended target so a re-deploy lands in the same place.
+DEPLOY_HOST=orchestrator
+
+# =============================================================================
+# Stack ports (host-side; the containers bind these on DEPLOY_HOST)
+# =============================================================================
+
+# Grafana web UI.
+GRAFANA_PORT=3000
+# Initial admin password for Grafana's local admin user. CHANGE THIS before any
+# non-localhost exposure. (Grafana env var GF_SECURITY_ADMIN_PASSWORD.)
+GRAFANA_ADMIN_PASSWORD=axrange-change-me
+# Grafana admin username.
+GRAFANA_ADMIN_USER=admin
+# Public root URL Grafana believes it is served from (affects redirects, share
+# links, embedding). Set to the real URL when exposed behind a proxy/host:port.
+GRAFANA_ROOT_URL=http://localhost:3000
+
+# Loki HTTP API (push + query).
+LOKI_PORT=3100
+
+# Prometheus HTTP API + web UI.
+PROM_PORT=9090
+
+# =============================================================================
+# Telemetry source: capture appliance (health -> Prometheus)
+# =============================================================================
+#
+# The capture-health exporter (exporters/capture-health-exporter.sh) runs ON THE CAPTURE
+# HOST, wraps `capture-healthcheck`, and writes a node_exporter textfile. A
+# node_exporter on the capture host then exposes it; Prometheus scrapes node_exporter.
+#
+# CAPTURE_HOST is the address (mgmt NIC — NEVER the capture NIC, which has no IP)
+# Prometheus reaches for the scrape. Used in prometheus/prometheus.yml via the
+# ${CAPTURE_HOST} placeholder rendered at bring-up (see runbook).
+CAPTURE_HOST=10.0.0.10
+# Port node_exporter listens on at the capture host (textfile collector + node metrics).
+CAPTURE_NODE_EXPORTER_PORT=9100
+
+# --- Exporter-side knobs (read by capture-health-exporter.sh on the CAPTURE host) ---
+# Directory node_exporter is told to read textfiles from
+# (node_exporter --collector.textfile.directory=...). The exporter writes
+# axrange_capture.prom here atomically.
+CAPTURE_TEXTFILE_DIR=/var/lib/node_exporter/textfile_collector
+# Path to capture-healthcheck on the capture host (installed by o2/tcpdump-sensor/install.sh).
+CAPTURE_HEALTHCHECK_BIN=/usr/local/bin/capture-healthcheck
+# Path to the capture config the exporter reads CAPTURE_IF/CAPTURE_DIR/thresholds
+# from (so the exported gauges match what the appliance itself uses).
+CAPTURE_CONF=/etc/capture/capture.conf
+
+# =============================================================================
+# Telemetry source: network sensor (Suricata eve.json -> Loki, via Alloy)
+# =============================================================================
+#
+# Grafana Alloy runs ON THE NETWORK-SENSOR VM (the standing Suricata box next to
+# the capture appliance — adapter.conf NETWORK_SENSOR_VMID, dev45 vmid 8001). It
+# tails the eve.json Suricata writes and pushes to Loki.
+#
+# NETWORK_SENSOR_HOST is documentation only here (Alloy runs locally on the
+# network sensor and is configured via env vars in alloy/config.alloy); recorded so the
+# runbook knows where to install Alloy.
+NETWORK_SENSOR_HOST=10.0.0.11
+# Suricata's eve.json path on the network sensor (render.py logs to /var/log/suricata).
+SENSOR_EVE_JSON_PATH=/var/log/suricata/eve.json
+# Loki push URL Alloy targets. From the network sensor this must reach DEPLOY_HOST:
+# replace <DEPLOY_HOST> with the stack host's reachable address at bring-up.
+# (If Alloy runs on the same host as the stack, http://localhost:3100/... works.)
+LOKI_PUSH_URL=http://<DEPLOY_HOST>:3100/loki/api/v1/push
+
+# =============================================================================
+# Control-plane API (Grafana Infinity datasource — telemetry source)
+# =============================================================================
+#
+# The Phase-2 control-plane API (axrange/api/ + `axrange serve`) is reachable
+# from Grafana over the provisioned Infinity datasource (`axr-api`):
+#   GET /api/deploys, GET /api/deploys/latest.
+# The "Deploy / op status" dashboard that read it (the D2 fold-in) and the
+# SQLite fallback datasource it used were deleted 2026-10-01
+# (`docs/reference/ui-consolidation/05-deletion-candidates.md`), superseded by
+# the axRange Console's Range/Twin areas. None of the three kept dashboards
+# (capture health, Suricata alerts, attack coverage) use this datasource today;
+# AXRANGE_API_URL/TOKEN and the Infinity datasource stay provisioned because the
+# API remains a telemetry source for a future panel.
+#
+# Base URL of the API as reachable FROM THE GRAFANA CONTAINER. This is NOT
+# 127.0.0.1 (that's the container itself). Use the host's LAN IP, or the docker
+# host gateway alias `host.docker.internal` (add `extra_hosts: ["host.docker.
+# internal:host-gateway"]` on Linux, or run the API on a routable address).
+# Start the API on the orchestrator with:  axrange serve --host 0.0.0.0 --port 8080
+AXRANGE_API_URL=http://host.docker.internal:8080
+# Bearer token for the API's WRITE endpoints. Reads (/api/deploys) are open on a
+# trusted bind, so this is usually blank. If you set --api-token on `axrange
+# serve`, put the same value here so Grafana can authenticate.
+AXRANGE_API_TOKEN=
+
+# =============================================================================
+# Attack/defense servers (A3 Stage B) — Caldera + Wazuh manager
+# =============================================================================
+#
+# The standing O2 servers the substrate's default agents beacon to (A3 Stage A,
+# docs/DESIGN_BRIEF_o2_attack_defense.md §3): Sandcat (overlays.adversary) -> Caldera;
+# the Wazuh agent (overlays.defense) -> the Wazuh manager. Manual playout only — no
+# engine/o2control automation drives either server (see README.md "Attack/defense
+# servers"). Stood up by THIS compose stack (its own runbook), same as Grafana/Loki/
+# Prometheus above; NOT by `axrange o2 up` (that verb stands up sensor VMs via the
+# engine, a separate mechanism — see README.md for the split).
+#
+# --- Caldera ---
+# Web UI + the Sandcat HTTP contact channel. render_sandcat_agent (axrange/config_exec/
+# render.py) does: origin = server if "://" in server else f"http://{server}:8888" --
+# so overlays.adversary[].server MUST be either a BARE HOST ("10.0.0.5", gets :8888
+# appended for you) or a FULL URL ("http://10.0.0.5:8888"). NEVER "host:8888" (no
+# scheme) -- that becomes "http://10.0.0.5:8888:8888" and the Sandcat fetch silently
+# fails (a WARNING, not an op failure -- see o2/README.md "Pointing agents at the
+# servers"). Keep this port in sync with that renderer's :8888 default.
+CALDERA_UI_PORT=8888
+CALDERA_TCP_PORT=7010
+CALDERA_UDP_PORT=7011
+# Pinned git tag Caldera is built from (../caldera/Dockerfile) -- there is no
+# published Docker Hub image upstream, so this pins a SOURCE ref, not a registry tag.
+CALDERA_VERSION=5.0.0
+
+# --- Wazuh manager ---
+# 1514 is the agent EVENT channel -- Wazuh 4.x defaults to TCP (not UDP); the compose
+# service publishes 1514/tcp accordingly. 1515 is agent enrollment (also TCP).
+WAZUH_AGENT_PORT=1514
+WAZUH_ENROLL_PORT=1515
+WAZUH_API_PORT=55000
+
+# =============================================================================
+# Pinned image versions (compose). Bump deliberately; never use :latest.
+# =============================================================================
+GRAFANA_IMAGE=grafana/grafana-oss:11.4.0
+LOKI_IMAGE=grafana/loki:3.3.2
+PROMETHEUS_IMAGE=prom/prometheus:v3.1.0
+ALLOY_IMAGE=grafana/alloy:v1.5.1
+WAZUH_MANAGER_IMAGE=wazuh/wazuh-manager:4.9.2

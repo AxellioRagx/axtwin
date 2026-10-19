@@ -1,0 +1,30 @@
+# Traffic profile: corp-enterprise / default
+#
+# Carries the persona intent the twin config used to declare inline as
+# `nodes[].persona:` -- a field that was INERT (read only by a catalog
+# typo-warning, never reaching the traffic tier at all). It now lives here,
+# where it actually takes effect, and can be swapped on a STANDING twin with
+# `axrange tfc deploy <this file> --target corp-enterprise` -- no node is
+# redeployed (`docs/WORK_ORDER_role_persona_tier.md`).
+#
+# `target:` is a twin-config/scenario NAME, not a minted deploy id, so this
+# file is a reusable library artifact rather than one welded to a single
+# deploy (LES-072). `--target` overrides it.
+traffic-profile:
+  target: corp-enterprise
+
+  assignments:
+    - role: domain-controller
+      persona: domain-controller
+    - role: file-server
+      persona: file-server
+    - role: mail-server
+      persona: mail-server
+    - role: egress-proxy
+      persona: egress-proxy
+    - role: dmz-web
+      persona: dmz-web
+    - role: monitoring-collector
+      persona: monitoring-collector
+    - role: corp-workstation
+      persona: corp-workstation

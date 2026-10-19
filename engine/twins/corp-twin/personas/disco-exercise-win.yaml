@@ -1,0 +1,98 @@
+# Iteration 3 (Windows branch): the WINDOWS counterpart of disco-exercise. It makes the twin's
+# own Windows hosts (the 16 domain-joined win11 corp-workstations) exercise the Windows-served
+# internal services natively, closing the residual Iteration 2 left flat.
+#
+# ROOT CAUSE this fixes (JOURNAL_axquery_discovery_loop.md, Iterations 1-2):
+#   1. os_family mismatch. disco-exercise is os_family: linux, so assigning it to the Windows
+#      corp-workstation hosts made the tfc executor attempt a /bin/sh launch over the Windows
+#      QGA -> 16 FAILED ops. corp-workstation was therefore dropped from tfc-exercise. This
+#      persona is os_family: windows (PowerShell/Scheduled-Task path), so it runs there natively.
+#   2. Windows-to-Windows reachability. Kerberos 88, LDAP 389/3268, RPC 135, RDP 3389 stayed FLAT
+#      because they live on Windows hosts (DC + workstations) and Windows Firewall refused the
+#      Linux exercise clients dialing in from other subnets. These workstations are DOMAIN-JOINED
+#      to corp.axr.lab (twin_config nodes[].joins), so their firewall runs the DOMAIN profile and
+#      the DC is a real windows-server-2022 AD DS declaring 88/389/445/3268/135. Workstation->DC
+#      Kerberos/LDAP/SMB/GC is ordinary domain traffic and is expected to pass where the Linux
+#      clients were refused.
+#
+# TCP-ONLY, deliberately: the Windows scripted driver's emitter is a TcpClient connect
+# (render_scripted_client_windows). Every service targeted here is TCP anyway. UDP services
+# (DNS/NTP) are already exercised by the Linux disco-exercise persona and are not repeated here.
+#
+# Cadence/volume mirror disco-exercise's corresponding emits. peer_scope: all fans each emit out
+# across every host holding the role (excluding the instance's own host, LES-170): all
+# workstations -> the single DC and file-server; each workstation -> the other 15 for RDP/RPC.
+# All emits optional: true, so requires: [] validates clean (PSN-090 exempts optional peers).
+persona:
+  id: disco-exercise-win
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: kerberos
+    ports: [88]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:4s
+    volume: med
+  - proto: ldap
+    ports: [389]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:4s
+    volume: med
+  - proto: ldap
+    ports: [3268]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:4s
+    volume: med
+  - proto: smb
+    ports: [445]
+    peer_role: domain-controller
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  - proto: smb
+    ports: [445]
+    peer_role: file-server
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: med
+  - proto: rdp
+    ports: [3389]
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:7s
+    volume: low
+  - proto: rpc
+    ports: [135]
+    peer_role: corp-workstation
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:7s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

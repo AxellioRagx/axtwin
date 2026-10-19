@@ -1,0 +1,25 @@
+# Load-test persona -- the last unused Linux sender (monitoring-collector on
+# the mgmt segment), added 2026-08-13 to push past what 5 Linux + 6 Windows
+# senders can offer after multiqueue lifted the sink ceiling.
+#
+# Peer is `gw`, the twin's router, because mgmt holds exactly one other port:
+# the router's own mgmt leg. That router has 1 vCPU and will not keep up with
+# ~490 Mbit/s of UDP -- which does not matter here. Mirroring happens as a
+# frame ENTERS the bridge from the sender's port, so a receiver that drops
+# every datagram still contributes a fully captured frame. The router is a
+# sink of last resort, not a participant.
+persona:
+  id: loadgen-mgmt
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: gw
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: bulk
+      peer_scope: all
+  requires: [gw]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

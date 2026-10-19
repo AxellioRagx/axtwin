@@ -1,0 +1,30 @@
+# Load-test persona -- the Windows fleet sender, added 2026-08-13 after
+# enabling multiqueue on the XPress-SW-A sink moved the bottleneck off the
+# sink and past what five Linux senders can offer.
+#
+# Targets `corp-workstation`, which the 6 corp-workstations hold themselves,
+# so `peer_scope: all` turns the fleet into a 6-node mesh entirely inside
+# corp-lan -- no traffic crosses the twin's 1-vCPU gw router. Each instance
+# excludes its own host (LES-170).
+#
+# `os_family: windows` selects the driver's PowerShell counterpart, which
+# launches as a Scheduled Task with `-ExecutionTimeLimit 0` rather than a bare
+# Start-Process (LES-120: Windows otherwise kills a long-running task at its
+# default runtime cap). Expect materially less per-host throughput than the
+# Linux senders -- PowerShell is the slower emitter -- which is exactly why
+# this rung is 6 hosts rather than 1.
+persona:
+  id: loadgen-win
+  os_family: windows
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: corp-workstation
+      transport: udp
+      direction: EW
+      cadence: "cyclic:1s"
+      volume: bulk
+      peer_scope: all
+  requires: [corp-workstation]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

@@ -1,0 +1,341 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    :root{
+      --page:#f7f8f9; --surface:#fcfcfb; --ink:#14171a; --muted:#6b7280;
+      --border:rgba(20,23,26,0.22); --seg:#eef1f4; --o2:#f0f3f6;
+      --accent:#2a78d6; --accent-soft:#dbe9fb; --ok:#2f7a52; --ok-soft:#e6f2ea;
+      --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);
+      -webkit-font-smoothing:antialiased;}
+    a{color:var(--accent);text-decoration:none;} a:hover{color:#1b5aa8;}
+    .app{width:1440px;height:920px;background:var(--surface);display:flex;flex-direction:column;overflow:hidden;}
+    /* top bar */
+    .topbar{height:56px;flex:0 0 56px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:var(--surface);}
+    .brand{display:flex;align-items:center;gap:10px;}
+    .brand .mk{width:26px;height:26px;border-radius:7px;background:var(--accent);
+      display:flex;align-items:center;justify-content:center;}
+    .brand b{font-size:15px;font-weight:670;letter-spacing:-0.01em;}
+    .brand span{font-size:13px;color:var(--muted);}
+    .nav{display:flex;align-items:center;gap:26px;font-size:13.5px;color:var(--muted);}
+    .nav .it{padding:18px 0;cursor:default;}
+    .nav .it.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent);}
+    .rt{display:flex;align-items:center;gap:14px;}
+    .env{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--o2);
+      border:1px solid var(--border);border-radius:6px;padding:5px 10px;}
+    .av{width:30px;height:30px;border-radius:50%;background:var(--accent-soft);
+      border:1px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;
+      display:flex;align-items:center;justify-content:center;}
+    /* body */
+    .body{flex:1;display:flex;min-height:0;}
+    .rail{width:272px;flex:0 0 272px;border-right:1px solid var(--border);background:var(--surface);
+      padding:18px 16px;display:flex;flex-direction:column;gap:12px;}
+    .rail h2{margin:2px 2px 2px;font-size:11px;font-family:var(--mono);letter-spacing:.12em;
+      text-transform:uppercase;color:var(--muted);}
+    .search{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:8px;
+      padding:8px 10px;color:var(--muted);font-size:13px;background:var(--page);}
+    .stores{display:flex;flex-direction:column;gap:8px;overflow:auto;}
+    .store{border:1px solid var(--border);border-radius:9px;padding:11px 12px;background:var(--surface);
+      display:flex;flex-direction:column;gap:7px;cursor:default;}
+    .store.on{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent);}
+    .store .nm{font-size:13.5px;font-weight:620;}
+    .store .mt{font-size:11px;color:var(--muted);font-family:var(--mono);}
+    .bar{height:5px;border-radius:3px;background:var(--seg);overflow:hidden;}
+    .bar i{display:block;height:100%;background:var(--accent);}
+    /* main */
+    .main{flex:1;min-width:0;background:var(--page);padding:22px 24px;display:flex;
+      flex-direction:column;gap:16px;overflow:auto;}
+    .mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;}
+    .mhead .ttl{font-size:24px;font-weight:670;letter-spacing:-0.02em;margin:0 0 8px;}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+    .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);
+      background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:6px 10px;}
+    .chip code,.chip b{font-family:var(--mono);color:var(--ink);font-weight:600;font-size:11.5px;}
+    .acts{display:flex;gap:10px;flex:0 0 auto;}
+    .btn{height:44px;border-radius:9px;padding:0 18px;font-size:13.5px;font-weight:600;
+      display:inline-flex;align-items:center;gap:9px;cursor:default;border:1px solid var(--border);
+      background:var(--surface);color:var(--ink);}
+    .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;}
+    .tiles{display:grid;grid-template-columns:repeat(6, minmax(0,1fr));gap:12px;}
+    .tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:13px 14px;
+      display:flex;flex-direction:column;gap:5px;}
+    .tile .l{font-size:10.5px;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+    .tile .v{font-size:23px;font-weight:670;letter-spacing:-0.02em;}
+    .tile.hi .v{color:var(--accent);}
+    .cols{display:grid;grid-template-columns:1.05fr 1fr;gap:16px;}
+    .panel{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:16px 18px;}
+    .panel h3{margin:0 0 12px;font-size:13px;font-weight:640;display:flex;align-items:center;gap:8px;}
+    .panel h3 .sm{font-family:var(--mono);font-size:10.5px;color:var(--muted);font-weight:500;letter-spacing:.04em;}
+    .legend{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--mono);}
+    .lgrad{width:96px;height:8px;border-radius:4px;
+      background:linear-gradient(90deg,#dbe9fb,#2a78d6);}
+    .arts{display:flex;flex-direction:column;gap:11px;}
+    .art{border:1px solid var(--border);border-radius:10px;padding:13px 14px;display:flex;
+      align-items:center;gap:13px;background:var(--page);}
+    .art .ic{width:34px;height:34px;flex:0 0 auto;border-radius:8px;background:var(--o2);
+      border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--accent);}
+    .art .bd{flex:1;min-width:0;}
+    .art .nm{font-family:var(--mono);font-size:13px;font-weight:640;}
+    .art .ds{font-size:12px;color:var(--muted);margin-top:2px;}
+    .art .rt{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:0 0 auto;}
+    .ok{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:var(--mono);
+      color:var(--ok);background:var(--ok-soft);border-radius:20px;padding:3px 9px;}
+    .prov-lnk{font-size:11.5px;color:var(--accent);font-weight:600;display:inline-flex;align-items:center;gap:4px;}
+    /* provenance table */
+    .prov h3{margin:0 0 4px;font-size:13px;font-weight:640;}
+    .prov .cap{font-size:11.5px;color:var(--muted);margin-bottom:12px;}
+    table{width:100%;border-collapse:collapse;font-size:12.5px;}
+    thead th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+      text-transform:uppercase;color:var(--muted);font-weight:600;padding:0 12px 9px;border-bottom:1px solid var(--border);}
+    tbody td{padding:11px 12px;border-bottom:1px solid var(--seg);vertical-align:middle;}
+    tbody tr:last-child td{border-bottom:none;}
+    td code{font-family:var(--mono);font-size:12px;color:var(--ink);}
+    td .src{color:var(--muted);}
+    .conf{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-weight:600;}
+    .cbar{width:64px;height:6px;border-radius:3px;background:var(--seg);overflow:hidden;}
+    .cbar i{display:block;height:100%;background:var(--accent);}
+    .ev{font-family:var(--mono);font-size:11.5px;color:var(--muted);}
+  </style>
+</helmet>
+<div class="app">
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <span class="mk">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12 L9 12 L11 7 L14 17 L16 12 L21 12"></path>
+        </svg>
+      </span>
+      <b>axRange</b><span>&middot; O2 Console</span>
+    </div>
+    <div class="nav">
+      <div class="it">Overview</div>
+      <div class="it">Twins</div>
+      <div class="it on">Imprints</div>
+      <div class="it">Sensors</div>
+      <div class="it">Exercises</div>
+    </div>
+    <div class="rt">
+      <span class="env">dev45</span>
+      <span class="av">RB</span>
+    </div>
+  </div>
+
+  <div class="body">
+    <!-- left rail: belief stores -->
+    <aside class="rail">
+      <h2>Belief stores</h2>
+      <div class="search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21 L16.7 16.7"></path></svg>
+        <span>Search imprints&hellip;</span>
+      </div>
+      <div class="stores">
+        <div class="store on">
+          <div class="nm">corp-enterprise</div>
+          <div class="mt">42 hosts &middot; as-of 08-14 09:00Z</div>
+          <div class="bar"><i style="width:86%"></i></div>
+        </div>
+        <div class="store">
+          <div class="nm">sme-flat</div>
+          <div class="mt">11 hosts &middot; as-of 08-12 22:00Z</div>
+          <div class="bar"><i style="width:79%"></i></div>
+        </div>
+        <div class="store">
+          <div class="nm">datacenter-east</div>
+          <div class="mt">64 hosts &middot; as-of 08-09 06:00Z</div>
+          <div class="bar"><i style="width:81%"></i></div>
+        </div>
+        <div class="store">
+          <div class="nm">dmz-perimeter</div>
+          <div class="mt">7 hosts &middot; as-of 08-08 14:00Z</div>
+          <div class="bar"><i style="width:72%"></i></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- main -->
+    <main class="main">
+      <div class="mhead">
+        <div>
+          <div class="ttl">corp-enterprise</div>
+          <div class="chips">
+            <span class="chip">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8 v4 l3 2"></path></svg>
+              as-of <b>2026-08-14 09:00Z</b>
+            </span>
+            <span class="chip">store <code>imprint.duckdb</code></span>
+            <span class="chip">10 days observed</span>
+            <span class="chip">240 windows</span>
+          </div>
+        </div>
+        <div class="acts">
+          <div class="btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4 H6 a2 2 0 0 0-2 2 v14 a2 2 0 0 0 2 2 h12 a2 2 0 0 0 2-2 V8 l-4-4 Z"></path><path d="M8 13 h8 M8 17 h8 M8 9 h3"></path></svg>
+            Review YAML
+          </div>
+          <div class="btn pri">
+            Deploy as twin
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12 h13"></path><path d="M13 6 l6 6 -6 6"></path></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- stat tiles -->
+      <div class="tiles">
+        <div class="tile"><span class="l">Hosts</span><span class="v">42</span></div>
+        <div class="tile"><span class="l">Segments</span><span class="v">4</span></div>
+        <div class="tile"><span class="l">Services</span><span class="v">128</span></div>
+        <div class="tile"><span class="l">Personas</span><span class="v">9</span></div>
+        <div class="tile hi"><span class="l">Mean conf.</span><span class="v">0.86</span></div>
+        <div class="tile"><span class="l">Out-of-vocab</span><span class="v">3%</span></div>
+      </div>
+
+      <!-- topology + drafted artifacts -->
+      <div class="cols">
+        <div class="panel">
+          <h3>Learned topology <span class="sm">shaded by confidence</span></h3>
+          <svg viewBox="0 0 520 290" style="width:100%;height:auto;display:block;color:var(--ink)">
+            <!-- router -->
+            <rect x="222" y="18" width="76" height="30" rx="7" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"></rect>
+            <text x="260" y="37" text-anchor="middle" font-family="var(--mono)" font-size="11" font-weight="600" fill="var(--accent)">gw</text>
+            <!-- links -->
+            <g stroke="var(--ink)" stroke-width="1.3" opacity=".4" fill="none">
+              <path d="M240,48 C160,64 130,74 130,86"></path>
+              <path d="M280,48 C360,64 392,74 392,86"></path>
+              <path d="M244,48 C150,150 130,172 130,186"></path>
+              <path d="M276,48 C372,150 392,172 392,186"></path>
+            </g>
+            <!-- segments -->
+            <g>
+              <rect x="20" y="86" width="220" height="82" rx="9" fill="var(--seg)" stroke="var(--border)" stroke-width="1.1"></rect>
+              <text x="34" y="106" font-family="var(--mono)" font-size="11" font-weight="600" fill="var(--ink)">corp-lan</text>
+              <text x="34" y="120" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">/24 &middot; 26 hosts &middot; 0.91</text>
+              <g>
+                <circle cx="42" cy="146" r="7" fill="#2a78d6" opacity="0.92"></circle>
+                <circle cx="64" cy="146" r="7" fill="#2a78d6" opacity="0.86"></circle>
+                <circle cx="86" cy="146" r="7" fill="#2a78d6" opacity="0.9"></circle>
+                <circle cx="108" cy="146" r="7" fill="#2a78d6" opacity="0.7"></circle>
+                <circle cx="130" cy="146" r="7" fill="#2a78d6" opacity="0.83"></circle>
+                <circle cx="152" cy="146" r="7" fill="#2a78d6" opacity="0.6"></circle>
+                <circle cx="174" cy="146" r="7" fill="#2a78d6" opacity="0.78"></circle>
+                <circle cx="196" cy="146" r="7" fill="#2a78d6" opacity="0.5"></circle>
+              </g>
+
+              <rect x="280" y="86" width="220" height="82" rx="9" fill="var(--seg)" stroke="var(--border)" stroke-width="1.1"></rect>
+              <text x="294" y="106" font-family="var(--mono)" font-size="11" font-weight="600" fill="var(--ink)">dmz</text>
+              <text x="294" y="120" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">/28 &middot; 3 hosts &middot; 0.88</text>
+              <g>
+                <circle cx="302" cy="146" r="7" fill="#2a78d6" opacity="0.9"></circle>
+                <circle cx="324" cy="146" r="7" fill="#2a78d6" opacity="0.84"></circle>
+                <circle cx="346" cy="146" r="7" fill="#2a78d6" opacity="0.72"></circle>
+              </g>
+
+              <rect x="20" y="186" width="220" height="82" rx="9" fill="var(--seg)" stroke="var(--border)" stroke-width="1.1"></rect>
+              <text x="34" y="206" font-family="var(--mono)" font-size="11" font-weight="600" fill="var(--ink)">db</text>
+              <text x="34" y="220" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">/28 &middot; 5 hosts &middot; 0.79</text>
+              <g>
+                <circle cx="42" cy="246" r="7" fill="#2a78d6" opacity="0.8"></circle>
+                <circle cx="64" cy="246" r="7" fill="#2a78d6" opacity="0.62"></circle>
+                <circle cx="86" cy="246" r="7" fill="#2a78d6" opacity="0.7"></circle>
+                <circle cx="108" cy="246" r="7" fill="#2a78d6" opacity="0.55"></circle>
+                <circle cx="130" cy="246" r="7" fill="#2a78d6" opacity="0.48"></circle>
+              </g>
+
+              <rect x="280" y="186" width="220" height="82" rx="9" fill="var(--seg)" stroke="var(--border)" stroke-width="1.1"></rect>
+              <text x="294" y="206" font-family="var(--mono)" font-size="11" font-weight="600" fill="var(--ink)">mgmt</text>
+              <text x="294" y="220" font-family="var(--mono)" font-size="9.5" fill="var(--muted)">/29 &middot; 8 hosts &middot; 0.83</text>
+              <g>
+                <circle cx="302" cy="246" r="7" fill="#2a78d6" opacity="0.86"></circle>
+                <circle cx="324" cy="246" r="7" fill="#2a78d6" opacity="0.8"></circle>
+                <circle cx="346" cy="246" r="7" fill="#2a78d6" opacity="0.66"></circle>
+                <circle cx="368" cy="246" r="7" fill="#2a78d6" opacity="0.74"></circle>
+              </g>
+            </g>
+          </svg>
+          <div class="legend"><span>low</span><span class="lgrad"></span><span>high</span><span style="margin-left:6px">&middot; node opacity = per-host confidence</span></div>
+        </div>
+
+        <div class="panel">
+          <h3>Drafted config <span class="sm">provenance-tagged, ready to validate</span></h3>
+          <div class="arts">
+            <div class="art">
+              <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9 h18 M9 4 v16"></path></svg></span>
+              <div class="bd">
+                <div class="nm">twin_config</div>
+                <div class="ds">4 segments &middot; 42 hosts &middot; 1 router &middot; VLAN zones</div>
+              </div>
+              <div class="rt"><span class="ok">&#10003; validates</span><span class="prov-lnk">provenance &rsaquo;</span></div>
+            </div>
+            <div class="art">
+              <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 h4 l3 7 4-14 3 7 h4"></path></svg></span>
+              <div class="bd">
+                <div class="nm">tfc &middot; traffic profile</div>
+                <div class="ds">9 personas mapped to host roles</div>
+              </div>
+              <div class="rt"><span class="ok">&#10003; validates</span><span class="prov-lnk">provenance &rsaquo;</span></div>
+            </div>
+            <div class="art">
+              <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2 v4 M12 18 v4 M2 12 h4 M18 12 h4"></path></svg></span>
+              <div class="bd">
+                <div class="nm">tap &middot; capture plan</div>
+                <div class="ds">3 points &middot; perimeter:wan + corp-lan + dmz</div>
+              </div>
+              <div class="rt"><span class="ok">&#10003; validates</span><span class="prov-lnk">provenance &rsaquo;</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- provenance table -->
+      <div class="panel prov">
+        <h3>Provenance &mdash; how each field was learned</h3>
+        <div class="cap">Every synthesized field carries the signal it came from, its confidence, and the evidence window. Nothing here is invented; low-confidence fields are flagged for review before deploy.</div>
+        <table>
+          <thead>
+            <tr><th style="width:26%">Twin field</th><th style="width:34%">Signal</th><th style="width:20%">Confidence</th><th style="width:20%">Evidence</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>segment corp-lan</code></td>
+              <td class="src">Zeek <code>conn.log</code> &middot; /24 co-occurrence clustering</td>
+              <td><span class="conf">0.91 <span class="cbar"><i style="width:91%"></i></span></span></td>
+              <td class="ev">10d &middot; observed</td>
+            </tr>
+            <tr>
+              <td><code>host dc01 &middot; role adds</code></td>
+              <td class="src">Kerberos 88 + LDAP 389 + DNS SOA</td>
+              <td><span class="conf">0.88 <span class="cbar"><i style="width:88%"></i></span></span></td>
+              <td class="ev">10d &middot; observed</td>
+            </tr>
+            <tr>
+              <td><code>persona db-replica &rarr; sql01</code></td>
+              <td class="src">periodic 3306 flows, fixed peer &amp; cadence</td>
+              <td><span class="conf">0.79 <span class="cbar"><i style="width:79%"></i></span></span></td>
+              <td class="ev">8d &middot; observed</td>
+            </tr>
+            <tr>
+              <td><code>tap perimeter:wan</code></td>
+              <td class="src">gateway egress vantage &middot; EW/NS visibility</td>
+              <td><span class="conf">0.95 <span class="cbar"><i style="width:95%"></i></span></span></td>
+              <td class="ev">structural</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,20 @@
+persona:
+  id: cast-generic-endpoint
+  os_family: linux
+  drive: scripted
+  emits:
+  - proto: dns
+    ports:
+    - 53
+    peer_role: internet-sink-2
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:5s
+    volume: low
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

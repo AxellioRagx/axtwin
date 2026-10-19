@@ -1,0 +1,1869 @@
+twin_config:
+  id: pit-395a61f04e-1780405200
+  description: "Discovered from axquery:http://127.0.0.1:19090 as of 1780405200.0,\
+    \ over 9 window(s) at vantage axellio-hq/corp-apcn-rdr1:12 on network corp-apcn.\
+    \ Compiled by aximprint from network IR 1.4. Every `image`, `resources` and the\
+    \ `gw` node are catalog defaults, not observations \u2014 see the provenance sidecar."
+  default_agents: false
+  params:
+    DEPLOY_MIN_OCCUPANCY: 0.8
+  segments:
+  - name: seg-10-0-21-0
+    cidr: 10.200.0.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-1-10-0
+    cidr: 10.200.1.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-110-240-0
+    cidr: 10.200.2.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: seg-10-112-140-0
+    cidr: 10.200.3.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: seg-10-128-215-0
+    cidr: 10.200.4.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-192-0
+    cidr: 10.200.5.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-193-0
+    cidr: 10.200.6.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-195-0
+    cidr: 10.200.7.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-196-0
+    cidr: 10.200.8.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-198-0
+    cidr: 10.200.9.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+  - name: seg-10-20-200-0
+    cidr: 10.200.10.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-201-0
+    cidr: 10.200.11.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-203-0
+    cidr: 10.200.12.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-204-0
+    cidr: 10.200.13.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-20-207-0
+    cidr: 10.200.14.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: internet-sink
+    cidr: 10.200.254.0/24
+    zone_type: simple
+  - name: seg-10-21-161-0
+    cidr: 10.200.15.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+  - name: seg-10-55-10-0
+    cidr: 10.200.16.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 6
+      windows_total: 9
+      occupancy: 0.6666666666666666
+  - name: seg-10-64-7-0
+    cidr: 10.200.17.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+  - name: seg-10-80-0-0
+    cidr: 10.200.18.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: seg-10-80-16-0
+    cidr: 10.200.19.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+  - name: seg-10-80-20-0
+    cidr: 10.200.20.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-31-0
+    cidr: 10.200.21.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-32-0
+    cidr: 10.200.22.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: seg-10-80-34-0
+    cidr: 10.200.23.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-40-0
+    cidr: 10.200.24.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: seg-10-80-48-0
+    cidr: 10.200.25.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-63-0
+    cidr: 10.200.26.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+  - name: seg-10-80-64-0
+    cidr: 10.200.27.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-65-0
+    cidr: 10.200.28.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-72-0
+    cidr: 10.200.29.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-73-0
+    cidr: 10.200.30.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-74-0
+    cidr: 10.200.31.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-75-0
+    cidr: 10.200.32.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-76-0
+    cidr: 10.200.33.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-77-0
+    cidr: 10.200.34.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-78-0
+    cidr: 10.200.35.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-10-80-79-0
+    cidr: 10.200.36.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: seg-172-16-0-0
+    cidr: 10.200.37.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+  - name: seg-192-168-0-0
+    cidr: 10.200.38.0/24
+    zone_type: simple
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  nodes:
+  - name: dns-resolver-10-0-21-core
+    image: debian-12-cloud@v1
+    net: seg-10-0-21-0
+    role: dns-resolver
+    resources: &id003
+      cpu: 1
+      ram: 2Gi
+      disk: 20Gi
+    install:
+    - &id004
+      pkg: bind9
+    - pkg: bind9-utils
+    - script: scripts/serve-dns-resolver-10-0-21-core.sh
+    listen:
+    - port: 53
+      proto: udp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+  - name: generic-endpoint-10-1-10-core
+    image: debian-12-cloud@v1
+    net: seg-10-1-10-0
+    role: generic-endpoint
+    resources: &id001
+      cpu: 1
+      ram: 1Gi
+      disk: 10Gi
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-1-10-core
+    image: debian-12-cloud@v1
+    net: seg-10-1-10-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-110-240-transient
+    image: debian-12-cloud@v1
+    net: seg-10-110-240-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-112-140-transient
+    image: debian-12-cloud@v1
+    net: seg-10-112-140-0
+    role: unroled-endpoint
+    resources: &id002
+      cpu: 1
+      ram: 2Gi
+      disk: 20Gi
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+  - name: generic-endpoint-heavy-10-128-215-core
+    image: debian-12-cloud@v1
+    net: seg-10-128-215-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-128-215-core
+    image: debian-12-cloud@v1
+    net: seg-10-128-215-0
+    role: unroled-endpoint
+    resources: *id002
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: generic-endpoint-heavy-10-20-192-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-192-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: dns-resolver-10-20-193-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: dns-resolver
+    resources: *id003
+    install:
+    - *id004
+    - pkg: bind9-utils
+    - script: scripts/serve-dns-resolver-10-20-193-core.sh
+    listen:
+    - port: 53
+      proto: udp
+    - port: 636
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+  - name: generic-endpoint-10-20-193-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    count: 8
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-10-20-193-transient
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-20-193-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    listen:
+    - port: 5601
+      proto: tcp
+    - port: 9200
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+    install:
+    - script: scripts/serve-generic-endpoint-heavy-10-20-193-core.sh
+  - name: generic-endpoint-light-10-20-193-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-20-193-regular
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-20-193-transient
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: generic-endpoint
+    resources: *id001
+    count: 4
+    observation:
+      windows_seen: 1
+      windows_total: 9
+      occupancy: 0.1111111111111111
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-20-193-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-193-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: web-tier-10-20-193-core
+    image: ubuntu-server-22@v5
+    net: seg-10-20-193-0
+    role: web-tier
+    resources: &id006
+      cpu: 2
+      ram: 4Gi
+      disk: 20Gi
+    install:
+    - &id007
+      pkg: nginx
+    - pkg: openssl
+    - script: scripts/serve-web-tier-10-20-193-core.sh
+    listen:
+    - port: 443
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.6
+  - name: generic-endpoint-heavy-10-20-195-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-195-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: dns-resolver-10-20-196-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-196-0
+    role: dns-resolver
+    resources: *id003
+    install:
+    - *id004
+    - pkg: bind9-utils
+    - pkg: chrony
+    - pkg: isc-dhcp-server
+    - script: scripts/serve-dns-resolver-10-20-196-core.sh
+    listen:
+    - port: 53
+      proto: udp
+    - port: 67
+      proto: udp
+    - port: 123
+      proto: udp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+  - name: generic-endpoint-10-20-196-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-196-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-20-196-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-196-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-20-196-regular
+    image: debian-12-cloud@v1
+    net: seg-10-20-196-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 6
+      windows_total: 9
+      occupancy: 0.6666666666666666
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-20-198-transient
+    image: debian-12-cloud@v1
+    net: seg-10-20-198-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: generic-endpoint-10-20-200-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-200-0
+    role: generic-endpoint
+    resources: *id001
+    count: 8
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-20-200-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-200-0
+    role: generic-endpoint
+    resources: *id001
+    count: 4
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-20-200-transient
+    image: debian-12-cloud@v1
+    net: seg-10-20-200-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 1
+      windows_total: 9
+      occupancy: 0.1111111111111111
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-20-201-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-201-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-10-20-203-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-203-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-10-20-204-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-204-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-20-204-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-204-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-20-204-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-204-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: unroled-endpoint-10-20-204-regular
+    image: debian-12-cloud@v1
+    net: seg-10-20-204-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 5
+      windows_total: 9
+      occupancy: 0.5555555555555556
+  - name: generic-endpoint-10-20-207-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-207-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-20-207-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-207-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-20-207-core
+    image: debian-12-cloud@v1
+    net: seg-10-20-207-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+  - name: internet-sink-1
+    image: debian-12-cloud@v1
+    net: internet-sink
+    role: internet-sink-1
+    resources:
+      cpu: 1
+      ram: 1Gi
+      disk: 10Gi
+    listen:
+    - port: 22
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 80
+      proto: tcp
+    - port: 123
+      proto: udp
+    - port: 138
+      proto: udp
+    - port: 389
+      proto: udp
+    - port: 443
+      proto: tcp
+    - port: 443
+      proto: udp
+    - port: 445
+      proto: tcp
+    install:
+    - pkg: bind9
+    - pkg: bind9-utils
+    - pkg: nginx
+    - pkg: openssl
+    - pkg: chrony
+    - script: scripts/serve-internet-sink-1.sh
+  - name: internet-sink-2
+    image: debian-12-cloud@v1
+    net: internet-sink
+    role: internet-sink-2
+    resources:
+      cpu: 1
+      ram: 1Gi
+      disk: 10Gi
+    count: 2
+    listen:
+    - port: 53
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 80
+      proto: tcp
+    - port: 88
+      proto: udp
+    - port: 123
+      proto: udp
+    - port: 138
+      proto: udp
+    - port: 443
+      proto: tcp
+    - port: 443
+      proto: udp
+    - port: 3389
+      proto: tcp
+    install:
+    - pkg: bind9
+    - pkg: bind9-utils
+    - pkg: nginx
+    - pkg: openssl
+    - pkg: chrony
+    - script: scripts/serve-internet-sink-2.sh
+  - name: internet-sink-4
+    image: debian-12-cloud@v1
+    net: internet-sink
+    role: internet-sink-4
+    resources:
+      cpu: 1
+      ram: 1Gi
+      disk: 10Gi
+    count: 4
+    listen:
+    - port: 53
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 80
+      proto: tcp
+    - port: 123
+      proto: udp
+    - port: 443
+      proto: tcp
+    - port: 443
+      proto: udp
+    install:
+    - pkg: bind9
+    - pkg: bind9-utils
+    - pkg: nginx
+    - pkg: openssl
+    - pkg: chrony
+    - script: scripts/serve-internet-sink-4.sh
+  - name: internet-sink-8
+    image: debian-12-cloud@v1
+    net: internet-sink
+    role: internet-sink-8
+    resources:
+      cpu: 1
+      ram: 1Gi
+      disk: 10Gi
+    count: 8
+    listen:
+    - port: 22
+      proto: tcp
+    - port: 53
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 80
+      proto: tcp
+    - port: 88
+      proto: tcp
+    - port: 123
+      proto: udp
+    - port: 443
+      proto: tcp
+    install:
+    - pkg: bind9
+    - pkg: bind9-utils
+    - pkg: nginx
+    - pkg: openssl
+    - pkg: chrony
+    - script: scripts/serve-internet-sink-8.sh
+  - name: dns-resolver-light-10-21-161-regular
+    image: debian-12-cloud@v1
+    net: seg-10-21-161-0
+    role: dns-resolver
+    resources: *id003
+    install:
+    - *id004
+    - pkg: bind9-utils
+    - script: scripts/serve-dns-resolver-light-10-21-161-regular.sh
+    listen:
+    - port: 53
+      proto: udp
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+      role_confidence: 0.7
+  - name: unroled-endpoint-10-55-10-regular
+    image: debian-12-cloud@v1
+    net: seg-10-55-10-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 6
+      windows_total: 9
+      occupancy: 0.6666666666666666
+  - name: unroled-endpoint-10-64-7-regular
+    image: debian-12-cloud@v1
+    net: seg-10-64-7-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+  - name: generic-endpoint-light-10-80-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-0-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-80-16-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-16-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: corp-workstation-10-80-20-core
+    image: win11-finance@v4
+    net: seg-10-80-20-0
+    role: corp-workstation
+    resources: &id005
+      cpu: 2
+      ram: 4Gi
+      disk: 40Gi
+    count: 6
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 137
+      proto: udp
+    - port: 3389
+      proto: tcp
+    - port: 7680
+      proto: tcp
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: corp-workstation-heavy-10-80-20-core
+    image: win11-finance@v4
+    net: seg-10-80-20-0
+    role: corp-workstation
+    resources: *id005
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: domain-controller-10-80-20-core
+    image: windows-server-2022@v1
+    net: seg-10-80-20-0
+    role: domain-controller
+    resources:
+      cpu: 4
+      ram: 8Gi
+      disk: 60Gi
+    install:
+    - role: adds
+    provides:
+    - domain: corp.axr.lab
+    listen:
+    - port: 53
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 67
+      proto: udp
+    - port: 88
+      proto: tcp
+    - port: 88
+      proto: udp
+    - port: 123
+      proto: udp
+    - port: 135
+      proto: tcp
+    - port: 389
+      proto: tcp
+    - port: 389
+      proto: udp
+    - port: 445
+      proto: tcp
+    - port: 3268
+      proto: tcp
+    - port: 49667
+      proto: tcp
+    - port: 49669
+      proto: tcp
+    - port: 49677
+      proto: tcp
+    - port: 49680
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.9
+  - name: generic-endpoint-10-80-20-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-20-0
+    role: generic-endpoint
+    resources: *id001
+    count: 4
+    listen:
+    - port: 9358
+      proto: udp
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.3
+    install:
+    - script: scripts/serve-generic-endpoint-10-80-20-core.sh
+  - name: generic-endpoint-heavy-10-80-20-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-20-0
+    role: generic-endpoint
+    resources: *id001
+    count: 4
+    listen:
+    - port: 51252
+      proto: udp
+    - port: 54689
+      proto: udp
+    - port: 61478
+      proto: udp
+    - port: 62619
+      proto: udp
+    - port: 65489
+      proto: udp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+    install:
+    - script: scripts/serve-generic-endpoint-heavy-10-80-20-core.sh
+  - name: generic-endpoint-light-10-80-20-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-20-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-80-20-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-20-0
+    role: unroled-endpoint
+    resources: *id002
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: unroled-endpoint-10-80-20-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-20-0
+    role: unroled-endpoint
+    resources: *id002
+    count: 3
+    observation:
+      windows_seen: 1
+      windows_total: 9
+      occupancy: 0.1111111111111111
+  - name: web-tier-light-10-80-20-regular
+    image: ubuntu-server-22@v5
+    net: seg-10-80-20-0
+    role: web-tier
+    resources: *id006
+    install:
+    - *id007
+    - pkg: openssl
+    - script: scripts/serve-web-tier-light-10-80-20-regular.sh
+    listen:
+    - port: 80
+      proto: tcp
+    - port: 161
+      proto: udp
+    - port: 443
+      proto: tcp
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+      role_confidence: 0.6
+  - name: unroled-endpoint-10-80-31-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-31-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: generic-endpoint-light-10-80-32-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-32-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-34-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-34-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: web-tier-10-80-34-core
+    image: ubuntu-server-22@v5
+    net: seg-10-80-34-0
+    role: web-tier
+    resources: *id006
+    install:
+    - *id007
+    - pkg: openssl
+    - script: scripts/serve-web-tier-10-80-34-core.sh
+    count: 3
+    listen:
+    - port: 443
+      proto: tcp
+    - port: 9080
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.6
+  - name: generic-endpoint-light-10-80-40-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-40-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: corp-workstation-10-80-48-core
+    image: win11-finance@v4
+    net: seg-10-80-48-0
+    role: corp-workstation
+    resources: *id005
+    count: 2
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 137
+      proto: udp
+    - port: 3389
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: generic-endpoint-light-10-80-48-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-48-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-80-63-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-63-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+  - name: corp-workstation-light-10-80-64-core
+    image: win11-finance@v4
+    net: seg-10-80-64-0
+    role: corp-workstation
+    resources: *id005
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 3389
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.75
+    joins: corp.axr.lab
+  - name: dns-resolver-10-80-64-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: dns-resolver
+    resources: *id003
+    install:
+    - *id004
+    - pkg: bind9-utils
+    - script: scripts/serve-dns-resolver-10-80-64-core.sh
+    listen:
+    - port: 53
+      proto: tcp
+    - port: 53
+      proto: udp
+    - port: 135
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+  - name: generic-endpoint-10-80-64-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-64-regular
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 5
+      windows_total: 9
+      occupancy: 0.5555555555555556
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-64-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-80-64-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-80-64-regular
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+      role_confidence: 0.3
+  - name: unroled-endpoint-10-80-64-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-64-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: generic-endpoint-10-80-65-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-65-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-65-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-65-0
+    role: generic-endpoint
+    resources: *id001
+    listen:
+    - port: 3000
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+    install:
+    - script: scripts/serve-generic-endpoint-heavy-10-80-65-core.sh
+  - name: generic-endpoint-light-10-80-65-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-65-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: corp-workstation-10-80-72-core
+    image: win11-finance@v4
+    net: seg-10-80-72-0
+    role: corp-workstation
+    resources: *id005
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 3389
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.75
+    joins: corp.axr.lab
+  - name: generic-endpoint-10-80-72-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-72-0
+    role: generic-endpoint
+    resources: *id001
+    count: 6
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-72-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-72-0
+    role: generic-endpoint
+    resources: *id001
+    count: 10
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-72-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-72-0
+    role: generic-endpoint
+    resources: *id001
+    count: 9
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-80-72-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-72-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-light-10-80-72-regular
+    image: debian-12-cloud@v1
+    net: seg-10-80-72-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 7
+      windows_total: 9
+      occupancy: 0.7777777777777778
+      role_confidence: 0.3
+  - name: web-tier-10-80-72-core
+    image: ubuntu-server-22@v5
+    net: seg-10-80-72-0
+    role: web-tier
+    resources: *id006
+    install:
+    - *id007
+    - pkg: openssl
+    - script: scripts/serve-web-tier-10-80-72-core.sh
+    count: 3
+    listen:
+    - port: 443
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.6
+  - name: generic-endpoint-10-80-73-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-73-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-73-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-73-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-73-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-73-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-74-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-74-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-74-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-74-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-80-74-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-74-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 1
+      windows_total: 9
+      occupancy: 0.1111111111111111
+      role_confidence: 0.35
+  - name: corp-workstation-10-80-75-core
+    image: win11-finance@v4
+    net: seg-10-80-75-0
+    role: corp-workstation
+    resources: *id005
+    listen:
+    - port: 7680
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: file-server-10-80-75-core
+    image: ubuntu-server-22@v5
+    net: seg-10-80-75-0
+    role: file-server
+    resources:
+      cpu: 2
+      ram: 4Gi
+      disk: 100Gi
+    install:
+    - pkg: samba
+    - script: scripts/serve-file-server-10-80-75-core.sh
+    listen:
+    - port: 139
+      proto: tcp
+    - port: 445
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+  - name: generic-endpoint-10-80-75-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-75-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-75-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-75-0
+    role: generic-endpoint
+    resources: *id001
+    count: 6
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-75-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-75-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-80-75-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-75-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: web-tier-10-80-75-core
+    image: ubuntu-server-22@v5
+    net: seg-10-80-75-0
+    role: web-tier
+    resources: *id006
+    install:
+    - *id007
+    - pkg: openssl
+    - script: scripts/serve-web-tier-10-80-75-core.sh
+    count: 2
+    listen:
+    - port: 80
+      proto: tcp
+    - port: 443
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.5
+  - name: generic-endpoint-heavy-10-80-76-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-76-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-light-10-80-76-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-76-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.3
+  - name: generic-endpoint-10-80-77-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-77-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-heavy-10-80-77-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-77-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: corp-workstation-light-10-80-78-core
+    image: win11-finance@v4
+    net: seg-10-80-78-0
+    role: corp-workstation
+    resources: *id005
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 3389
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.75
+    joins: corp.axr.lab
+  - name: generic-endpoint-light-10-80-78-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-78-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: corp-workstation-light-10-80-79-core
+    image: win11-finance@v4
+    net: seg-10-80-79-0
+    role: corp-workstation
+    resources: *id005
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: generic-endpoint-10-80-79-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-79-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+      role_confidence: 0.35
+  - name: generic-endpoint-10-80-79-transient
+    image: debian-12-cloud@v1
+    net: seg-10-80-79-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    observation:
+      windows_seen: 4
+      windows_total: 9
+      occupancy: 0.4444444444444444
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-10-80-79-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-79-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: unroled-endpoint-10-80-79-core
+    image: debian-12-cloud@v1
+    net: seg-10-80-79-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+  - name: unroled-endpoint-172-16-core
+    image: debian-12-cloud@v1
+    net: seg-172-16-0-0
+    role: unroled-endpoint
+    resources: *id002
+    observation:
+      windows_seen: 8
+      windows_total: 9
+      occupancy: 0.8888888888888888
+  - name: corp-workstation-192-168-core
+    image: win11-finance@v4
+    net: seg-192-168-0-0
+    role: corp-workstation
+    resources: *id005
+    count: 2
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 137
+      proto: udp
+    - port: 3389
+      proto: tcp
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.7
+    joins: corp.axr.lab
+  - name: generic-endpoint-192-168-core
+    image: debian-12-cloud@v1
+    net: seg-192-168-0-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.3
+  - name: generic-endpoint-heavy-192-168-core
+    image: debian-12-cloud@v1
+    net: seg-192-168-0-0
+    role: generic-endpoint
+    resources: *id001
+    observation:
+      windows_seen: 9
+      windows_total: 9
+      occupancy: 1.0
+      role_confidence: 0.35
+  - name: generic-endpoint-light-192-168-transient
+    image: debian-12-cloud@v1
+    net: seg-192-168-0-0
+    role: generic-endpoint
+    resources: *id001
+    count: 2
+    listen:
+    - port: 135
+      proto: tcp
+    - port: 137
+      proto: udp
+    observation:
+      windows_seen: 2
+      windows_total: 9
+      occupancy: 0.2222222222222222
+      role_confidence: 0.3
+    install:
+    - script: scripts/serve-generic-endpoint-light-192-168-transient.sh
+  - name: gw
+    role: gw
+    kind: router
+    image: debian-12-cloud@v1
+    nets:
+    - segment: seg-10-0-21-0
+    - segment: seg-10-1-10-0
+    - segment: seg-10-110-240-0
+    - segment: seg-10-112-140-0
+    - segment: seg-10-128-215-0
+    - segment: seg-10-20-192-0
+    - segment: seg-10-20-193-0
+    - segment: seg-10-20-195-0
+    - segment: seg-10-20-196-0
+    - segment: seg-10-20-198-0
+    - segment: seg-10-20-200-0
+    - segment: seg-10-20-201-0
+    - segment: seg-10-20-203-0
+    - segment: seg-10-20-204-0
+    - segment: seg-10-20-207-0
+    - segment: internet-sink
+    - segment: seg-10-21-161-0
+    - segment: seg-10-55-10-0
+    - segment: seg-10-64-7-0
+    - segment: seg-10-80-0-0
+    - segment: seg-10-80-16-0
+    - segment: seg-10-80-20-0
+    - segment: seg-10-80-31-0
+    - segment: seg-10-80-32-0
+    - segment: seg-10-80-34-0
+    - segment: seg-10-80-40-0
+    - segment: seg-10-80-48-0
+    - segment: seg-10-80-63-0
+    - segment: seg-10-80-64-0
+    - segment: seg-10-80-65-0
+    - segment: seg-10-80-72-0
+    - segment: seg-10-80-73-0
+    - segment: seg-10-80-74-0
+    - segment: seg-10-80-75-0
+    - segment: seg-10-80-76-0
+    - segment: seg-10-80-77-0
+    - segment: seg-10-80-78-0
+    - segment: seg-10-80-79-0
+    - segment: seg-172-16-0-0
+    - segment: seg-192-168-0-0
+  conduits:
+  - from: seg-10-0-21-0
+    to: seg-10-20-200-0
+  - from: seg-10-112-140-0
+    to: seg-10-80-20-0
+  - from: seg-10-128-215-0
+    to: seg-10-20-200-0
+  - from: seg-10-20-193-0
+    to: seg-10-20-196-0
+  - from: seg-10-20-193-0
+    to: seg-10-20-207-0
+  - from: seg-10-20-193-0
+    to: seg-10-80-20-0
+  - from: seg-10-20-193-0
+    to: seg-10-80-34-0
+  - from: seg-10-20-193-0
+    to: seg-192-168-0-0
+  - from: seg-10-20-196-0
+    to: seg-10-20-200-0
+  - from: seg-10-20-196-0
+    to: seg-10-20-203-0
+  - from: seg-10-20-196-0
+    to: seg-10-20-204-0
+  - from: seg-10-20-196-0
+    to: seg-10-20-207-0
+  - from: seg-10-20-196-0
+    to: seg-10-21-161-0
+  - from: seg-10-20-196-0
+    to: seg-172-16-0-0
+  - from: seg-10-20-203-0
+    to: seg-10-80-34-0
+  - from: seg-10-20-204-0
+    to: seg-10-80-20-0
+  - from: seg-10-55-10-0
+    to: seg-10-80-20-0
+  - from: seg-10-64-7-0
+    to: seg-10-80-64-0
+  - from: seg-10-80-16-0
+    to: seg-10-80-20-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-31-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-48-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-64-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-65-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-72-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-73-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-74-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-75-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-76-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-78-0
+  - from: seg-10-80-20-0
+    to: seg-10-80-79-0
+  - from: seg-10-80-20-0
+    to: seg-192-168-0-0
+  - from: seg-10-80-48-0
+    to: seg-10-80-63-0
+  - from: seg-10-80-64-0
+    to: seg-10-80-75-0
+  - from: seg-10-80-64-0
+    to: seg-10-80-79-0
+  - from: seg-10-80-72-0
+    to: seg-10-80-79-0
+  - from: seg-10-80-72-0
+    to: seg-192-168-0-0
+  - from: seg-10-80-73-0
+    to: seg-10-80-79-0
+  - from: seg-10-80-74-0
+    to: seg-192-168-0-0
+  - from: seg-10-80-75-0
+    to: seg-10-80-79-0
+  - from: seg-10-80-75-0
+    to: seg-192-168-0-0
+  identity:
+    domain: corp.axr.lab
+    users:
+    - id: alice
+      groups:
+      - Domain Users
+      ou: Finance
+    - id: bob-admin
+      groups:
+      - Domain Admins
+      ou: IT
+    - id: svc-sql
+      groups:
+      - Domain Users
+      spn: MSSQLSvc/sql01.corp.axr.lab:1433
+      password: Summer2024!
+      ou: Service Accounts
+    - id: jsmith
+      groups:
+      - Domain Users
+      asrep_roastable: true
+      password: Password123
+      ou: Finance

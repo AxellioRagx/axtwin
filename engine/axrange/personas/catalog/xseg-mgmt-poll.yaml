@@ -1,0 +1,48 @@
+# Cross-segment persona: mgmt -> everywhere. See xseg-corp-to-srv.yaml for
+# the family rationale.
+#
+# The most naturally cross-segment role in the twin: monitoring-collector is
+# the only host on mgmt, so EVERY flow it emits crosses gw by construction.
+# This is the scripted counterpart to the shipped `monitoring-collector`
+# persona, which is `drive: real-service` -- a NO-OP emitter that only
+# asserts prometheus is running and puts nothing of its own on the wire.
+#
+# The corp-workstation emit uses `peer_scope: all`, so it fans out across all
+# six workstations rather than picking one: six distinct cross-segment flows
+# from a single emit, which is what a real scrape loop does.
+persona:
+  id: xseg-mgmt-poll
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: http
+      ports: [9100]
+      peer_role: corp-workstation
+      peer_scope: all
+      transport: tcp
+      direction: EW
+      cadence: "cyclic:10s"
+      volume: med
+    - proto: netflow
+      ports: [2055]
+      peer_role: file-server
+      transport: udp
+      direction: EW
+      cadence: "cyclic:2s"
+      volume: high
+    - proto: syslog
+      ports: [514]
+      peer_role: domain-controller
+      transport: udp
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: med
+    - proto: snmp
+      ports: [161]
+      peer_role: dmz-web
+      transport: udp
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: med
+  requires: [corp-workstation, file-server, domain-controller, dmz-web]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

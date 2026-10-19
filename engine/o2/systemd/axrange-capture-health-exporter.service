@@ -1,0 +1,53 @@
+# axRange capture-health exporter — runs ON THE CAPTURE HOST.
+#
+# Oneshot: wraps capture-healthcheck and writes the node_exporter textfile
+# (o2/exporters/capture-health-exporter.sh). Fired by the .timer.
+# A node_exporter on the capture host (started with
+#   --collector.textfile.directory=${CAPTURE_TEXTFILE_DIR}) exposes the file;
+# Prometheus scrapes node_exporter.
+#
+# Install on the capture host (NOT the stack host):
+#   sudo install -m 0755 o2/exporters/capture-health-exporter.sh \
+#        /usr/local/bin/capture-health-exporter
+#   sudo install -d -m 0755 /etc/axrange
+#   sudo cp o2/observability.conf.example /etc/axrange/observability.conf
+#   sudo $EDITOR /etc/axrange/observability.conf     # set CAPTURE_TEXTFILE_DIR etc.
+#   sudo cp o2/systemd/axrange-capture-health-exporter.{service,timer} \
+#        /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now axrange-capture-health-exporter.timer
+#
+# Verify:  capture-health-exporter --stdout ; cat ${CAPTURE_TEXTFILE_DIR}/axrange_capture.prom
+
+[Unit]
+Description=axRange capture health exporter (node_exporter textfile)
+Documentation=file:///usr/local/bin/capture-health-exporter
+After=capture.service
+
+[Service]
+Type=oneshot
+# observability.conf is optional; the script falls back to sane defaults and
+# env. Point OBSERVABILITY_CONF at it if you keep it elsewhere.
+Environment=OBSERVABILITY_CONF=/etc/axrange/observability.conf
+ExecStart=/usr/local/bin/capture-health-exporter
+
+# Runs capture-healthcheck (which calls systemctl is-active + reads /proc, /captures),
+# and writes the textfile dir. Root keeps it simple; it only reads + writes its
+# textfile output.
+User=root
+Group=root
+
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+LockPersonality=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=axrange-capture-health-exporter
+
+[Install]
+# Pulled in by the .timer; no WantedBy needed.

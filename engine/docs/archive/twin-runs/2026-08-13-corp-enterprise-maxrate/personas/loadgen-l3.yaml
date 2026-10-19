@@ -1,0 +1,33 @@
+# Load-test persona, step 3 of 4. See loadgen-l1.yaml for the family rationale.
+#
+# Step 3: the elephant-flow tier, PACED (every 5s) so it sits between l2
+# and l4's continuous version rather than duplicating it.
+# Step 3 detail: `volume: bulk` = 64 messages x 1 MiB per
+# fire = 64 MiB, chunked by the driver at the 1400-byte UDP MTU into ~48k
+# datagrams per peer per fire. Single peer, every 1s.
+#
+# At this rung the fire almost certainly takes LONGER than its own 1s
+# interval, which is intentional and not a misconfiguration: the rendered
+# client is a single-threaded loop that re-fires as soon as the interval has
+# already elapsed, so an over-long fire degrades gracefully into a continuous
+# send loop -- i.e. "as fast as one Python thread can push datagrams". That
+# is the per-instance ceiling, and the reason the ramp scales by adding HOSTS
+# to the mesh rather than emits to a persona.
+# `peer_scope: all` is REQUIRED, not a volume choice: with `one`, a mesh
+# persona resolves its peer to ITSELF and every byte goes over loopback,
+# never crossing a tap. See loadgen-l1.yaml for the full finding.
+persona:
+  id: loadgen-l3
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: netflow
+      ports: [9995, 9996, 9997, 9998]
+      peer_role: loadgen
+      transport: udp
+      direction: EW
+      cadence: "cyclic:5s"
+      volume: bulk
+      peer_scope: all
+  requires: [loadgen]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }

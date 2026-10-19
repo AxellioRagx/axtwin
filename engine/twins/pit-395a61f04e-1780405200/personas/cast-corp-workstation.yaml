@@ -1,0 +1,95 @@
+persona:
+  id: cast-corp-workstation
+  os_family: windows
+  drive: scripted
+  emits:
+  - proto: http
+    ports:
+    - 80
+    peer_role: internet-sink-8
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: med
+  - proto: dns
+    ports:
+    - 53
+    peer_role: internet-sink-4
+    transport: udp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: med
+  - proto: dns
+    ports:
+    - 53
+    peer_role: internet-sink-2
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: med
+  - proto: https
+    ports:
+    - 443
+    peer_role: internet-sink-1
+    transport: tcp
+    direction: EW
+    optional: true
+    peer_scope: all
+    cadence: cyclic:16s
+    volume: med
+  - proto: llmnr
+    ports:
+    - 5355
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: med
+  - proto: mdns
+    ports:
+    - 5353
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: med
+  - proto: nbns
+    ports:
+    - 137
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: med
+  - proto: ssdp
+    ports:
+    - 1900
+    peer_role: multicast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: med
+  - proto: udp
+    ports:
+    - 67
+    peer_role: broadcast
+    transport: udp
+    direction: EW
+    optional: true
+    cadence: cyclic:16s
+    volume: med
+  requires: []
+  knobs:
+    intensity: 1.0
+    schedule: 24x7
+    seed_jitter: true

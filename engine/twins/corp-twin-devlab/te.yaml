@@ -1,0 +1,386 @@
+# Twin config: corp-twin-devlab -- corp-twin's DEVICE FABRIC with one host per
+# path type (twin.yaml says why). Segments and device VMs are corp-twin's,
+# verbatim (same names, same leg order -- the shared serve-l2switch.sh port
+# table is keyed by hostname and assumes exactly these legs); recipes are
+# referenced from ../corp-twin/scripts/. What is NOT here: the cast's ~130
+# hosts, the off-map lab /24s, WAN2, the conduits and the identity block.
+#
+# One host per distinct PATH, not per VLAN (keeps the lab at 19 VMs):
+#   ep-vlan20        MS120 access port (one bridge hop)
+#   ep-vlan64        MS120 -> SGS-5240 trunk (VLAN64 tagged)
+#   ep-vlan48        MS120 -> AxeProdSW trunk carrying TWO tagged VLANs
+#   ep-vlan32-cut    behind hwlab2960s, whose MS120 port P17 is admin-DOWN:
+#                    the NEGATIVE test -- it must NOT reach its gateway
+#   web-vlan953      behind the 9K VRRP pair + the 8325h pair: its apt (nginx)
+#                    is the proof the routed path + hq-mx's return route work
+# VLANs 1/40/52/192 share a path type with one of the above; their access
+# segments still exist (the switch VMs carry them).
+twin_config:
+  id: corp-twin-devlab
+  description: |
+    corp-twin's network-device fabric -- the MX85 edge (hq-mx) and its switch
+    side, the MS120 core with SFP25/SFP26 (SFP26 STP-blocked), the access
+    switches, the 3850, the 9K01/9K02 VRRP pair and the 8325h VSX pair --
+    with one host per path type and the any-IP sink on WAN1. The first live
+    verify of STP, 802.1Q trunks, VRRP failover and containment.
+  default_agents: false
+
+  # CONTAINMENT: same posture and same reason as corp-twin (apt for
+  # keepalived/nginx needs `provision`). Flip before any tap/tfc:
+  #   axrange te egress corp-twin-devlab --phase measure
+  egress:
+    phase: provision
+
+  segments:
+    - { name: wan1-isp, cidr: 10.250.234.64/28, zone_type: simple }
+    # ---- the MX85's per-VLAN ports (hq-mx's L3 legs <-> mx-sw's access ports)
+    # Each HQ VLAN's subnet is ANCHORED here: `mx-vlanN` is the segment between
+    # the MX85's routing engine (`hq-mx`, the gateway, auto .1) and its own
+    # switch side (`mx-sw`). The hosts sit on the `vlanN` ACCESS segments
+    # further down -- the same subnet, `isolated: true`, on the far side of the
+    # MS120/access-switch bridges -- so the name every tfc/tap file used
+    # (`vlan64`, ...) still names the segment the hosts are on.
+    # Real subnet evidence per VLAN is in the work order §5.1 table; the
+    # anchors are VLAN32 = .32.0/21 (diagram) and VLAN64 = 10.80.64.0/20 (the
+    # orchestrator's own DHCP lease, 10.80.72.52/20). The rest is the one
+    # contiguous reading that places every observed 10.80 /24 in exactly one
+    # listed VLAN (inferred), plus three imputed ranges for the VLANs nothing
+    # was observed on.
+    - { name: mx-vlan1, cidr: 10.180.0.0/20, zone_type: simple }      # inferred
+    - { name: mx-vlan20, cidr: 10.180.16.0/20, zone_type: simple }    # inferred -- the DC, 10.80.20 workstations
+    # VLAN32 is ASSERTED as .32.0/21 (9K SVI + HSRP) -- narrowed to /23 HERE
+    # because the real /21 contains VLAN953's asserted 10.80.34.0/25 and the
+    # validator refuses overlapping networks (NET-010). Conflict C1.
+    - { name: mx-vlan32, cidr: 10.180.32.0/23, zone_type: simple }
+    - { name: mx-vlan40, cidr: 10.180.40.0/21, zone_type: simple }    # inferred
+    - { name: mx-vlan48, cidr: 10.180.48.0/21, zone_type: simple }    # inferred
+    - { name: mx-vlan52, cidr: 10.180.56.0/21, zone_type: simple }    # imputed range (C3)
+    - { name: mx-vlan64, cidr: 10.180.64.0/20, zone_type: simple }    # inferred, anchored -- the office
+    - { name: mx-vlan192, cidr: 10.192.168.0/24, zone_type: simple }  # inferred (ID <-> 192.168)
+    - { name: mx-vlan880, cidr: 10.180.88.0/24, zone_type: simple }   # imputed, no host observed
+    - { name: mx-vlan1010, cidr: 10.180.101.0/24, zone_type: simple } # imputed, no host observed
+    # VLAN935: the MX85 <-> 9K pair transit (imputed, no host observed).
+    # 10.180.93.254 is the 9K pair's VLAN935 VRRP VIP (scripts/serve-vrrp-l3.sh), no
+    # node's leg: reserved so the allocator never hands it to one.
+    - { name: mx-vlan935, cidr: 10.180.93.0/24, zone_type: simple, reserved: [10.180.93.254] }
+
+    # ---- 802.1Q trunks (L2 only: every leg is `l2: true`) -------------------
+    # A segment needs a CIDR to validate; these carry no address at all, so
+    # each gets a placeholder /29 from 10.199.0.0/24 (no observed address,
+    # svc-engines or transport range is near it). The VLANs a trunk carries are
+    # the recipe's port table (scripts/serve-l2switch.sh), not this file.
+    # SFP25 forwards, SFP26 is the redundant link STP BLOCKS (at the MS120).
+    - { name: sfp25, cidr: 10.199.0.0/29, zone_type: simple }
+    - { name: sfp26, cidr: 10.199.0.8/29, zone_type: simple }
+    - { name: t-ms120-sgs5240, cidr: 10.199.0.16/29, zone_type: simple }
+    - { name: t-ms120-axeprod, cidr: 10.199.0.24/29, zone_type: simple }
+    - { name: t-ms120-cos, cidr: 10.199.0.32/29, zone_type: simple }
+    - { name: t-ms120-labsw, cidr: 10.199.0.40/29, zone_type: simple }
+    - { name: t-ms120-3850, cidr: 10.199.0.48/29, zone_type: simple }
+
+    # ---- ACCESS segments (the hosts' side; same subnet as the anchor) -------
+    # `isolated: true` = a separate broadcast domain carrying its anchor's
+    # subnet (the one NET-010 exemption a twin config may use): the gateway is
+    # inherited from `mx-vlanN`, addresses are allocated from ONE pool per
+    # subnet. Each is one access switch's host-facing port group.
+    - { name: vlan1, cidr: 10.180.0.0/20, zone_type: simple, isolated: true }     # MS120 native VLAN
+    - { name: vlan20, cidr: 10.180.16.0/20, zone_type: simple, isolated: true }   # MS120 access
+    - { name: vlan32, cidr: 10.180.32.0/23, zone_type: simple, isolated: true }   # hwlab2960s access
+    # MS120 port P17 -> hwlab2960s, VLAN32 access, administratively DOWN.
+    - { name: p17-hwlab2960s, cidr: 10.180.32.0/23, zone_type: simple, isolated: true }
+    - { name: vlan40, cidr: 10.180.40.0/21, zone_type: simple, isolated: true }   # cos-sw-r32e01 access
+    - { name: vlan48, cidr: 10.180.48.0/21, zone_type: simple, isolated: true }   # AxeProdSW access
+    - { name: vlan52, cidr: 10.180.56.0/21, zone_type: simple, isolated: true }   # AxeProdSW access
+    - { name: vlan64, cidr: 10.180.64.0/20, zone_type: simple, isolated: true }   # SGS-5240 access -- the office
+    - { name: vlan192, cidr: 10.192.168.0/24, zone_type: simple, isolated: true } # labswitch access
+    # 3850 -> 9K01 / 9K02: the vPC analogue, two VLAN935 access links.
+    - { name: x3850-9k01, cidr: 10.180.93.0/24, zone_type: simple, isolated: true }
+    - { name: x3850-9k02, cidr: 10.180.93.0/24, zone_type: simple, isolated: true }
+
+    # ---- VLAN953: routed by the 9K01/9K02 VRRP pair, L2 on the 8325h pair ---
+    # 10.80.34.0/25 is ASSERTED (servers/ESX; the cast's 10.80.34 web tier).
+    # The GATEWAY is the pair's VRRP VIP .1 (not hq-mx -- hq-mx has no leg
+    # here any more; it routes the /25 to the VLAN935 VIP, scripts/
+    # serve-hq-mx-routes.sh). 9K01/9K02 are pinned .2/.3. See vlan32's C1 note.
+    - { name: vlan953, cidr: 10.180.34.0/25, zone_type: simple, gateway: 10.180.34.1 }
+    - { name: x9k01-8325l, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }
+    - { name: x9k02-8325r, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }
+    - { name: isl-8325, cidr: 10.180.34.0/25, zone_type: simple, isolated: true }   # the VSX ISL
+
+  nodes:
+    # The MX85's routing engine: every VLAN's gateway, WAN1, the one exit.
+    - name: hq-mx
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 2Gi, disk: 10Gi }
+      nets:
+        - { segment: wan1-isp }
+        - { segment: mx-vlan1 }
+        - { segment: mx-vlan20 }
+        - { segment: mx-vlan32 }
+        - { segment: mx-vlan40 }
+        - { segment: mx-vlan48 }
+        - { segment: mx-vlan52 }
+        - { segment: mx-vlan64 }
+        - { segment: mx-vlan192 }
+        - { segment: mx-vlan880 }
+        - { segment: mx-vlan1010 }
+        - { segment: mx-vlan935 }
+      install:
+        - { script: ../corp-twin/scripts/serve-hq-mx-routes.sh }
+
+    # corp-twin's sink, unchanged (same generated payload).
+    - name: sink
+      role: sink
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 20Gi }
+      nets: [{ segment: wan1-isp, ip: 10.250.234.66 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-dnsutils }
+        - { pkg: caddy }
+        - { pkg: chrony }
+        - { pkg: socat }
+        - { pkg: nftables }
+        - { pkg: openssl }
+        - { pkg: curl }
+        - { pkg: ca-certificates }
+        - { script: ../corp-twin/scripts/provision-sink.sh }
+      listen:
+        - { port: 22, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+        - { port: 443, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 9099, proto: tcp }
+        - { port: 9098, proto: udp }
+
+    # ======================================================================
+    # the network DEVICES -- Debian `kind: host` VMs running role recipes
+    # ======================================================================
+    # Implementation substitution (work order §12, D1 still open): the ruling
+    # asked for VyOS; an internal VyOS router needs a no-WAN router mode and
+    # bridge/VRRP inputs on configure-router -- locked IR_SCHEMA/OP_CATALOG
+    # changes. So every device is a small Debian VM whose recipe builds the
+    # device: `../corp-twin/scripts/serve-l2switch.sh` (VLAN-aware bridge, 802.1Q trunks,
+    # kernel STP, admin-down ports -- ONE script, a per-device port table
+    # keyed by hostname) and `../corp-twin/scripts/serve-vrrp-l3.sh` (keepalived VRRP).
+    # Being `kind: host`, none gets a WAN NIC -- hq-mx stays the ONLY exit.
+    # Leg ORDER is load-bearing: it must match the device's port table in
+    # serve-l2switch.sh (tests pin the two against each other). Legs are
+    # `l2: true` (pure L2 bridge ports) except the MS120's management leg and
+    # the 9Ks' routed legs. No `observation:` -- never gated; a device that
+    # carries a segment keeps it alive through the gate (G14 closed).
+
+    # MX85 switch side: one untagged port per VLAN (to hq-mx's legs) + the
+    # SFP25/SFP26 uplinks. STP root.
+    - name: mx-sw
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: mx-vlan1, l2: true }
+        - { segment: mx-vlan20, l2: true }
+        - { segment: mx-vlan32, l2: true }
+        - { segment: mx-vlan40, l2: true }
+        - { segment: mx-vlan48, l2: true }
+        - { segment: mx-vlan52, l2: true }
+        - { segment: mx-vlan64, l2: true }
+        - { segment: mx-vlan192, l2: true }
+        - { segment: mx-vlan880, l2: true }
+        - { segment: mx-vlan1010, l2: true }
+        - { segment: mx-vlan935, l2: true }
+        - { segment: sfp25, l2: true }
+        - { segment: sfp26, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+
+    # MS120-24P "Telstar-Switch": core. Management 10.180.16.15 (the real
+    # 10.80.16.15, conflict C2) on its first leg -- the recipe moves it onto a
+    # VLAN20 SVI. SFP26 blocks here; P17 (hwlab2960s) is admin-down.
+    - name: ms120
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: vlan20, ip: 10.180.16.15 }
+        - { segment: sfp25, l2: true }
+        - { segment: sfp26, l2: true }
+        - { segment: t-ms120-sgs5240, l2: true }
+        - { segment: t-ms120-axeprod, l2: true }
+        - { segment: t-ms120-cos, l2: true }
+        - { segment: t-ms120-labsw, l2: true }
+        - { segment: t-ms120-3850, l2: true }
+        - { segment: p17-hwlab2960s, l2: true }
+        - { segment: vlan1, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+
+    # Access switches. Which VLAN hangs off which switch is IMPUTED (the
+    # diagram names the switches, not their port maps) -- work order §5.3.
+    - name: sgs-5240
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-sgs5240, l2: true }
+        - { segment: vlan64, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+    - name: axeprodsw
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-axeprod, l2: true }
+        - { segment: vlan48, l2: true }
+        - { segment: vlan52, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+    - name: cos-sw-r32e01
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-cos, l2: true }
+        - { segment: vlan40, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+    - name: labswitch
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-labsw, l2: true }
+        - { segment: vlan192, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+    # hwlab2960s: present, but its uplink (MS120 P17) is DOWN -- anything on
+    # vlan32 is cut off, as in the diagram.
+    - name: hwlab2960s
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: p17-hwlab2960s, l2: true }
+        - { segment: vlan32, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+
+    # Catalyst 3850: distribution for the TOR pair (one link to each 9K).
+    - name: sw-3850
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: t-ms120-3850, l2: true }
+        - { segment: x3850-9k01, l2: true }
+        - { segment: x3850-9k02, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+
+    # 9K01 / 9K02: the L3 TOR pair (HSRP analogue: keepalived VRRP, one sync
+    # group, VIPs 10.180.93.254 + 10.180.34.1). First leg VLAN935 (default via
+    # hq-mx .1 -- the planner's first-leg gateway rule), second leg VLAN953.
+    - name: 9k01
+      role: l3-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 4Gi }
+      nets:
+        - { segment: x3850-9k01, ip: 10.180.93.2 }
+        - { segment: x9k01-8325l, ip: 10.180.34.2 }
+      install:
+        - { script: ../corp-twin/scripts/serve-vrrp-l3.sh }
+    - name: 9k02
+      role: l3-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 4Gi }
+      nets:
+        - { segment: x3850-9k02, ip: 10.180.93.3 }
+        - { segment: x9k02-8325r, ip: 10.180.34.3 }
+      install:
+        - { script: ../corp-twin/scripts/serve-vrrp-l3.sh }
+
+    # eng-8325h left/right: the VSX pair, L2 for VLAN953, joined by the ISL.
+    # The servers (vlan953) hang off the left member.
+    - name: 8325h-l
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: x9k01-8325l, l2: true }
+        - { segment: isl-8325, l2: true }
+        - { segment: vlan953, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+    - name: 8325h-r
+      role: l2-switch
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 512Mi, disk: 4Gi }
+      nets:
+        - { segment: x9k02-8325r, l2: true }
+        - { segment: isl-8325, l2: true }
+      install:
+        - { script: ../corp-twin/scripts/serve-l2switch.sh }
+
+    # ======================================================================
+    # one host per path type
+    # ======================================================================
+    - name: ep-vlan20
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: vlan20
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+    - name: ep-vlan64
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: vlan64
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+    - name: ep-vlan48
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: vlan48
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+    # Behind the admin-down P17: NO install (apt would fail by design) and no
+    # traffic assignment. Boots and answers QGA; must not reach 10.180.32.1.
+    - name: ep-vlan32-cut
+      role: generic-endpoint
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: vlan32
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+    # The VLAN953 server: nginx over apt proves 953 -> VIP -> 9K -> hq-mx ->
+    # NAT and back (hq-mx's /25 route via the 935 VIP).
+    - name: web-vlan953
+      role: web-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      net: vlan953
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: ../corp-twin/scripts/serve-web-tier-10-80-34-core.sh }
+      listen:
+        - { port: 443, proto: tcp }
+        - { port: 9080, proto: tcp }

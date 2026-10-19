@@ -1,0 +1,15 @@
+# corp-enterprise -- default tap plan: server-vlan IDS at the standing O2
+# suricata sensor + raw boundary capture at the external Tcpdump-SW-A sink.
+#   server-vlan segment (DC + file-server)     -> o2-suricata (AD detection rules)
+#   corp-lan <-> dmz boundary (gw router legs)  -> Tcpdump-SW-A  (raw capture)
+# Portable: `target` is the twin-config NAME, resolved to the live twin at
+# apply time (`axrange tap deploy --plan … --target corp-enterprise` also works).
+tap-plan:
+  target: corp-enterprise
+  bindings:
+    - selector: { scope: segment, target: server-vlan }
+      sensors: [o2-suricata]
+      mode: exclusive
+    - selector: { scope: boundary, target: [corp-lan, dmz] }
+      sensors: [Tcpdump-SW-A]   # external sink (adapter.conf EXTERNAL_SENSORS); verify-capture is loud-skipped for it
+      mode: exclusive

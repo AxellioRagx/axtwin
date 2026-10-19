@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+#
+# capture-watchdog — disk-pressure pruner for /captures.
+#
+# Sourced config: /etc/capture/capture.conf
+# Runs from a systemd timer every 60s (see capture-watchdog.timer).
+#
+# Behavior (see docs/tcpdump-sensor/README.md §5):
+#   * Defensively mkdir today and tomorrow's dated dirs (handles midnight UTC
+#     rollover without giving tcpdump a missing directory).
+#   * If disk usage < SOFT_THRESHOLD_PCT: do nothing, exit 0.
+#   * If disk usage >= HARD_THRESHOLD_PCT: log CRITICAL, take HARD_ACTION
+#     (alert / stop_capture / both), then continue pruning.
+#   * Otherwise (SOFT <= usage < HARD): prune oldest pcaps until usage drops
+#     to TARGET_AFTER_PRUNE_PCT, while preserving the newest MIN_KEEP_FILES.
+
+set -euo pipefail
+
+CONF="${CAPTURE_CONF:-/etc/capture/capture.conf}"
+TAG=capture-watchdog
+
+die() { logger -t "$TAG" "FATAL: $*"; echo "$TAG: $*" >&2; exit 2; }
+log() { logger -t "$TAG" "$*"; }
+
+[ -r "$CONF" ] || die "missing or unreadable $CONF"
+# shellcheck disable=SC1090
+. "$CONF"
+
+# Required for the watchdog. CAPTURE_USER not strictly needed here but kept
+# for the defensive mkdir.
+for v in CAPTURE_DIR SOFT_THRESHOLD_PCT HARD_THRESHOLD_PCT \
+         TARGET_AFTER_PRUNE_PCT MIN_KEEP_FILES HARD_ACTION SOURCE_TAG \
+         CAPTURE_USER; do
+    [ -n "${!v:-}" ] || die "$v is unset or empty in $CONF"
+done
+
+# Sanity-check thresholds — bad config could silently delete everything.
+if ! [[ "$MIN_KEEP_FILES" =~ ^[0-9]+$ ]] || [ "$MIN_KEEP_FILES" -lt 1 ]; then
+    die "MIN_KEEP_FILES must be a positive integer (got: $MIN_KEEP_FILES)"
+fi
+if [ "$TARGET_AFTER_PRUNE_PCT" -ge "$SOFT_THRESHOLD_PCT" ]; then
+    die "TARGET_AFTER_PRUNE_PCT ($TARGET_AFTER_PRUNE_PCT) must be < SOFT_THRESHOLD_PCT ($SOFT_THRESHOLD_PCT) — otherwise we ping-pong"
+fi
+if [ "$SOFT_THRESHOLD_PCT" -ge "$HARD_THRESHOLD_PCT" ]; then
+    die "SOFT_THRESHOLD_PCT ($SOFT_THRESHOLD_PCT) must be < HARD_THRESHOLD_PCT ($HARD_THRESHOLD_PCT)"
+fi
+
+[ -d "$CAPTURE_DIR" ] || die "CAPTURE_DIR '$CAPTURE_DIR' does not exist"
+
+# ---- Defensive directory creation for midnight rollover --------------------
+
+today=$(date -u +%Y/%m/%d)
+tomorrow=$(date -u -d 'tomorrow' +%Y/%m/%d 2>/dev/null || \
+           date -u -v+1d +%Y/%m/%d 2>/dev/null || \
+           echo "$today")
+for d in "$today" "$tomorrow"; do
+    target="$CAPTURE_DIR/$d/$SOURCE_TAG"
+    if [ ! -d "$target" ]; then
+        install -d -o "$CAPTURE_USER" -g "$CAPTURE_USER" -m 0750 "$target" \
+            || log "WARN: could not mkdir $target"
+    fi
+done
+
+# ---- Compute current disk usage --------------------------------------------
+
+get_usage() {
+    df --output=pcent "$CAPTURE_DIR" | tail -1 | tr -dc 0-9
+}
+
+usage=$(get_usage)
+if [ -z "$usage" ]; then
+    die "could not determine disk usage for $CAPTURE_DIR"
+fi
+
+# ---- Hard threshold ---------------------------------------------------------
+
+if [ "$usage" -ge "$HARD_THRESHOLD_PCT" ]; then
+    log "CRITICAL: disk ${usage}% >= hard threshold ${HARD_THRESHOLD_PCT}%"
+    case "$HARD_ACTION" in
+        stop_capture|both)
+            if systemctl is-active --quiet capture.service; then
+                systemctl stop capture.service \
+                    && log "stopped capture.service per HARD_ACTION=$HARD_ACTION" \
+                    || log "WARN: systemctl stop capture.service failed"
+            fi
+            ;;
+        alert)
+            : # log line above is the alert
+            ;;
+        *)
+            log "WARN: unknown HARD_ACTION '$HARD_ACTION' (alert|stop_capture|both); treating as alert"
+            ;;
+    esac
+    # fall through to pruning
+elif [ "$usage" -lt "$SOFT_THRESHOLD_PCT" ]; then
+    # Nothing to do.
+    exit 0
+fi
+
+# ---- Prune oldest-first until TARGET reached -------------------------------
+#
+# Find rotated pcap files (compressed or uncompressed), tag with mtime, sort
+# ascending, drop the newest MIN_KEEP_FILES, rejoin path columns to handle
+# whitespace in filenames defensively. We never delete uncompressed `.pcap`
+# files that are younger than ROTATE_SECONDS to avoid clobbering tcpdump's
+# currently-open output: head -n -MIN_KEEP plus a mtime > now-rotate window
+# both protect the active file, but mtime is more reliable.
+#
+# Edge case: tcpdump writes the current rotation file as `.pcap`. After
+# rotation, the `-z` hook compresses to `.pcap.zst`. So at any moment the
+# very newest file is `.pcap`. MIN_KEEP_FILES=10 default keeps a safe margin.
+
+mapfile -t victims < <(
+    find "$CAPTURE_DIR" -type f \
+        \( -name 'cap-*.pcap' -o -name 'cap-*.pcap.zst' -o -name 'cap-*.pcap.gz' \) \
+        -printf '%T@ %p\n' \
+        | sort -n \
+        | head -n -"$MIN_KEEP_FILES" \
+        | awk '{ for (i=2; i<=NF; i++) printf "%s%s", $i, (i<NF?" ":"\n") }'
+)
+
+if [ ${#victims[@]} -eq 0 ]; then
+    log "no eligible files to prune (disk ${usage}%, MIN_KEEP=${MIN_KEEP_FILES})"
+    exit 0
+fi
+
+deleted=0
+for f in "${victims[@]}"; do
+    [ -n "$f" ] || continue
+    if rm -f -- "$f"; then
+        deleted=$((deleted + 1))
+    fi
+    usage=$(get_usage)
+    if [ "$usage" -le "$TARGET_AFTER_PRUNE_PCT" ]; then
+        break
+    fi
+done
+
+log "pruned ${deleted} file(s); disk now ${usage}% (target ${TARGET_AFTER_PRUNE_PCT}%)"

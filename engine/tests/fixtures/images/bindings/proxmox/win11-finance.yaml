@@ -1,0 +1,56 @@
+binding_schema_version: 1
+binding:
+  image: win11-finance
+  platform: proxmox
+  versions:
+    - id: v4
+      storage: { type: template, node: any, volid: "local-zfs:vm-9104-disk-0", template_vmid: 9104 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+        tpm: { enabled: true, version: "2.0" }
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+          - host:secure-boot
+          - host:tpm
+      clone_estimate: 90
+    - id: v3
+      storage: { type: template, node: any, volid: "local-zfs:vm-9103-disk-0", template_vmid: 9103 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+        tpm: { enabled: true, version: "2.0" }
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+          - host:secure-boot
+          - host:tpm
+      clone_estimate: 110
+    - id: v2
+      storage: { type: template, node: any, volid: "local-zfs:vm-9102-disk-0", template_vmid: 9102 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware:
+        machine: q35
+        bios: ovmf
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: true
+      placement_constraints:
+        requires_host_caps:
+          - host:uefi
+      clone_estimate: 120

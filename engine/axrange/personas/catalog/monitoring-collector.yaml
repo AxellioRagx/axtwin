@@ -1,0 +1,34 @@
+# talks to everything — modeled deliberately.
+persona:
+  id: monitoring-collector
+  os_family: linux
+  drive: real-service
+  emits:
+    - proto: http
+      ports: [9100, 9090]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: "cyclic:15s"
+      volume: med
+    - proto: syslog
+      ports: [514]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: "24x7"
+      volume: med
+    - proto: snmp
+      ports: [161]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: "cyclic:1m"
+      volume: low
+    - proto: netflow
+      ports: [2055]
+      peer_role: corp-workstation
+      direction: EW
+      cadence: "24x7"
+      volume: low
+  requires: [corp-workstation]
+  # GAP-032: assert against Prometheus -- the scrape/collector daemon behind
+  # this persona's http(9100/9090)+syslog+snmp+netflow signature.
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: true, service_name: prometheus }

@@ -1,0 +1,20 @@
+# high-rate time-series ingest — best synthesized as a replay of a captured template.
+persona:
+  id: historian
+  os_family: linux
+  drive: replay
+  emits:
+    - proto: opcua
+      ports: [4840]
+      peer_role: hmi
+      direction: EW
+      cadence: "24x7"
+      volume: high
+    - proto: mqtt
+      ports: [1883, 8883]
+      peer_role: hmi
+      direction: EW
+      cadence: "24x7"
+      volume: high
+  requires: [hmi]
+  knobs: { intensity: 1.0, schedule: "24x7", seed_jitter: false }
