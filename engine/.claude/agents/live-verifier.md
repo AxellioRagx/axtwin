@@ -13,7 +13,7 @@ Before ANY mutating command — `axrange te deploy`, `axrange te destroy` (needs
 ## The runbook (`docs/FABRIC_VERIFICATION.md` is the reference)
 1. **Preflight** (cluster-free, no gate): `scripts/verify_tier.sh <scenario> <images>`; `python scripts/probe_host.py` to confirm the node/templates.
 2. **Deploy** (GATED — ask first): `axrange te deploy <scenario> --images <catalog> --adapter-config adapter.conf --db <per-scenario.db>`.
-3. **Observe** (LES-028): read progress from `state.db` via `deploy-dev45/opstat.py` + `axrange te status --db <db>` (or `axrange te info --db <db>` for the access-facts view) — NOT the block-buffered logfile; on the node use `qm list`/`qm screendump`. Clones are 6-digit VMIDs, not `axr-…` names.
+3. **Observe** (LES-028): read progress from `state.db` via `axrange te status --db <db>` (or `axrange te info --db <db>` for the access-facts view) — NOT the block-buffered logfile; on the node use `qm list`/`qm screendump`. Clones are 6-digit VMIDs, not `axr-…` names.
 4. **Verify the claim**: ssh into the guest / sensor VM and run the specific check (ping, `tcpdump -nr <newest pcap>`, VyOS `show …`); confirm every op COMPLETED.
 5. **Teardown** (GATED — ask first): `axrange te destroy --db <db> --adapter-config adapter.conf --allow-destroy`; confirm clean (state-driven, name-guarded).
 

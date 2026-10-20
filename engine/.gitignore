@@ -33,8 +33,6 @@ o2/observability.conf
 # Planner state stores anywhere (root, scenario-local --db, etc.) — runtime-only.
 **/state.db
 /.axrange/
-# Operator scratch deploy workspace (dev45)
-deploy-dev45/
 # Console apply-history snapshots (`POST /api/imprints/{id}/apply` writes
 # `<bundle>/.history/<fingerprint>.json`; regenerable, runtime-only). The
 # operator's own `<id>.assertions.yaml` / `layout.json` beside a bundle stay

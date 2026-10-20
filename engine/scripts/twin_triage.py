@@ -19,7 +19,7 @@ Never deploys, never writes to the cluster or the state DB. `te plan` reads
 a target. The only side effect is the CLI's own `/tmp/twin-config-*.yaml`
 expansion scratch file.
 
-    .venv/bin/python scripts/twin_triage.py [--images deploy-dev45] [--db DB] [--json]
+    .venv/bin/python scripts/twin_triage.py --images <IMAGES_ROOT> [--db DB] [--json]
 
 Emits a markdown table (path | kind | class | first finding) on stdout;
 `--json` emits the rows instead, for Phase 2 re-runs to diff against.
@@ -215,8 +215,8 @@ def triage(images: str, db: str | None = None, roots: tuple[str, ...] = ROOTS) -
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--images", default="deploy-dev45",
-                    help="images root for te validate/plan (default: deploy-dev45)")
+    ap.add_argument("--images", required=True,
+                    help="images root for te validate/plan (an operator workspace outside the repo)")
     ap.add_argument("--db", default=None,
                     help="state DB for tap/tfc target resolution (read-only; default: "
                          "the CLI's own). A twin stood up with its own --db only plans "

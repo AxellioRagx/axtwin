@@ -158,3 +158,11 @@ are binding on every session.
   them only when a seam on the critical path requires it.
 - Git: outbound push on explicit request; inbound sync (fetch/pull/clone) is the
   user's own manual step.
+
+## Live-deploy data is not project data
+
+Deploy logs, planner state DBs, screenshots, pcaps and any other artifact of a
+real deployment live **with that deployment's state DB** (the default is
+`~/.axrange/`), never inside this checkout. The old `engine/deploy-dev45/`
+scratch workspace was deleted on 2026-10-20 for that reason; pass `--images`
+and `--db` paths explicitly.
