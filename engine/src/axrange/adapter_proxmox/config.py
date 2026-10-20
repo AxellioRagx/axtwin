@@ -408,6 +408,20 @@ def _parse_external_sensors(raw: str) -> list[ExternalSensor]:
     return out
 
 
+def default_adapter_conf_paths() -> list[Path]:
+    """Where `adapter.conf` is looked for when no path is given, first hit wins:
+    the installed location, then the checkout's `config/adapter.conf`
+    (`axrange.paths.CONFIG_DIR`, so the CLI works from any directory in the
+    monorepo), then the current directory (the pre-2026-10-20 default, kept so an
+    operator running beside an ad-hoc conf is not surprised).
+
+    The one list for both `load_config` here and `imagebuild.config`, which
+    re-reads the same file for its own keys."""
+    from axrange.paths import ADAPTER_CONF
+
+    return [Path("/etc/axrange/adapter.conf"), ADAPTER_CONF, Path.cwd() / "adapter.conf"]
+
+
 def load_config(
     config_path: str | Path | None = None,
     *,
@@ -418,15 +432,14 @@ def load_config(
     Precedence (highest -> lowest):
       1. `overrides` dict
       2. environment variables
-      3. `adapter.conf` (default: /etc/axrange/adapter.conf, then ./adapter.conf)
+      3. `adapter.conf` (default search: `default_adapter_conf_paths()`)
       4. dataclass defaults
     """
     paths: list[Path] = []
     if config_path is not None:
         paths.append(Path(config_path))
     else:
-        paths.append(Path("/etc/axrange/adapter.conf"))
-        paths.append(Path.cwd() / "adapter.conf")
+        paths.extend(default_adapter_conf_paths())
     file_data: dict[str, str] = {}
     for p in paths:
         if p.is_file():
@@ -544,7 +557,7 @@ def example_conf_text() -> str:
     """Return the contents of adapter.conf.example for distribution / docs."""
     return (
         "# axRange Proxmox adapter configuration\n"
-        "# Copy to /etc/axrange/adapter.conf and fill in the operator-side values.\n"
+        "# Copy to config/adapter.conf (or /etc/axrange/adapter.conf) and fill in the operator-side values.\n"
         "# Env vars (PROXMOX_API_URL, OVS_SSH_KEY, etc.) override this file.\n"
         "\n"
         "# --- REST backend (Proxmox API) ---\n"

@@ -99,12 +99,13 @@ def load_build_config(
 
     # Re-read the same conf file the adapter used, so BUILD_* keys resolve from
     # the same source with the same precedence (overrides > env > file > dflt).
+    from axrange.adapter_proxmox.config import default_adapter_conf_paths
+
     paths: list[Path] = []
     if config_path is not None:
         paths.append(Path(config_path))
     else:
-        paths.append(Path("/etc/axrange/adapter.conf"))
-        paths.append(Path.cwd() / "adapter.conf")
+        paths.extend(default_adapter_conf_paths())
     file_data: dict[str, str] = {}
     for p in paths:
         if p.is_file():

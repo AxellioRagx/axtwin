@@ -4,3 +4,6 @@
 # (regenerable; not versioned). The experiment's notes live beside it.
 ai-crafted/corpus/
 __pycache__/
+# Operator-local adapter config (holds the Proxmox API token). Fill in from
+# config/adapter.conf.example; the loader finds it here from any cwd.
+config/adapter.conf

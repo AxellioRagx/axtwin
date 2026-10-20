@@ -21,10 +21,6 @@ dist/
 venv/
 env/
 
-# Operator-local adapter config (contains the Proxmox API token).
-# Use adapter.conf.example as the template; copy and fill in real values
-# into adapter.conf, which stays out of version control.
-adapter.conf
 # Operator-local observability config (Grafana admin password, host targets).
 # Use o2/observability.conf.example as the template; the filled-in o2/observability.conf
 # stays out of version control (prior pattern pointed at the wrong path — fixed 2026-07-15).

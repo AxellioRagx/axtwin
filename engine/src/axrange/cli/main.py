@@ -49,8 +49,8 @@ Cross-cutting (outside the grid — not per-tier deploys):
                                                 scenario.yaml positional (mutually exclusive)
 
 `plan`/`deploy`/`info` need adapter configuration (default node etc.); read
-from `--adapter-config`, env vars, or `./adapter.conf`. See
-`adapter.conf.example` for the keys. A `te_` deploy carries no sensor
+from `--adapter-config`, env vars, or `config/adapter.conf`. See
+`config/adapter.conf.example` for the keys. A `te_` deploy carries no sensor
 identity of its own (sensor-agnostic te, docs/WORK_ORDER_sensor_agnostic_te.md)
 — `axrange tap deploy` binds a deployed te's taps to a standing O2 sensor
 after the fact.
@@ -156,7 +156,7 @@ def _add_te_plan(group, *, deprecated: Optional[str] = None):
     p.add_argument("--images", default=None,
                    help="Root containing images/manifests/ + images/bindings/")
     p.add_argument("--adapter-config", default=None,
-                   help="Path to adapter.conf (default: ./adapter.conf, /etc/axrange/adapter.conf)")
+                   help="Path to adapter.conf (default: /etc/axrange/adapter.conf, then the checkout's config/adapter.conf, then ./adapter.conf)")
     p.add_argument("--node", default=None, help="Override DEFAULT_NODE from adapter.conf")
     _add_config_flags(p)
     p.set_defaults(tier="te", verb="plan", command_label="te plan", deprecated_notice=deprecated)
@@ -1042,7 +1042,7 @@ def _build_parser() -> argparse.ArgumentParser:
                          help="Cluster targets file (YAML: targets: [{name, adapter_config, "
                               "db, nodes?}], first = default; env AXRANGE_TARGETS). Unset: "
                               "one target from --adapter-config/--db, named after its "
-                              "DEFAULT_NODE (adapter.targets.example.yaml)")
+                              "DEFAULT_NODE (config/adapter.targets.example.yaml)")
     p_serve.add_argument("--extra-db", dest="extra_dbs", action="append", default=None,
                          metavar="PATH",
                          help="Another state store recording deploys on the SAME cluster "

@@ -75,7 +75,8 @@ class ApiSettings:
     )
 
     # Adapter config path (adapter.conf). None → the loader's default search
-    # (./adapter.conf, /etc/axrange/adapter.conf). plan/deploy/targets need this.
+    # (`adapter_proxmox.config.default_adapter_conf_paths`: /etc/axrange, then
+    # the checkout's config/, then ./). plan/deploy/targets need this.
     adapter_config: str | None = field(
         default_factory=lambda: os.environ.get("AXRANGE_ADAPTER_CONFIG") or None
     )

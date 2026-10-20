@@ -5,6 +5,7 @@ The monorepo keeps content out of the package tree (root `Claude.md`, "Layout"):
     <project>/
       catalog/            twin + persona content -- the catalog roots below
       engine/src/axrange  this package
+      config/             operator config (adapter.conf + examples)
       ai-crafted/         agentic twin-config experiment (not read by code)
       reports/            rendered reports (not read by code)
 
@@ -29,6 +30,11 @@ TWINS_DIR: Path = CATALOG_ROOT / "twins"
 LEGACY_TWIN_CONFIGS_DIR: Path = CATALOG_ROOT / "twin-configs"
 #: `target-environments/<id>/scenario.yaml` -- the scenario (IR) library.
 TARGET_ENVIRONMENTS_DIR: Path = CATALOG_ROOT / "target-environments"
+#: Operator config root. `adapter.conf` (gitignored, holds the Proxmox token) and
+#: the tracked `*.example` templates live here; see `adapter_proxmox.config.
+#: default_adapter_conf_paths` for how it is searched.
+CONFIG_DIR: Path = PROJECT_ROOT / "config"
+ADAPTER_CONF: Path = CONFIG_DIR / "adapter.conf"
 #: `personas/<id>.yaml` -- the shipped persona library (`axrange.personas.registry`);
 #: `AXRANGE_PERSONAS_DIR` adds colon-separated extra dirs on top, never replaces it.
 PERSONAS_DIR: Path = CATALOG_ROOT / "personas"
