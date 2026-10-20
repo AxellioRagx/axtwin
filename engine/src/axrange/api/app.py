@@ -145,7 +145,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # Unified Console ruling §3.1: every deploy-scoped route takes
     # `?target=<cluster target name>` (default: the default target) and runs
     # the unchanged service function against that target's db + adapter.conf.
-    # NOT on /api/tfc, /api/o2/taps, /api/exr, where `target` already means
+    # NOT on /api/tfc, /api/taps, /api/exr, where `target` already means
     # the twin (a te deploy id or twin name).
     _TARGET_QUERY = Query(
         default=None,
@@ -700,7 +700,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # its applied tap deploy). Passwords in the verbose view are MASKED unless
     # `?secrets=true` AND an authorized token (same gate as the access
     # endpoint, LES-134).
-    @app.get("/api/o2/taps", response_model=None)
+    @app.get("/api/taps", response_model=None)
     @_ro
     def o2_tap_get(
         target: Optional[str] = Query(default=None),
@@ -732,7 +732,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         )
 
     @app.post(
-        "/api/o2/taps",
+        "/api/taps",
         response_model=dtos.TapPlanStatusDTO,
         dependencies=[Depends(write_token)],
     )
@@ -748,7 +748,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         )
 
     @app.delete(
-        "/api/o2/taps",
+        "/api/taps",
         response_model=dtos.TapDestroyResponse,
         dependencies=[Depends(write_token)],
     )

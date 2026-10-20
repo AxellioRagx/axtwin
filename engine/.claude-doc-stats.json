@@ -17,7 +17,8 @@
     "the same way and never policed it either, because no doc quotes a scenario TOTAL --",
     "the 'N archetypes' phrasings in docs/ all refer to specific subsets. Its old paths",
     "(scenario-ai-research/stage2/scenarios, scenarios/) are dead; it now counts",
-    "target-environments/, and returns 0 rather than failing if that directory is absent.",
+    "../catalog/target-environments/ (twin content moved to the project root, 2026-10-20),",
+    "and returns 0 rather than failing if that directory is absent.",
     "",
     "The `rules` claim pattern is narrow ('N catalog rules') on purpose. A broader",
     "'N rules' would match docs/VALIDATOR.md's per-pass subset counts ('2 rules',",
@@ -60,7 +61,7 @@
       "command": [
         "{python}",
         "-c",
-        "import pathlib; root = pathlib.Path('target-environments'); print(sum(1 for p in (sorted(root.iterdir()) if root.is_dir() else []) if (p / 'scenario.yaml').is_file()))"
+        "import pathlib; root = pathlib.Path('../catalog/target-environments'); print(sum(1 for p in (sorted(root.iterdir()) if root.is_dir() else []) if (p / 'scenario.yaml').is_file()))"
       ],
       "extract": "(\\d+)"
     }

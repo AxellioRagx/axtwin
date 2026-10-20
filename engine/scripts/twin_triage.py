@@ -37,9 +37,12 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 REPO = Path(__file__).resolve().parents[1]
+# Twin content lives at the project root (`<project>/catalog/<root>/`); the
+# venv is the one shared monorepo venv beside it.
+CATALOG = REPO.parent / "catalog"
 ROOTS = ("twins", "twin-configs", "twin-configs-cast", "target-environments", "scenarios")
-AXRANGE = str(REPO / ".venv" / "bin" / "axrange")
-PYTHON = str(REPO / ".venv" / "bin" / "python")
+AXRANGE = str(REPO.parent / ".venv" / "bin" / "axrange")
+PYTHON = str(REPO.parent / ".venv" / "bin" / "python")
 # The live-target half of tap/tfc validate+plan: nothing deployed to bind to.
 NO_LIVE = "neither a deploy id nor a live te deploy"
 # A deploy id is `<scenario>-<8 hex>`; a twin/scenario name has no such tail.
@@ -181,7 +184,7 @@ def triage(images: str, db: str | None = None, roots: tuple[str, ...] = ROOTS) -
     db_args = ["--db", db] if db else []
     rows = []
     for root in roots:
-        base = REPO / root
+        base = CATALOG / root
         if not base.exists():
             continue
         for path in sorted(base.rglob("*")):

@@ -37,7 +37,8 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-TWINS = REPO / "twins"
+CATALOG = REPO.parent / "catalog"  # twin content lives at the project root
+TWINS = CATALOG / "twins"
 FILE_SERVER = TWINS / "svc-engines" / "scripts" / "serve-file-server.sh"
 ENGINE_CLIENT = TWINS / "svc-engines" / "scripts" / "prepare-engine-client.sh"
 TWIN_CONFIG = TWINS / "svc-engines" / "te.yaml"

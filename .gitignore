@@ -1,0 +1,6 @@
+# One shared venv for both packages (root Claude.md).
+.venv/
+# Stage-1 research corpus output of the agentic twin-config experiment
+# (regenerable; not versioned). The experiment's notes live beside it.
+ai-crafted/corpus/
+__pycache__/

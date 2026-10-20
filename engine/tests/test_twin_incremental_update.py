@@ -1612,7 +1612,7 @@ def test_apply_update_tail_no_warning_when_sibling_does_not_reference_removed_ho
 # router the review asked for.
 # ---------------------------------------------------------------------------
 _FABRIC_VERIFY_SCENARIO = (
-    Path(__file__).parent.parent / "target-environments" / "fabric-verify" / "scenario.yaml"
+    Path(__file__).resolve().parents[2] / "catalog" / "target-environments" / "fabric-verify" / "scenario.yaml"
 )
 
 
@@ -2143,7 +2143,7 @@ def test_reapply_on_a_real_shipped_archetype_reapplies_only_the_edited_script(
 ):
     import shutil
 
-    src_dir = Path(__file__).parent.parent / "target-environments" / "dfir-hunt-lab"
+    src_dir = Path(__file__).resolve().parents[2] / "catalog" / "target-environments" / "dfir-hunt-lab"
     dst_dir = tmp_path / "dfir-hunt-lab"
     shutil.copytree(src_dir, dst_dir)
     scn = str(dst_dir / "scenario.yaml")

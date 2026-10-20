@@ -76,7 +76,7 @@ sys.path.insert(0, str(REPO))
 from axrange.personas.registry import load_catalog_dir  # noqa: E402
 from axrange.personas.schema import RESERVED_PEER_ROLES, Emit  # noqa: E402
 
-CATALOG_DIR = REPO / "axrange" / "personas" / "catalog"
+CATALOG_DIR = REPO / "src" / "axrange" / "personas" / "catalog"
 OUTPUT = REPO / "o2" / "console" / "src" / "model" / "roleListen.generated.ts"
 
 #: The protocols a listen entry can carry (`axr-assertions/1` `$defs.portList`

@@ -61,8 +61,8 @@ TIERS: tuple[str, ...] = ("te", "o2", "tap", "tfc", "exr")
 #: `containment:` vocabulary -- a claim about the te file, checked on load.
 CONTAINMENT_VALUES: tuple[str, ...] = ("contained", "uncontained")
 
-# <repo-root>/twins -- parents: [0]=twinconfig [1]=axrange [2]=repo root.
-_DEFAULT_TWINS_DIR = Path(__file__).resolve().parents[2] / "twins"
+# <project-root>/catalog/twins -- spelled once in `axrange.paths`.
+from axrange.paths import TWINS_DIR as _DEFAULT_TWINS_DIR
 
 
 def default_twins_dir() -> Path:

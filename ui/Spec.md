@@ -32,7 +32,7 @@ tracer over existing endpoints. Nothing beyond T0 starts before its seam lands.
 
 ## Seam
 
-The console plugs into the existing control-plane API (`engine/axrange/api`) and
+The console plugs into the existing control-plane API (`engine/src/axrange/api`) and
 is served from `AXRANGE_SPA_DIR`. It depends on these API endpoints; **(exists)**
 are present today (verified against the registered routes, 2026-10-19), **(new)**
 are the thin backend seams this feature requires and must be built with it (each

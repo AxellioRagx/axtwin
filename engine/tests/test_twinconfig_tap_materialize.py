@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import pytest
 
+_CATALOG = __import__("pathlib").Path(__file__).resolve().parents[2] / "catalog"  # twin content root
+
 from axrange.ir.parser import parse_ir
 from axrange.planner import Executor, StateStore, build_plan
 from axrange.planner.cluster import ClusterContext
@@ -177,8 +179,8 @@ def test_shipped_corp_enterprise_tap_plans_still_resolve_the_same_port_sets(
         "boundary": {"gw"},
     }
     for plan_file in (
-        "twins/corp-enterprise/tap/default.yaml",
-        "twins/corp-enterprise/tap/reshard.yaml",
+        str(_CATALOG / "twins/corp-enterprise/tap/default.yaml"),
+        str(_CATALOG / "twins/corp-enterprise/tap/reshard.yaml"),
     ):
         spec = load_tap_plan(plan_file)
         assert len(spec.bindings) == 2

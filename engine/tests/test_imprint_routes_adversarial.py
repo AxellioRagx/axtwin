@@ -56,12 +56,13 @@ except ImportError:  # pragma: no cover
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT.parent / "catalog"  # twin content lives at the project root
 FIXT_ROOT = REPO_ROOT / "tests" / "fixtures"
 CAST_FIXTURES = FIXT_ROOT / "cast-bundles"
 # The real cast bundles moved from `twin-configs-cast/` into `twins/<id>/`
 # (`docs/WORK_ORDER_twin_consolidation.md` Phase 2): one root for every twin,
 # the casts among them, read through `axrange.twinconfig.bundle`.
-REAL_CAST_ROOT = REPO_ROOT / "twins"
+REAL_CAST_ROOT = CATALOG / "twins"
 
 _SHAPES = ("normalized", "canonical", "absent")
 
@@ -994,7 +995,7 @@ PIT = "pit-395a61f04e-1780405200"
 # `<pit>/` of three links into a generically-named `corpapcn-disco/`, the
 # shape the discovery loop produced -- no longer exists in the repo, so
 # `_symlinked_pit` rebuilds it in `tmp_path` from that real content.
-REAL_PIT_TWIN = REPO_ROOT / "twins" / PIT
+REAL_PIT_TWIN = CATALOG / "twins" / PIT
 
 
 def test_the_real_pit_twin_the_symlink_tests_rebuild_from_is_present():

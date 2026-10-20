@@ -317,8 +317,8 @@ def test_shipped_multi_bound_apps_still_plan(manifests):
     """The same property against the real content that found it (LES-185):
     `enterprise-multisite` must keep planning."""
     scenario = (
-        Path(__file__).resolve().parent.parent
-        / "target-environments" / "enterprise-multisite" / "scenario.yaml"
+        Path(__file__).resolve().parents[2]
+        / "catalog" / "target-environments" / "enterprise-multisite" / "scenario.yaml"
     )
     if not scenario.is_file():
         pytest.skip("shipped scenario absent")

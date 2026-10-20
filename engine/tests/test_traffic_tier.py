@@ -15,6 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
+_CATALOG = __import__("pathlib").Path(__file__).resolve().parents[2] / "catalog"  # twin content root
+
 from axrange.ir.parser import parse_ir
 from axrange.o2control import (
     TrafficPlanError,
@@ -308,7 +310,7 @@ def test_all_five_starter_twin_configs_expand_with_role(config_id):
     fixture."""
     from axrange.twinconfig.expand import expand_twin_config
 
-    ir_dict, _params = expand_twin_config(config_id, catalog_dir="twins")
+    ir_dict, _params = expand_twin_config(config_id, catalog_dir=str(_CATALOG / "twins"))
     nodes = ir_dict["layers"]["infra"]["nodes"]
     assert nodes, f"{config_id}: expanded with zero nodes"
     for n in nodes:
@@ -2090,7 +2092,7 @@ def test_role_surfaces_in_inventory_for_expanded_twin_config_round_trip(tmp_path
     from axrange.twinconfig.expand import expand_twin_config, materialize_twin_config
 
     ir_dict, _params = expand_twin_config(
-        "corp-enterprise", catalog_dir="twins",
+        "corp-enterprise", catalog_dir=str(_CATALOG / "twins"),
         param_overrides={"N_WORKSTATIONS": "2"},
     )
     node_roles = {n["id"]: n.get("role") for n in ir_dict["layers"]["infra"]["nodes"]}
@@ -2100,7 +2102,7 @@ def test_role_surfaces_in_inventory_for_expanded_twin_config_round_trip(tmp_path
     ), node_roles
 
     ir_path = materialize_twin_config(
-        "corp-enterprise", catalog_dir="twins",
+        "corp-enterprise", catalog_dir=str(_CATALOG / "twins"),
         param_overrides={"N_WORKSTATIONS": "2"}, out_path=tmp_path / "corp-ent-rt.yaml",
     )
     ir = parse_ir(path=ir_path).ir
@@ -2371,11 +2373,11 @@ def test_shipped_tfc_profiles_parse_and_reference_real_personas():
     # `twin-configs/*/tfc-*.yaml` still held for Phase 4. A twin's personas
     # sit at the twin root, beside `tfc/`.
     profiles: list[tuple[pathlib.Path, pathlib.Path]] = []
-    for d in sorted(pathlib.Path("twins").iterdir()):
+    for d in sorted((_CATALOG / "twins").iterdir()):
         if (d / "twin.yaml").is_file():
             tfc = load_twin_manifest(d).tier("tfc")
             profiles += [(d / rel, d) for rel in (tfc.all_files() if tfc else [])]
-    profiles += [(f, f.parent) for f in sorted(pathlib.Path("twin-configs").glob("*/tfc-*.yaml"))]
+    profiles += [(f, f.parent) for f in sorted((_CATALOG / "twin-configs").glob("*/tfc-*.yaml"))]
     assert profiles, "no shipped tfc profiles found"
     for f, twin_dir in profiles:
         spec = load_traffic_profile(f)

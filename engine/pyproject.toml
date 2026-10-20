@@ -30,20 +30,12 @@ api = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
 ]
-# Stage-1 research subsystem (scenario_ai_research/research). OSS-only, heavy + optional;
-# lazy-imported so the pipeline is testable on fakes without these installed.
-research = [
-    "yt-dlp>=2024.1",
-    "faster-whisper>=1.0",
-]
 
 [project.scripts]
 axrange = "axrange.cli.main:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["axrange*"]
-exclude = ["tests*", "o2*", "docs*", "scripts*"]
+where = ["src"]
 
 # Non-Python artifacts that are LOAD-BEARING AT IMPORT, not samples:
 # `axrange/api/schemas/axr-assertions-1.schema.json` is the vendored

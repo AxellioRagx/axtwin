@@ -521,7 +521,7 @@ class SurfaceDownResponse(BaseModel):
 # --------------------------------------------------------------------------
 # Tap-plan DTOs (A2, `docs/design/06-taps-sensors.md`) -- clean DTOs only, never
 # `axrange.o2control.taps`'s dataclasses or raw op/state-store shapes (the
-# `api/` boundary rule). `POST/DELETE /api/o2/taps`.
+# `api/` boundary rule). `POST/DELETE /api/taps`.
 # --------------------------------------------------------------------------
 class TapBindingDTO(BaseModel):
     # Exactly one of `tap` / `tap_point` / `selector` addresses a binding's
@@ -568,7 +568,7 @@ class TapPlanStatusDTO(BaseModel):
     warnings: list[str] = []
 
 
-# `GET /api/o2/taps?verbose=true` -- the rich, per-binding "config + access
+# `GET /api/taps?verbose=true` -- the rich, per-binding "config + access
 # facts" view (an API peer of `axrange tap info`, vs. the concise
 # `TapPlanStatusDTO` `axrange tap status` returns). Maps
 # `axrange.o2control.taps.{TapInfo,TapBindingInfo}` -> DTOs.
@@ -779,7 +779,7 @@ class HostAccessDTO(BaseModel):
     wan_ip: Optional[str] = None
     # `taps:`/`AccessTapDTO` REMOVED here (docs/WORK_ORDER_tap_eligibility.md,
     # Authority: user, 2026-07-28) -- a te records no tap-related state any
-    # more; `GET /api/o2/taps` (`TapInfo`/`TapBindingInfo` DTOs above) is the
+    # more; `GET /api/taps` (`TapInfo`/`TapBindingInfo` DTOs above) is the
     # API's capture-facts surface now, not this access-facts endpoint.
     # Login facts (`fill_access_facts`'s derived fields). `password` is
     # `None` for a router with no cloud-init-sourced login at all (VyOS et

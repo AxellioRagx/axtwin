@@ -38,6 +38,7 @@ from axrange.twinconfig.manifest import load_twin_manifest
 from tests.test_traffic_tier import TWIN_DEPLOY, _op_row, _seed_twin
 
 REPO = Path(__file__).resolve().parents[1]
+CATALOG = REPO.parent / "catalog"  # twin content lives at the project root
 FIXTURE_IMAGES = REPO / "tests" / "fixtures"   # the root holding images/manifests/
 
 WINDOWS_PERSONA = "corp-workstation"   # catalog, os_family: windows
@@ -271,7 +272,7 @@ _KNOWN_MISMATCHES = {
 
 
 def _twin_profiles():
-    for tw in sorted((REPO / "twins").iterdir()):
+    for tw in sorted((CATALOG / "twins").iterdir()):
         if (tw / "twin.yaml").is_file() and (tw / "tfc").is_dir():
             for f in sorted((tw / "tfc").glob("*.yaml")):
                 yield tw, f
@@ -306,7 +307,7 @@ def test_shipped_twin_profiles_bind_os_compatible_personas(twin_dir, profile, _t
 def test_corp_twin_workstation_personas_are_windows(_twin_personas):
     """The run-3 fix itself, in both twins that ship the cast."""
     for twin in ("corp-twin", "pit-395a61f04e-1780405200"):
-        _twin_personas(REPO / "twins" / twin)
+        _twin_personas(CATALOG / "twins" / twin)
         for v in ("heavy-local", "light-local", "heavy", "light", "local", ""):
             pid = "cast-corp-workstation" + (f"-{v}" if v else "")
             assert persona_registry.get(pid).os_family == "windows", (twin, pid)

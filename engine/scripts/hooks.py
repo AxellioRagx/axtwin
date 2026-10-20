@@ -516,9 +516,8 @@ def _image_width(path: Path) -> int | None:
 
 
 def _shrink_cmd() -> str:
-    py = REPO / ".venv" / "bin" / "python"
     script = _script("shrink_image.py") or (REPO / "scripts" / "shrink_image.py")
-    return f"{py if py.is_file() else 'python3'} {script}"
+    return f"{PY} {script}"  # the interpreter running this hook (the shared venv)
 
 
 def read_guard() -> None:

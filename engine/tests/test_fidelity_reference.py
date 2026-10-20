@@ -32,7 +32,7 @@ from tests.fidelity_support import (
     REPO_ROOT,
 )
 
-FIXTURE_IMPRINT = REPO_ROOT / "axrange" / "api" / "fixtures" / "imprints" / "corp-enterprise"
+FIXTURE_IMPRINT = REPO_ROOT / "src" / "axrange" / "api" / "fixtures" / "imprints" / "corp-enterprise"
 
 
 # ---------------------------------------------------------------------------

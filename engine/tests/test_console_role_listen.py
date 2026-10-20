@@ -25,7 +25,7 @@ from axrange.personas.schema import DRIVE_KINDS, RESERVED_PEER_ROLES
 REPO = Path(__file__).resolve().parent.parent
 GENERATOR = REPO / "scripts" / "gen_role_listen.py"
 TABLE = REPO / "o2" / "console" / "src" / "model" / "roleListen.generated.ts"
-CATALOG = REPO / "axrange" / "personas" / "catalog"
+CATALOG = REPO / "src" / "axrange" / "personas" / "catalog"
 
 
 def _generator() -> ModuleType:

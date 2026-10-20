@@ -35,8 +35,6 @@ o2/observability.conf
 /.axrange/
 # Operator scratch deploy workspace (dev45)
 deploy-dev45/
-# Stage-1 research corpus output (regenerable; not versioned)
-corpus/
 # Console apply-history snapshots (`POST /api/imprints/{id}/apply` writes
 # `<bundle>/.history/<fingerprint>.json`; regenerable, runtime-only). The
 # operator's own `<id>.assertions.yaml` / `layout.json` beside a bundle stay

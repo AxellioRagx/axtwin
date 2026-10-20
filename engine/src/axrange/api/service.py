@@ -2783,7 +2783,7 @@ def _tap_status_dto(status: Any) -> dtos.TapPlanStatusDTO:
     )
 
 
-# `GET /api/o2/taps` -- the read peer of `axrange tap status`/`tap info`, both
+# `GET /api/taps` -- the read peer of `axrange tap status`/`tap info`, both
 # calling the SAME `axrange.o2control.taps.{tap_status,tap_info}` resolvers the
 # CLI verbs use (LES-037), mapped to DTOs. `target`/`deploy_id` resolve
 # identically to the CLI (a twin id -> its applied tap deploy).

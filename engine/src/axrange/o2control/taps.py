@@ -3235,7 +3235,7 @@ def tap_info(
     applied tap-plan (the `TapInfo` shape `axrange tap info` renders), derived
     purely from `state.db` + the standing A1 surface + config-external sensors.
     The verbose peer of `tap_status` above; both are called by the CLI verb and
-    the `GET /api/o2/taps` endpoint (LES-037 -- one resolver, two callers).
+    the `GET /api/taps` endpoint (LES-037 -- one resolver, two callers).
 
     `deploy_id` may be EITHER a tap deploy id (`tap-<twin>-<hash>`) OR a
     twin/target id; a non-tap id is resolved to its applied tap deploy via

@@ -24,8 +24,9 @@ from axrange.twinconfig.errors import TwinConfigShapeError
 from axrange.twinconfig.expand import expand_twin_config_raw
 
 REPO = Path(__file__).resolve().parents[1]
-CORP = REPO / "twins" / "corp-twin"
-DEVLAB = REPO / "twins" / "corp-twin-devlab"
+CATALOG = REPO.parent / "catalog"  # twin content lives at the project root
+CORP = CATALOG / "twins" / "corp-twin"
+DEVLAB = CATALOG / "twins" / "corp-twin-devlab"
 
 
 # ---------------------------------------------------------------------------

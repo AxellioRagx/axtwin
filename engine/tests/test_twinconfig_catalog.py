@@ -127,7 +127,7 @@ _PLAN_IDS_BEFORE_THE_ROLE_SPLIT = {
 # `observation:` block either, so the gate must leave it byte-identical too.
 # Not cosmetic -- the standing `corpapcn-twin-0e4f7d58` (138 VMs, dev45) is
 # the fidelity scorecard's first subject, and a `plan_id` change orphans it.
-_CAST_CATALOG_DIR = "twins"
+_CAST_CATALOG_DIR = str(Path(__file__).resolve().parents[2] / "catalog" / "twins")
 _CAST_PLAN_IDS = {"corpapcn-twin": "corpapcn-twin-b6aaa3c5"}
 
 _ALL_PINNED = {

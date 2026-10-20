@@ -15,8 +15,19 @@ detection-confirm) behind the API, then a single UI over all of it.
 
 | Dir | Package | Role | Import rule |
 |---|---|---|---|
-| `engine/` | `axrange` | twin plan→deploy→destroy, traffic (`tfc`), taps, exercises (`exr`), O2 surface, control-plane API (`axrange serve`) | must **not** import `aximprint` |
-| `discovery/` | `aximprint` | sensor metadata → discovered network → cast to a twin config | may import `axrange` |
+| `engine/` | `axrange` (`engine/src/axrange`) | twin plan→deploy→destroy, traffic (`tfc`), taps, exercises (`exr`), O2 surface, control-plane API (`axrange serve`) | must **not** import `aximprint` |
+| `discovery/` | `aximprint` (`discovery/src/aximprint`) | sensor metadata → discovered network → cast to a twin config | may import `axrange` |
+
+Both packages are src-layout: `src/`, `tests/`, `scripts/`, `docs/`. Content
+lives beside them at the root, not inside a package:
+
+| Dir | What |
+|---|---|
+| `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` (see its README) |
+| `ai-crafted/` | the agentic twin-config experiment (corpus + pipeline tree; not read by code) |
+| `reports/` | rendered reports |
+| `ui/` | the operator console spec (and, later, the SPA) |
+| `archive/` | the pre-consolidation design ledgers, reference only |
 
 The one-way boundary (`discovery` → `engine`, never back) is the real design
 constraint. Keep it enforced as a layering test, the way `discovery` already
@@ -26,12 +37,12 @@ Install both into one venv:
 
 ```
 python -m venv .venv && . .venv/bin/activate
-pip install -e ./engine[api,dev] -e ./discovery[dev]
+pip install -e ./engine[api,dev] -e ./discovery[dev,acquire]
 ```
 
 Run the loop (CLI, today): `axrange te deploy --config corp-enterprise …` →
 `axrange tfc deploy …` → `axrange tap deploy …` → `axrange exr run …`.
-First target: `engine/twin-configs/corp-enterprise/` (README has the sequence).
+First target: `catalog/twins/corp-enterprise/` (README has the sequence).
 
 ## Architecture: plugin seams (this is the project's shape — expandable by design)
 
@@ -65,7 +76,7 @@ Rules that keep this flat:
 ## The critical path (do these in order — each is a thin seam over working code)
 
 1. **Wire discovery into the API.** Replace the fixture imprint reader
-   (`engine/axrange/api/imprints.py`) with a real call into `aximprint`
+   (`engine/src/axrange/api/imprints.py`) with a real call into `aximprint`
    (pcap → `ingest`/`materialize`/`cast` → imprint). This is step 1 of the loop
    and the whole reason the two packages now live together.
 2. **Wire attack-inject + confirm as one action.** `POST /api/exr` exists; add the

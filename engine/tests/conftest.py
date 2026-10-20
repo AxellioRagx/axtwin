@@ -4,10 +4,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Make the repo root importable without `pip install -e .`.
+# Make the package importable without `pip install -e .` (src layout).
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
 
 
 import pytest

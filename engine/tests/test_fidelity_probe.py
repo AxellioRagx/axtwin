@@ -178,7 +178,7 @@ def test_every_exclusion_has_an_entry_in_the_honest_gap_register():
     # than leaving a dangling pointer in a code comment.
     probe_src = (
         Path(__file__).resolve().parent.parent
-        / "axrange" / "fidelity" / "probe.py"
+        / "src" / "axrange" / "fidelity" / "probe.py"
     ).read_text()
     named = set(re.findall(r"GAP-\d+", probe_src))
     assert named, "probe.py names no GAP ids at all"

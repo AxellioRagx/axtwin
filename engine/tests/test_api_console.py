@@ -64,8 +64,9 @@ except ImportError:  # pragma: no cover
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT.parent / "catalog"  # twin content lives at the project root
 CAST_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "cast-bundles"
-REAL_CAST_ROOT = REPO_ROOT / "twins"
+REAL_CAST_ROOT = CATALOG / "twins"
 REAL_SIDECARLESS = REAL_CAST_ROOT / "corpapcn-twin"
 REAL_GOLDEN = REAL_CAST_ROOT / "corpapcn-golden"
 
@@ -2790,7 +2791,7 @@ def test_an_unknown_evidence_class_in_a_NORMALIZED_sidecar_warns_too(tmp_path):
     with one of them."""
     import shutil as _shutil
 
-    src = Path(__file__).resolve().parent.parent / "axrange" / "api" / "fixtures" / "imprints"
+    src = Path(__file__).resolve().parent.parent / "src" / "axrange" / "api" / "fixtures" / "imprints"
     root = tmp_path / "imprints"
     root.mkdir()
     _shutil.copytree(src / "corp-enterprise", root / "corp-enterprise")
@@ -6131,7 +6132,7 @@ def test_a_config_with_several_routers_publishes_each_with_its_own_legs(tmp_path
     would have had to call "the gateway"."""
     from ruamel.yaml import YAML
 
-    src = REPO_ROOT / "twins" / "datacenter" / "te.yaml"
+    src = CATALOG / "twins" / "datacenter" / "te.yaml"
     root = tmp_path / "imprints"
     (root / "datacenter").mkdir(parents=True)
     shutil.copy(src, root / "datacenter" / "datacenter.yaml")
@@ -6580,10 +6581,10 @@ def test_the_config_deploy_source_reads_scripts_from_the_twin_config_directory(
     from axrange.api import service
 
     private = _private_tmp(tmp_path, monkeypatch)
-    tc_dir = REPO_ROOT / "twins" / "svc-verify"
+    tc_dir = CATALOG / "twins" / "svc-verify"
     settings = ApiSettings(
         db_path=str(tmp_path / "state.db"), adapter_config="/nonexistent.conf",
-        twin_configs_dir=str(REPO_ROOT / "twins"), images_root=str(FIXT_ROOT),
+        twin_configs_dir=str(CATALOG / "twins"), images_root=str(FIXT_ROOT),
     )
     sp, images_root, source_dir = service._resolve_config_scenario_path(
         settings, "svc-verify", None,

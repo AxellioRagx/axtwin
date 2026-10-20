@@ -24,6 +24,7 @@ from axrange.planner.cluster import ClusterContext
 from axrange.twinconfig import expand_twin_config, materialize_twin_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT.parent / "catalog"  # twin content lives at the project root
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
 CAST_BUNDLES = FIXTURES / "cast-bundles"
 MINI_CAST = CAST_BUNDLES / "mini-cast"
@@ -31,7 +32,7 @@ MINI_CAST = CAST_BUNDLES / "mini-cast"
 # two differ in exactly one thing: whether evidence classes are read from
 # the producer or re-derived (M4).
 MINI_CAST_PROV = CAST_BUNDLES / "mini-cast-prov"
-REAL_CAST = REPO_ROOT / "twins" / "corpapcn-twin"
+REAL_CAST = CATALOG / "twins" / "corpapcn-twin"
 
 
 class FakeAdapter:

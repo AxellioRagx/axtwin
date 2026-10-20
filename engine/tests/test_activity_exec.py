@@ -847,7 +847,7 @@ def test_activity_fixture_validates_and_plans(manifests):
     assert len(plan.ops) > 0
 
 
-_TE_ROOT = Path(__file__).resolve().parents[1] / "target-environments"
+_TE_ROOT = Path(__file__).resolve().parents[2] / "catalog" / "target-environments"
 
 
 @pytest.mark.parametrize(

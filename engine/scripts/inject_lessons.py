@@ -173,6 +173,10 @@ def scope_matches(scope: str, target: str) -> bool:
     # ("axrange/planner/state.py") and match on the path branch above, so
     # excluding the root costs nothing and stops whole-tree over-matching.
     # A lesson that genuinely applies repo-wide rides the SessionStart --index.
+    # A src layout (`src/axrange/...`) puts the package one level down; the
+    # package directory is still the non-discriminating root for this purpose.
+    if target.startswith("src/"):
+        target = target[len("src/"):]
     root_segment = target.split("/", 1)[0]
     for raw in re.split(r"[,\s;]+", scope):
         tok = raw.strip().strip("`").strip("().;:").lower()

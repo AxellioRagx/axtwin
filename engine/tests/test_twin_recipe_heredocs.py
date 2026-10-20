@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
+CATALOG = REPO.parent / "catalog"  # twin content lives at the project root
 
 #: Generated sink payloads that embed an OLDER copy of the shared recipe and
 #: are rebuilt by their twin's own `build-sink-payload.sh`. svc-engines' is
@@ -31,7 +32,7 @@ _OPEN = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 def _recipes() -> list[str]:
     out = subprocess.run(
         ["git", "ls-files", "twins/**.sh", "target-environments/**.sh"],
-        cwd=REPO, capture_output=True, text=True, check=True,
+        cwd=CATALOG, capture_output=True, text=True, check=True,
     ).stdout.split()
     return sorted(p for p in out if p not in _KNOWN_STALE)
 
@@ -66,15 +67,15 @@ def test_the_detector_finds_the_live_run_1_shape():
 
 @pytest.mark.parametrize("path", _recipes())
 def test_no_backtick_runs_inside_an_unquoted_heredoc(path):
-    hits = unquoted_heredoc_backticks((REPO / path).read_text(errors="replace"))
+    hits = unquoted_heredoc_backticks((CATALOG / path).read_text(errors="replace"))
     assert not hits, f"{path}: backtick command substitution in a heredoc body: {hits}"
 
 
 def test_corp_twin_sink_payload_embeds_the_current_shared_recipe():
     """provision-sink.sh is GENERATED (corpus + shared serve-sink.sh); a stale
     one ships a fixed bug straight back to the guest."""
-    shared = (REPO / "twins/_shared/scripts/serve-sink.sh").read_text()
-    payload = (REPO / "twins/corp-twin/scripts/provision-sink.sh").read_text()
+    shared = (CATALOG / "twins/_shared/scripts/serve-sink.sh").read_text()
+    payload = (CATALOG / "twins/corp-twin/scripts/provision-sink.sh").read_text()
     assert payload.endswith(shared), (
         "twins/corp-twin/scripts/provision-sink.sh is stale -- run "
         "sh twins/corp-twin/scripts/build-sink-payload.sh")
@@ -83,7 +84,7 @@ def test_corp_twin_sink_payload_embeds_the_current_shared_recipe():
 def test_sink_quiesces_apt_daily_before_its_first_package_step():
     """Live run 1: apt-daily-upgrade fired mid-provision, restarted QGA and held
     the dpkg lock (apt-get exit 100)."""
-    text = (REPO / "twins/_shared/scripts/serve-sink.sh").read_text()
+    text = (CATALOG / "twins/_shared/scripts/serve-sink.sh").read_text()
     quiesce = re.search(r"^axr_apt_quiesce$", text, re.M)
     first_pkg = re.search(r"^axr_pkg ", text, re.M)
     assert quiesce and first_pkg and quiesce.start() < first_pkg.start()

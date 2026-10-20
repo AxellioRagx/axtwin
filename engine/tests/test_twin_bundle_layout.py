@@ -33,6 +33,7 @@ except ImportError:  # pragma: no cover
     pytest.skip("starlette/httpx not installed", allow_module_level=True)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+CATALOG = REPO_ROOT.parent / "catalog"  # twin content lives at the project root
 FIXT_ROOT = REPO_ROOT / "tests" / "fixtures"
 MINI = FIXT_ROOT / "cast-bundles" / "mini-cast-prov"
 ID = "mini-cast-prov"
@@ -88,8 +89,8 @@ def test_the_layout_rule_on_both_layouts(tmp_path):
 
 def test_a_hand_authored_twin_folder_carries_no_cast_artifacts():
     """What keeps `twins/sme-flat` from being scored as its own reference."""
-    assert not has_cast_artifacts(REPO_ROOT / "twins" / "sme-flat", "sme-flat")
-    assert has_cast_artifacts(REPO_ROOT / "twins" / "corpapcn-golden", "corpapcn-golden")
+    assert not has_cast_artifacts(CATALOG / "twins" / "sme-flat", "sme-flat")
+    assert has_cast_artifacts(CATALOG / "twins" / "corpapcn-golden", "corpapcn-golden")
 
 
 def test_a_broken_manifest_fails_loud_rather_than_falling_back_to_a_sibling(tmp_path):
@@ -247,8 +248,8 @@ def test_the_tap_plan_sensors_come_from_the_manifests_tap_tier(tmp_path):
 def test_the_default_reference_resolves_a_cast_twin_and_not_a_hand_authored_one():
     from axrange.fidelity.reference import default_reference_root, resolve_bundle_dir
 
-    assert default_reference_root() == REPO_ROOT / "twins"
-    assert resolve_bundle_dir(bundle_id="corpapcn-twin") == REPO_ROOT / "twins" / "corpapcn-twin"
+    assert default_reference_root() == CATALOG / "twins"
+    assert resolve_bundle_dir(bundle_id="corpapcn-twin") == CATALOG / "twins" / "corpapcn-twin"
     assert resolve_bundle_dir(bundle_id="sme-flat") is None
 
 
@@ -264,7 +265,7 @@ def test_a_scorecard_is_written_under_generated_in_a_twin_folder(tmp_path):
 def test_the_real_cast_twin_loads_as_a_reference_bundle():
     from axrange.fidelity.reference import load_reference_bundle
 
-    b = load_reference_bundle(REPO_ROOT / "twins" / "corpapcn-golden")
+    b = load_reference_bundle(CATALOG / "twins" / "corpapcn-golden")
     assert b.provenance_sidecar == "present"
     assert not any("no corpapcn-golden.topology.json" in w for w in b.warnings), b.warnings
 
@@ -293,7 +294,7 @@ def test_every_migrated_twin_folder_has_a_valid_manifest():
     """Phase 2's migration: each folder loads, and its id is its folder."""
     from axrange.twinconfig.manifest import load_twin_manifest
 
-    folders = [d for d in sorted((REPO_ROOT / "twins").iterdir())
+    folders = [d for d in sorted((CATALOG / "twins").iterdir())
                if d.is_dir() and not d.name.startswith(("_", "."))]
     assert {d.name for d in folders} >= {
         "corp-enterprise", "datacenter", "dmz-perimeter", "ics-ot", "sme-flat",
@@ -303,4 +304,4 @@ def test_every_migrated_twin_folder_has_a_valid_manifest():
     for d in folders:
         assert load_twin_manifest(d).id == d.name
     # The dated maxrate record is archived, not a twin (D6).
-    assert not os.path.exists(REPO_ROOT / "twin-configs" / "corp-enterprise-maxrate")
+    assert not os.path.exists(CATALOG / "twin-configs" / "corp-enterprise-maxrate")

@@ -97,7 +97,8 @@ Two more additions from the twin-model arc, same shape as existing precedents:
   imports nothing from `axrange.validator`/`axrange.planner`. Its content is validated the same way
   sensors' typed content is: a `checks/<domain>.py` module (here `axrange/validator/checks/
   personas.py`) reads the registry (validator → registry), never the reverse.
-- **`twins/`** — the top-level twin content dir, parallel to `target-environments/`: one
+- **`twins/`** (at `<project>/catalog/twins/` since 2026-10-20, with `target-environments/`
+  and the legacy `twin-configs/` beside it) — the twin content dir: one
   self-contained folder per twin (`docs/WORK_ORDER_twin_consolidation.md` §2) —
   `twins/<id>/twin.yaml` (the manifest), `te.yaml`, `tap/<variant>.yaml`, `tfc/<variant>.yaml`,
   `exr/`, `personas/`, `scripts/`, `generated/` (machine-written, git-tracked); cross-twin assets

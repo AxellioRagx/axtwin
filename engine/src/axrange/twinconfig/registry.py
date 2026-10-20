@@ -48,12 +48,11 @@ from axrange.ir.yaml_util import YamlLoadError, load_yaml_raw
 from axrange.twinconfig.errors import TwinConfigNotFoundError, TwinConfigShapeError
 from axrange.twinconfig.schema import TwinConfig, TwinConfigFile
 
-# <repo-root>/twin-configs -- axrange/twinconfig/registry.py's parents:
-# [0]=twinconfig [1]=axrange [2]=repo root. The LEGACY root: every twin it
-# held moved to `twins/<id>/` (`docs/WORK_ORDER_twin_consolidation.md`
-# Phase 2); it stays on the default search path as the compatibility reader
-# until Phase 4 retires it.
-_LEGACY_CATALOG_DIR = Path(__file__).resolve().parents[2] / "twin-configs"
+# <project-root>/catalog/twin-configs (spelled once in `axrange.paths`). The
+# LEGACY root: every twin it held moved to `twins/<id>/`
+# (`docs/WORK_ORDER_twin_consolidation.md` Phase 2); it stays on the default
+# search path as the compatibility reader until Phase 4 retires it.
+from axrange.paths import LEGACY_TWIN_CONFIGS_DIR as _LEGACY_CATALOG_DIR
 
 
 def default_catalog_dir() -> Path:

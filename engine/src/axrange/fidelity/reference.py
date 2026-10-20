@@ -65,13 +65,12 @@ from axrange.twinconfig import (
 )
 from axrange.twinconfig.bundle import bundle_artifact_path
 
-# <repo-root>/twins -- axrange/fidelity/reference.py's parents:
-# [0]=fidelity [1]=axrange [2]=repo root. Mirrors
-# `twinconfig.manifest._DEFAULT_TWINS_DIR`'s derivation exactly. Was
-# `twin-configs-cast/` until the twin consolidation moved the casts into
-# `twins/<id>/` (`docs/WORK_ORDER_twin_consolidation.md` Phase 3); a legacy
-# bundle is still read when pinned with `--reference <dir>`.
-_DEFAULT_REFERENCE_ROOT = Path(__file__).resolve().parents[2] / "twins"
+# <project-root>/catalog/twins -- the same constant `twinconfig.manifest`
+# uses, spelled once in `axrange.paths`. Was `twin-configs-cast/` until the
+# twin consolidation moved the casts into `twins/<id>/`
+# (`docs/WORK_ORDER_twin_consolidation.md` Phase 3); a legacy bundle is still
+# read when pinned with `--reference <dir>`.
+from axrange.paths import TWINS_DIR as _DEFAULT_REFERENCE_ROOT
 
 # What `reference.provenance_sidecar` / `.topology_export` publish. Stated
 # values, never an absent key a reader has to interpret.

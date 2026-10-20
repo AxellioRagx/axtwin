@@ -36,7 +36,8 @@ from axrange.personas.drivers.scripted import _UDP_MTU, _resolve_emit_schedule
 from axrange.personas.schema import RESERVED_PEER_ROLES, load_persona
 
 REPO = Path(__file__).resolve().parents[1]
-CORP = REPO / "twins" / "corp-twin"
+CATALOG = REPO.parent / "catalog"  # twin content lives at the project root
+CORP = CATALOG / "twins" / "corp-twin"
 _GATES = {"default": None, "gate90": "0.9"}
 
 # Per-packet header bytes on the wire (Ethernet 14 + IPv4 20 + L4).

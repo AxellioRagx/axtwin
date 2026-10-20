@@ -31,7 +31,7 @@ from axrange.planner.cluster import ClusterContext
 from axrange.planner.inventory import build_twin_inventory
 from axrange.planner.tappoints import derive_default_tap_points, resolve_tap_point
 
-_TE_ROOT = Path(__file__).resolve().parents[1] / "target-environments"
+_TE_ROOT = Path(__file__).resolve().parents[2] / "catalog" / "target-environments"
 
 
 class _FakeAdapter:

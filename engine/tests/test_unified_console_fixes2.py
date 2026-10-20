@@ -367,7 +367,7 @@ def test_twin_config_detail_describes_its_params(tmp_path):
 
 
 def test_a_parameterized_bundle_is_listed_not_skipped(tmp_path):
-    root = Path(__file__).resolve().parents[1] / "twins"
+    root = Path(__file__).resolve().parents[2] / "catalog" / "twins"
     c = TestClient(create_app(ApiSettings(db_path=str(tmp_path / "s.db"),
                                           imprints_dir=str(root))))
     body = c.get("/api/imprints").json()
