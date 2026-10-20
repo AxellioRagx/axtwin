@@ -781,7 +781,7 @@ def apply_exercise(
     Proxmox); production builds the real `axrange.config_exec.ConfigBackend`.
     """
     from axrange.adapter_proxmox import load_config
-    from axrange.api.service import release_deploy_resources, run_deploy_executor
+    from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat

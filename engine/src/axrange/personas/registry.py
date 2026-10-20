@@ -1,8 +1,10 @@
 """The persona catalog registry (docs/design/07-traffic-personas.md,
 docs/WORK_ORDER_persona_library.md §2) — mirrors `axrange.sensors.registry`'s
 role (an open, engine-vocabulary catalog `traffic_tier` will import
-downward) but is data-file-backed: each `personas/catalog/*.yaml` is one
-persona, loaded once at import time into `PERSONAS`.
+downward) but is data-file-backed: each `<project>/catalog/personas/*.yaml`
+is one persona, loaded once at import time into `PERSONAS`. The files are
+CONTENT, so they live with the twins (`axrange.paths.PERSONAS_DIR`), not in
+the package (moved out of `axrange/personas/catalog/` on 2026-10-20).
 
 Reuses `axrange.ir.yaml_util.load_yaml_raw` (LES-025 — the same "open one
 YAML file, fail loudly" primitive `axrange.manifest.loader` uses) rather
@@ -21,7 +23,7 @@ from ruamel.yaml import YAML
 from axrange.ir.yaml_util import YamlLoadError, load_yaml_raw
 from axrange.personas.schema import Persona, PersonaSchemaError, load_persona
 
-_CATALOG_DIR = Path(__file__).parent / "catalog"
+from axrange.paths import PERSONAS_DIR as _CATALOG_DIR
 
 
 class PersonaRegistryError(Exception):

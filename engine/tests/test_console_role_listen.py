@@ -25,7 +25,7 @@ from axrange.personas.schema import DRIVE_KINDS, RESERVED_PEER_ROLES
 REPO = Path(__file__).resolve().parent.parent
 GENERATOR = REPO / "scripts" / "gen_role_listen.py"
 TABLE = REPO / "o2" / "console" / "src" / "model" / "roleListen.generated.ts"
-CATALOG = REPO / "src" / "axrange" / "personas" / "catalog"
+CATALOG = REPO.parent / "catalog" / "personas"
 
 
 def _generator() -> ModuleType:
@@ -51,7 +51,7 @@ def test_the_console_role_listen_table_matches_the_persona_catalog():
     gen.check_dialed_caveat()
     expected = gen.render(gen.build_table())
     assert TABLE.read_text(encoding="utf-8") == expected, (
-        f"{TABLE.relative_to(REPO)} has drifted from axrange/personas/catalog -- regenerate it with "
+        f"{TABLE.relative_to(REPO)} has drifted from catalog/personas -- regenerate it with "
         "`.venv/bin/python scripts/gen_role_listen.py`"
     )
 
@@ -129,7 +129,7 @@ def test_every_entry_is_an_emit_the_catalog_names_on_the_schemas_own_transport()
 
 
 #: What the `domain-controller` persona (`drive: real-service`) SERVES to its
-#: workstation clients, read off `axrange/personas/catalog/domain-controller.yaml`
+#: workstation clients, read off `catalog/personas/domain-controller.yaml`
 #: by hand on 2026-09-15 and pinned as a literal, so neither the generator nor
 #: the catalog loader can supply its own expectation.
 _DC_SERVES = {

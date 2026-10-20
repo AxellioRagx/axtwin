@@ -147,7 +147,7 @@ def compose_and_build_plan(
     point (`plan_surface`, below) — LES-037: one place composes+builds, not
     two. Returns `(raw_ir, PlanBuildResult)`.
     """
-    from axrange.api.service import ApiError, build_plan_and_ctx
+    from axrange.planner.entry import PlanBuildError, build_plan_and_ctx
     from axrange.manifest.loader import ManifestError, load_registry
 
     resolved_manifest = resolve_surface_manifest(manifest, surface_path)
@@ -164,7 +164,7 @@ def compose_and_build_plan(
                 scenario_path, manifests, adapter_config=adapter_config,
                 target_node=target_node, tier=TIER,
             )
-        except ApiError as e:
+        except PlanBuildError as e:
             raise O2ControlError(e.message, status=e.status) from e
         return raw_ir, r
     finally:
@@ -263,7 +263,7 @@ def stand_up_surface(
     resolved adapter config, same as `cli.main.cmd_deploy`/
     `api.service._proxmox_runner`.
     """
-    from axrange.api.service import release_deploy_resources, run_deploy_executor
+    from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import DeployStatus, default_process_info

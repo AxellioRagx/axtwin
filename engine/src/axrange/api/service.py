@@ -187,25 +187,22 @@ def validate(settings: ApiSettings, scenario: Optional[str] = None, *,
 # ---------------------------------------------------------------------------
 # Plan (pure) — §3
 #
-# `build_plan_and_ctx` is the SHARED engine-side helper (code-review finding
-# #3, 2026-07-07): the load-config / build-ClusterContext / parse-IR /
-# build-Plan sequence used to be duplicated near-verbatim between this module
-# and `cli.main._load_planning_inputs`. It is factored here (not FastAPI-
-# specific — takes a resolved `Path`, not `ApiSettings`) so `cli/main.py` can
-# import and call it too; each surface still owns its OWN scenario-resolution
-# and validation step (the API resolves an id via `scenarios_dir` + returns a
-# simplified findings list on failure, the CLI takes a literal path + renders
-# the full validator tree to stdout) because those differ enough between the
-# two surfaces that forcing one shape onto both was judged higher-risk than
-# the value of unifying them too (see docs/CHANGELOG.md 2026-07-07 review).
+# The shared load-config / build-ClusterContext / parse-IR / build-Plan
+# sequence (code-review finding #3, 2026-07-07: it used to be duplicated
+# between this module and `cli.main._load_planning_inputs`) now lives in
+# `axrange.planner.entry` together with the executor run/release halves
+# (2026-10-20): the o2control playouts import all three, and a domain layer
+# must not depend on this one. They are re-exported here so the existing
+# import sites (`cli.main`, tests that monkeypatch these names on this
+# module) keep working; `build_plan_and_ctx` below is the API-flavored
+# wrapper that turns `PlanBuildError` into `ApiError`. Each surface still
+# owns its OWN scenario-resolution and validation step (the API resolves an
+# id via `scenarios_dir` + returns a simplified findings list on failure, the
+# CLI takes a literal path + renders the full validator tree to stdout).
 # ---------------------------------------------------------------------------
-@dataclass
-class PlanBuildResult:
-    plan: Any
-    cfg: Any
-    ctx: Any
-    ir: Any
-    raw: Any
+from axrange.planner.entry import (  # noqa: E402  (re-exports)
+    PlanBuildError, PlanBuildResult, release_deploy_resources, run_deploy_executor,
+)
 
 
 def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
@@ -213,55 +210,18 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
                        target_node: Optional[str] = None,
                        tier: str = "te",
                        scenario_dir: Optional[str] = None) -> PlanBuildResult:
-    """Load adapter config, build the ClusterContext, and build a Plan for an
-    ALREADY-VALIDATED scenario at `scenario_path`. Raises `ApiError` on
-    failure (400 for a missing/misconfigured node or a plan-build error); both
-    `_build_plan_and_ctx` below and `cli.main._load_planning_inputs` catch and
-    translate it for their surface (HTTP status vs. stderr + SystemExit).
+    """`axrange.planner.entry.build_plan_and_ctx`, with `PlanBuildError`
+    translated to this surface's `ApiError` (HTTP 400). `_build_plan_and_ctx`
+    below and `cli.main._load_planning_inputs` catch the `ApiError`."""
+    from axrange.planner import entry
 
-    `tier` is the resource-ownership tier tag (`docs/CONVENTIONS.md` §2)
-    threaded into `build_plan`; default `"te"` (unchanged behavior for the
-    CLI/API). `axrange.o2control` is the one caller that passes `"o2"` when
-    it composes the standing surface deploy (`docs/design/05-o2-surface.md`)
-    — it still writes its composed spec to a real file so this same
-    load-config/build-ClusterContext/parse-IR/build-Plan sequence is reused
-    verbatim (LES-037), rather than re-implementing it against an in-memory IR.
-
-    No `sensor_ip`/sensor identity is threaded here any more (2026-07-13,
-    docs/WORK_ORDER_sensor_agnostic_te.md) — a `te_` plan is sensor-agnostic
-    (no tap→sensor wiring at plan time; that is entirely the A2 tap playout's
-    job, `axrange o2 tap apply`, against A1's standing sensor inventory).
-    """
-    from axrange.adapter_proxmox import load_config
-    from axrange.ir.parser import parse_ir
-    from axrange.planner import build_plan
-    from axrange.planner.cluster import ClusterContext
-
-    cfg = load_config(adapter_config)
-    if target_node:
-        cfg.default_node = target_node
-    if not cfg.default_node:
-        # Worded to read sensibly from both callers: the API's `target_node`
-        # request field and the CLI's `--node` flag both set this.
-        raise ApiError(
-            400,
-            "DEFAULT_NODE missing; set it in adapter.conf, or override via "
-            "target_node (API) / --node (CLI)",
-        )
-
-    ctx = ClusterContext.single_node(cfg.default_node)
-
-    parse_result = parse_ir(path=str(scenario_path))
     try:
-        plan = build_plan(
-            parse_result.ir, manifests, ctx, raw_ir=parse_result.raw,
-            scenario_dir=scenario_dir or str(scenario_path.parent), tier=tier,
+        return entry.build_plan_and_ctx(
+            scenario_path, manifests, adapter_config=adapter_config,
+            target_node=target_node, tier=tier, scenario_dir=scenario_dir,
         )
-    except Exception as e:  # noqa: BLE001
-        raise ApiError(400, f"plan build failed: {e}")
-    return PlanBuildResult(
-        plan=plan, cfg=cfg, ctx=ctx, ir=parse_result.ir, raw=parse_result.raw
-    )
+    except PlanBuildError as e:
+        raise ApiError(e.status, e.message) from e
 
 
 # ---------------------------------------------------------------------------
@@ -2217,58 +2177,12 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
 
 
 # ---------------------------------------------------------------------------
-# The runner's inner "build + run" and "release" halves — shared with
-# `cli.main.cmd_deploy`'s executor block (code-review finding #3, 2026-07-07).
-# Each surface keeps its OWN outer try/except/return shape (the API swallows
-# an executor crash into `deploys.status=FAILED` because it runs in a
-# background thread with no caller to propagate to; the CLI lets it surface
-# as an uncaught traceback + non-zero exit, its normal foreground failure
-# mode) — those differ enough that forcing one shape onto both was judged
-# higher-risk than the value of unifying them too. What IS identical between
-# them — build the adapter/config_backend/executor, persist + run, and the
-# heartbeat-stop + best-effort lock/lease release tail — is factored here.
-# ---------------------------------------------------------------------------
-def run_deploy_executor(store, adapter, config_backend, plan, ctx, deploy_id: str,
-                        heartbeat) -> Any:
-    """Build the `Executor`, persist the plan, start the heartbeat, and run.
-
-    Returns the executor's result; propagates any exception `executor.run()`
-    raises (callers decide whether to swallow it or let it surface).
-    """
-    from axrange.planner import Executor
-
-    executor = Executor(
-        plan, store, adapter, ctx, deploy_id=deploy_id,
-        config_backend=config_backend,
-        # Wire the split-brain guard (code-review finding #2, 2026-07-07):
-        # without this, `heartbeat.lost` is set but never polled and the
-        # abort is dead. This is the SOLE `Executor(...)` construction for
-        # both the CLI and API deploy paths (`cli.main.cmd_deploy` routes
-        # through this function too), so wiring it here covers both.
-        lost_event=heartbeat.lost,
-    )
-    executor.persist_plan()
-    heartbeat.start()
-    return executor.run()
-
-
-def release_deploy_resources(store, scenario_id: str, deploy_id: str, heartbeat) -> None:
-    """Stop the heartbeat, then best-effort release the deploy's resource
-    locks and scenario lease. Each release is independently guarded so one
-    failing (e.g. a DB hiccup) never blocks the others or leaves the
-    connection unclosed — the caller still calls `store.close()` itself.
-    """
-    heartbeat.stop()
-    try:
-        store.release_resource_locks_for_deploy(deploy_id)
-    except Exception:  # noqa: BLE001
-        pass
-    try:
-        store.release_lease(scenario_id, deploy_id)
-    except Exception:  # noqa: BLE001
-        pass
-
-
+# The runner's inner "build + run" and "release" halves (`run_deploy_executor`
+# / `release_deploy_resources`) are `axrange.planner.entry`'s, shared with
+# `cli.main.cmd_deploy` and the playouts. Each surface keeps its OWN outer
+# try/except/return shape: the API swallows an executor crash into
+# `deploys.status=FAILED` because it runs in a background thread with no
+# caller to propagate to; the CLI lets it surface as an uncaught traceback.
 # ---------------------------------------------------------------------------
 # Incremental update TAIL (`docs/WORK_ORDER_twin_incremental_update.md`
 # §3.2/§3.4/§3.5) -- runs AFTER a successful added-ops executor pass, shared

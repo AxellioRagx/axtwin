@@ -3,7 +3,7 @@
 The monorepo keeps content out of the package tree (root `Claude.md`, "Layout"):
 
     <project>/
-      catalog/            twin content -- the catalog roots below
+      catalog/            twin + persona content -- the catalog roots below
       engine/src/axrange  this package
       ai-crafted/         agentic twin-config experiment (not read by code)
       reports/            rendered reports (not read by code)
@@ -29,3 +29,6 @@ TWINS_DIR: Path = CATALOG_ROOT / "twins"
 LEGACY_TWIN_CONFIGS_DIR: Path = CATALOG_ROOT / "twin-configs"
 #: `target-environments/<id>/scenario.yaml` -- the scenario (IR) library.
 TARGET_ENVIRONMENTS_DIR: Path = CATALOG_ROOT / "target-environments"
+#: `personas/<id>.yaml` -- the shipped persona library (`axrange.personas.registry`);
+#: `AXRANGE_PERSONAS_DIR` adds colon-separated extra dirs on top, never replaces it.
+PERSONAS_DIR: Path = CATALOG_ROOT / "personas"

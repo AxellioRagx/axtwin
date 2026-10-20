@@ -1174,7 +1174,7 @@ def resolve_traffic_bindings(
             raise TrafficPlanError(
                 f"assignment {assignment_label(a)!r}: unknown persona "
                 f"{a.persona!r} (not in the persona catalog, "
-                "axrange/personas/catalog/) -- check for a typo",
+                "catalog/personas/) -- check for a typo",
                 status=400,
             )
         _check_requires(persona, hosts_by_role)
@@ -1608,7 +1608,7 @@ def apply_traffic_profile(
     edits recorded -- every deploy before this feature -- nothing changes.
     """
     from axrange.adapter_proxmox import load_config
-    from axrange.api.service import release_deploy_resources, run_deploy_executor
+    from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat
@@ -2718,7 +2718,7 @@ def _run_host_edit(
     diagnostic, never only logged (M2)."""
     import time as _time
 
-    from axrange.api.service import release_deploy_resources, run_deploy_executor
+    from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat

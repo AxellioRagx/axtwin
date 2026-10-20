@@ -8,7 +8,7 @@ Traffic tier's job — see `docs/design/07-traffic-personas.md`). Attacker
 TTPs are never personas (they live in the Exercise tier).
 
 This module is a pure data/shape layer: `load_persona()` turns a raw dict
-(as parsed from a `personas/catalog/*.yaml` file) into a `Persona`, coercing
+(as parsed from a `catalog/personas/*.yaml` file) into a `Persona`, coercing
 obviously-scalar fields and raising `PersonaSchemaError` on a shape the
 loader itself can't make sense of (missing id, `emits` not a list, ...).
 SEMANTIC validation (enum membership, known protocols, dangling peer_role,

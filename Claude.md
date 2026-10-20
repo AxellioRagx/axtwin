@@ -23,7 +23,7 @@ lives beside them at the root, not inside a package:
 
 | Dir | What |
 |---|---|
-| `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` (see its README) |
+| `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` — and `personas/`, the persona library (see its README) |
 | `ai-crafted/` | the agentic twin-config experiment (corpus + pipeline tree; not read by code) |
 | `reports/` | rendered reports |
 | `ui/` | the operator console spec (and, later, the SPA) |

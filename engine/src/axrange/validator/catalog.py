@@ -505,7 +505,7 @@ _RULES_LIST: list[Rule] = [
     # PSN — Persona (catalog-side; docs/WORK_ORDER_persona_library.md,
     # docs/design/07-traffic-personas.md, 2026-07-24)
     #
-    # Personas are twin-agnostic library entries (`axrange/personas/catalog/`),
+    # Personas are twin-agnostic library entries (`catalog/personas/`),
     # not Scenario-IR content — no `bindings:`/node references a persona yet
     # (that binding is `twin_configs`/the future Traffic tier's job). So,
     # like CLU (pass 4, "planner-side; listed for completeness" — never
