@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 DASHBOARD = (
-    Path(__file__).parent.parent / "o2" / "grafana" / "dashboards" / "attack-coverage.json"
+    Path(__file__).resolve().parents[2] / "o2" / "grafana" / "dashboards" / "attack-coverage.json"
 )
 
 

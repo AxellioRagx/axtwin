@@ -77,7 +77,7 @@ from axrange.personas.registry import load_catalog_dir  # noqa: E402
 from axrange.personas.schema import RESERVED_PEER_ROLES, Emit  # noqa: E402
 
 CATALOG_DIR = REPO.parent / "catalog" / "personas"
-OUTPUT = REPO / "o2" / "console" / "src" / "model" / "roleListen.generated.ts"
+OUTPUT = REPO.parent / "o2" / "console" / "src" / "model" / "roleListen.generated.ts"
 
 #: The protocols a listen entry can carry (`axr-assertions/1` `$defs.portList`
 #: allows icmp/tcp/udp; a TRANSPORT is only ever tcp or udp).

@@ -7,3 +7,6 @@ __pycache__/
 # Operator-local adapter config (holds the Proxmox API token). Fill in from
 # config/adapter.conf.example; the loader finds it here from any cwd.
 config/adapter.conf
+# Operator-local observability config (Grafana admin password, host targets);
+# fill in from o2/observability.conf.example.
+o2/observability.conf

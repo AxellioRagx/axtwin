@@ -21,10 +21,6 @@ dist/
 venv/
 env/
 
-# Operator-local observability config (Grafana admin password, host targets).
-# Use o2/observability.conf.example as the template; the filled-in o2/observability.conf
-# stays out of version control (prior pattern pointed at the wrong path — fixed 2026-07-15).
-o2/observability.conf
 /state.db
 # Planner state stores anywhere (root, scenario-local --db, etc.) — runtime-only.
 **/state.db

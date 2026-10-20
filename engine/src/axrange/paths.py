@@ -7,6 +7,7 @@ The monorepo keeps content out of the package tree (root `Claude.md`, "Layout"):
       engine/src/axrange  this package
       config/             operator config (adapter.conf + examples)
       ai-crafted/         agentic twin-config experiment (not read by code)
+      o2/                 observability stack assets + old console (not read by code)
       reports/            rendered reports (not read by code)
 
 These constants are the UNSET defaults for `--twins-dir` / `AXRANGE_TWINS_DIR`

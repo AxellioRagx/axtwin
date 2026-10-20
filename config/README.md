@@ -11,5 +11,5 @@ Operator-side configuration for the instrument, out of the package trees.
 `adapter.conf` is found automatically: `/etc/axrange/adapter.conf`, then this
 folder, then the current directory (`axrange.adapter_proxmox.config.
 default_adapter_conf_paths`); `--adapter-config` / `AXRANGE_ADAPTER_CONFIG`
-override. The observability stack's `observability.conf` stays beside its
-compose files under `engine/o2/` until that folder finds its home.
+override. The observability stack's `observability.conf` lives beside its
+compose files under `o2/` (same gitignored-with-example pattern).

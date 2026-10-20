@@ -25,6 +25,7 @@ lives beside them at the root, not inside a package:
 |---|---|
 | `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` — and `personas/`, the persona library (see its README) |
 | `config/` | operator config: `adapter.conf` (gitignored) and the tracked examples (see its README) |
+| `o2/` | the observability stack as deployed assets (compose, Grafana, Loki, Prometheus, Alloy, Caldera, tcpdump sensor) and the old Grafana-era console (`o2/console`, superseded by `ui/`) |
 | `ai-crafted/` | the agentic twin-config experiment (corpus + pipeline tree; not read by code) |
 | `reports/` | rendered reports |
 | `ui/` | the operator console spec (and, later, the SPA) |

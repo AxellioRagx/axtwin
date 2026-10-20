@@ -18,9 +18,9 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-COMPOSE_PATH = REPO_ROOT / "o2" / "compose" / "docker-compose.yml"
-CONF_EXAMPLE_PATH = REPO_ROOT / "o2" / "observability.conf.example"
-CALDERA_DOCKERFILE = REPO_ROOT / "o2" / "caldera" / "Dockerfile"
+COMPOSE_PATH = REPO_ROOT.parent / "o2" / "compose" / "docker-compose.yml"
+CONF_EXAMPLE_PATH = REPO_ROOT.parent / "o2" / "observability.conf.example"
+CALDERA_DOCKERFILE = REPO_ROOT.parent / "o2" / "caldera" / "Dockerfile"
 
 VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)")
 

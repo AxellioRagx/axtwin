@@ -6220,7 +6220,7 @@ def test_a_real_cast_publishes_its_segment_roster_as_written(tmp_path, bundle):
 #: that test never hand-copies what the cast prunes. Vendored, and pinned to the
 #: real twin configs by the drift test below. Regenerate with the snippet in its
 #: docstring when a cast is re-installed.
-_CONSOLE_ROSTER_FIXTURE = REPO_ROOT / "o2" / "console" / "test" / "fixtures" / "real-segment-rosters.json"
+_CONSOLE_ROSTER_FIXTURE = REPO_ROOT.parent / "o2" / "console" / "test" / "fixtures" / "real-segment-rosters.json"
 
 
 def test_the_console_segment_roster_fixture_matches_the_real_twin_configs():
@@ -6268,7 +6268,7 @@ def test_the_console_segment_roster_fixture_matches_the_real_twin_configs():
 #: that package has no YAML reader for. Same vendored-with-drift-test pattern as
 #: the segment roster above.
 _CONSOLE_CONDUIT_FIXTURE = (
-    REPO_ROOT / "o2" / "console" / "test" / "fixtures" / "real-conduit-rosters.json"
+    REPO_ROOT.parent / "o2" / "console" / "test" / "fixtures" / "real-conduit-rosters.json"
 )
 
 
