@@ -516,8 +516,8 @@ def test_protected_twin_refuses_every_write_route_without_the_override(tmp_path)
         ("POST", "/api/tfc", {"json": {"target": TWIN_ID, "assignments": [
             {"node": "srv01", "persona": "t-server"}], "target_node": "pxtest1"}}),
         ("DELETE", "/api/tfc", {"params": {"allow_destroy": "true", "deploy_id": tfc}}),
-        ("POST", "/api/o2/taps", {"json": {"target": TWIN, "bindings": []}}),
-        ("DELETE", "/api/o2/taps", {"params": {"allow_destroy": "true", "deploy_id": tap_id}}),
+        ("POST", "/api/taps", {"json": {"target": TWIN, "bindings": []}}),
+        ("DELETE", "/api/taps", {"params": {"allow_destroy": "true", "deploy_id": tap_id}}),
         ("POST", "/api/exr", {"json": {"target": TWIN}}),
         ("DELETE", "/api/exr", {"params": {"allow_destroy": "true", "target": TWIN}}),
     ]

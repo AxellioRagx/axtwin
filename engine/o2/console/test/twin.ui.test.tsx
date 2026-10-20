@@ -183,7 +183,7 @@ describe("the Twin page -- when it cannot show the twin, it says why", () => {
 });
 
 describe("fix round 1 -- the Twin page", () => {
-  it("taps come from the target-aware /hosts model, never /api/o2/taps (S9)", async () => {
+  it("taps come from the target-aware /hosts model, never /api/taps (S9)", async () => {
     const calls: string[] = [];
     open(`/twin/${ID}?target=pxtwin1&view=hosts`, {}, calls);
     const taps = await screen.findByTestId("taps-section");

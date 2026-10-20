@@ -182,7 +182,7 @@ With no targets file, the single `--adapter-config`/`--db` pair is the one impli
 after its `DEFAULT_NODE`. `GET /api/targets` lists every target with its reachability facts;
 `GET /api/range` paints one target per column, each with its own standing twins. Deploy-state routes
 accept `?target=<name>` (default: the first/default target); the tier routes (`/api/tfc`,
-`/api/o2/taps`, `/api/exr`) keep `?target=` meaning *the twin*, unchanged, and always use the default
+`/api/taps`, `/api/exr`) keep `?target=` meaning *the twin*, unchanged, and always use the default
 target — see `docs/reference/ui-consolidation/04-api-contract.md` for the full split.
 
 A deploy's cluster is the target its store was read from, cross-checked against `placement_json` node

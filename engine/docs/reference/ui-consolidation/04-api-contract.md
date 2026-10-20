@@ -70,7 +70,7 @@ Shared live-value shape (`LiveValueDTO`):
   - `/api/range` target items gain `stores: [{"label", "path", "primary", "ok", "reason"}]`
     (`store` stays = the primary's status).
   - Reads that take a deploy id or twin (`/api/deploys/{id}` and its sub-routes, `/hosts`, `/health`,
-    `/tfc/profile`, the persona plan, `GET /api/tfc`, `GET /api/o2/taps`) find it in whichever store
+    `/tfc/profile`, the persona plan, `GET /api/tfc`, `GET /api/taps`) find it in whichever store
     holds it; `GET /api/deploys` merges every store (newest first). Writes against an existing
     deploy go to the store that holds it. A deploy id present in two stores of one target →
     `409 {"error": "deploy X is recorded in two stores of target T: a, b", "detail": {"code": "ambiguous-store", "stores": ["a", "b"]}}`.
@@ -111,7 +111,7 @@ Details are folded into each section below; this list is the delta.
 - **Protected deploys.** `/api/range` twins and `/hosts` carry `protected: bool`. Every write route
   aimed at a protected twin or any of its tap/tfc/exr siblings (`DELETE /api/deploys/{id}`,
   `POST /api/deploys` resuming/updating it, `PUT …/personas`, `POST/DELETE /api/tfc`,
-  `POST/DELETE /api/o2/taps`, `POST/DELETE /api/exr`) is refused
+  `POST/DELETE /api/taps`, `POST/DELETE /api/exr`) is refused
   `423 {"error": "deploy corp-twin-07cfcdb2 is protected …", "detail": {"code": "protected", "deploy_id": "corp-twin-07cfcdb2"}}`
   unless the request carries the query parameter `override_protection=<that te deploy id>`.
 - **Role orphaning.** A role change that leaves a role other running personas hard-need with no holder
@@ -140,7 +140,7 @@ These routes accept `?target=<target name>` (default: the default target):
 
 An unknown name → `404 {"error": "unknown target 'gamma'", "detail": {"targets": ["alpha", "beta"]}}`.
 
-NOT on `/api/tfc`, `/api/o2/taps`, `/api/exr`, `/api/range`, `/api/targets`, `/api/personas`,
+NOT on `/api/tfc`, `/api/taps`, `/api/exr`, `/api/range`, `/api/targets`, `/api/personas`,
 imprints, validate/plan: on the tier routes `?target=` already means *the twin* (a te deploy id or
 a twin name) and keeps that meaning; they always use the default target.
 
@@ -613,8 +613,8 @@ listed in `notes`. Export only — nothing is written anywhere.
 - Protected deploys (`423`, `override_protection=<twin id>` query param): `DELETE /api/deploys/{id}`
   (a sibling id counts as its twin), `POST /api/deploys` and `POST /api/imprints/{id}/deploy` when they
   would resume/update a protected twin, `PUT …/personas`, `POST /api/tfc` (by `target`/`twin`),
-  `DELETE /api/tfc` (by `target` or `deploy_id`), `POST /api/o2/taps` (by `target`),
-  `DELETE /api/o2/taps`, `POST /api/exr` (by `target`/`twin`), `DELETE /api/exr`. The CLI is unchanged.
+  `DELETE /api/tfc` (by `target` or `deploy_id`), `POST /api/taps` (by `target`),
+  `DELETE /api/taps`, `POST /api/exr` (by `target`/`twin`), `DELETE /api/exr`. The CLI is unchanged.
 - `GET /api/deploys/{id}` gains `host_edits: []` (tfc deploys: the per-host job records).
 - `POST /api/deploys` and `POST /api/imprints/{id}/deploy` accept `expect_plan_id`; a re-plan with a
   different `plan_id` → `409 {"detail": {"code": "plan-changed", "plan_id": "<actual>", "expected": "<sent>"}}`.

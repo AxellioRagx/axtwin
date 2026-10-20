@@ -49,11 +49,14 @@ new one is a critical-path item, not UI chrome):
   object is the twin-config. Its persisted catalog entry is the **baseline**. A
   deployed twin carries a server-side **working copy** of its config beside the
   deploy (the way an editor keeps a swap file beside an open file), and the
-  editor operates on that copy, never on the baseline directly. Three exits:
+  editor operates on that copy, never on the baseline directly. Four exits:
   **Apply** pushes the working copy's change onto the running twin; **Reset**
   discards the working copy (and anything applied from it) back to baseline;
-  **Persist** overwrites the baseline with the working copy. An undeployed
-  config has no working copy — the editor saves it straight to baseline.
+  **Persist** overwrites the baseline with the working copy; **Save-As** writes
+  the editor's current contents to a **new** twin-config under a different
+  name, leaving the baseline, the deploy and its working copy untouched. An
+  undeployed config has no working copy: the editor offers Save (overwrite its
+  baseline) and Save-As (a new named config); Apply and Reset do not apply.
   Endpoints: `POST /api/validate` (exists); `GET|PUT /api/deploys/{id}/config`
   (new — read / write the working copy; a PUT never touches the baseline);
   `POST /api/deploys/{id}/config/reset` (new); `POST /api/twin-configs` +
@@ -73,8 +76,8 @@ new one is a critical-path item, not UI chrome):
 - Tweak + promote (C5): the **Apply** exit of the edit model.
   `POST /api/deploys/{id}/config/apply` (new — push the working copy's delta onto
   the running twin without a redeploy). Underneath it drives what already exists:
-  `GET|POST|DELETE /api/tfc` and `GET|POST|DELETE /api/o2/taps` (exist — note taps
-  live under the `o2` prefix, there is no `/api/tap`). v0 scope of Apply is
+  `GET|POST|DELETE /api/tfc` and `GET|POST|DELETE /api/taps` (exist; the taps
+  route was `/api/o2/taps` until 2026-10-20). v0 scope of Apply is
   exactly what those two can change ephemerally; a delta they cannot apply
   (topology, addressing, images) is refused by name, never silently skipped.
   "Promote to permanent" is the **Persist** exit (`PUT /api/twin-configs/{id}`,
@@ -88,7 +91,7 @@ new one is a critical-path item, not UI chrome):
   builds the playout from the request schema's two kinds — an `activity` (inline
   steps on a host) and/or an `adversary` (Caldera server + target nodes). No
   `GET /api/attacks`, no attack plugin registry (see "What it is").
-- Capture confirm (C8): `GET /api/o2/taps` (exists); `GET /api/o2/taps/{id}/metrics`
+- Capture confirm (C8): `GET /api/taps` (exists); `GET /api/taps/{id}/metrics`
   (new — pkts/bytes/rate from the sensor or a dummy `tcpdump` node); dummy-sensor
   stand-up reuses the existing tap verify-capture heartbeat path.
 
@@ -123,8 +126,8 @@ for UI v0.
 - T0.2 (auto) Selecting a target and deploying drives `POST /api/deploys` +
   `/run`; the console reflects deploy status transitions to a terminal state.
 - T0.3 (auto) Starting traffic (`POST /api/tfc`) and a tap to a dummy `tcpdump`
-  node (`POST /api/o2/taps`) succeeds via the API.
-- T0.4 (live) On dev45, the above sequence ends with `GET /api/o2/taps/{id}/metrics`
+  node (`POST /api/taps`) succeeds via the API.
+- T0.4 (live) On dev45, the above sequence ends with `GET /api/taps/{id}/metrics`
   showing packets and bytes **increasing** across two polls (rate > 0). This is
   the capture-flow gate from root `CLAUDE.md`, shown in the UI.
 - T0.5 (auto) The console renders with every API list empty and an undeployed
@@ -148,8 +151,11 @@ the same view once C1 produces one and it is cast.
   `POST /api/validate`.
 - C3.2 (auto) Duplicate a section and place it onto a target segment; placed nodes
   receive segment-appropriate addressing automatically; result validates clean.
-- C3.3 (auto) Save-As persists a new twin-config via the API; reloading returns
-  the edited config byte-for-byte equivalent to what was saved.
+- C3.3 (auto) Save-As persists a new twin-config under the chosen name via the
+  API, from both an undeployed config and a deployed twin's working copy;
+  reloading it returns the edited config byte-for-byte equivalent to what was
+  saved, and the source config's baseline is unchanged. A name that already
+  exists is refused, not overwritten.
 - C3.4 (auto) An edit that would produce an invalid config is blocked with the
   validator's reason surfaced in the UI.
 - C3.5 (auto) Editing a **deployed** twin writes only its working copy: a read of

@@ -11,7 +11,7 @@
  * base URL and the in-memory write token are one thing.
  *
  * `target` is the cluster target's NAME (`?target=`), passed on every read
- * that takes a deploy id -- except `/api/tfc` and `/api/o2/taps`, where
+ * that takes a deploy id -- except `/api/tfc` and `/api/taps`, where
  * `?target=` already means *the twin* (contract §"Cluster targets").
  */
 import { makeRequester, type ClientOptions } from "./client";

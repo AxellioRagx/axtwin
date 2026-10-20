@@ -1314,7 +1314,7 @@ def _yaml_dump(raw: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# O2 taps (A2, docs/design/06-taps-sensors.md) -- POST/DELETE /api/o2/taps, a
+# O2 taps (A2, docs/design/06-taps-sensors.md) -- POST/DELETE /api/taps, a
 # thin DTO wrapper over axrange.o2control.taps. Reuses the seeding helpers
 # and fakes from tests/test_o2_taps.py (same idiom as the O2-surface section
 # above reusing tests/test_o2control.py's fakes).
@@ -1342,7 +1342,7 @@ def test_o2_tap_apply_and_get_via_status_shape(tmp_path):
 
     c, adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1", "suricata-1"]}],
@@ -1380,7 +1380,7 @@ def test_o2_tap_apply_and_get_via_status_shape(tmp_path):
     # focused narrow-revert regression test).
     mirror_calls_before = [c2 for c2 in adapter.calls if c2[0] == "install-ovs-mirror"]
     r2 = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1", "suricata-1"]}],
@@ -1405,7 +1405,7 @@ def _seed_and_apply_tap(settings, tmp_path):
         store.close()
     c, _ = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1", "suricata-1"]}],
@@ -1417,14 +1417,14 @@ def _seed_and_apply_tap(settings, tmp_path):
 
 
 def test_o2_tap_get_concise_and_verbose_by_twin_id(tmp_path):
-    """GET /api/o2/taps read peer: `?target=<twin>` resolves the applied tap
+    """GET /api/taps read peer: `?target=<twin>` resolves the applied tap
     deploy; concise returns the status shape, `?verbose=true` returns the rich
     TapInfoDTO (per-binding sensors + fanout_note)."""
     settings = _settings(tmp_path)
     c, te = _seed_and_apply_tap(settings, tmp_path)
 
     # concise (default) -- TapPlanStatusDTO shape
-    rc = c.get("/api/o2/taps", params={"target": te})
+    rc = c.get("/api/taps", params={"target": te})
     assert rc.status_code == 200
     b = rc.json()
     assert b["target"] == te
@@ -1433,7 +1433,7 @@ def test_o2_tap_get_concise_and_verbose_by_twin_id(tmp_path):
     assert "fanout_note" not in b          # concise shape has no fanout_note
 
     # verbose -- TapInfoDTO shape
-    rv = c.get("/api/o2/taps", params={"target": te, "verbose": "true"})
+    rv = c.get("/api/taps", params={"target": te, "verbose": "true"})
     assert rv.status_code == 200
     v = rv.json()
     assert v["target"] == te
@@ -1462,19 +1462,19 @@ def test_o2_tap_get_verbose_masks_external_sensor_password(tmp_path):
     settings.api_token = "s3cret"
 
     # masked by default
-    rv = c.get("/api/o2/taps", params={"target": te, "verbose": "true"})
+    rv = c.get("/api/taps", params={"target": te, "verbose": "true"})
     assert rv.status_code == 200
     ext = rv.json()["external_sensors"]
     assert ext and ext[0]["id"] == "XPress-SW"
     assert ext[0]["access_password"] == "********"
 
     # ?secrets=true without a token -> 401
-    r401 = c.get("/api/o2/taps", params={"target": te, "verbose": "true", "secrets": "true"})
+    r401 = c.get("/api/taps", params={"target": te, "verbose": "true", "secrets": "true"})
     assert r401.status_code == 401
 
     # ?secrets=true WITH the token -> revealed
     rok = c.get(
-        "/api/o2/taps",
+        "/api/taps",
         params={"target": te, "verbose": "true", "secrets": "true"},
         headers={"Authorization": "Bearer s3cret"},
     )
@@ -1496,7 +1496,7 @@ def test_o2_tap_apply_unknown_target_is_404(tmp_path):
 
     c, _adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": "no-such-te",
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
@@ -1513,7 +1513,7 @@ def test_o2_tap_apply_no_target_in_body_is_400(tmp_path):
     settings = _settings(tmp_path)
     c, _adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={"bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}]},
     )
     assert r.status_code == 400
@@ -1536,7 +1536,7 @@ def test_o2_tap_apply_resolves_scenario_name_in_body_target(tmp_path):
 
     c, _adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": "te-scn",
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
@@ -1563,7 +1563,7 @@ def test_o2_tap_apply_via_tap_point_over_http(tmp_path, manifests):
     settings = _settings(tmp_path)
     c, adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": te_id,
             "bindings": [
@@ -1598,7 +1598,7 @@ def test_o2_tap_apply_with_no_addressing_field_is_rejected_not_select_everything
     settings = _settings(tmp_path)
     c, adapter = _tap_client(settings)
     r = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": te_id,
             # Deliberately no "tap"/"tap_point"/"selector" key at all.
@@ -1628,19 +1628,19 @@ def test_o2_tap_destroy_requires_allow(tmp_path):
 
     c, _adapter = _tap_client(settings)
     c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
             "target_node": "pxtest1",
         },
     )
-    r = c.request("DELETE", "/api/o2/taps", params={"target": TE_DEPLOY})
+    r = c.request("DELETE", "/api/taps", params={"target": TE_DEPLOY})
     assert r.status_code == 400
 
 
 def test_o2_tap_destroy_removes_only_tap_resources(tmp_path):
-    """The keystone API case: `DELETE /api/o2/taps` tears down only the
+    """The keystone API case: `DELETE /api/taps` tears down only the
     tap-plan's own gretaps, leaving the target TE and the O2 surface deploy
     rows in the same state.db untouched."""
     from tests.test_o2_taps import (
@@ -1658,7 +1658,7 @@ def test_o2_tap_destroy_removes_only_tap_resources(tmp_path):
 
     c, _adapter = _tap_client(settings)
     up = c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
@@ -1673,7 +1673,7 @@ def test_o2_tap_destroy_removes_only_tap_resources(tmp_path):
     c2 = TestClient(app2)
 
     r = c2.request(
-        "DELETE", "/api/o2/taps",
+        "DELETE", "/api/taps",
         params={"allow_destroy": "true", "target": TE_DEPLOY},
     )
     assert r.status_code == 200
@@ -1710,7 +1710,7 @@ def test_destroy_deploy_cascades_to_standalone_tap_plan(tmp_path):
 
     tap_c, _tap_adapter = _tap_client(settings)
     up = tap_c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
@@ -1758,7 +1758,7 @@ def test_destroy_deploy_cascades_before_sweeping_the_twins_own_vms(tmp_path):
 
     tap_c, _tap_adapter = _tap_client(settings)
     up = tap_c.post(
-        "/api/o2/taps",
+        "/api/taps",
         json={
             "target": TE_DEPLOY,
             "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],

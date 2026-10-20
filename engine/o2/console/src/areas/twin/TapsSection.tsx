@@ -2,7 +2,7 @@
  * The twin's taps: which host NIC / net is mirrored to which sensor, and the
  * tap deploy's recorded status. Read from the SAME target-aware `/hosts`
  * model as the rest of the page (`hosts[].taps[]`, S9) -- never from
- * `/api/o2/taps`, which reads only the default cluster.
+ * `/api/taps`, which reads only the default cluster.
  *
  * Labelled as RECORDED, NOT capture-verified (LES-089 / LES-247: a green tap
  * deploy is not proof a sensor is capturing -- the Telemetry area's
