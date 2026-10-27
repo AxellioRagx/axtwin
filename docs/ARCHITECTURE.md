@@ -32,6 +32,7 @@ discovery/src/aximprint sensor metadata -> network IR -> cast to a twin bundle
 catalog/               twins, legacy twin-configs, target-environments (scenario IR), personas
 config/                adapter.conf (gitignored) + examples
 o2/                    the observability stack as deployed assets; o2/tcpdump-sensor; the old console
+ui/                    the operator console: Spec.md and the SPA (React + Vite + TypeScript -> ui/dist)
 api/Spec.md, ui/Spec.md the two seam specs
 docs/                  this set; docs/contracts/ the version-locked specs
 ```
@@ -281,8 +282,8 @@ twin configs, scenarios and topology); validate and plan (pure); the twin
 lifecycle (`/api/deploys`, inventory, hosts, health, access facts, scorecard);
 the per-tier playout trios (`/api/o2/surface`, `/api/taps`, `/api/tfc`,
 `/api/exr`); targets and range; per-host persona apply; the console canvas
-files; and discovery runs. The full route list and the seam contracts are in
-`api/Spec.md`.
+files; discovery runs and discovery sources. The full route list and the seam
+contracts are in `api/Spec.md`.
 
 **Discovery runs (seam A1).** `GET /api/discovery/plugins` lists the installed
 ingest plugins with their schemas (through `aximprint plugins`).
@@ -295,6 +296,22 @@ with the run record. `GET /api/discovery/runs/{id}` reports
 `pit_id`. The installed bundle lands under `AXRANGE_IMPRINTS_DIR/<imprint_id>/`
 and resolves through the imprint routes. Run records live in memory for the
 life of the server. A `source` is sensor metadata, never a pcap.
+
+**Discovery sources (seam A7).** A saved way to reach a sensor's query API:
+`{name, plugin, endpoint, access, secrets, defaults}` in one SQLite file,
+`AXRANGE_DISCOVERY_DB` (`~/.axrange/discovery.db`, 0600, outside the checkout;
+not a table in the planner's `state.db`, whose schema is its own). `access` is
+`direct | ssh_tunnel` × `none | basic | api_key`; the endpoint is the plugin's
+base URL as seen from where the access path lands (an appliance's loopback
+`:9090` behind the tunnel). Only an `http`-kind plugin (`source_kind` in the
+listing) can back one. `probe` opens the path and runs `aximprint probe`
+(`IngestPlugin.probe`, `/api/info` for axquery) to learn the span and census;
+a run from a source opens the path for the whole chain (`ssh -N -L` in
+BatchMode, torn down with it), rewrites `source` to the local end, carries the
+credential in the subprocess environment (`AXIMPRINT_SOURCE_*`), and resolves
+"the last N days" from the source's own span at start. Reads never return a
+secret. The console (`ui/`) is the consumer: save, test, run, poll, open the
+imprint.
 
 ## 13. Seams and what is frozen
 

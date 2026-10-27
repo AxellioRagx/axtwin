@@ -7,7 +7,7 @@ is the one surface the console (`ui/Spec.md`) talks to; it serves every step of
 the loop in root `CLAUDE.md`. This spec owns the **API side** of the console
 work: which endpoints exist, which are new, the contract of each new one, and
 the edit model behind the twin-editing endpoints. The UI spec consumes these by
-seam id (A1–A6) and defines no endpoint of its own.
+seam id (A1–A7) and defines no endpoint of its own.
 
 Direction (agreed 2026-10-20): the API is engine-internal today (it imports the
 planner, twinconfig and o2control layers and reaches `discovery/` only by
@@ -26,7 +26,9 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 that is **not** listed under a seam below already exists:
 
 `GET /api/pcaps`, `GET /api/imprints[/{id}]`, `GET /api/imprints/{id}/cast`,
-`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs/{id}` (A1, built),
+`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]` (A1, built),
+`GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
+`POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
 `GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `POST /api/validate`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
@@ -101,6 +103,57 @@ order:
 - `GET /api/taps/{id}/metrics` — `packets`, `bytes`, `rate` from the sensor
   behind the tap, or from a dummy `tcpdump` node stood up through the existing
   tap verify-capture path.
+
+**A7 — discovery sources** (the console's "configure a discovery source" step,
+root `CLAUDE.md` loop step 1). **Built 2026-10-27**
+(`engine/src/axrange/api/discovery_sources.py`, tests
+`engine/tests/test_api_discovery_sources.py`; `discovery/` side: `source_kind`,
+`IngestPlugin.probe`, `aximprint probe`, the environment credential in
+`aximprint.ingest.axquery.sources`).
+- A **source** is a saved way to reach a sensor's query API:
+  `{name, plugin, endpoint, access, password?|api_key?, defaults}`. `endpoint`
+  is the plugin's base URL **as seen from where the access path lands**
+  (`http://127.0.0.1:9090` for an appliance's loopback behind a tunnel).
+  `access` is `transport` (`direct` | `ssh_tunnel`, the latter with
+  `ssh {host, port, user, key_path}` — a private-key *path* on the API host,
+  never key material) × `auth` (`none` | `basic` + `user` | `api_key`).
+  `defaults` pre-fill a run: `days`, `network`, `vantage`, `window`,
+  `subbuckets`, `sensors`.
+- Store: one SQLite file, `AXRANGE_DISCOVERY_DB` (default
+  `~/.axrange/discovery.db`, mode 0600, outside the checkout, **not** a table
+  in the planner's `state.db`). **A read never returns a secret** — only
+  `has_password` / `has_api_key`. On `PUT` a secret field left out keeps the
+  stored value, `""` clears it; the stored set is filtered to what the auth
+  mode uses, so switching modes drops the other secret.
+- Only a plugin whose listing says `source_kind: "http"` can back a source
+  (`GET /api/discovery/plugins` now carries it; `zeek`/`suricata` are `path`).
+- `POST .../{id}/probe` (token) — open the access path, run `aximprint probe`
+  (`IngestPlugin.probe`: `/api/info` for axquery), record the answer on the
+  source (`last_probe`). Not reachable is an **answer** (`200`,
+  `reachable: false` + the reason in ssh's or the plugin's own words), never
+  a 5xx; `503` only when discovery is unconfigured.
+- `POST .../{id}/runs` `{imprint_id, days? | ts_from+ts_to, network?, vantage?,
+  window?, subbuckets?, sensors?}` (token, `202`) — an A1 run whose `source`
+  and credential come from the record. `days` is resolved **when the run
+  starts** from the source's own span (`[last_ts+1 − days·86400, last_ts+1)`,
+  clamped to `first_ts`); the record reports the bounds used, `via` (how it
+  was reached, never a credential), `started_at`. The tunnel is `ssh -N -L` in
+  BatchMode (a passphrase key or a host missing from `known_hosts` fails in
+  ssh's words rather than hanging), held open for the whole chain, torn down
+  with it. The credential reaches the one `aximprint` subprocess through its
+  environment (`AXIMPRINT_SOURCE_USER` / `_PASSWORD` / `_API_KEY`), never
+  `argv` or the locator. Budget: `AXRANGE_DISCOVERY_TIMEOUT_S` (default 6 h)
+  per stage, since a multi-day ingest is hours; the one-cast
+  `AXRANGE_AXIMPRINT_TIMEOUT_S` does not apply.
+- `GET /api/discovery/runs` — every run this process started, newest first.
+- Refused before the path opens: a bad window (both or neither), an unsafe or
+  taken imprint id, an id another run is writing, a missing key file; a source
+  with a run in progress cannot be deleted (`409`).
+- Measured 2026-10-27 against `corp-apcn-reader` (axquery on the appliance's
+  loopback `:9090`, 30 days / 69 chunks, through the tunnel): probe 0.65 s; a
+  one-hour slice ingest→install 4.5 min (249 hosts, 42 segments). A ten-day
+  read is therefore hours, which is what the long budget and the run page's
+  polling are for.
 
 **Not being built (stated so it is not re-proposed):** `GET /api/attacks` and
 any attack plugin registry (the exercise request schema's `activity` and

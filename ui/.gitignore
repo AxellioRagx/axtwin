@@ -1,0 +1,6 @@
+# Build inputs and outputs of the operator console. `package-lock.json` is
+# tracked: it is the dependency set `npm ci` installs.
+node_modules/
+dist/
+.vite/
+*.log

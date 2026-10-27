@@ -28,7 +28,7 @@ live beside them at the root, not inside a package:
 | `o2/` | the observability stack as deployed assets (compose, Grafana, Loki, Prometheus, Alloy, Caldera, tcpdump sensor) and the old Grafana-era console (`o2/console`, superseded by `ui/`) |
 | `ai-crafted/` | the agentic twin-config experiment (corpus + pipeline tree; not read by code) |
 | `reports/` | rendered reports |
-| `ui/` | the operator console spec (and, later, the SPA) |
+| `ui/` | the operator console: `Spec.md` and the SPA (React + Vite + TypeScript; `npm ci && npm run build` → `ui/dist`, served by `axrange serve --spa-dir ui/dist`) |
 | `docs/` | the live doc set: `SESSION_STATE.md` (handoff), `ARCHITECTURE.md`, `CONVENTIONS.md`, `OPERATIONS.md`, and `contracts/` (the version-locked specs); see its README |
 | `archive/` | the pre-consolidation ledgers (`engine-docs/`, `discovery-docs/`, the two full old CLAUDE.md files), reference only |
 

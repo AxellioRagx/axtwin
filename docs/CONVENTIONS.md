@@ -109,7 +109,12 @@ test where one exists; add the test when you add the rule.
   outside the checkout (`~/.axrange/` by default for engine state). Pass
   `--images` and `--db` explicitly.
 - **No secrets in the IR or the state store.** Credentials live in
-  `config/adapter.conf` (gitignored) and the API token in the environment.
+  `config/adapter.conf` (gitignored), the API token in the environment, and a
+  discovery source's password or API key in `~/.axrange/discovery.db` (0600).
+  A secret never reaches `argv`, a source locator, a log line or a read
+  response: it rides the subprocess environment (`AXIMPRINT_SOURCE_*`), and
+  a record says only `has_password` / `has_api_key`. SSH access stores a key
+  *path*, never key material.
 - **In-guest conventions.** File content rides base64 inside the guest-agent
   exec command, never as separate input data. A long-running in-guest process
   (a capture, a persona) is a detached, deterministically named transient unit,

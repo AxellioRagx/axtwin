@@ -34,7 +34,7 @@ seam, everything else exists today):
 | Capability | Consumes |
 |---|---|
 | T0 — v0 loop | twin-configs list/detail, topology, inventory, targets, deploys create/run/status, tfc, taps, **A6** metrics |
-| C1 — discovery | pcaps, **A1** plugins + runs, imprints list/detail/cast |
+| C1 — discovery | **A7** sources (save / test / run), **A1** plugins + runs, imprints detail. **Built 2026-10-27** (sources, probe, run-and-poll, open the imprint); pcap/`cast` views not yet |
 | C2 — view twin | covered by T0 |
 | C3 — edit twin | validate, **A2** working copy, **A3** twin-config create/update |
 | C4 — targets | targets list, **A4** create/update/delete |
@@ -61,10 +61,13 @@ base URL for embedded telemetry panels is a single configurable value (env/serve
 config), empty = telemetry panels hidden. No other UI config; everything else is
 read from the API at runtime.
 
-**Stack:** not chosen yet. The first T0 session records the framework and the
-E2E runner here in one line and does not revisit it. Whatever it is, it adds a
-node toolchain the repo does not have today (no `package.json` anywhere); the
-browser tests run as their own gate step beside `pytest`, not inside it.
+**Stack (recorded 2026-10-27, not revisited):** React 18 + Vite 8 +
+TypeScript (strict from zero) + Vitest/Testing Library over jsdom, in `ui/`
+(`npm ci && npm run build` → `ui/dist`; `npm run typecheck`, `npm run test`).
+The same toolchain as the frozen `o2/console`, so its pure `model/` and
+`layout/` code can be lifted when C2 needs a map. The browser tests run as
+their own gate step beside `pytest`, not inside it. Served by
+`axrange serve --spa-dir ui/dist`; `npm run dev` proxies `/api` to `:8080`.
 
 ## Acceptance
 
@@ -87,12 +90,22 @@ its listed tests pass. T0.x is the release gate for UI v0.
 - T0.5 (auto) The console renders with every API list empty and an undeployed
   state without errors (no blank screen, no crash).
 
-**C1 — discovery:**
+**C1 — discovery** (`ui/test/*.test.tsx`, 30 tests, green 2026-10-27):
 - C1.1 (auto) The UI renders one config form per installed adapter from the
   schema A1 reports; adding an adapter changes the forms with no UI code change.
-- C1.2 (auto) Submitting a pcap source starts a run; the UI polls and shows it
-  reach a completed imprint, then opens it.
+  *(`editor.test.tsx`, `run.flow.test.tsx`: a made-up `foo-http` plugin gets its
+  form and its own `shard` run option from its schema alone.)*
+- C1.2 (auto) Submitting a source starts a run; the UI polls and shows it
+  reach a completed imprint, then opens it. *(`run.flow.test.tsx`; a source is
+  sensor metadata reached over the network, not a pcap — see A1.)*
 - C1.3 (auto) An invalid source config shows the API's reason, not a generic error.
+  *(`editor.test.tsx`: the server's refusal verbatim; `run.flow.test.tsx`: a
+  refused run, a failed run's own error.)*
+- C1.4 (auto) Every list empty renders and says why; zero endpoint plugins is a
+  sentence, not a crash. *(`empty.test.tsx`.)*
+- C1.5 (live) Against `corp-apcn-reader` through the SSH tunnel: save, test
+  (span + census shown), run ten days, poll to completion, open the imprint.
+  Done by API on 2026-10-27 (`docs/SESSION_STATE.md` has the run).
 
 **C2 — view discovered twin:** covered by T0.1.
 

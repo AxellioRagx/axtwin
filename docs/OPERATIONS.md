@@ -42,6 +42,8 @@ Environment variables the API and CLI read:
 | `AXRANGE_IMPRINTS_DIR` | where installed casts live and where a discovery run writes; must be set for a run so it never writes into the package fixtures |
 | `AXRANGE_AXIMPRINT_BIN`, `AXRANGE_AXIMPRINT_STORE`, `AXRANGE_AXIMPRINT_TIMEOUT_S` | the `aximprint` executable, the IR store the API materializes into and casts from, the per-verb timeout |
 | `AXRANGE_API_TOKEN`, `AXRANGE_PROTECTED_DEPLOYS`, `AXRANGE_SPA_DIR` | the write token, deploy ids no write may touch without `override_protection`, the console bundle to co-serve |
+| `AXRANGE_DISCOVERY_DB`, `AXRANGE_DISCOVERY_TIMEOUT_S` | the discovery-sources store (`~/.axrange/discovery.db`, 0600; holds endpoints, access and credentials) and the per-stage budget of a source-driven run (default 6 h) |
+| `AXIMPRINT_SOURCE_USER`, `AXIMPRINT_SOURCE_PASSWORD`, `AXIMPRINT_SOURCE_API_KEY` | read by `aximprint`'s HTTP transport (axquery): the credential for a run by hand. `axrange serve` sets them for the subprocess from the source record; never put a secret in `argv` or the locator |
 
 ## 3. The loop by CLI
 
@@ -76,7 +78,8 @@ the appliance's own tooling; axRange cannot verify capture there and says so.
 ## 4. Discovery by CLI
 
 ```sh
-aximprint plugins                                                   # installed ingest plugins + schemas
+aximprint plugins                                                   # installed ingest plugins + schemas (+ source_kind)
+aximprint probe --plugin axquery --source axquery:http://127.0.0.1:9090   # reachable? span? vantage? -- no events pulled
 aximprint ingest --plugin zeek --source <zeek log dir> --store imprint.duckdb [--vantage <tap>] [--network <name>]
 aximprint status --store imprint.duckdb
 aximprint materialize --store imprint.duckdb --out ir.duckdb [--as-of <epoch>] [--replace]
@@ -111,6 +114,32 @@ curl -s :8080/api/discovery/runs/<run id>      # queued | running | completed | 
 curl -s :8080/api/imprints/corp-imprint        # resolves once completed
 ```
 
+**Discovery sources (A7)** — a saved sensor endpoint plus how to reach it, the
+thing the console's Discovery area edits. The same by `curl`, for an axquery on
+an appliance's loopback behind an SSH tunnel (the host must already be in the
+API host's `known_hosts`; the key must not need a passphrase):
+
+```sh
+curl -s -X POST :8080/api/discovery/sources -H "Authorization: Bearer $AXRANGE_API_TOKEN" \
+  -H 'content-type: application/json' -d '{
+    "name":"corp-apcn-reader","plugin":"axquery","endpoint":"http://127.0.0.1:9090",
+    "access":{"transport":"ssh_tunnel","auth":"none",
+              "ssh":{"host":"corp-apcn-reader.swlab.axellio.dom","user":"fxadmin","key_path":"/home/op/.ssh/id_ed25519","port":22}},
+    "defaults":{"days":10,"network":"corp-apcn"}}'
+curl -s -X POST :8080/api/discovery/sources/<id>/probe -H "Authorization: Bearer $AXRANGE_API_TOKEN"   # reachable, first_ts/last_ts, census
+curl -s -X POST :8080/api/discovery/sources/<id>/runs  -H "Authorization: Bearer $AXRANGE_API_TOKEN" \
+  -H 'content-type: application/json' -d '{"imprint_id":"corp-apcn-10d","days":10}'           # 202; poll /api/discovery/runs/<run id>
+```
+
+`auth` may instead be `basic` (+ `user`, and `password` in the body) or
+`api_key` (+ `api_key` in the body, sent as a bearer token); `transport`
+`direct` reaches the endpoint as given. A read never returns the secret.
+
+**The console** is `ui/`: `cd ui && npm ci && npm run build`, then
+`axrange serve ... --spa-dir ui/dist` (one origin, no CORS). For UI work,
+`npm run dev` serves on `127.0.0.1:5173` and proxies `/api` to `:8080`. The
+write token is typed into the header control for the tab; it is never stored.
+
 ## 6. What bites
 
 Durable gotchas from real runs. Delete one when the cause is fixed.
@@ -127,7 +156,7 @@ Durable gotchas from real runs. Delete one when the cause is fixed.
   reset.
 - **Flat `tshark` `tcp.analysis.*` counters are meaningless** on a capture
   tapped at more than one hop.
-- **Never build into `o2/console/dist` while `axrange serve` is serving it.**
+- **Never build into `o2/console/dist` or `ui/dist` while `axrange serve` is serving it.**
 - **Every store read opens read-only**; empty `-wal` and `-shm` files may
   appear beside a store, and `immutable=1` must never be used.
 - **`axrange serve` fails loud** when a targets file is combined with
@@ -142,3 +171,14 @@ Durable gotchas from real runs. Delete one when the cause is fixed.
 - **An external sink's capture is never verified by axRange**; confirm it on
   the appliance.
 - **Live-deploy data lives with the state DB, never in the checkout.**
+- **A source-driven discovery run is hours, not minutes.** Measured 2026-10-27
+  on `corp-apcn-reader` through the tunnel: one hour of the index takes about
+  4.5 min ingest→install, so ten days is on the order of a day. The default
+  per-stage budget is 6 h (`AXRANGE_DISCOVERY_TIMEOUT_S`); raise it for a long
+  window or the ingest is killed at the budget and the run reads `failed`.
+- **The tunnel is BatchMode ssh.** A key with a passphrase, a host missing from
+  `known_hosts`, or an agent-only key fails at once with ssh's own message on
+  the run or probe record; nothing prompts. Add the host key by hand first.
+- **A run's imprint lands in `AXRANGE_IMPRINTS_DIR`.** Pointed at
+  `catalog/twins`, that is inside the checkout: review the bundle before
+  committing it, or point the dir elsewhere for throwaway runs.
