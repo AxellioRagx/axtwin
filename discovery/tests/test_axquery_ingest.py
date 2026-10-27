@@ -43,6 +43,9 @@ def _stub(monkeypatch, handler):
     import urllib.request
 
     def fake_urlopen(url, timeout=None):
+        # The transport sends a `Request` (it carries the Authorization header);
+        # a bare URL string is still accepted so older stubs read the same.
+        url = getattr(url, "full_url", url)
         parsed = urllib.parse.urlparse(url)
         params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         body = json.dumps(handler(parsed.path, params)).encode()

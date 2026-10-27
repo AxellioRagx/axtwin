@@ -19,7 +19,9 @@ Two hard-won constraints from `docs/WORK_ORDER_axquery_ingest.md`, both measured
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -68,6 +70,38 @@ MAX_PAGES = 10_000
 
 class AxQueryError(RuntimeError):
     """The server was unreachable, or answered with something this build cannot read."""
+
+
+#: How a credential reaches this transport: the ENVIRONMENT, never `argv` and never the
+#: source locator (`acquire/auth.py`'s rule -- a value in `argv` is in `ps` and shell history
+#: for every user on the box, and a locator is written into every run's provenance).
+#: `axrange serve` sets these for the one `aximprint` subprocess a stored discovery source
+#: runs (`api/Spec.md` A7) from the source's access record; an operator running the CLI by
+#: hand exports them. Basic wins over bearer when both are set, and both are optional: an
+#: `--auth-disabled` axquery on a loopback tunnel needs neither.
+ENV_USER = "AXIMPRINT_SOURCE_USER"
+ENV_PASSWORD = "AXIMPRINT_SOURCE_PASSWORD"
+ENV_API_KEY = "AXIMPRINT_SOURCE_API_KEY"
+
+
+def auth_headers(env: Optional[dict] = None) -> dict[str, str]:
+    """`Authorization` for every request, from the environment (see above); `{}` when unset.
+
+    axquery's own gate (`--auth-token-file`) takes `Authorization: Bearer <token>`; a
+    deployment that fronts it with HTTP basic auth takes the RFC 7617 header. Nothing here
+    decides which the server wants -- the operator chose an access mode when the source was
+    saved, and the control plane set exactly one pair.
+    """
+    env = os.environ if env is None else env
+    user = env.get(ENV_USER)
+    password = env.get(ENV_PASSWORD)
+    if user:
+        raw = f"{user}:{password or ''}".encode("utf-8")
+        return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
+    key = env.get(ENV_API_KEY)
+    if key:
+        return {"Authorization": f"Bearer {key}"}
+    return {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,10 +175,15 @@ class AxQuerySource:
         if query:
             url = f"{url}?{urllib.parse.urlencode(query)}"
         try:
-            with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as resp:
+            req = urllib.request.Request(url, headers=auth_headers())
+            with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
                 body = resp.read()
         except urllib.error.HTTPError as exc:
-            raise AxQueryError(f"axquery {path} -> HTTP {exc.code}: {url}") from exc
+            hint = ""
+            if exc.code in (401, 403):
+                hint = (" -- the server refused the credential (or wants one): "
+                        f"set {ENV_USER}/{ENV_PASSWORD} or {ENV_API_KEY}")
+            raise AxQueryError(f"axquery {path} -> HTTP {exc.code}: {url}{hint}") from exc
         except TimeoutError as exc:
             raise AxQueryError(
                 f"axquery {path} timed out after {TIMEOUT_SECONDS}s — a --lazy-cold server "

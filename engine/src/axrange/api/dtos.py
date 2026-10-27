@@ -480,6 +480,9 @@ class DiscoveryPluginDTO(BaseModel):
     # The plugin's own declared run-config schema (JSON-schema shaped; closed).
     # What `POST /api/discovery/runs` validates `config` against.
     config_schema: dict[str, Any]
+    # How a `source` is addressed: `path` (a file/dir the server reads) or `http`
+    # (a base URL). Only `http` plugins can back a stored discovery source (A7).
+    source_kind: str = "path"
 
 
 class DiscoveryPluginListDTO(BaseModel):
@@ -511,6 +514,111 @@ class DiscoveryRunDTO(BaseModel):
     error: Optional[str] = None
     created_at: str
     finished_at: Optional[str] = None
+    # A7: present when the run came from a stored discovery source. `ts_from`/`ts_to`
+    # are the bounds actually used (resolved from the source's span for a "last N
+    # days" request); `via` says how the source was reached, never a credential.
+    source_id: Optional[str] = None
+    started_at: Optional[str] = None
+    ts_from: Optional[float] = None
+    ts_to: Optional[float] = None
+    via: Optional[str] = None
+
+
+class DiscoveryRunListDTO(BaseModel):
+    runs: list[DiscoveryRunDTO]
+
+
+# Discovery sources (`api/Spec.md` A7): `/api/discovery/sources[...]`. A saved way to
+# reach a sensor's query API. Reads NEVER carry a secret: `has_password` /
+# `has_api_key` say whether one is stored. Writes take the secret as its own
+# top-level field (`password`, `api_key`) so a client can omit it on update to
+# keep the stored value, or send "" to clear it.
+class SshAccessDTO(BaseModel):
+    host: str
+    user: str
+    # A private-key PATH on the machine running `axrange serve`; never key material.
+    key_path: str
+    port: int = 22
+
+
+class SourceAccessDTO(BaseModel):
+    transport: str = "direct"  # direct | ssh_tunnel
+    auth: str = "none"  # none | basic | api_key
+    user: Optional[str] = None  # basic auth only
+    ssh: Optional[SshAccessDTO] = None  # ssh_tunnel only
+
+
+class DiscoverySourceWrite(BaseModel):
+    name: str
+    plugin: str
+    # The plugin's base URL as seen from where the access path lands (through
+    # the tunnel, that is the SSH host's view: e.g. http://127.0.0.1:9090).
+    endpoint: str
+    access: SourceAccessDTO = SourceAccessDTO()
+    password: Optional[str] = None
+    api_key: Optional[str] = None
+    # Run options the console pre-fills: days, network, vantage, window,
+    # subbuckets, sensors.
+    defaults: dict[str, Any] = {}
+
+
+class DiscoverySourceUpdate(BaseModel):
+    """Every field optional; a field not sent keeps its stored value."""
+    name: Optional[str] = None
+    plugin: Optional[str] = None
+    endpoint: Optional[str] = None
+    access: Optional[SourceAccessDTO] = None
+    password: Optional[str] = None
+    api_key: Optional[str] = None
+    defaults: Optional[dict[str, Any]] = None
+
+
+class DiscoverySourceDTO(BaseModel):
+    id: str
+    name: str
+    plugin: str
+    endpoint: str
+    access: SourceAccessDTO
+    has_password: bool
+    has_api_key: bool
+    defaults: dict[str, Any]
+    # The last `POST .../probe` answer, verbatim, with `probed_at`; None if never probed.
+    last_probe: Optional[dict[str, Any]] = None
+    created_at: str
+    updated_at: str
+
+
+class DiscoverySourceListDTO(BaseModel):
+    sources: list[DiscoverySourceDTO]
+
+
+class DiscoveryProbeDTO(BaseModel):
+    source_id: str
+    reachable: bool
+    error: Optional[str] = None
+    first_ts: Optional[float] = None
+    last_ts: Optional[float] = None
+    vantage: Optional[str] = None
+    # The plugin's own census of the source (axquery: chunks, packets, sites, ...).
+    extra: dict[str, Any] = {}
+    via: Optional[str] = None
+    probed_at: str
+
+
+class DiscoverySourceRunRequest(BaseModel):
+    # The catalog id the imprint is installed under (never overwritten).
+    imprint_id: str
+    # EITHER `days` (the last N days of what the source holds, resolved from its
+    # own span when the run starts) OR explicit epoch-second bounds.
+    days: Optional[float] = None
+    ts_from: Optional[float] = None
+    ts_to: Optional[float] = None
+    # Run options; unset -> the source's defaults.
+    network: Optional[str] = None
+    vantage: Optional[str] = None
+    window: Optional[int] = None
+    subbuckets: Optional[int] = None
+    sensors: Optional[list[str]] = None
 
 
 class PcapListDTO(BaseModel):

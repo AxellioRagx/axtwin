@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 
+from axrange.api import discovery_sources as _ds
 from axrange.api import recompile as _rc
 
 
@@ -39,6 +40,22 @@ def _timeout_from_env() -> float:
     return value
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _discovery_timeout_from_env() -> float:
+    raw = os.environ.get(_ds.SETTING_DISCOVERY_TIMEOUT)
+    if not raw or not raw.strip():
+        return _ds.DEFAULT_DISCOVERY_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ApiSettingsError(
+            f"{_ds.SETTING_DISCOVERY_TIMEOUT}={raw!r} is not a number of seconds "
+            f"(default {_ds.DEFAULT_DISCOVERY_TIMEOUT_S:g})"
+        ) from None
+    if value <= 0:
+        raise ApiSettingsError(f"{_ds.SETTING_DISCOVERY_TIMEOUT}={raw!r} must be positive")
+    return value
 
 
 def default_db_path() -> str:
@@ -145,6 +162,15 @@ class ApiSettings:
     aximprint_timeout_s: float = field(
         default_factory=lambda: _timeout_from_env()
     )
+
+    # Discovery sources (`api/Spec.md` A7): the SQLite file holding saved sensor
+    # endpoints + access (credentials inside, mode 0600, outside the checkout).
+    # Default `~/.axrange/discovery.db`, beside the planner state DB.
+    discovery_db: str = field(default_factory=_ds.default_discovery_db_path)
+    # Seconds one stage of a SOURCE-driven discovery run may take (a multi-day
+    # ingest over a tunnel is hours; `aximprint_timeout_s` above is sized for
+    # one cast). `AXRANGE_DISCOVERY_TIMEOUT_S`, default 6 h.
+    discovery_timeout_s: float = field(default_factory=_discovery_timeout_from_env)
 
     # Cluster targets file (Unified Console ruling §3.1, `axrange.api.
     # targets`): named `{name, adapter_config, db}` entries, the first one

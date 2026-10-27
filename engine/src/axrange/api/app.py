@@ -141,6 +141,12 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     app.state.discovery_backend = None
     app.state.discovery_background = None
     app.state.discovery_runs = _discovery.DiscoveryRuns()
+    # Discovery sources (`api/Spec.md` A7): None -> `discovery_sources.SourceStore`
+    # over `settings.discovery_db`, opened on first use; tests inject a store on
+    # a temp path. `discovery_tunnel` None -> the real `SshTunnel`; tests inject a
+    # factory that forwards nowhere, so the suite never runs ssh.
+    app.state.discovery_sources = None
+    app.state.discovery_tunnel = None
     # Touched at STARTUP, not on the first save (round 3 nit). `console_files`
     # derives the `axr-assertions/1` closed sets from a vendored JSON artifact
     # at import time and raises `ImportError` if that file is missing -- which
@@ -334,10 +340,99 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             background=app.state.discovery_background,
         )
 
+    @app.get("/api/discovery/runs", response_model=dtos.DiscoveryRunListDTO)
+    @_ro
+    def discovery_runs_list() -> dtos.DiscoveryRunListDTO:
+        return service.list_discovery_runs(runs=app.state.discovery_runs)
+
     @app.get("/api/discovery/runs/{run_id}", response_model=dtos.DiscoveryRunDTO)
     @_ro
     def discovery_run_detail(run_id: str) -> dtos.DiscoveryRunDTO:
         return service.discovery_run_detail(run_id, runs=app.state.discovery_runs)
+
+    # ---- discovery sources (`api/Spec.md` A7) -- a saved way to reach a
+    # sensor's query API (endpoint + direct/ssh-tunnel access + credential),
+    # probed and run from the console. Reads never return a secret. Every
+    # write, the probe included (it opens a tunnel with the server's key), is
+    # token-gated.
+    def _sources():
+        if app.state.discovery_sources is None:
+            from axrange.api.discovery_sources import SourceStore
+
+            app.state.discovery_sources = SourceStore(settings.discovery_db)
+        return app.state.discovery_sources
+
+    @app.get("/api/discovery/sources", response_model=dtos.DiscoverySourceListDTO)
+    @_ro
+    def discovery_sources_list() -> dtos.DiscoverySourceListDTO:
+        return service.list_discovery_sources(store=_sources())
+
+    @app.post(
+        "/api/discovery/sources",
+        response_model=dtos.DiscoverySourceDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_create(req: dtos.DiscoverySourceWrite) -> dtos.DiscoverySourceDTO:
+        return service.create_discovery_source(
+            settings, req, store=_sources(), backend=app.state.discovery_backend,
+        )
+
+    @app.get("/api/discovery/sources/{source_id}", response_model=dtos.DiscoverySourceDTO)
+    @_ro
+    def discovery_source_detail(source_id: str) -> dtos.DiscoverySourceDTO:
+        return service.discovery_source_detail(source_id, store=_sources())
+
+    @app.put(
+        "/api/discovery/sources/{source_id}",
+        response_model=dtos.DiscoverySourceDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_update(
+        source_id: str, req: dtos.DiscoverySourceUpdate,
+    ) -> dtos.DiscoverySourceDTO:
+        return service.update_discovery_source(
+            settings, source_id, req, store=_sources(), backend=app.state.discovery_backend,
+        )
+
+    @app.delete(
+        "/api/discovery/sources/{source_id}",
+        status_code=204,
+        response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_delete(source_id: str) -> Response:
+        service.delete_discovery_source(
+            source_id, store=_sources(), runs=app.state.discovery_runs,
+        )
+        return Response(status_code=204)
+
+    @app.post(
+        "/api/discovery/sources/{source_id}/probe",
+        response_model=dtos.DiscoveryProbeDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_probe(source_id: str) -> dtos.DiscoveryProbeDTO:
+        return service.probe_discovery_source(
+            settings, source_id, store=_sources(), backend=app.state.discovery_backend,
+            tunnel_factory=app.state.discovery_tunnel,
+        )
+
+    @app.post(
+        "/api/discovery/sources/{source_id}/runs",
+        response_model=dtos.DiscoveryRunDTO,
+        status_code=202,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_run_create(
+        source_id: str, req: dtos.DiscoverySourceRunRequest,
+    ) -> dtos.DiscoveryRunDTO:
+        return service.create_discovery_source_run(
+            settings, source_id, req, store=_sources(), runs=app.state.discovery_runs,
+            backend=app.state.discovery_backend,
+            background=app.state.discovery_background,
+            tunnel_factory=app.state.discovery_tunnel,
+        )
 
     # ---- the Console canvas (`docs/WORK_ORDER_console_canvas.md` S1;
     # `docs/design/15-console-canvas.md` §10) -- the imprint-scoped read +

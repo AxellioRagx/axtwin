@@ -44,3 +44,29 @@ def test_the_cli_verb_prints_the_listing_as_json(capsys):
     assert cli.main(["plugins"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out == {"plugins": list_plugins()}
+
+
+# ---------------------------------------------------------------------------
+# `source_kind` + `probe` (`api/Spec.md` A7: stored discovery sources)
+# ---------------------------------------------------------------------------
+def test_the_listing_says_how_each_source_is_addressed():
+    kinds = {r["name"]: r["source_kind"] for r in list_plugins()}
+    assert kinds["axquery"] == "http"
+    assert kinds["zeek"] == "path"
+    assert kinds["suricata"] == "path"
+    assert set(kinds.values()) <= {"path", "http"}
+
+
+def test_a_plugin_that_cannot_probe_says_so_instead_of_guessing():
+    assert get_plugin("zeek").probe("/nowhere") == {"supported": False}
+
+
+def test_the_probe_verb_exits_2_for_a_plugin_that_cannot_probe(capsys):
+    assert cli.main(["probe", "--plugin", "zeek", "--source", "/nowhere"]) == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["supported"] is False and out["plugin"] == "zeek"
+
+
+def test_the_probe_verb_names_an_unknown_plugin(capsys):
+    assert cli.main(["probe", "--plugin", "nope", "--source", "x"]) == 2
+    assert "no ingest plugin 'nope'" in capsys.readouterr().err

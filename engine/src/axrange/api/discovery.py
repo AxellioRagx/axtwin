@@ -24,6 +24,7 @@ after a restart.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import shutil
 import subprocess
@@ -72,6 +73,9 @@ class DiscoveryRunRequest:
     scratch_dir: Path
     catalog_root: Path
     sensors: list[str] = field(default_factory=list)
+    #: Extra environment for every `aximprint` subprocess of this run -- the credential
+    #: a stored discovery source carries (`discovery_sources.env_for`). Never `argv`.
+    env: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -82,6 +86,8 @@ class DiscoveryRunResult:
 
 class DiscoveryBackend(Protocol):
     def list_plugins(self) -> list[dict[str, Any]]: ...
+
+    def probe(self, plugin: str, source: str, *, env: dict[str, str]) -> dict[str, Any]: ...
 
     def run(self, request: DiscoveryRunRequest, *, on_stage) -> DiscoveryRunResult: ...
 
@@ -152,6 +158,24 @@ class SubprocessDiscovery:
             ) from e
         return plugins
 
+    # -- probe --------------------------------------------------------------
+    def probe(self, plugin: str, source: str, *, env: dict[str, str]) -> dict[str, Any]:
+        """`aximprint probe`: reachability + span, no events. Exit 2 is the plugin saying
+        it cannot probe at all (a path plugin); anything else non-zero is a real failure."""
+        argv = [self.binary, "probe", "--plugin", plugin, "--source", source]
+        proc = self._run(argv, stage="probe", env=env, ok_codes=(0, 2))
+        try:
+            doc = json.loads(proc.stdout or "")
+            assert isinstance(doc, dict)
+        except (ValueError, AssertionError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} probe` did not print an answer: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}"
+            ) from e
+        if proc.returncode == 2 or not doc.get("supported"):
+            raise DiscoveryError(f"plugin {plugin!r} cannot probe a source (no network transport)")
+        return doc
+
     # -- the chain ---------------------------------------------------------
     def build_ingest_argv(self, r: DiscoveryRunRequest) -> list[str]:
         cfg = r.config
@@ -213,10 +237,10 @@ class SubprocessDiscovery:
             done.append(stage)
             on_stage(stage)
 
-        self._run(self.build_ingest_argv(r), stage="ingest")
+        self._run(self.build_ingest_argv(r), stage="ingest", env=r.env)
         _did("ingest")
 
-        proc = self._run(self.build_materialize_argv(r), stage="materialize")
+        proc = self._run(self.build_materialize_argv(r), stage="materialize", env=r.env)
         try:
             pit_id = str(json.loads(proc.stdout or "")["pit_id"])
         except (ValueError, KeyError, TypeError) as e:
@@ -226,17 +250,19 @@ class SubprocessDiscovery:
             ) from e
         _did("materialize")
 
-        self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB)
+        self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB, env=r.env)
         _did("cast")
 
-        self._run(self.build_install_argv(r), stage=INSTALL_VERB)
+        self._run(self.build_install_argv(r), stage=INSTALL_VERB, env=r.env)
         _did("install")
         return DiscoveryRunResult(pit_id=pit_id, stages=done)
 
-    def _run(self, argv: list[str], *, stage: str) -> subprocess.CompletedProcess:
+    def _run(self, argv: list[str], *, stage: str, env: Optional[dict[str, str]] = None,
+             ok_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
         try:
             proc = subprocess.run(  # noqa: S603 -- argv list, no shell
                 argv, capture_output=True, text=True, timeout=self.timeout_s,
+                env={**os.environ, **env} if env else None,
             )
         except OSError as e:
             raise DiscoveryUnavailableError(
@@ -248,7 +274,7 @@ class SubprocessDiscovery:
                 f"{stage} timed out after {self.timeout_s:g}s: "
                 f"{stderr_tail(e.stderr if isinstance(e.stderr, str) else '') or '<no stderr>'}"
             ) from e
-        if proc.returncode != 0:
+        if proc.returncode not in ok_codes:
             raise DiscoveryError(
                 f"{stage} failed (exit {proc.returncode}): "
                 f"{stderr_tail(clip(proc.stderr or '')) or '<no stderr>'}"
@@ -271,6 +297,13 @@ class DiscoveryRun:
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
+    # A7: set when the run came from a stored discovery source.
+    source_id: Optional[str] = None
+    started_at: Optional[float] = None
+    ts_from: Optional[float] = None
+    ts_to: Optional[float] = None
+    #: How the source was reached ("direct", "ssh ... via 127.0.0.1:NNN"); no secret.
+    via: Optional[str] = None
 
 
 class DiscoveryRuns:
@@ -280,20 +313,32 @@ class DiscoveryRuns:
         self._lock = threading.Lock()
         self._runs: dict[str, DiscoveryRun] = {}
 
-    def new(self, plugin: str, imprint_id: str, config: dict[str, Any]) -> DiscoveryRun:
+    def new(self, plugin: str, imprint_id: str, config: dict[str, Any],
+            *, source_id: Optional[str] = None) -> DiscoveryRun:
         with self._lock:
             while True:
                 run_id = f"disc-{secrets.token_hex(4)}"
                 if run_id not in self._runs:
                     break
             run = DiscoveryRun(id=run_id, plugin=plugin, imprint_id=imprint_id,
-                               config=dict(config))
+                               config=dict(config), source_id=source_id)
             self._runs[run_id] = run
             return run
 
     def get(self, run_id: str) -> Optional[DiscoveryRun]:
         with self._lock:
             return self._runs.get(run_id)
+
+    def list(self) -> list[DiscoveryRun]:
+        """Newest first; snapshots, so a caller never holds a live record."""
+        with self._lock:
+            ids = sorted(self._runs, key=lambda i: self._runs[i].created_at, reverse=True)
+        return [r for r in (self.snapshot(i) for i in ids) if r is not None]
+
+    def active_for_source(self, source_id: str) -> list[str]:
+        with self._lock:
+            return [r.id for r in self._runs.values()
+                    if r.source_id == source_id and r.status in (STATUS_QUEUED, STATUS_RUNNING)]
 
     def active_imprint_ids(self) -> set[str]:
         """Imprint ids a queued/running run is about to write -- a second POST
@@ -333,9 +378,49 @@ def execute_run(
     id; it is removed, because this run was refused at POST unless that
     directory did NOT exist, so whatever is there is this run's own.
     """
-    runs.update(run_id, status=STATUS_RUNNING)
+    runs.update(run_id, status=STATUS_RUNNING, started_at=time.time())
     try:
         result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s))
+    except Exception as e:  # noqa: BLE001 -- the record IS the error channel
+        _discard_partial_bundle(request)
+        runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
+                    finished_at=time.time())
+        return
+    finally:
+        shutil.rmtree(request.scratch_dir, ignore_errors=True)
+    runs.update(run_id, status=STATUS_COMPLETED, pit_id=result.pit_id,
+                finished_at=time.time())
+
+
+def execute_source_run(
+    runs: DiscoveryRuns, run_id: str, backend: DiscoveryBackend,
+    request: DiscoveryRunRequest, *, access_spec: Any, lookback_days: Optional[float],
+    tunnel_factory: Any = None,
+) -> None:
+    """`execute_run` for a run that reaches its source through a stored access path
+    (A7): open the path (a tunnel, for the whole chain), rewrite `config.source` to the
+    base URL this machine can reach, carry the credential in the subprocess environment,
+    turn "the last N days" into bounds from the source's own span, then run the chain.
+    Every failure -- the tunnel, the probe, a stage -- lands on the record."""
+    from axrange.api import discovery_sources as ds
+
+    runs.update(run_id, status=STATUS_RUNNING, started_at=time.time())
+    try:
+        with ds.open_access(access_spec, tunnel_factory=tunnel_factory) as opened:
+            request.config["source"] = f"{request.plugin}:{opened.base_url}"
+            request.env = dict(opened.env)
+            runs.update(run_id, via=opened.via)
+            if lookback_days is not None:
+                probe = backend.probe(request.plugin, request.config["source"], env=request.env)
+                if not probe.get("reachable"):
+                    raise DiscoveryError(
+                        f"source not reachable: {probe.get('error') or 'no reason given'}")
+                ts_from, ts_to = ds.window_from_probe(probe, lookback_days)
+                request.config["ts_from"] = ts_from
+                request.config["ts_to"] = ts_to
+            runs.update(run_id, config=dict(request.config),
+                        ts_from=request.config.get("ts_from"), ts_to=request.config.get("ts_to"))
+            result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s))
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
         _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),

@@ -474,6 +474,25 @@ def cmd_plugins(args) -> int:
     return 0
 
 
+def cmd_probe(args) -> int:
+    """`aximprint probe --plugin P --source S`: reach the source without pulling events
+    (`IngestPlugin.probe`), as JSON on stdout. What `axrange serve` runs for a stored
+    discovery source's "test" (`api/Spec.md` A7) and before a "last N days" run, to turn
+    the server's own span into bounds. Exit 0 whether or not the source is reachable --
+    unreachable is an ANSWER here (`reachable: false` + the reason), not a crash; exit 2
+    only when the plugin cannot probe at all."""
+    from aximprint.ingest import get_plugin
+
+    try:
+        plugin = get_plugin(args.plugin)
+    except KeyError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    answer = plugin.probe(args.source)
+    print(json.dumps({"plugin": args.plugin, "source": args.source, **answer}, indent=2))
+    return 0 if answer.get("supported") else 2
+
+
 def cmd_status(args) -> int:
     store = BeliefStore(args.store)
     print(json.dumps(store.status(), indent=2, default=str))
@@ -1204,6 +1223,13 @@ def main(argv=None) -> int:
                         help="list the installed ingest plugins and their run-config schemas "
                              "(JSON)")
     pp.set_defaults(fn=cmd_plugins)
+
+    ppr = sub.add_parser("probe",
+                         help="reach a plugin source without pulling events: reachability, "
+                              "span and vantage as JSON (exit 2 if the plugin cannot probe)")
+    ppr.add_argument("--plugin", required=True)
+    ppr.add_argument("--source", required=True)
+    ppr.set_defaults(fn=cmd_probe)
 
     ps = sub.add_parser("status", help="belief store summary")
     ps.add_argument("--store", default="imprint.duckdb")

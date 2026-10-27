@@ -263,6 +263,7 @@ class AxQueryPlugin(IngestPlugin):
 
     name = "axquery"
     source_help = "an axquery instance, addressed as 'axquery:<base-url>'"
+    source_kind = "http"
 
     #: Endpoints this build reads. Anything the server offers that is not here and not in
     #: `_DECLINED` is reported by `unrecognized_stems` — the same positive-gate discipline the
@@ -351,6 +352,33 @@ class AxQueryPlugin(IngestPlugin):
             planned_from=float(info["first_ts"]) if info.get("first_ts") else None,
             planned_to=float(info["last_ts"]) if info.get("last_ts") else None,
         )
+
+    def probe(self, source: str) -> dict:
+        """`/api/info` as a reachability-plus-span answer, never events (`ingest/base.py`).
+
+        What the control plane's "test this source" button shows, and what turns a
+        "last N days" request into bounds: `last_ts` is INCLUSIVE on this API, so the
+        half-open upper bound a caller wants is `last_ts + 1`. `error` is the one
+        `AxQueryError` message, verbatim -- a wrong port, a closed tunnel and a non-JSON
+        answer each read differently and the operator needs the difference.
+        """
+        try:
+            info = AxQuerySource(source).info()
+        except AxQueryError as exc:
+            return {"supported": True, "reachable": False, "error": str(exc),
+                    "first_ts": None, "last_ts": None, "vantage": None, "extra": {}}
+        vantage = self.probe_vantage(source)
+        extra = {k: info[k] for k in ("chunks", "packets", "bytes", "entities", "events",
+                                      "endpoints", "applications")
+                 if isinstance(info.get(k), (int, float))}
+        extra["sites"] = info.get("sites") or []
+        return {
+            "supported": True, "reachable": True, "error": None,
+            "first_ts": float(info["first_ts"]) if info.get("first_ts") is not None else None,
+            "last_ts": float(info["last_ts"]) if info.get("last_ts") is not None else None,
+            "vantage": vantage.vantage if vantage is not None else None,
+            "extra": extra,
+        }
 
     def events(self, source: str, ts_from: float | None = None,
                ts_to: float | None = None) -> Iterator[Event]:

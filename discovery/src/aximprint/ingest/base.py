@@ -38,7 +38,8 @@ def list_plugins() -> list[dict]:
     reads, through `aximprint plugins`. An empty registry lists as `[]`, not as an
     error: "no plugin installed" is a real state of a stripped install.
     """
-    return [{"name": name, "config_schema": cls.config_schema()}
+    return [{"name": name, "source_kind": cls.source_kind,
+             "config_schema": cls.config_schema()}
             for name, cls in sorted(_REGISTRY.items())]
 
 
@@ -70,6 +71,24 @@ class IngestPlugin(ABC):
     #: `config_schema()`; a plugin that leaves it empty publishes the contract's generic
     #: wording, which is honest but unhelpful, so every shipped plugin sets it.
     source_help: str = ""
+
+    #: How a `source` for this plugin is ADDRESSED: `"path"` (a directory or file the
+    #: machine running `aximprint` can read) or `"http"` (an absolute base URL the plugin
+    #: talks to over HTTP). Published by `list_plugins()`; the control plane uses it to
+    #: decide which plugins a stored *discovery source* (an endpoint plus how to reach it,
+    #: `api/Spec.md` A7) can be built for. A path plugin is not reachable through a tunnel.
+    source_kind: str = "path"
+
+    def probe(self, source: str) -> dict:
+        """Reach `source` WITHOUT pulling a single event: is it there, and what does it hold?
+
+        The default says the plugin cannot answer (`{"supported": False}`) rather than
+        guessing. A network plugin answers `{"supported": True, "reachable": bool,
+        "error": str | None, "first_ts": float | None, "last_ts": float | None,
+        "vantage": str | None, "extra": {...}}` -- the span is what lets a caller turn
+        "the last ten days" into concrete `ts_from`/`ts_to` bounds before a run starts.
+        """
+        return {"supported": False}
 
     @classmethod
     def config_schema(cls) -> dict:

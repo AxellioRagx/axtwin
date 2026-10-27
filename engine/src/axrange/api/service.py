@@ -3365,7 +3365,9 @@ def twin_config_detail(settings: ApiSettings, config_id: str) -> dtos.TwinConfig
 # install chain over `aximprint`'s CLI (`axrange.api.discovery`). The
 # engine never imports `aximprint`; `backend` is the seam.
 # ---------------------------------------------------------------------------
-def _discovery_backend(settings: ApiSettings, backend: Any):
+def _discovery_backend(settings: ApiSettings, backend: Any, *, long: bool = False):
+    """`long=True` is the SOURCE-driven run's budget (`discovery_timeout_s`, hours):
+    an ingest of days over a tunnel; the default is sized for one cast."""
     from axrange.api import discovery as disc
 
     if backend is not None:
@@ -3377,7 +3379,8 @@ def _discovery_backend(settings: ApiSettings, backend: Any):
             detail={"setting": missing},
         )
     return disc.SubprocessDiscovery(
-        settings.aximprint_bin, timeout_s=settings.aximprint_timeout_s,
+        settings.aximprint_bin,
+        timeout_s=settings.discovery_timeout_s if long else settings.aximprint_timeout_s,
     )
 
 
@@ -3400,6 +3403,7 @@ def list_discovery_plugins(settings: ApiSettings, *, backend: Any = None) -> dto
         plugins=[
             dtos.DiscoveryPluginDTO(
                 name=str(p.get("name", "")), config_schema=dict(p.get("config_schema") or {}),
+                source_kind=str(p.get("source_kind") or "path"),
             )
             for p in plugins
         ]
@@ -3422,6 +3426,8 @@ def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
         stages_done=list(run.stages_done), stages=list(disc.STAGES),
         pit_id=run.pit_id, error=run.error,
         created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
+        source_id=run.source_id, started_at=_iso(run.started_at),
+        ts_from=run.ts_from, ts_to=run.ts_to, via=run.via,
     )
 
 
@@ -3493,6 +3499,253 @@ def discovery_run_detail(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
     if run is None:
         raise ApiError(404, f"no discovery run {run_id!r}")
     return _discovery_run_dto(run)
+
+
+def list_discovery_runs(*, runs: Any) -> dtos.DiscoveryRunListDTO:
+    return dtos.DiscoveryRunListDTO(runs=[_discovery_run_dto(r) for r in runs.list()])
+
+
+# ---------------------------------------------------------------------------
+# Discovery sources (`api/Spec.md` A7)
+# ---------------------------------------------------------------------------
+def _source_dto(rec: Any) -> dtos.DiscoverySourceDTO:
+    acc = rec.access
+    return dtos.DiscoverySourceDTO(
+        id=rec.id, name=rec.name, plugin=rec.plugin, endpoint=rec.endpoint,
+        access=dtos.SourceAccessDTO(
+            transport=acc.transport, auth=acc.auth, user=acc.user,
+            ssh=dtos.SshAccessDTO(**acc.ssh.to_json()) if acc.ssh else None,
+        ),
+        has_password=rec.has_password, has_api_key=rec.has_api_key,
+        defaults=dict(rec.defaults), last_probe=rec.last_probe,
+        created_at=_iso(rec.created_at) or "", updated_at=_iso(rec.updated_at) or "",
+    )
+
+
+def _source_or_404(store: Any, source_id: str) -> Any:
+    from axrange.api import discovery_sources as ds
+
+    try:
+        return store.get(source_id)
+    except ds.SourceNotFound:
+        raise ApiError(404, f"no discovery source {source_id!r}") from None
+
+
+def _http_plugin_or_400(settings: ApiSettings, backend: Any, plugin: str) -> dict[str, Any]:
+    plugins = {str(p.get("name")): p for p in _discovery_plugins(_discovery_backend(settings, backend))}
+    if plugin not in plugins:
+        raise ApiError(400, f"unknown discovery plugin {plugin!r}", detail={"plugins": sorted(plugins)})
+    if (plugins[plugin].get("source_kind") or "path") != "http":
+        raise ApiError(
+            400, f"plugin {plugin!r} reads a path, not an endpoint; a stored source needs an "
+            "http plugin", detail={"source_kind": plugins[plugin].get("source_kind") or "path"},
+        )
+    return plugins[plugin]
+
+
+def list_discovery_sources(*, store: Any) -> dtos.DiscoverySourceListDTO:
+    return dtos.DiscoverySourceListDTO(sources=[_source_dto(r) for r in store.list()])
+
+
+def discovery_source_detail(source_id: str, *, store: Any) -> dtos.DiscoverySourceDTO:
+    return _source_dto(_source_or_404(store, source_id))
+
+
+def create_discovery_source(
+    settings: ApiSettings, req: dtos.DiscoverySourceWrite, *, store: Any, backend: Any = None,
+) -> dtos.DiscoverySourceDTO:
+    """A7.1: refuse every malformed field by name (plugin, endpoint, access, secret,
+    defaults) before anything is written; the created record carries no secret."""
+    from axrange.api import discovery_sources as ds
+
+    _http_plugin_or_400(settings, backend, req.plugin)
+    try:
+        endpoint = ds.validate_endpoint(req.endpoint)
+        access = ds.validate_access(req.access.model_dump())
+        defaults = ds.validate_defaults(req.defaults)
+        rec = store.create(
+            name=req.name, plugin=req.plugin, endpoint=endpoint, access=access,
+            secrets={"password": req.password, "api_key": req.api_key}, defaults=defaults,
+        )
+    except ds.SourceError as e:
+        raise ApiError(400, str(e)) from e
+    except ds.SourceConflict as e:
+        raise ApiError(409, str(e)) from e
+    return _source_dto(rec)
+
+
+def update_discovery_source(
+    settings: ApiSettings, source_id: str, req: dtos.DiscoverySourceUpdate, *, store: Any,
+    backend: Any = None,
+) -> dtos.DiscoverySourceDTO:
+    from axrange.api import discovery_sources as ds
+
+    _source_or_404(store, source_id)
+    sent = req.model_fields_set
+    if req.plugin is not None:
+        _http_plugin_or_400(settings, backend, req.plugin)
+    try:
+        kw: dict[str, Any] = {}
+        if req.name is not None:
+            kw["name"] = req.name
+        if req.plugin is not None:
+            kw["plugin"] = req.plugin
+        if req.endpoint is not None:
+            kw["endpoint"] = ds.validate_endpoint(req.endpoint)
+        if req.access is not None:
+            kw["access"] = ds.validate_access(req.access.model_dump())
+        if req.defaults is not None:
+            kw["defaults"] = ds.validate_defaults(req.defaults)
+        secrets = {k: getattr(req, k) for k in ds.SECRET_KEYS if k in sent}
+        rec = store.update(source_id, secrets=secrets, **kw)
+    except ds.SourceError as e:
+        raise ApiError(400, str(e)) from e
+    except ds.SourceConflict as e:
+        raise ApiError(409, str(e)) from e
+    return _source_dto(rec)
+
+
+def delete_discovery_source(source_id: str, *, store: Any, runs: Any) -> None:
+    from axrange.api import discovery_sources as ds
+
+    _source_or_404(store, source_id)
+    active = runs.active_for_source(source_id)
+    if active:
+        raise ApiError(
+            409, f"discovery source {source_id!r} has a run in progress ({', '.join(active)})",
+            detail={"runs": active},
+        )
+    try:
+        store.delete(source_id)
+    except ds.SourceNotFound:
+        raise ApiError(404, f"no discovery source {source_id!r}") from None
+
+
+def _access_spec(store: Any, rec: Any) -> Any:
+    from axrange.api import discovery_sources as ds
+
+    return ds.AccessSpec(endpoint=rec.endpoint, access=rec.access, secrets=store.secrets(rec.id))
+
+
+def probe_discovery_source(
+    settings: ApiSettings, source_id: str, *, store: Any, backend: Any = None,
+    tunnel_factory: Any = None,
+) -> dtos.DiscoveryProbeDTO:
+    """A7.2: open the access path, ask the plugin what is there, remember the answer
+    on the record. Not reachable is an ANSWER (200, `reachable: false` + the reason --
+    a closed tunnel, a refused key, a wrong port each read differently), not a 5xx;
+    only "discovery is not configured" is."""
+    import time as _time
+
+    from axrange.api import discovery as disc
+    from axrange.api import discovery_sources as ds
+
+    rec = _source_or_404(store, source_id)
+    be = _discovery_backend(settings, backend)
+    spec = _access_spec(store, rec)
+    answer: dict[str, Any] = {"reachable": False, "error": None, "first_ts": None,
+                              "last_ts": None, "vantage": None, "extra": {}, "via": None}
+    try:
+        with ds.open_access(spec, tunnel_factory=tunnel_factory) as opened:
+            answer["via"] = opened.via
+            probe = be.probe(rec.plugin, f"{rec.plugin}:{opened.base_url}", env=opened.env)
+            for k in ("reachable", "error", "first_ts", "last_ts", "vantage", "extra"):
+                if k in probe:
+                    answer[k] = probe[k]
+            answer["reachable"] = bool(answer["reachable"])
+    except (ds.AccessError, disc.DiscoveryError) as e:
+        answer["error"] = str(e)
+    answer["probed_at"] = _iso(_time.time()) or ""
+    store.record_probe(source_id, answer)
+    return dtos.DiscoveryProbeDTO(source_id=source_id, **answer)
+
+
+def create_discovery_source_run(
+    settings: ApiSettings, source_id: str, req: dtos.DiscoverySourceRunRequest, *,
+    store: Any, runs: Any, backend: Any = None,
+    background: Callable[[Callable[[], None]], None] | None = None,
+    tunnel_factory: Any = None,
+) -> dtos.DiscoveryRunDTO:
+    """A7.3: a run whose `source` and credential come from the stored record. The
+    window is `days` (resolved from the source's span when the run starts) or explicit
+    bounds, never both and never neither. Everything refusable is refused before the
+    access path is opened."""
+    import tempfile
+
+    from axrange.api import discovery as disc
+    from axrange.api import discovery_sources as ds
+    from axrange.api.imprints import is_safe_catalog_id
+
+    rec = _source_or_404(store, source_id)
+    be = _discovery_backend(settings, backend, long=True)
+    plugin = _http_plugin_or_400(settings, backend, rec.plugin)
+
+    days = req.days if req.days is not None else rec.defaults.get("days")
+    explicit = req.ts_from is not None or req.ts_to is not None
+    if explicit and req.days is not None:
+        raise ApiError(400, "pass either days or ts_from/ts_to, not both")
+    if explicit and (req.ts_from is None or req.ts_to is None or req.ts_to <= req.ts_from):
+        raise ApiError(400, "ts_from and ts_to must both be set, with ts_to > ts_from")
+    if not explicit and (days is None or days <= 0):
+        raise ApiError(400, "pass days (> 0) or ts_from/ts_to; the source has no default days")
+
+    config: dict[str, Any] = {"source": f"{rec.plugin}:{rec.endpoint}"}
+    for key in ("network", "vantage", "window", "subbuckets"):
+        value = getattr(req, key)
+        if value is None:
+            value = rec.defaults.get(key)
+        if value not in (None, ""):
+            config[key] = value
+    if explicit:
+        config["ts_from"], config["ts_to"] = float(req.ts_from), float(req.ts_to)
+    problems = disc.check_config(dict(plugin.get("config_schema") or {}), config)
+    if problems:
+        raise ApiError(
+            400, f"config rejected by plugin {rec.plugin!r}'s schema: " + "; ".join(problems),
+            detail={"problems": problems},
+        )
+    sensors = req.sensors if req.sensors is not None else list(rec.defaults.get("sensors") or [])
+    for name in sensors:
+        if not isinstance(name, str) or not name.strip():
+            raise ApiError(400, "sensors must be non-empty names")
+    if not is_safe_catalog_id(req.imprint_id):
+        raise ApiError(400, f"imprint_id {req.imprint_id!r} is not a usable catalog id")
+    catalog_root = Path(settings.imprints_dir)
+    if (catalog_root / req.imprint_id).exists():
+        raise ApiError(
+            409, f"imprint {req.imprint_id!r} already exists in {catalog_root}; "
+            "a discovery run never overwrites a bundle -- choose another id",
+        )
+    if req.imprint_id in runs.active_imprint_ids():
+        raise ApiError(409, f"a discovery run for imprint {req.imprint_id!r} is already in progress")
+    if rec.access.transport == "ssh_tunnel" and rec.access.ssh is not None:
+        key = Path(rec.access.ssh.key_path).expanduser()
+        if not key.is_file():
+            raise ApiError(
+                400, f"ssh key {rec.access.ssh.key_path!r} is not a file on the server",
+            )
+
+    ir_store = Path(settings.aximprint_store)
+    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.imprint_id}-"))
+    request = disc.DiscoveryRunRequest(
+        plugin=rec.plugin, config=config, imprint_id=req.imprint_id,
+        belief_store=ir_store.parent / f"{req.imprint_id}.belief.duckdb", ir_store=ir_store,
+        scratch_dir=scratch, catalog_root=catalog_root, sensors=[s.strip() for s in sensors],
+    )
+    spec = _access_spec(store, rec)
+    run = runs.new(rec.plugin, req.imprint_id, config, source_id=source_id)
+
+    def _job() -> None:
+        disc.execute_source_run(
+            runs, run.id, be, request, access_spec=spec,
+            lookback_days=None if explicit else float(days), tunnel_factory=tunnel_factory,
+        )
+
+    if background is not None:
+        background(_job)
+    else:
+        threading.Thread(target=_job, name=f"discovery-{run.id}", daemon=True).start()
+    return _discovery_run_dto(runs.snapshot(run.id))
 
 
 def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
