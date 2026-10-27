@@ -157,7 +157,8 @@ def test_every_exclusion_has_an_entry_in_the_honest_gap_register():
     from axrange.fidelity.probe import _EXCLUSIONS, EPHEMERAL_PORT_FLOOR
 
     register = (
-        Path(__file__).resolve().parent.parent / "docs" / "PRODUCT_GAPS.md"
+        # The register is archived with the former engine docs (root `docs/README.md`).
+        Path(__file__).resolve().parents[2] / "archive" / "engine-docs" / "PRODUCT_GAPS.md"
     ).read_text()
     # Scoped to the GAP SECTIONS, not the whole file: a bare substring search
     # passes on a port number mentioned once in unrelated prose, which is the

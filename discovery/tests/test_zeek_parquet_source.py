@@ -31,7 +31,8 @@ _spec = importlib.util.spec_from_file_location(
 make_archive = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(make_archive)
 
-_SPEC_PATH = Path(__file__).resolve().parents[1] / "docs" / "SPEC_zeek_metadata_archive.md"
+# Incubating spec, archived with the former package docs (root `docs/README.md`).
+_SPEC_PATH = Path(__file__).resolve().parents[2] / "archive" / "discovery-docs" / "SPEC_zeek_metadata_archive.md"
 
 T0 = 1754000000.0
 

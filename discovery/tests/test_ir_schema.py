@@ -19,7 +19,8 @@ from aximprint.ir import (
 )
 
 _REPO = pathlib.Path(__file__).resolve().parent.parent
-_SPEC = _REPO / "docs" / "SPEC_network_ir.md"
+# The spec lives in the root `docs/contracts/` (the version-locked set), not in the package.
+_SPEC = _REPO.parent / "docs" / "contracts" / "SPEC_network_ir.md"
 _SRC = _REPO / "src" / "aximprint"
 
 

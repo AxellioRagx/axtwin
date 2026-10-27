@@ -34,6 +34,11 @@ from axrange.validator import list_rules
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 
+# The lessons store and doc-counter tooling these scripts serve were retired with the
+# package docs trees (root `Claude.md` "Scope discipline" rule 3; `docs/README.md`).
+# The scripts remain only as reference until they are deleted.
+pytest.skip("doc tooling retired; docs/LESSONS.md no longer exists", allow_module_level=True)
+
 
 def _load(mod_name: str, filename: str) -> ModuleType:
     """Load a `scripts/<filename>` file as an importable module object.

@@ -18,8 +18,8 @@ detection-confirm) behind the API, then a single UI over all of it.
 | `engine/` | `axrange` (`engine/src/axrange`) | twin plan→deploy→destroy, traffic (`tfc`), taps, exercises (`exr`), O2 surface, control-plane API (`axrange serve`) | must **not** import `aximprint` |
 | `discovery/` | `aximprint` (`discovery/src/aximprint`) | sensor metadata → discovered network → cast to a twin config | may import `axrange` |
 
-Both packages are src-layout: `src/`, `tests/`, `scripts/`, `docs/`. Content
-lives beside them at the root, not inside a package:
+Both packages are src-layout: `src/`, `tests/`, `scripts/`. Content and docs
+live beside them at the root, not inside a package:
 
 | Dir | What |
 |---|---|
@@ -29,7 +29,8 @@ lives beside them at the root, not inside a package:
 | `ai-crafted/` | the agentic twin-config experiment (corpus + pipeline tree; not read by code) |
 | `reports/` | rendered reports |
 | `ui/` | the operator console spec (and, later, the SPA) |
-| `archive/` | the pre-consolidation design ledgers, reference only |
+| `docs/` | the live doc set: `SESSION_STATE.md` (handoff), `ARCHITECTURE.md`, `CONVENTIONS.md`, `OPERATIONS.md`, and `contracts/` (the version-locked specs); see its README |
+| `archive/` | the pre-consolidation ledgers (`engine-docs/`, `discovery-docs/`, the two full old CLAUDE.md files), reference only |
 
 The one-way boundary (`discovery` → `engine`, never back) is the real design
 constraint. Keep it enforced as a layering test, the way `discovery` already
@@ -116,10 +117,12 @@ sub-questions, or work-orders, that is the old sprawl returning — stop.
 
 This repo is a clean baseline consolidated from the former `axRange` and
 `aximprint` repos. The full historical design ledger (124 KB CLAUDE.md,
-CHANGELOG, WORK_ORDERs, LESSONS) lives under `archive/` and in each package's
-own `docs/`. Treat those as reference, not as live instructions — this file is
-the live orientation. The version-locked contract specs (`engine/docs/IR_SCHEMA.md`,
-`PLANNER.md`, `OP_CATALOG.md`, `VALIDATOR.md`, `ADAPTER.md`, `IMAGE_MANIFEST.md`)
+CHANGELOG, WORK_ORDERs, LESSONS, design docs) lives under `archive/`
+(`engine-docs/`, `discovery-docs/`). Treat it as reference, not as live
+instructions — this file is the live orientation and `docs/` is the live
+detail. The version-locked contract specs in `docs/contracts/` (`IR_SCHEMA.md`,
+`PLANNER.md`, `OP_CATALOG.md`, `VALIDATOR.md`, `ADAPTER.md`, `IMAGE_MANIFEST.md`,
+`IMAGE_BUILD.md`, and aximprint's `SPEC_network_ir.md` and `AXAPI_CONTRACT.md`)
 remain the authority for their respective layers.
 
 ## Scope discipline (why the previous build bloated, and the rules that prevent it)
