@@ -17,6 +17,7 @@ from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse
 
 from axrange.api import console_files as _console_files  # noqa: F401 -- see below
+from axrange.api import discovery as _discovery
 from axrange.api import dtos, service
 from axrange.api.service import ApiError
 from axrange.api.settings import ApiSettings
@@ -133,6 +134,13 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # Injected by tests so the suite NEVER runs the real aximprint binary,
     # and the seam a helper/watcher (D2 (b)/(c)) drops into later.
     app.state.recompile_backend = None
+    # Discovery runs (`api/Spec.md` A1): None -> `discovery.SubprocessDiscovery`
+    # over AXRANGE_AXIMPRINT_BIN; tests inject a fake so the suite never runs
+    # aximprint unless a test chooses to. The run table lives for the life
+    # of this app; `discovery_background` None -> a daemon thread.
+    app.state.discovery_backend = None
+    app.state.discovery_background = None
+    app.state.discovery_runs = _discovery.DiscoveryRuns()
     # Touched at STARTUP, not on the first save (round 3 nit). `console_files`
     # derives the `axr-assertions/1` closed sets from a vendored JSON artifact
     # at import time and raises `ImportError` if that file is missing -- which
@@ -301,6 +309,35 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @_ro
     def imprint_provenance(imprint_id: str) -> dtos.ImprintProvenanceDTO:
         return service.imprint_provenance(settings, imprint_id)
+
+    # ---- discovery runs (`api/Spec.md` A1; root `CLAUDE.md` critical path 1)
+    # -- a real `aximprint` ingest -> materialize -> cast -> install, started
+    # from the console, landing an imprint in the catalog the routes above
+    # read. The POST is a write (it creates a bundle) and carries the token.
+    @app.get("/api/discovery/plugins", response_model=dtos.DiscoveryPluginListDTO)
+    @_ro
+    def discovery_plugins() -> dtos.DiscoveryPluginListDTO:
+        return service.list_discovery_plugins(
+            settings, backend=app.state.discovery_backend,
+        )
+
+    @app.post(
+        "/api/discovery/runs",
+        response_model=dtos.DiscoveryRunDTO,
+        status_code=202,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_run_create(req: dtos.DiscoveryRunRequest) -> dtos.DiscoveryRunDTO:
+        return service.create_discovery_run(
+            settings, req, runs=app.state.discovery_runs,
+            backend=app.state.discovery_backend,
+            background=app.state.discovery_background,
+        )
+
+    @app.get("/api/discovery/runs/{run_id}", response_model=dtos.DiscoveryRunDTO)
+    @_ro
+    def discovery_run_detail(run_id: str) -> dtos.DiscoveryRunDTO:
+        return service.discovery_run_detail(run_id, runs=app.state.discovery_runs)
 
     # ---- the Console canvas (`docs/WORK_ORDER_console_canvas.md` S1;
     # `docs/design/15-console-canvas.md` §10) -- the imprint-scoped read +

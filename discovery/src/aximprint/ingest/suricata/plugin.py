@@ -1476,6 +1476,7 @@ class _TypeStats:
 @register
 class SuricataPlugin(IngestPlugin):
     name = "suricata"
+    source_help = "a Suricata eve.json file, or a directory holding one (plus rotations)"
 
     #: how far back the in-file reorder can repair disorder — the actual guarantee
     reorder_horizon_seconds: float = REORDER_HORIZON_SECONDS

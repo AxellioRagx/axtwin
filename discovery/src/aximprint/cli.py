@@ -464,6 +464,16 @@ def cmd_features(args) -> int:
     return 0
 
 
+def cmd_plugins(args) -> int:
+    """`aximprint plugins`: the installed ingest plugins and each one's run-config schema,
+    as JSON on stdout. What `axrange serve` reads to answer `GET /api/discovery/plugins`
+    without importing this package (the engine never imports `aximprint`)."""
+    from aximprint.ingest import list_plugins
+
+    print(json.dumps({"plugins": list_plugins()}, indent=2))
+    return 0
+
+
 def cmd_status(args) -> int:
     store = BeliefStore(args.store)
     print(json.dumps(store.status(), indent=2, default=str))
@@ -1189,6 +1199,11 @@ def main(argv=None) -> int:
     pf.add_argument("--window", type=int, default=3600, help="window seconds (default 3600)")
     pf.add_argument("--subbuckets", type=int, default=12)
     pf.set_defaults(fn=cmd_features)
+
+    pp = sub.add_parser("plugins",
+                        help="list the installed ingest plugins and their run-config schemas "
+                             "(JSON)")
+    pp.set_defaults(fn=cmd_plugins)
 
     ps = sub.add_parser("status", help="belief store summary")
     ps.add_argument("--store", default="imprint.duckdb")

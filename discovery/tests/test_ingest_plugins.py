@@ -1,0 +1,46 @@
+"""`list_plugins()` / `aximprint plugins`: the listing the control-plane API reads
+(`api/Spec.md` A1.1). Every registered plugin, each with a closed run-config schema
+that names `source` as required."""
+import json
+
+from aximprint import cli
+from aximprint.ingest import IngestPlugin, get_plugin, list_plugins
+from aximprint.ingest.base import RUN_OPTION_SCHEMA
+
+
+def test_every_registered_plugin_is_listed_with_a_closed_schema():
+    rows = list_plugins()
+    names = [r["name"] for r in rows]
+    assert names == sorted(names)
+    assert {"zeek", "suricata", "axquery"} <= set(names)
+    for r in rows:
+        schema = r["config_schema"]
+        assert schema["type"] == "object"
+        assert schema["required"] == ["source"]
+        assert schema["additionalProperties"] is False
+        assert set(schema["properties"]) == {"source", *RUN_OPTION_SCHEMA}
+        # The listing is a projection of the plugin's own declaration, not a second table.
+        assert schema == get_plugin(r["name"]).config_schema()
+
+
+def test_each_shipped_plugin_says_what_its_source_is():
+    for name in ("zeek", "suricata", "axquery"):
+        assert get_plugin(name).source_help, name
+        desc = get_plugin(name).config_schema()["properties"]["source"]["description"]
+        assert desc == get_plugin(name).source_help
+
+
+def test_the_contract_default_is_honest_rather_than_empty():
+    class Bare(IngestPlugin):
+        name = "bare-test-plugin"
+
+        def events(self, source, ts_from=None, ts_to=None):  # pragma: no cover
+            return iter(())
+
+    assert "plugin-defined" in Bare.config_schema()["properties"]["source"]["description"]
+
+
+def test_the_cli_verb_prints_the_listing_as_json(capsys):
+    assert cli.main(["plugins"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"plugins": list_plugins()}

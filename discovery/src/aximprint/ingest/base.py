@@ -31,10 +31,66 @@ def get_plugin(name: str) -> "IngestPlugin":
         raise KeyError(f"no ingest plugin '{name}'; available: {sorted(_REGISTRY)}") from None
 
 
+def list_plugins() -> list[dict]:
+    """Every registered plugin with its declared run-config schema, name-sorted.
+
+    The one listing the control-plane API (`axrange` `GET /api/discovery/plugins`)
+    reads, through `aximprint plugins`. An empty registry lists as `[]`, not as an
+    error: "no plugin installed" is a real state of a stripped install.
+    """
+    return [{"name": name, "config_schema": cls.config_schema()}
+            for name, cls in sorted(_REGISTRY.items())]
+
+
+#: The run options every plugin's `ingest` accepts, mirroring the `aximprint ingest`
+#: flags that are not plugin-specific. Spelled once so the CLI, the schema a plugin
+#: declares and the API's refusal name the same keys.
+RUN_OPTION_SCHEMA: dict = {
+    "ts_from": {"type": "number", "description": "epoch seconds, inclusive; needs a "
+                                                 "source with a partition index"},
+    "ts_to": {"type": "number", "description": "epoch seconds, exclusive; needs a "
+                                               "source with a partition index"},
+    "vantage": {"type": "string", "description": "where the tap sat, for a capture "
+                                                 "with no harvest manifest"},
+    "network": {"type": "string", "description": "which network the capture is OF "
+                                                 "(operator-declared)"},
+    "window": {"type": "integer", "description": "window seconds (default 3600)"},
+    "subbuckets": {"type": "integer", "description": "sub-buckets per window "
+                                                     "(default 12)"},
+}
+
+
 class IngestPlugin(ABC):
     """Contract: parse a sensor source and yield normalized events, roughly time-ordered."""
 
     name: str = ""
+
+    #: What this plugin's `source` locator IS, in one line -- the only plugin-specific
+    #: part of the run config a caller has to get right. Published through
+    #: `config_schema()`; a plugin that leaves it empty publishes the contract's generic
+    #: wording, which is honest but unhelpful, so every shipped plugin sets it.
+    source_help: str = ""
+
+    @classmethod
+    def config_schema(cls) -> dict:
+        """The JSON-schema-shaped description of ONE run's config for this plugin:
+        `source` (required, plugin-defined locator) plus the shared run options
+        (`RUN_OPTION_SCHEMA`). Closed (`additionalProperties: false`) so a caller
+        passing a key no run honors is refused by name rather than silently ignored
+        (CONVENTIONS §3)."""
+        return {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": cls.source_help
+                    or "plugin source (a directory, file, or plugin-defined locator)",
+                },
+                **{k: dict(v) for k, v in RUN_OPTION_SCHEMA.items()},
+            },
+            "required": ["source"],
+            "additionalProperties": False,
+        }
 
     #: This run's source-level "present but not parsed" inventory: name -> count, in
     #: whatever unit the transport counts (a zeek stem -> file/partition count, e.g.).

@@ -262,6 +262,7 @@ class AxQueryPlugin(IngestPlugin):
     """Adapt one axquery instance to the normalized event model."""
 
     name = "axquery"
+    source_help = "an axquery instance, addressed as 'axquery:<base-url>'"
 
     #: Endpoints this build reads. Anything the server offers that is not here and not in
     #: `_DECLINED` is reported by `unrecognized_stems` — the same positive-gate discipline the

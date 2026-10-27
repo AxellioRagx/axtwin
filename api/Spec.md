@@ -11,10 +11,13 @@ seam id (A1–A6) and defines no endpoint of its own.
 
 Direction (agreed 2026-10-20): the API is engine-internal today (it imports the
 planner, twinconfig and o2control layers and reaches `discovery/` only by
-running the `aximprint` binary). It becomes genuinely shared the moment A1
-lands, since that seam imports `aximprint` directly. After A1 the API moves out
-of `engine/` into its own package under this folder, depending on both
-`axrange` and `aximprint`. Two prerequisites are tracked under **Notes**.
+running the `aximprint` binary). A1 landed the same way — four `aximprint`
+verbs as subprocesses — so the engine still imports nothing from `aximprint`
+and the one-way boundary holds. The API moves out of `engine/` into its own
+package under this folder, depending on both `axrange` and `aximprint`, when a
+seam needs an in-process call (plugin schemas without a fork, run records that
+outlive the process); nothing forces it yet. The two layering prerequisites
+under **Notes** are done.
 
 ## Seam
 
@@ -23,6 +26,7 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 that is **not** listed under a seam below already exists:
 
 `GET /api/pcaps`, `GET /api/imprints[/{id}]`, `GET /api/imprints/{id}/cast`,
+`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs/{id}` (A1, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
 `GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `POST /api/validate`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
@@ -32,17 +36,30 @@ that is **not** listed under a seam below already exists:
 The new seams, each a thin layer over working engine code, in critical-path
 order:
 
-**A1 — discovery runs** (root `CLAUDE.md` critical path 1; replaces the fixture
-imprint reader in `api/imprints.py`).
+**A1 — discovery runs** (root `CLAUDE.md` critical path 1). **Built 2026-10-20**
+(`engine/src/axrange/api/discovery.py`, tests `engine/tests/test_api_discovery.py`).
 - `GET /api/discovery/plugins` — the installed `IngestPlugin`s (`discovery/`
-  `aximprint.ingest.base`) with each one's declared config schema.
-- `POST /api/discovery/runs` — start a real discovery from one plugin + config:
-  `ingest` → `materialize` → `cast` → an imprint in the catalog. Returns a run id.
-- `GET /api/discovery/runs/{id}` — status (`queued|running|completed|failed`),
-  the error if failed, the imprint id if completed.
-- An unrecognized plugin or an invalid config is refused at POST with the reason
-  named (fail-loud, no silent default). No continuous mode: nothing in
-  `discovery/` implements one; if wanted it is a discovery spec first.
+  `aximprint.ingest.base`) with each one's declared `config_schema` (closed:
+  `source` required, plus the shared run options `ts_from`, `ts_to`, `vantage`,
+  `network`, `window`, `subbuckets`). Read through `aximprint plugins`.
+- `POST /api/discovery/runs` `{plugin, config, imprint_id, sensors?}` — start a
+  real discovery: `ingest` → `materialize` → `cast` → `install-cast`, landing
+  `<AXRANGE_IMPRINTS_DIR>/<imprint_id>/` as a cast bundle the imprint routes
+  read. Returns `202` with the run record at once; the chain runs in a thread.
+- `GET /api/discovery/runs/{id}` — `status` (`queued|running|completed|failed`),
+  `stages_done`, the `error` if failed, the `pit_id` if completed. The imprint
+  id is the one the caller chose, so it resolves through `GET /api/imprints/{id}`.
+- Refused at POST, nothing written: an unknown plugin (the known ones named), a
+  config the plugin's schema rejects (every problem named), an unsafe imprint
+  id, an id already in the catalog (`409`, never overwritten), an id another
+  run is still writing. A failed chain removes its own half-written bundle.
+- A `source` is **sensor metadata** (a Zeek log tree, an `eve.json`, an
+  `axquery:` locator), not a pcap: nothing in `discovery/` reads packets. The
+  loop's "feed a pcap" step is the sensor's job (`aximprint acquire` for an
+  axapi appliance). No continuous mode: nothing in `discovery/` implements
+  one; if wanted it is a discovery spec first.
+- Run records are in-memory for the life of `axrange serve`; nothing reads
+  them after a restart today.
 
 **A2 — per-deploy working copy** (the edit model, below).
 - `GET /api/deploys/{id}/config` — the working copy (the baseline's content
@@ -118,10 +135,14 @@ reset-to-baseline. It stays as is, behind the console's provenance view.
 
 ## Config
 
-No new config for A2–A6. A1 reuses the two existing settings that already name
+No new config for A2–A6. A1 reuses the existing settings that already name
 the discovery side (`AXRANGE_AXIMPRINT_BIN`, `AXRANGE_AXIMPRINT_STORE`, spelled
-in `api/recompile.py`) until the API imports `aximprint` directly, at which
-point `BIN` goes away and `STORE` stays. `AXRANGE_SPA_DIR` co-serve is already
+in `api/recompile.py`, and `AXRANGE_IMPRINTS_DIR`, which a run must have set
+so it never writes into the package's fixture directory) until the API imports
+`aximprint` directly, at which point `BIN` goes away and the others stay. A
+run's belief store lands beside the IR store as `<imprint_id>.belief.duckdb`;
+`materialize` runs with `--replace` because the IR store is the API's own
+working store and nothing in the API compares PITs. `AXRANGE_SPA_DIR` co-serve is already
 wired. Writes stay behind `AXRANGE_API_TOKEN` exactly like the existing deploy
 writes; every new POST/PUT/DELETE above is token-gated.
 
@@ -132,8 +153,9 @@ state DB and the fake adapter, unless marked **(live)**.
 
 - A1.1 `GET /api/discovery/plugins` lists every installed `IngestPlugin` with a
   schema; an environment with zero plugins returns an empty list, not an error.
-- A1.2 `POST /api/discovery/runs` with a pcap source reaches `completed` and the
-  imprint id it reports resolves through `GET /api/imprints/{id}`.
+- A1.2 `POST /api/discovery/runs` with a Zeek-log source reaches `completed`
+  (the real `aximprint` chain, on a synthetic capture) and the imprint id it
+  reports resolves through `GET /api/imprints/{id}`.
 - A1.3 An unknown plugin or an invalid config is refused at POST with the reason
   named; nothing is written to the catalog.
 - A2.1 A fresh deploy's `GET .../config` equals its baseline and is not dirty.

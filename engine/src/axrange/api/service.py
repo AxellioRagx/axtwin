@@ -3360,6 +3360,141 @@ def twin_config_detail(settings: ApiSettings, config_id: str) -> dtos.TwinConfig
 # /api/imprints`, `GET /api/imprints/{imprint_id}`, `GET /api/imprints/
 # {imprint_id}/provenance`.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Discovery runs (`api/Spec.md` A1) -- the ingest -> materialize -> cast ->
+# install chain over `aximprint`'s CLI (`axrange.api.discovery`). The
+# engine never imports `aximprint`; `backend` is the seam.
+# ---------------------------------------------------------------------------
+def _discovery_backend(settings: ApiSettings, backend: Any):
+    from axrange.api import discovery as disc
+
+    if backend is not None:
+        return backend
+    missing = disc.unset_settings(settings)
+    if missing is not None:
+        raise ApiError(
+            503, f"discovery is not configured: {missing} is unset",
+            detail={"setting": missing},
+        )
+    return disc.SubprocessDiscovery(
+        settings.aximprint_bin, timeout_s=settings.aximprint_timeout_s,
+    )
+
+
+def _discovery_plugins(backend: Any) -> list[dict[str, Any]]:
+    from axrange.api import discovery as disc
+
+    try:
+        return backend.list_plugins()
+    except disc.DiscoveryUnavailableError as e:
+        raise ApiError(503, str(e)) from e
+    except disc.DiscoveryError as e:
+        raise ApiError(502, str(e)) from e
+
+
+def list_discovery_plugins(settings: ApiSettings, *, backend: Any = None) -> dtos.DiscoveryPluginListDTO:
+    """A1.1: every installed `IngestPlugin` with its schema; a stripped
+    install with none lists `[]`."""
+    plugins = _discovery_plugins(_discovery_backend(settings, backend))
+    return dtos.DiscoveryPluginListDTO(
+        plugins=[
+            dtos.DiscoveryPluginDTO(
+                name=str(p.get("name", "")), config_schema=dict(p.get("config_schema") or {}),
+            )
+            for p in plugins
+        ]
+    )
+
+
+def _iso(ts: Optional[float]) -> Optional[str]:
+    import datetime as _dt
+
+    if ts is None:
+        return None
+    return _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
+    from axrange.api import discovery as disc
+
+    return dtos.DiscoveryRunDTO(
+        id=run.id, status=run.status, plugin=run.plugin, imprint_id=run.imprint_id,
+        stages_done=list(run.stages_done), stages=list(disc.STAGES),
+        pit_id=run.pit_id, error=run.error,
+        created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
+    )
+
+
+def create_discovery_run(
+    settings: ApiSettings, req: dtos.DiscoveryRunRequest, *, runs: Any,
+    backend: Any = None,
+    background: Callable[[Callable[[], None]], None] | None = None,
+) -> dtos.DiscoveryRunDTO:
+    """A1.2/A1.3: refuse everything refusable BEFORE a stage runs -- an
+    unknown plugin, a config the plugin's schema rejects, an imprint id that
+    is unsafe, already in the catalog, or already being written by another
+    run -- so a refused POST has written nothing. Then queue the chain in
+    the background (a daemon thread; tests pass a synchronous runner) and
+    return the run record at once."""
+    from axrange.api import discovery as disc
+    from axrange.api.imprints import is_safe_catalog_id
+
+    be = _discovery_backend(settings, backend)
+    plugins = {str(p.get("name")): p for p in _discovery_plugins(be)}
+    if req.plugin not in plugins:
+        raise ApiError(
+            400, f"unknown discovery plugin {req.plugin!r}",
+            detail={"plugins": sorted(plugins)},
+        )
+    problems = disc.check_config(dict(plugins[req.plugin].get("config_schema") or {}), req.config)
+    if problems:
+        raise ApiError(
+            400, f"config rejected by plugin {req.plugin!r}'s schema: " + "; ".join(problems),
+            detail={"problems": problems},
+        )
+    if not is_safe_catalog_id(req.imprint_id):
+        raise ApiError(400, f"imprint_id {req.imprint_id!r} is not a usable catalog id")
+    for name in req.sensors:
+        if not isinstance(name, str) or not name.strip():
+            raise ApiError(400, "sensors must be non-empty names")
+    catalog_root = Path(settings.imprints_dir)
+    if (catalog_root / req.imprint_id).exists():
+        raise ApiError(
+            409, f"imprint {req.imprint_id!r} already exists in {catalog_root}; "
+            "a discovery run never overwrites a bundle -- choose another id",
+        )
+    if req.imprint_id in runs.active_imprint_ids():
+        raise ApiError(409, f"a discovery run for imprint {req.imprint_id!r} is already in progress")
+
+    import tempfile
+
+    ir_store = Path(settings.aximprint_store)
+    belief_store = ir_store.parent / f"{req.imprint_id}.belief.duckdb"
+    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.imprint_id}-"))
+    request = disc.DiscoveryRunRequest(
+        plugin=req.plugin, config=dict(req.config), imprint_id=req.imprint_id,
+        belief_store=belief_store, ir_store=ir_store, scratch_dir=scratch,
+        catalog_root=catalog_root, sensors=[s.strip() for s in req.sensors],
+    )
+    run = runs.new(req.plugin, req.imprint_id, req.config)
+
+    def _job() -> None:
+        disc.execute_run(runs, run.id, be, request)
+
+    if background is not None:
+        background(_job)
+    else:
+        threading.Thread(target=_job, name=f"discovery-{run.id}", daemon=True).start()
+    return _discovery_run_dto(runs.snapshot(run.id))
+
+
+def discovery_run_detail(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
+    run = runs.snapshot(run_id)
+    if run is None:
+        raise ApiError(404, f"no discovery run {run_id!r}")
+    return _discovery_run_dto(run)
+
+
 def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
     """The tolerant catalog listing, WITH what it could not publish (S5).
 

@@ -1159,6 +1159,8 @@ def _in_order(events: Iterator[Event], stem: str, horizon: float, max_rows: int,
 @register
 class ZeekPlugin(IngestPlugin):
     name = "zeek"
+    source_help = ("a Zeek log directory or file -- flat, or a tree of per-window log "
+                   "dirs -- or 'parquet:<archive root>' for a metadata archive")
 
     #: how far back the in-file reorder can repair disorder — the actual guarantee
     reorder_horizon_seconds: float = REORDER_HORIZON_SECONDS

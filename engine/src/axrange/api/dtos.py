@@ -471,6 +471,48 @@ class TargetListDTO(BaseModel):
 # brief leaves the home open). We expose a list endpoint that is honest about
 # being unimplemented rather than 404, so the UI can detect the capability.
 # --------------------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Discovery runs (`api/Spec.md` A1): `GET /api/discovery/plugins`,
+# `POST /api/discovery/runs`, `GET /api/discovery/runs/{id}`.
+# --------------------------------------------------------------------------
+class DiscoveryPluginDTO(BaseModel):
+    name: str
+    # The plugin's own declared run-config schema (JSON-schema shaped; closed).
+    # What `POST /api/discovery/runs` validates `config` against.
+    config_schema: dict[str, Any]
+
+
+class DiscoveryPluginListDTO(BaseModel):
+    plugins: list[DiscoveryPluginDTO]
+
+
+class DiscoveryRunRequest(BaseModel):
+    # An installed plugin name (`GET /api/discovery/plugins`).
+    plugin: str
+    # Validated against that plugin's `config_schema`; `source` is required.
+    config: dict[str, Any]
+    # The stable catalog id the imprint is installed under. Refused if a
+    # bundle of that id already exists -- never overwritten.
+    imprint_id: str
+    # o2/external sensor name(s) to fill into every tap binding at install
+    # time; empty leaves `sensors:` absent (what `tap deploy` refuses).
+    sensors: list[str] = []
+
+
+class DiscoveryRunDTO(BaseModel):
+    id: str
+    status: str  # queued | running | completed | failed
+    plugin: str
+    imprint_id: str
+    # The four stages in order; the ones that have finished.
+    stages_done: list[str]
+    stages: list[str]
+    pit_id: Optional[str] = None
+    error: Optional[str] = None
+    created_at: str
+    finished_at: Optional[str] = None
+
+
 class PcapListDTO(BaseModel):
     pcaps: list[dict[str, Any]]
     implemented: bool
