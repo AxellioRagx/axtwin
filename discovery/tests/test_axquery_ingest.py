@@ -333,7 +333,7 @@ def test_page_rows_exceeds_observed_peak_concurrency():
     get under. Measured at the second that first hit it: 525 overlapping, 101 actually starting.
     A four-hour read failed at 500 and succeeds at 5,000.
     """
-    assert PAGE_ROWS >= 5000, "must stay above measured peak concurrency (525) with headroom"
+    assert PAGE_ROWS >= 20000, "must stay above the measured peak (5,148 at one second, 2026-10-27) with headroom"
 
 
 def test_the_floor_error_says_narrowing_will_not_help(monkeypatch):

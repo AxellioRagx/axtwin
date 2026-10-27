@@ -30,7 +30,8 @@ because it will be believed. -->
   2026-10-20 layout moves (`test/fixtures/realBundles.ts` line 26 and
   `test/helpers/jsonschema.ts` open `twins/` and `axrange/api/schemas/`, now
   `catalog/twins/` and `engine/src/axrange/api/schemas/`); not fixed, it is frozen.
-- **Live:** `axrange serve` is running on `127.0.0.1:8080` with `--spa-dir ui/dist`,
+- **Live:** `axrange serve` is running on `0.0.0.0:8080` (console reachable from other
+  hosts at `http://10.80.72.52:8080/`; firewalld is inactive on this node) with `--spa-dir ui/dist`,
   `AXRANGE_IMPRINTS_DIR=catalog/twins`, `AXRANGE_AXIMPRINT_STORE=~/.axrange/discovery/ir.duckdb`,
   `AXRANGE_DISCOVERY_TIMEOUT_S=172800`, token from `~/.axrange/api-token` (0600, generated
   this session; the user's own `AXRANGE_API_TOKEN` was not used). Log: `~/.axrange/serve-8080.log`.
@@ -41,21 +42,27 @@ because it will be believed. -->
   `axellio-hq/corp-apcn-rdr1` (12 streams), 2026-09-06 19:30 → 2026-10-06 19:30 UTC. It is
   **not** the two 20-hour-old test instances on `:26244`/`:26756` (a 2023 golden dataset),
   and nothing was started or written on the appliance.
-- **The ten-day run `disc-ef9ad362`** (imprint `corp-apcn-10d`, window 2026-09-26 19:30 →
-  2026-10-06 19:30 UTC, `network=corp-apcn`) started 2026-10-27 16:03 UTC and was still in
-  `ingest` at handoff time; a one-hour slice took 4.5 min end to end, so expect the order of
-  a day. It lands in `catalog/twins/corp-apcn-10d/` (inside the checkout, uncommitted) with
-  the belief store at `~/.axrange/discovery/corp-apcn-10d.belief.duckdb`. Watch it at
-  `http://127.0.0.1:8080/discovery/runs/disc-ef9ad362` or
-  `curl :8080/api/discovery/runs/disc-ef9ad362`. If `axrange serve` is restarted the run
+- **The ten-day run.** The first attempt (`disc-ef9ad362`, started 2026-10-27 16:03 UTC)
+  **failed after 15 min** in `ingest`: the one-second leaf `[1790496071, 1790496072)` held
+  5,148 rows against a 5,000-row page cap (4,641 of them one host's port sweep starting in
+  the next second; the server's `before` is inclusive at second granularity). `PAGE_ROWS` in
+  `discovery/src/aximprint/ingest/axquery/sources.py` was raised 5,000 → 20,000 with the
+  measurement recorded in its comment, and the one-hour window re-cast to the same 249 hosts /
+  42 segments at both values. The second attempt **`disc-4a1314cc`** (imprint `corp-apcn-10d`,
+  window 2026-09-26 19:30 → 2026-10-06 19:30 UTC, `network=corp-apcn`) started 2026-10-27
+  20:55 UTC; a one-hour slice takes ~4 min end to end, so expect the order of a day. It lands
+  in `catalog/twins/corp-apcn-10d/` (inside the checkout, uncommitted) with the belief store at
+  `~/.axrange/discovery/corp-apcn-10d.belief.duckdb`. Watch it at
+  `http://10.80.72.52:8080/discovery/runs/disc-4a1314cc` or
+  `curl :8080/api/discovery/runs/disc-4a1314cc`. If `axrange serve` is restarted the run
   record is lost (in-memory) and the subprocess is orphaned: check `pgrep -af "aximprint ingest"`
-  first.
+  first. A second over the 20,000 cap anywhere in the ten days fails the run the same way.
 - **dev45 environment:** unverified since 2026-10-05 (`corp-twin-3dae3188` and its tap/tfc);
   do not destroy anything there without asking.
 
 ## Next steps (ordered)
 
-1. When `disc-ef9ad362` completes: open `/imprints/corp-apcn-10d`, review the bundle, decide
+1. When `disc-4a1314cc` completes: open `/imprints/corp-apcn-10d`, review the bundle, decide
    whether `catalog/twins/corp-apcn-10d/` is committed. If it failed, the record's `error`
    has the stage and aximprint's stderr tail.
 2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three

@@ -52,7 +52,19 @@ from typing import Any, Iterator, Optional
 #: (events, resolver state, **code build**), and this constant is part of the build; two runs at
 #: one value are byte-identical (verified). But changing it CHANGES THE DATA, so treat it like a
 #: parser change and re-measure, never as a tuning dial.
-PAGE_ROWS = 5000
+#:
+#: Raised 5,000 -> 20,000 on 2026-10-27 after a ten-day CorpAPCN read (the appliance's own
+#: axquery, 12 streams) hit the floor at `[1790496071, 1790496072)`: **5,148 rows**, of which
+#: 4,641 were one host's port sweep starting in the NEXT second. Two things measured there:
+#: (1) the server's `before` is inclusive at second granularity, so a one-second leaf also
+#: carries the following second's starts (the own-start filter below drops them, but they count
+#: against the page), which puts the floor at concurrency PLUS one second of starts; (2) on that
+#: bounded window `limit=20000` and `limit=60000` both returned the identical 5,148 rows in
+#: 3.6 MB, sub-second — the cap costs nothing when the window is small, as before. 20,000 is
+#: ~4x that peak. Re-measured: the one-hour window `[1791311436, 1791315037)` casts to the same
+#: 249 hosts / 42 segments at 5,000 and at 20,000 (no leaf in it was ever full, so no page was
+#: ever merge-so-far at either value).
+PAGE_ROWS = 20000
 
 #: Wall-clock per request. A cold-chunk fault can be slow; a hang must not be forever.
 TIMEOUT_SECONDS = 120
@@ -62,7 +74,7 @@ TIMEOUT_SECONDS = 120
 #: possibility on a 12-stream tap and the operator needs to know, not get a prefix.
 MIN_BISECT_SECONDS = 1.0
 
-#: Hard stop on pages per (endpoint, window). At PAGE_ROWS this is 5 M rows in one window,
+#: Hard stop on pages per (endpoint, window). At PAGE_ROWS this is 200 M rows in one window,
 #: far past anything real — a runaway-cursor backstop, not a coverage limit. Hitting it is
 #: reported, never silent (`LES-006`: a truncation nobody can see reads as completeness).
 MAX_PAGES = 10_000
