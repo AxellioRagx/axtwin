@@ -72,7 +72,7 @@ export function ImprintPage() {
             </>
           ) : null}
           <p className="muted">
-            The bundle is installed in the catalog; the twin tiers read it from there. <Link to="/discovery/runs">Back to runs</Link>
+            The bundle is installed in the catalog; the twin tiers read it from there. <Link to="/imprints">All imprints</Link>
           </p>
         </div>
       ) : null}

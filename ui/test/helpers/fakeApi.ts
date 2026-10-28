@@ -86,6 +86,8 @@ export interface FakeState {
   sources: DiscoverySource[];
   runs: DiscoveryRun[];
   imprints: Record<string, ImprintSummary>;
+  /** Catalog folders the listing reports as unreadable. */
+  skippedImprints: Array<{ id: string; reason: string }>;
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
@@ -100,6 +102,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     sources: [],
     runs: [],
     imprints: {},
+    skippedImprints: [],
     writes: [],
     refuse: {},
     runSteps: [],
@@ -227,6 +230,23 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const step = state.runSteps.shift();
       if (step) Object.assign(r, step);
       return { ...r, stages_done: [...r.stages_done] };
+    },
+    async listImprints() {
+      return {
+        imprints: Object.values(state.imprints).map((i) => ({
+          id: i.id,
+          hosts: i.hosts,
+          segments: i.segments,
+          as_of: i.as_of,
+          mean_confidence: i.mean_confidence,
+          has_provenance: true,
+          confidence_source: "canonical sidecar (2/3 fields)",
+          has_topology_export: true,
+          can_apply: true,
+          apply_blocked_reason: null,
+        })),
+        skipped: [...state.skippedImprints],
+      };
     },
     async getImprint(id) {
       const i = state.imprints[id];

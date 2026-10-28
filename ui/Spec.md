@@ -136,6 +136,12 @@ its listed tests pass. T0.x is the release gate for UI v0.
   runs table carries the same as an icon per row (× cancel, bin delete), the
   row leaving once the delete is accepted. Deleting forgets the record only;
   the imprint stays. *(`run.page.test.tsx`.)*
+- C1.13 (auto) The top bar has Discovery, with Sources and Runs as a
+  sub-menu shown while in that area, and Imprints. The Imprints page lists
+  every bundle in the catalog with as-of, hosts, segments, mean confidence
+  (its source on hover), the newest run this API process ran for that id
+  with its status and PIT, whether apply is possible, and the folders the
+  listing could not read with the reason. *(`imprints.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

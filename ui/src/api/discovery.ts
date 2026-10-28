@@ -5,6 +5,7 @@ import type {
   DiscoveryRunList,
   DiscoverySource,
   DiscoverySourceList,
+  ImprintList,
   ImprintSummary,
   ProbeResult,
   SourceRunRequest,
@@ -27,6 +28,7 @@ export interface Api {
   cancelRun(id: string): Promise<DiscoveryRun>;
   /** Forget a finished run's record; the imprint it installed stays. */
   deleteRun(id: string): Promise<void>;
+  listImprints(signal?: AbortSignal): Promise<ImprintList>;
   getImprint(id: string, signal?: AbortSignal): Promise<ImprintSummary>;
 }
 
@@ -46,6 +48,7 @@ export function makeApi(request: Requester): Api {
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),
     cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, { auth: true }),
     deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, { auth: true }),
+    listImprints: (signal) => request("GET", "/api/imprints", { signal }),
     getImprint: (id, signal) => request("GET", `/api/imprints/${enc(id)}`, { signal }),
   };
 }

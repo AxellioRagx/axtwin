@@ -8,6 +8,7 @@ import { SourceEditor } from "./areas/discovery/SourceEditor";
 import { SourcePage } from "./areas/discovery/SourcePage";
 import { SourcesPage } from "./areas/discovery/SourcesPage";
 import { ImprintPage } from "./areas/imprints/ImprintPage";
+import { ImprintsPage } from "./areas/imprints/ImprintsPage";
 import { AppFrame } from "./areas/shell/AppFrame";
 
 /** The routes. The router itself is supplied by the caller (`BrowserRouter` in
@@ -24,6 +25,7 @@ export function App({ api }: { api: Api }) {
           <Route path="/discovery/sources/:id/edit" element={<SourceEditor />} />
           <Route path="/discovery/runs" element={<RunsPage />} />
           <Route path="/discovery/runs/:id" element={<RunPage />} />
+          <Route path="/imprints" element={<ImprintsPage />} />
           <Route path="/imprints/:id" element={<ImprintPage />} />
           <Route path="*" element={<Navigate to="/discovery" replace />} />
         </Route>

@@ -146,6 +146,27 @@ export interface ImprintSegment {
   [k: string]: unknown;
 }
 
+/** One row of `GET /api/imprints`: the bundle's structure and where its
+ *  confidence came from. */
+export interface ImprintListItem {
+  id: string;
+  hosts: number;
+  segments: number;
+  as_of: string;
+  mean_confidence: number;
+  has_provenance: boolean;
+  confidence_source: string;
+  has_topology_export: boolean;
+  can_apply: boolean;
+  apply_blocked_reason: string | null;
+}
+
+export interface ImprintList {
+  imprints: ImprintListItem[];
+  /** Catalog folders the listing could not read, with the reason. */
+  skipped: Array<{ id: string; reason: string }>;
+}
+
 export interface ImprintSummary {
   id: string;
   as_of: string;
