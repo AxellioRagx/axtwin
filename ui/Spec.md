@@ -122,6 +122,10 @@ its listed tests pass. T0.x is the release gate for UI v0.
   confirmation; the badge reads `cancelling` from the request until the next
   poll finds the stage dead, then `cancelled` with what was cleaned up. A
   finished run offers no cancel. *(`run.page.test.tsx`.)*
+- C1.10 (auto) The stage a failed run died in is red; the ones it never reached
+  stay plain. A completed run offers its imprint only after the catalog
+  confirms the bundle is there; a bundle removed since says so, with no link.
+  *(`run.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

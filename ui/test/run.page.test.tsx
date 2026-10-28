@@ -79,8 +79,29 @@ describe("the run page", () => {
     expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
   }, 10000);
 
-  it("offers no cancel on a finished run", async () => {
+  it("marks the stage a failed run died in red, the unreached ones plain", async () => {
+    const { api } = fakeApi({ runs: [running({ status: "failed", stages_done: ["ingest", "materialize"], error: "cast failed (exit 1): boom", finished_at: "2026-10-28T12:00:00Z" })] });
+    renderAt(api, "/discovery/runs/disc-7");
+    await screen.findByRole("alert");
+    expect(screen.getByText("ingest").className).toBe("done");
+    expect(screen.getByText("materialize").className).toBe("done");
+    expect(screen.getByText("cast").className).toBe("failed");
+    expect(screen.getByText("install").className).toBe("");
+  });
+
+  it("a completed run whose bundle is gone says so instead of linking to nothing", async () => {
     const { api } = fakeApi({ runs: [running({ status: "completed", stages_done: ["ingest", "materialize", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" })] });
+    renderAt(api, "/discovery/runs/disc-7");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Imprint corp-apcn-10d is no longer in the catalog");
+    expect(screen.queryByTestId("open-imprint")).toBeNull();
+  });
+
+  it("offers no cancel on a finished run", async () => {
+    const { api } = fakeApi({
+      runs: [running({ status: "completed", stages_done: ["ingest", "materialize", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
+      imprints: { "corp-apcn-10d": { id: "corp-apcn-10d", as_of: "2026-10-06T19:00:00Z", hosts: 1, segments: 1, services: 0, personas: 0, mean_confidence: 0.5, windows: 1, topology_segments: [] } },
+    });
     renderAt(api, "/discovery/runs/disc-7");
     await screen.findByTestId("open-imprint");
     expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();

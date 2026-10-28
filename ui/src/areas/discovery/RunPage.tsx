@@ -5,6 +5,8 @@ import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
 import { formatDuration, formatIso, formatTs, runProgress } from "../../model/sources";
 import { ErrorLine, StatusBadge } from "../shell/parts";
+import { useLoad } from "../shell/useLoad";
+import { ApiError } from "../../api/client";
 
 export const POLL_MS = 2000;
 
@@ -46,6 +48,8 @@ export function RunPage() {
   const endMs = run?.finished_at ? Date.parse(run.finished_at) : now;
   const elapsed = Number.isFinite(startedMs) ? (endMs - startedMs) / 1000 : NaN;
   const activeStage = run ? run.stages.find((s) => !run.stages_done.includes(s)) : undefined;
+  // The stage a failed run died in is the first one it never finished.
+  const failedStage = run?.status === "failed" ? activeStage : undefined;
 
   return (
     <>
@@ -90,7 +94,10 @@ export function RunPage() {
             {progress ? <ProgressBar run={run} progress={progress} active={!!active} /> : null}
             <ul className="stages" aria-label="Stages">
               {run.stages.map((s) => (
-                <li key={s} className={run.stages_done.includes(s) ? "done" : s === activeStage && active ? "active" : ""}>
+                <li
+                  key={s}
+                  className={run.stages_done.includes(s) ? "done" : s === failedStage ? "failed" : s === activeStage && active ? "active" : ""}
+                >
                   {s}
                 </li>
               ))}
@@ -104,14 +111,7 @@ export function RunPage() {
             {run.status === "cancelled" ? (
               <div className="notice muted-notice">Cancelled; the partial bundle and belief store were removed and the imprint id is free again.</div>
             ) : null}
-            {run.status === "completed" ? (
-              <div className="notice">
-                Completed; PIT <code>{run.pit_id}</code>.{" "}
-                <Link to={`/imprints/${encodeURIComponent(run.imprint_id)}`} data-testid="open-imprint">
-                  Open imprint {run.imprint_id}
-                </Link>
-              </div>
-            ) : null}
+            {run.status === "completed" ? <CompletedNotice run={run} /> : null}
           </div>
         </>
       ) : !error ? (
@@ -192,6 +192,31 @@ function CancelButton({ run, onCancelled }: { run: DiscoveryRun; onCancelled: (r
         </button>
       )}
       <ErrorLine error={error} prefix="could not cancel" />
+    </div>
+  );
+}
+
+/** A completed run offers its imprint only after checking the bundle is still in the
+ *  catalog: the run record outlives a bundle someone removed, and a link to nothing
+ *  is worse than saying so. */
+function CompletedNotice({ run }: { run: DiscoveryRun }) {
+  const api = useApi();
+  const imprint = useLoad((signal) => api.getImprint(run.imprint_id, signal), [run.imprint_id]);
+  const gone = imprint.error instanceof ApiError && imprint.error.kind === "not-found";
+  return (
+    <div className={gone ? "error" : "notice"} role={gone ? "alert" : undefined}>
+      Completed; PIT <code>{run.pit_id}</code>.{" "}
+      {gone ? (
+        <>Imprint {run.imprint_id} is no longer in the catalog (the bundle was removed after this run).</>
+      ) : imprint.data ? (
+        <Link to={`/imprints/${encodeURIComponent(run.imprint_id)}`} data-testid="open-imprint">
+          Open imprint {run.imprint_id}
+        </Link>
+      ) : imprint.error ? (
+        <span className="muted">could not check the imprint: {String((imprint.error as Error).message ?? imprint.error)}</span>
+      ) : (
+        <span className="muted">checking the catalog…</span>
+      )}
     </div>
   );
 }

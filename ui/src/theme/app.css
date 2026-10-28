@@ -118,6 +118,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 .stages li { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
 .stages li.done { color: var(--ok); border-color: var(--ok); }
 .stages li.active { color: var(--warn); border-color: var(--warn); }
+.stages li.failed { color: var(--bad); border-color: var(--bad); }
 table.list { width: 100%; border-collapse: collapse; }
 table.list th, table.list td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.list th { color: var(--muted); font-weight: 600; }
