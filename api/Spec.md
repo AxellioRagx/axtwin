@@ -25,7 +25,7 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 (taps renamed from `/api/o2/taps` on 2026-10-20). Everything the console uses
 that is **not** listed under a seam below already exists:
 
-`GET /api/pcaps`, `GET /api/imprints[/{id}]`, `DELETE /api/imprints/{id}`, `GET /api/imprints/{id}/cast`,
+`GET /api/pcaps`, `GET /api/twins[/{id}]`, `DELETE /api/twins/{id}`, `GET /api/twins/{id}/cast`, `GET /api/imprints[/{pit}]`, `PATCH|DELETE /api/imprints/{pit}`, `POST /api/imprints/{pit}/copy|cast`, `GET|PUT /api/imprints/{pit}/assertions`,
 `GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel`, `DELETE /api/discovery/runs/{id}` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
@@ -44,51 +44,84 @@ order:
   `aximprint.ingest.base`) with each one's declared `config_schema` (closed:
   `source` required, plus the shared run options `ts_from`, `ts_to`, `vantage`,
   `network`, `window`, `subbuckets`). Read through `aximprint plugins`.
-- `POST /api/discovery/runs` `{plugin, config, imprint_id, sensors?}` — start a
-  real discovery: `ingest` → `bake` → `cast` → `install-cast`, landing
-  `<AXRANGE_IMPRINTS_DIR>/<imprint_id>/` as a cast bundle the imprint routes
-  read. Returns `202` with the run record at once; the chain runs in a thread.
+- `POST /api/discovery/runs` `{plugin, config, name}` (`imprint_id` accepted as
+  the old spelling) — start a real discovery: `ingest` → `bake`, producing an
+  **imprint**: a PIT named `name` in the API's IR store
+  (`docs/design/imprint-twin-split.md`). Nothing lands in the catalog; casting
+  the imprint into a twin is its own action below. Returns `202` with the run
+  record at once; the chain runs in a thread. Refused at POST if an imprint of
+  that name exists or another run is baking it.
 - `GET /api/discovery/runs/{id}` — `status`
   (`queued|running|completed|failed|cancelled`), `stages_done`, the `error` if
   failed, the `pit_id` and `pit_name` if completed (the id is the PIT's
   identity, a hash of source and bounds; the name its label, the id until
-  renamed). The imprint id is the one the caller
-  chose, so it resolves through `GET /api/imprints/{id}`. While `ingest` runs,
+  renamed). The imprint resolves through `GET /api/imprints/{pit}` by id or
+  name. While `ingest` runs,
   `progress_ts` is the source time it has reached (the end of the last window
   it closed, read from the subprocess's own `window <start>:` lines as they
   arrive) and `progress_at` when it said so; both null before the first window.
 - `POST /api/discovery/runs/{id}/cancel` (token, `202`) — stop a queued or
   running run: the current stage's process group is killed (SIGTERM, SIGKILL
-  after 5 s), the half-written bundle and the run's belief store are removed,
-  the record turns `cancelled` and the imprint id is free again. The response
+  after 5 s), the run's belief store is removed, the record turns `cancelled`
+  and the imprint name is free again. The response
   carries `cancel_requested_at`; the status turns when the stage is dead
   (poll). A finished run is `409` naming its status; unknown is `404`.
 - `DELETE /api/discovery/runs/{id}` (token, `204`) — forget a finished run's
-  record. The imprint it installed stays in the catalog. A queued or running
-  run is `409` pointing at cancel; unknown is `404`.
+  record. The imprint it baked stays. A queued or running run is `409`
+  pointing at cancel; unknown is `404`.
 - Run records persist in the discovery DB (`AXRANGE_DISCOVERY_DB`, default
   `~/.axrange/discovery.db`, the file the sources share; table `runs`, one
   JSON document per run, no secret in it), so the list survives a restart. A
   run the previous process left queued or running is marked `failed` on open
   with an error saying the API restarted; its stages did not finish.
-- `GET /api/discovery/pits` — every PIT in the API's IR store (`aximprint pit
-  list`): `pit_id`, `name`, `as_of`, bounds, source, network, vantage, sizes.
-- `PATCH /api/discovery/pits/{id or name}` `{name}` (token) — rename a PIT;
-  the id never changes, and every run record that produced it carries the
-  new name. `400` blank, `404` unknown, `409` a name or id another PIT has.
-- `DELETE /api/imprints/{id}` (token, `204`) — remove a bundle from the
-  catalog (`<imprints_dir>/<id>/`) and the belief store a run under that id
-  left beside the IR store. `409` while a run for the id is queued or running
-  (cancel it first) or while a live deploy stands on the id (destroy it
-  first); `404` unknown; `400` misaddressed, as every bundle route. The run
-  records that produced it stay.
-- A run's belief store (`<store dir>/<imprint_id>.belief.duckdb`) is removed
+
+**Imprints** (`docs/design/imprint-twin-split.md`): what discovery produced,
+the PITs in the API's IR store, each addressed by id or unique name.
+- `GET /api/imprints` (alias `GET /api/discovery/pits`) — every imprint:
+  `pit_id`, `name`, `derived_from`, `has_assertions`, the `twins` cast from
+  it, `as_of`, bounds, source, network, vantage, sizes.
+- `GET /api/imprints/{pit}` — one, by id or name (`404`; `409` an ambiguous name).
+- `PATCH /api/imprints/{pit}` `{name}` (token; alias `PATCH /api/discovery/pits/{pit}`)
+  — rename; the id never changes, and every run record that produced it
+  carries the new name. `400` blank, `409` a name or id another PIT has.
+- `POST /api/imprints/{pit}/copy` `{name}` (token, `201`) — save-as: a new
+  imprint with the same rows, `derived_from` set, and the operator files
+  copied. `409` a taken name.
+- `GET|PUT /api/imprints/{pit}/assertions` (PUT token) — the operator's
+  claims about the network (`axr-assertions/1`), kept at
+  `<store dir>/pits/<pit_id>/<pit_id>.assertions.yaml`; GET before the first
+  save is `200` with empty lists and `etag: null`; PUT validates, refuses a
+  stale etag (`412`), and takes the etag in `If-Match` or in the body.
+- `POST /api/imprints/{pit}/cast` `{twin_id, sensors?, replace?, relocate?,
+  max_count?, no_chatter?}` (token, `201`) — compile the imprint, with its
+  assertions when it has any, into `catalog/twins/<twin_id>/`: the producer's
+  `cast` into scratch, then `install-cast` (the id rewrite, instance
+  expansion, sensors, checks), as one action. Answers the twin's summary,
+  `pit_id`, `replaced`, the compiler's `caveats` and the install report.
+  `409` an existing twin id without `replace`, a live deploy on it, or a cast
+  into the same id already running; `400` an unusable id.
+- `DELETE /api/imprints/{pit}` (token, `204`) — the imprint's rows, operator
+  files and belief store. The twins cast from it stand; the run records keep
+  the last name. `409` while a run is baking it.
+
+**Twins** (the catalog): the bundle routes that lived under `/api/imprints`
+until 2026-10-28, now `GET /api/twins[/{id}]`, `/provenance`, `/topology`,
+`/cast`, `/assertions`, `/layout`, `/apply`, `/diff`, `/plan`, `/deploy`,
+unchanged in shape. The listing carries `cast_from` (`{pit_id, pit_name}` or
+null for an authored twin) and the summary `pit_id`. The twin-level
+`/assertions` and `/apply` are deprecated (an imprint's assertions plus a
+cast replace them) and will go in a later step; `/layout` stays, it is the
+twin's canvas.
+- `DELETE /api/twins/{id}` (token, `204`) — remove a twin from the catalog
+  and the belief store a run of that name left. `409` while a live deploy
+  stands on it (destroy it first); `404` unknown; `400` misaddressed.
+- A run's belief store (`<store dir>/<name>.belief.duckdb`) is removed
   before `ingest` if one is already there: it can only be what an earlier
   failed or cancelled run under that id left, and ingesting on top of it would
   merge two reads.
 - Refused at POST, nothing written: an unknown plugin (the known ones named), a
-  config the plugin's schema rejects (every problem named), an unsafe imprint
-  id, an id already in the catalog (`409`, never overwritten), an id another
+  config the plugin's schema rejects (every problem named), an unusable
+  imprint name, a name already in the IR store (`409`, never replaced), a name another
   run is still writing. A failed chain removes its own half-written bundle.
 - A `source` is **sensor metadata** (a Zeek log tree, an `eve.json`, an
   `axquery:` locator), not a pcap: nothing in `discovery/` reads packets. The
@@ -284,8 +317,14 @@ state DB and the fake adapter, unless marked **(live)**.
   belief store, is `409` under an active run or a live deploy, and leaves the
   run record. *(`engine/tests/test_api_discovery.py`.)*
 - A1.6 The second stage is `bake`; a completed run carries `pit_name`; `GET
-  /api/discovery/pits` lists by id and name and `PATCH` renames by either,
+  /api/imprints` lists by id and name and `PATCH` renames by either,
   the run records following and the name surviving a restart.
+  *(`engine/tests/test_api_discovery.py`.)*
+- A1.7 A run ends at the imprint (`stages: [ingest, bake]`, nothing in the
+  catalog); a name already in the store is refused; assertions live with the
+  PIT and a copy takes them along; `POST .../cast` lands a twin whose listing
+  says `cast_from`, carries the assertions by path, refuses a taken id without
+  `replace`; a real zeek run bakes, casts and re-casts.
   *(`engine/tests/test_api_discovery.py`.)*
 
 ## Notes

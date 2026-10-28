@@ -12,8 +12,8 @@ axRange is a personal cyber-range digital-twin instrument for one loop:
 
 | Step | What happens | Code that serves it |
 |---|---|---|
-| 1. discover | sensor metadata of a real network becomes a point-in-time network IR and is cast into a twin bundle | `discovery/` (`aximprint`), started from the API by `POST /api/discovery/runs` |
-| 2. view and customize | the cast or a hand-authored twin is inspected and edited | `engine/src/axrange/api` (imprint, twin-config and topology routes), `ui/` |
+| 1. discover | sensor metadata of a real network is baked into an **imprint** (a point-in-time network IR), corrected by operator assertions, and cast into a twin | `discovery/` (`aximprint`), started from the API by `POST /api/discovery/runs`, cast by `POST /api/imprints/{pit}/cast` |
+| 2. view and customize | an imprint is renamed, copied and asserted on; a cast or hand-authored twin is inspected and edited | `engine/src/axrange/api` (imprint, twin and topology routes), `ui/` |
 | 3. deploy | the twin becomes real VMs and networks on Proxmox | `axrange te deploy`, `POST /api/deploys` |
 | 4. drive traffic | personas run on the twin's hosts so it behaves like a populated network | `axrange tfc deploy`, `/api/tfc` |
 | 5. tap | the twin's links are mirrored to a sensor | `axrange tap deploy`, `/api/taps` |
@@ -60,11 +60,9 @@ sensor metadata ──▶ ingest plugin ──▶ events ──▶ windowing ─
                                                                   │
                                        belief store (evidence log + DuckDB) ◀──┘
                                                                   │ bake
-                                                           network IR (a PIT)
-                                                                  │ cast
-                                       twin bundle: te.yaml + tfc + tap (+ assertions)
-                                                                  │ install-cast
-                                                       catalog/twins/<imprint_id>/
+                                              imprint: network IR (a PIT) + assertions
+                                                                  │ cast (+ install-cast)
+                                       twin: catalog/twins/<twin_id>/ (te + tfc + tap + personas)
 ```
 
 - **`acquire/`** pulls pcap off an Axellio Xpress appliance over `axapi`
@@ -101,7 +99,8 @@ sensor metadata ──▶ ingest plugin ──▶ events ──▶ windowing ─
   bundle: the twin config, a traffic profile and a tap plan, with per-field
   provenance. Operator assertions (`operator_assertions.py`, the
   `axr-assertions/1` document the console writes) are resolved against the
-  PIT at compile time. `install-cast` lands the bundle in `catalog/twins/`.
+  PIT at compile time. `install-cast` lands the bundle in `catalog/twins/`
+  under the twin id (the API's cast action runs both verbs as one).
 
 Every assertion carries an **evidence class**, in precedence order
 `asserted > imported > observed > referenced > imputed` (`aximprint.ir.schema`):
@@ -287,15 +286,16 @@ contracts are in `api/Spec.md`.
 
 **Discovery runs (seam A1).** `GET /api/discovery/plugins` lists the installed
 ingest plugins with their schemas (through `aximprint plugins`).
-`POST /api/discovery/runs {plugin, config, imprint_id}` validates the config
-against the plugin's closed schema, refuses an unknown plugin, an unsafe or
-already-present imprint id or an id another run is writing, then runs
-`ingest -> bake -> cast -> install-cast` in a thread and answers `202`
-with the run record. `GET /api/discovery/runs/{id}` reports
-`queued | running | completed | failed`, the stages done, the error or the
-`pit_id`. The installed bundle lands under `AXRANGE_IMPRINTS_DIR/<imprint_id>/`
-and resolves through the imprint routes. Run records live in memory for the
-life of the server. A `source` is sensor metadata, never a pcap.
+`POST /api/discovery/runs {plugin, config, name}` validates the config
+against the plugin's closed schema, refuses an unknown plugin, an unusable or
+already-present imprint name or one another run is baking, then runs
+`ingest -> bake` in a thread and answers `202` with the run record.
+`GET /api/discovery/runs/{id}` reports `queued | running | completed | failed`,
+the stages done, the error or the `pit_id` and `pit_name`. The imprint is
+then listed, renamed, copied and asserted on under `/api/imprints`, and
+`POST /api/imprints/{pit}/cast` lands a twin under `AXRANGE_IMPRINTS_DIR/<twin_id>/`
+which resolves through the twin routes. Run records persist in the discovery
+DB. A `source` is sensor metadata, never a pcap.
 
 **Discovery sources (seam A7).** A saved way to reach a sensor's query API:
 `{name, plugin, endpoint, access, secrets, defaults}` in one SQLite file,

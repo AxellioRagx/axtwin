@@ -85,6 +85,8 @@ aximprint status --store imprint.duckdb
 aximprint bake --store imprint.duckdb --out ir.duckdb [--as-of <epoch>] [--replace] [--name NAME]   # was `materialize`, still accepted
 aximprint pit list --store ir.duckdb                 # every PIT: id (the identity) and name (the label)
 aximprint pit rename --store ir.duckdb <id or name> <new name>
+aximprint pit copy --store ir.duckdb <id or name> <copy name>     # save-as; derived_from records the original
+aximprint pit delete --store ir.duckdb <id or name>
 aximprint cast --store ir.duckdb --pit <pit id> --out <cast dir> --imprint-id <id> [--assertions <file>]
 aximprint install-cast <cast dir> ...                               # -> catalog/twins/<id>/ as a cast bundle
 ```
@@ -111,16 +113,22 @@ discovery runs the environment must also carry `AXRANGE_AXIMPRINT_BIN`,
 curl -s :8080/api/discovery/plugins
 curl -s -X POST :8080/api/discovery/runs -H "Authorization: Bearer $AXRANGE_API_TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"plugin":"zeek","config":{"source":"/path/to/zeek/logs"},"imprint_id":"corp-imprint"}'
+  -d '{"plugin":"zeek","config":{"source":"/path/to/zeek/logs"},"name":"corp-imprint"}'
 curl -s :8080/api/discovery/runs/<run id>      # queued | running | completed | failed | cancelled;
                                                # progress_ts = source time the ingest has reached
-curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>/cancel   # 202; kills the stage, removes the partial bundle + belief store
+curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>/cancel   # 202; kills the stage, removes the belief store
 curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>   # 204; forgets a finished run's record (the imprint stays)
-curl -s :8080/api/imprints/corp-imprint        # resolves once completed
-curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/imprints/corp-imprint   # 204; removes the bundle + its belief store; 409 under an active run or a live deploy
-curl -s :8080/api/discovery/pits                 # every PIT in the IR store, by id and name
+curl -s :8080/api/imprints                       # every imprint (PIT) by id and name, with its twins
+curl -s :8080/api/imprints/corp-imprint          # one, by id or name
 curl -s -X PATCH -H "Authorization: Bearer $AXRANGE_API_TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"corp-apcn day one"}' :8080/api/discovery/pits/<pit id or name>   # rename; the id never changes
+  -d '{"name":"corp-apcn day one"}' :8080/api/imprints/corp-imprint   # rename; the id never changes
+curl -s -X PUT -H "Authorization: Bearer $AXRANGE_API_TOKEN" -H 'content-type: application/json' \
+  -d @assertions.json :8080/api/imprints/corp-imprint/assertions     # the operator's claims (axr-assertions/1)
+curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"twin_id":"corp-twin","sensors":["XPress-SW-A"]}' :8080/api/imprints/corp-imprint/cast   # 201; the twin lands in the catalog
+curl -s :8080/api/twins/corp-twin                # the twin's summary; /api/twins lists the catalog with cast_from
+curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/twins/corp-twin   # 204; 409 under a live deploy
+curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/imprints/corp-imprint   # 204; the PIT, its assertions and belief store
 ```
 
 Run records live in `~/.axrange/discovery.db` (`AXRANGE_DISCOVERY_DB`) beside the

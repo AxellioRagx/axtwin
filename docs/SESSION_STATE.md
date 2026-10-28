@@ -89,6 +89,10 @@ because it will be believed. -->
 
 ## Gotchas
 
+- The imprint/twin split landed 2026-10-28 (`docs/design/imprint-twin-split.md`): a run
+  ends at bake and produces an imprint (a PIT); `POST /api/imprints/{pit}/cast` lands a
+  twin; the bundle routes moved from `/api/imprints` to `/api/twins`. The frozen
+  `o2/console` still reads the old paths. Twin-tier editing and delta redeploy are §7.
 - The second discovery stage is `bake` (2026-10-28; `aximprint materialize` is kept as an
   alias). IR schema `1.5` adds `ir_pit.name`, a renamable label beside the unchanging id;
   a `1.4` store gains the column on open. `aximprint pit list|rename`,
