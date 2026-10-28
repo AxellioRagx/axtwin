@@ -25,6 +25,8 @@ export interface Api {
   listRuns(signal?: AbortSignal): Promise<DiscoveryRunList>;
   getRun(id: string, signal?: AbortSignal): Promise<DiscoveryRun>;
   cancelRun(id: string): Promise<DiscoveryRun>;
+  /** Forget a finished run's record; the imprint it installed stays. */
+  deleteRun(id: string): Promise<void>;
   getImprint(id: string, signal?: AbortSignal): Promise<ImprintSummary>;
 }
 
@@ -43,6 +45,7 @@ export function makeApi(request: Requester): Api {
     listRuns: (signal) => request("GET", "/api/discovery/runs", { signal }),
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),
     cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, { auth: true }),
+    deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, { auth: true }),
     getImprint: (id, signal) => request("GET", `/api/imprints/${enc(id)}`, { signal }),
   };
 }

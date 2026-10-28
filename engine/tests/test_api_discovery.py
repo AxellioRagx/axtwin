@@ -584,6 +584,40 @@ def test_cancel_is_a_write(tmp_path):
                   headers={"Authorization": "Bearer s3cret"}).status_code == 409
 
 
+def test_a_finished_run_can_be_deleted_from_the_list_but_an_active_one_cannot(tmp_path):
+    """The console's runs table offers a delete on a finished run and a cancel on an active
+    one; the API holds the same line. Deleting forgets the record only -- the imprint it
+    installed is still in the catalog."""
+    settings = _settings(tmp_path)
+    jobs = []
+    c = _client(settings, backend=_FakeDiscovery(), background=jobs.append)
+    run = c.post("/api/discovery/runs", json=_run_body()).json()
+    r = c.delete(f"/api/discovery/runs/{run['id']}")
+    assert r.status_code == 409 and "cancel it first" in r.json()["error"]
+    (job,) = jobs
+    job()
+    assert c.get(f"/api/discovery/runs/{run['id']}").json()["status"] == "completed"
+    # The fake backend installs nothing; stand the bundle in by hand to show the delete
+    # forgets the RECORD and leaves the catalog alone.
+    bundle = Path(settings.imprints_dir) / "site-a"
+    bundle.mkdir()
+    assert c.delete(f"/api/discovery/runs/{run['id']}").status_code == 204
+    assert c.get(f"/api/discovery/runs/{run['id']}").status_code == 404
+    assert c.get("/api/discovery/runs").json()["runs"] == []
+    assert bundle.is_dir(), "the bundle is not the record"
+    assert c.delete("/api/discovery/runs/disc-nope").status_code == 404
+
+
+def test_delete_is_a_write(tmp_path):
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    c = _client(settings, backend=_FakeDiscovery())
+    run = c.post("/api/discovery/runs", json=_run_body(), headers={"Authorization": "Bearer s3cret"}).json()
+    assert c.delete(f"/api/discovery/runs/{run['id']}").status_code == 401
+    assert c.delete(f"/api/discovery/runs/{run['id']}",
+                    headers={"Authorization": "Bearer s3cret"}).status_code == 204
+
+
 def test_a_stale_belief_store_from_an_earlier_failed_run_is_removed_before_ingest(tmp_path):
     settings = _settings(tmp_path)
     stale = Path(settings.aximprint_store).parent / "site-a.belief.duckdb"

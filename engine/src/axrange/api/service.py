@@ -3445,6 +3445,19 @@ def cancel_discovery_run(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
     return _discovery_run_dto(runs.snapshot(run_id))
 
 
+def delete_discovery_run(run_id: str, *, runs: Any) -> None:
+    """Forget a finished run's record. The imprint it installed stays in the catalog
+    (`DELETE /api/imprints/{id}` is its own action); an active run is a 409 pointing at
+    cancel, because its job thread is still writing to the record."""
+    run = runs.snapshot(run_id)
+    if run is None:
+        raise ApiError(404, f"no discovery run {run_id!r}")
+    try:
+        runs.delete(run_id)
+    except ValueError as e:
+        raise ApiError(409, str(e)) from e
+
+
 def create_discovery_run(
     settings: ApiSettings, req: dtos.DiscoveryRunRequest, *, runs: Any,
     backend: Any = None,

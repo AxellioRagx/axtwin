@@ -477,6 +477,20 @@ class DiscoveryRuns:
         h.cancel()
         return True
 
+    def delete(self, run_id: str) -> bool:
+        """Forget a finished run's record. False when unknown; a queued/running run is
+        refused (`ValueError`) -- its job thread still writes to the record, and the
+        operator's way to stop it is `cancel`."""
+        with self._lock:
+            r = self._runs.get(run_id)
+            if r is None:
+                return False
+            if r.status in ACTIVE_STATUSES:
+                raise ValueError(f"discovery run {run_id!r} is {r.status}; cancel it first")
+            del self._runs[run_id]
+            self._handles.pop(run_id, None)
+            return True
+
     def new(self, plugin: str, imprint_id: str, config: dict[str, Any],
             *, source_id: Optional[str] = None) -> DiscoveryRun:
         with self._lock:

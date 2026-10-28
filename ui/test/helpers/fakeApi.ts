@@ -89,7 +89,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -211,6 +211,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       // The next poll finds the stage dead.
       state.runSteps.unshift({ status: "cancelled", finished_at: "2026-10-28T12:00:03Z", error: "ingest cancelled by the operator" });
       return { ...r, stages_done: [...r.stages_done] };
+    },
+    async deleteRun(id) {
+      state.writes.push({ op: "delete-run", id });
+      if (state.refuse.delete) throw state.refuse.delete;
+      if (!state.runs.some((x) => x.id === id)) throw notFound(`discovery run '${id}'`);
+      state.runs = state.runs.filter((x) => x.id !== id);
     },
     async listRuns() {
       return { runs: state.runs };

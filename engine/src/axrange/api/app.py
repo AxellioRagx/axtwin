@@ -359,6 +359,16 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def discovery_run_cancel(run_id: str) -> dtos.DiscoveryRunDTO:
         return service.cancel_discovery_run(run_id, runs=app.state.discovery_runs)
 
+    @app.delete(
+        "/api/discovery/runs/{run_id}",
+        status_code=204,
+        response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_run_delete(run_id: str) -> Response:
+        service.delete_discovery_run(run_id, runs=app.state.discovery_runs)
+        return Response(status_code=204)
+
     # ---- discovery sources (`api/Spec.md` A7) -- a saved way to reach a
     # sensor's query API (endpoint + direct/ssh-tunnel access + credential),
     # probed and run from the console. Reads never return a secret. Every

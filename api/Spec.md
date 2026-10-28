@@ -26,7 +26,7 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 that is **not** listed under a seam below already exists:
 
 `GET /api/pcaps`, `GET /api/imprints[/{id}]`, `GET /api/imprints/{id}/cast`,
-`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel` (A1, built),
+`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel`, `DELETE /api/discovery/runs/{id}` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
@@ -61,6 +61,9 @@ order:
   the record turns `cancelled` and the imprint id is free again. The response
   carries `cancel_requested_at`; the status turns when the stage is dead
   (poll). A finished run is `409` naming its status; unknown is `404`.
+- `DELETE /api/discovery/runs/{id}` (token, `204`) — forget a finished run's
+  record. The imprint it installed stays in the catalog. A queued or running
+  run is `409` pointing at cancel; unknown is `404`.
 - A run's belief store (`<store dir>/<imprint_id>.belief.duckdb`) is removed
   before `ingest` if one is already there: it can only be what an earlier
   failed or cancelled run under that id left, and ingesting on top of it would
@@ -255,7 +258,8 @@ state DB and the fake adapter, unless marked **(live)**.
   `POST .../cancel` on a queued run turns it `cancelled` with the bundle and
   belief store gone and the id free; a real child in its own session is killed
   mid-stream and reported as cancelled, not failed; a stage past its budget is
-  killed and reported as a timeout. *(`engine/tests/test_api_discovery.py`.)*
+  killed and reported as a timeout. `DELETE` forgets a finished run and is
+  `409` on an active one. *(`engine/tests/test_api_discovery.py`.)*
 
 ## Notes
 

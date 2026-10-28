@@ -121,7 +121,7 @@ its listed tests pass. T0.x is the release gate for UI v0.
 - C1.9 (auto) A queued or running run offers "Cancel run" behind a
   confirmation; the badge reads `cancelling` from the request until the next
   poll finds the stage dead, then `cancelled` with what was cleaned up. A
-  finished run offers no cancel. *(`run.page.test.tsx`.)*
+  finished run offers delete instead (C1.12). *(`run.page.test.tsx`.)*
 - C1.10 (auto) The stage a failed run died in is red; the ones it never reached
   stay plain. A completed run offers its imprint only after the catalog
   confirms the bundle is there; a bundle removed since says so, with no link.
@@ -130,6 +130,12 @@ its listed tests pass. T0.x is the release gate for UI v0.
   `days`) or epoch-second bounds; the sites table gives first/last as epoch
   seconds beside the span's UTC reading. *(`run.flow.test.tsx`,
   `source.page.test.tsx`.)*
+- C1.12 (auto) A run has one write, behind a confirmation: cancel while queued
+  or running, delete once finished. The run page offers "Cancel run" or
+  "Delete run" accordingly, and a deleted run's page returns to the list; the
+  runs table carries the same as an icon per row (× cancel, bin delete), the
+  row leaving once the delete is accepted. Deleting forgets the record only;
+  the imprint stays. *(`run.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

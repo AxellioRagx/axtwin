@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DiscoveryRun } from "../src/api/types";
 import { runProgress } from "../src/model/sources";
+import { ApiError } from "../src/api/client";
 import { SPAN, fakeApi } from "./helpers/fakeApi";
 import { renderAt } from "./helpers/render";
 
@@ -69,7 +70,7 @@ describe("the run page", () => {
     renderAt(api, "/discovery/runs/disc-7");
     fireEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
     expect(screen.getByRole("button", { name: "Keep running" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancel disc-7" }));
     await screen.findByText(/^Cancel requested/);
     expect(state.writes).toEqual([{ op: "cancel", id: "disc-7" }]);
     expect(screen.getByText("cancelling")).toBeTruthy();
@@ -106,5 +107,50 @@ describe("the run page", () => {
     await screen.findByTestId("open-imprint");
     expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
     expect(screen.getByRole("progressbar", { name: "Ingest progress" }).getAttribute("aria-valuenow")).toBe("100");
+  });
+});
+
+describe("the run's one write", () => {
+  const done = () => running({ id: "disc-9", status: "completed", stages_done: ["ingest", "materialize", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" });
+
+  it("a finished run offers Delete run on its page and goes back to the list once deleted", async () => {
+    const { api, state } = fakeApi({ runs: [done()] });
+    renderAt(api, "/discovery/runs/disc-9");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete run" }));
+    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete disc-9" }));
+    await screen.findByRole("heading", { name: "Discovery runs" });
+    expect(state.writes).toEqual([{ op: "delete-run", id: "disc-9" }]);
+    expect(state.runs).toEqual([]);
+  });
+
+  it("the table offers × on an active run and a bin on a finished one, each behind a confirmation", async () => {
+    const { api, state } = fakeApi({ runs: [running(), done()] });
+    renderAt(api, "/discovery/runs");
+    expect((await screen.findAllByTestId("run-row")).length).toBe(2);
+    fireEvent.click(screen.getByRole("button", { name: "Delete run disc-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(state.writes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete run disc-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete disc-9" }));
+    await screen.findByText("disc-7");
+    expect(screen.queryByText("disc-9")).toBeNull();
+    expect(screen.getAllByTestId("run-row").length).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel run disc-7" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancel disc-7" }));
+    await screen.findByText("cancelling");
+    expect(state.writes).toEqual([{ op: "delete-run", id: "disc-9" }, { op: "cancel", id: "disc-7" }]);
+    expect(screen.queryByRole("button", { name: "Cancel run disc-7" })).toBeNull();
+  });
+
+  it("a refused delete is shown in the row, and the row stays", async () => {
+    const { api } = fakeApi({ runs: [done()], refuse: { delete: new ApiError({ kind: "unauthorized", status: 401, message: "unauthorized", url: "" }) } });
+    renderAt(api, "/discovery/runs");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete run disc-9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete disc-9" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("could not delete");
+    expect(screen.getAllByTestId("run-row").length).toBe(1);
   });
 });

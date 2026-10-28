@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
@@ -7,6 +7,7 @@ import { formatDuration, formatIso, formatTs, runProgress } from "../../model/so
 import { ErrorLine, StatusBadge } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 import { ApiError } from "../../api/client";
+import { RunAction } from "./RunActions";
 
 export const POLL_MS = 2000;
 
@@ -15,6 +16,7 @@ export const POLL_MS = 2000;
 export function RunPage() {
   const api = useApi();
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const [run, setRun] = useState<DiscoveryRun | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -60,7 +62,7 @@ export function RunPage() {
             <h1 style={{ flex: 1 }}>
               Run {run.id} <StatusBadge status={run.cancel_requested_at && active ? "cancelling" : run.status} />
             </h1>
-            {active ? <CancelButton run={run} onCancelled={setRun} /> : null}
+            <RunAction run={run} onCancelled={setRun} onDeleted={() => navigate("/discovery/runs")} />
           </div>
           <div className="panel">
             <dl className="facts">
@@ -151,47 +153,6 @@ function ProgressBar({ run, progress, active }: { run: DiscoveryRun; progress: R
         <span>{formatTs(run.ts_to)}</span>
       </div>
       <p className="progress-line">{line}</p>
-    </div>
-  );
-}
-
-function CancelButton({ run, onCancelled }: { run: DiscoveryRun; onCancelled: (r: DiscoveryRun) => void }) {
-  const api = useApi();
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const requested = run.cancel_requested_at != null;
-  async function cancel() {
-    setBusy(true);
-    setError(null);
-    try {
-      onCancelled(await api.cancelRun(run.id));
-      setConfirming(false);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="cancel">
-      {requested ? (
-        <span className="muted">Cancel requested {formatIso(run.cancel_requested_at)}; stopping the current stage…</span>
-      ) : confirming ? (
-        <>
-          <button className="danger" type="button" onClick={cancel} disabled={busy}>
-            {busy ? "Cancelling…" : "Confirm cancel"}
-          </button>
-          <button type="button" onClick={() => setConfirming(false)} disabled={busy}>
-            Keep running
-          </button>
-        </>
-      ) : (
-        <button className="danger" type="button" onClick={() => setConfirming(true)}>
-          Cancel run
-        </button>
-      )}
-      <ErrorLine error={error} prefix="could not cancel" />
     </div>
   );
 }
