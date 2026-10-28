@@ -1,7 +1,17 @@
-import { ApiError } from "../../api/client";
+import { ApiError, getWriteToken } from "../../api/client";
 
 export function errorText(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
+  if (error instanceof ApiError) {
+    if (error.kind === "unauthorized") {
+      // The server says "missing or invalid API token"; the operator needs to know WHICH
+      // token -- this console's write token, not the source's own credential.
+      const why = getWriteToken()
+        ? "the write token in the header was refused"
+        : "no write token is set in the header (top right)";
+      return `${error.message}. ${why}; it is the axrange API's own token (AXRANGE_API_TOKEN), not the source's credential`;
+    }
+    return error.message;
+  }
   if (error instanceof Error) return error.message;
   return String(error);
 }

@@ -161,7 +161,14 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         error: null,
         ...SPAN,
         vantage: "axellio-hq/corp-apcn-rdr1:12",
-        extra: { chunks: 69, packets: 16893421675 },
+        extra: {
+          chunks: 69,
+          packets: 16893421675,
+          bytes: 15494524704945,
+          entities: 2558306,
+          events: 253402708,
+          sites: [{ location: "axellio-hq", systems: [{ name: "corp-apcn-rdr1", chunks: 69, first_ts: SPAN.first_ts, last_ts: SPAN.last_ts, streams: 12 }] }],
+        },
         via: "ssh fxadmin@corp-apcn-reader.swlab.axellio.dom:22 -> 127.0.0.1:9090 via 127.0.0.1:37219",
         probed_at: "2026-10-27T16:00:00Z",
       };

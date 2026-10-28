@@ -106,6 +106,13 @@ its listed tests pass. T0.x is the release gate for UI v0.
 - C1.5 (live) Against `corp-apcn-reader` through the SSH tunnel: save, test
   (span + census shown), run ten days, poll to completion, open the imprint.
   Done by API on 2026-10-27 (`docs/SESSION_STATE.md` has the run).
+- C1.6 (auto) A 401 names WHICH token is missing: the console's write token
+  (the API's `AXRANGE_API_TOKEN`), never the source's credential, and says
+  whether none is set or the one set was refused. *(`source.page.test.tsx`.)*
+- C1.7 (auto) The census reads as figures (`16.9 G (16,893,421,675)`,
+  `15.5 TB`), the sensor's sites as a table, never as raw JSON; the access line
+  carries the credential state (`password stored` / `no password stored`).
+  *(`source.page.test.tsx`, `sources.model.test.ts`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

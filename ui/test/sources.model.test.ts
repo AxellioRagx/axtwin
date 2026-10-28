@@ -5,8 +5,10 @@ import {
   describeAccess,
   emptyForm,
   endpointPlugins,
+  formatBig,
   fromSource,
   runOptions,
+  siteRows,
   toWrite,
   validateForm,
   windowPreview,
@@ -91,8 +93,29 @@ describe("the window", () => {
     expect(defaultImprintId("Corp APCN reader", new Date("2026-10-27T16:00:00Z"))).toBe("corp-apcn-reader-20261027");
     expect(defaultImprintId("", new Date("2026-10-27T16:00:00Z"))).toBe("discovery-20261027");
   });
+  it("reads a census figure at three significant digits", () => {
+    expect(formatBig(16893421675)).toBe("16.9 G");
+    expect(formatBig(15494524704945, "B")).toBe("15.5 TB");
+    expect(formatBig(2558306)).toBe("2.56 M");
+    expect(formatBig(69)).toBe("69");
+    expect(formatBig(null)).toBe("unknown");
+  });
+  it("turns the sensor's sites into rows and skips what is not that shape", () => {
+    expect(siteRows([{ location: "axellio-hq", systems: [{ name: "corp-apcn-rdr1", chunks: 69, first_ts: 1, last_ts: 2, streams: 12 }] }])).toEqual([
+      { location: "axellio-hq", system: "corp-apcn-rdr1", streams: 12, chunks: 69, first_ts: 1, last_ts: 2 },
+    ]);
+    expect(siteRows("nope")).toEqual([]);
+    expect(siteRows([{ location: "x" }, 3, { systems: [null, { name: "s" }] }])).toEqual([
+      { location: "?", system: "s", streams: null, chunks: null, first_ts: null, last_ts: null },
+    ]);
+  });
   it("describes access without a secret", () => {
     expect(describeAccess(tunnelSource())).toBe("SSH tunnel via fxadmin@corp-apcn-reader.swlab.axellio.dom:22, no credential");
-    expect(describeAccess(tunnelSource({ access: { transport: "direct", auth: "basic", user: "ro", ssh: null } }))).toBe("direct, basic auth as ro");
+    expect(describeAccess(tunnelSource({ access: { transport: "direct", auth: "basic", user: "ro", ssh: null } }))).toBe(
+      "direct, basic auth as ro, no password stored",
+    );
+    expect(
+      describeAccess(tunnelSource({ access: { transport: "direct", auth: "basic", user: "ro", ssh: null }, has_password: true })),
+    ).toBe("direct, basic auth as ro, password stored");
   });
 });

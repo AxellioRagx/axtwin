@@ -6,10 +6,12 @@ import type { DiscoveryPlugin, DiscoveryRun, DiscoverySource, ProbeResult, Sourc
 import {
   defaultImprintId,
   describeAccess,
+  formatBig,
   formatCount,
   formatIso,
   formatTs,
   runOptions,
+  siteRows,
   windowPreview,
 } from "../../model/sources";
 import { ErrorLine, StatusBadge } from "../shell/parts";
@@ -45,10 +47,6 @@ export function SourcePage() {
               </dd>
               <dt>Access</dt>
               <dd>{describeAccess(source.data)}</dd>
-              <dt>Credential</dt>
-              <dd>
-                {source.data.has_password ? "password stored" : source.data.has_api_key ? "API key stored" : "none"}
-              </dd>
             </dl>
           </div>
           <ProbePanel source={source.data} onProbed={source.reload} />
@@ -153,7 +151,7 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
       setBusy(false);
     }
   }
-  const sites = Array.isArray(probe?.extra.sites) ? (probe?.extra.sites as unknown[]) : [];
+  const sites = siteRows(probe?.extra.sites);
   return (
     <div className="panel" data-testid="probe-panel">
       <div className="row">
@@ -182,25 +180,68 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
               }`}
             </dd>
             <dt>Vantage</dt>
-            <dd>{probe.vantage ?? "not reported"}</dd>
-            {["chunks", "packets", "bytes", "entities", "events"].map((k) =>
-              k in probe.extra ? (
-                <Fact key={k} label={k} value={formatCount(probe.extra[k])} />
-              ) : null,
+            <dd>
+              {probe.vantage ? (
+                <>
+                  <code>{probe.vantage}</code>{" "}
+                  <span className="muted">site/system:streams, the sensor's own name for where it sat</span>
+                </>
+              ) : (
+                "not reported"
+              )}
+            </dd>
+            {CENSUS.map(({ key, label, format }) =>
+              key in probe.extra ? <Fact key={key} label={label} value={format(probe.extra[key])} /> : null,
             )}
-            {sites.length ? <Fact label="sites" value={JSON.stringify(sites)} mono /> : null}
           </dl>
+          {sites.length ? (
+            <table className="list" aria-label="Sites">
+              <thead>
+                <tr>
+                  <th>Location</th>
+                  <th>System</th>
+                  <th>Streams</th>
+                  <th>Chunks</th>
+                  <th>First</th>
+                  <th>Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sites.map((row) => (
+                  <tr key={`${row.location}/${row.system}`}>
+                    <td>{row.location}</td>
+                    <td>{row.system}</td>
+                    <td>{formatCount(row.streams)}</td>
+                    <td>{formatCount(row.chunks)}</td>
+                    <td className="muted">{formatTs(row.first_ts)}</td>
+                    <td className="muted">{formatTs(row.last_ts)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
         </>
       ) : null}
     </div>
   );
 }
 
-function Fact({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+/** The census figures a probe may carry, in display order, each with its own reading. */
+const CENSUS: ReadonlyArray<{ key: string; label: string; format: (v: unknown) => string }> = [
+  { key: "chunks", label: "Chunks", format: formatCount },
+  { key: "packets", label: "Packets", format: (v) => `${formatBig(v)} (${formatCount(v)})` },
+  { key: "bytes", label: "Bytes", format: (v) => `${formatBig(v, "B")} (${formatCount(v)})` },
+  { key: "entities", label: "Entities", format: formatCount },
+  { key: "events", label: "Events", format: formatCount },
+  { key: "endpoints", label: "Endpoints", format: formatCount },
+  { key: "applications", label: "Applications", format: formatCount },
+];
+
+function Fact({ label, value }: { label: string; value: string }) {
   return (
     <>
       <dt>{label}</dt>
-      <dd className={mono ? "mono" : undefined}>{value}</dd>
+      <dd>{value}</dd>
     </>
   );
 }

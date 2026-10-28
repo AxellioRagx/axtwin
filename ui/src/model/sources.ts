@@ -236,13 +236,66 @@ export function formatCount(n: unknown): string {
   return typeof n === "number" && Number.isFinite(n) ? n.toLocaleString("en-US") : "unknown";
 }
 
+/** A census figure at three significant digits with an SI prefix: 16.9 G, 15.5 TB. */
+export function formatBig(n: unknown, unit = ""): string {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "unknown";
+  const steps: Array<[number, string]> = [
+    [1e12, "T"],
+    [1e9, "G"],
+    [1e6, "M"],
+    [1e3, "k"],
+  ];
+  for (const [value, prefix] of steps) {
+    if (Math.abs(n) >= value) return `${Number((n / value).toPrecision(3))} ${prefix}${unit}`;
+  }
+  return unit ? `${n.toLocaleString("en-US")} ${unit}` : n.toLocaleString("en-US");
+}
+
+export interface SiteRow {
+  location: string;
+  system: string;
+  streams: number | null;
+  chunks: number | null;
+  first_ts: number | null;
+  last_ts: number | null;
+}
+
+/** The probe's `extra.sites` (axquery's `/api/info` shape) as one row per system; anything
+ *  that is not that shape is skipped rather than rendered as JSON. */
+export function siteRows(sites: unknown): SiteRow[] {
+  if (!Array.isArray(sites)) return [];
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const rows: SiteRow[] = [];
+  for (const site of sites) {
+    if (!site || typeof site !== "object") continue;
+    const s = site as { location?: unknown; systems?: unknown };
+    const location = typeof s.location === "string" ? s.location : "?";
+    const systems = Array.isArray(s.systems) ? s.systems : [];
+    for (const sys of systems) {
+      if (!sys || typeof sys !== "object") continue;
+      const y = sys as Record<string, unknown>;
+      rows.push({
+        location,
+        system: typeof y.name === "string" ? y.name : "?",
+        streams: num(y.streams),
+        chunks: num(y.chunks),
+        first_ts: num(y.first_ts),
+        last_ts: num(y.last_ts),
+      });
+    }
+  }
+  return rows;
+}
+
 /** One line for how a source is reached, never a secret. */
 export function describeAccess(src: DiscoverySource): string {
   const auth =
     src.access.auth === "basic"
-      ? `basic auth as ${src.access.user ?? "?"}`
+      ? `basic auth as ${src.access.user ?? "?"}, ${src.has_password ? "password stored" : "no password stored"}`
       : src.access.auth === "api_key"
-        ? "API key"
+        ? src.has_api_key
+          ? "API key stored"
+          : "API key not stored"
         : "no credential";
   if (src.access.transport === "ssh_tunnel" && src.access.ssh) {
     const s = src.access.ssh;
