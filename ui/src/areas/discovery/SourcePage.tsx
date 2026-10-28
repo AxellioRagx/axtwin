@@ -202,8 +202,8 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
                   <th>System</th>
                   <th>Streams</th>
                   <th>Chunks</th>
-                  <th>First</th>
-                  <th>Last</th>
+                  <th>First (epoch s)</th>
+                  <th>Last (epoch s)</th>
                 </tr>
               </thead>
               <tbody>
@@ -213,8 +213,8 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
                     <td>{row.system}</td>
                     <td>{formatCount(row.streams)}</td>
                     <td>{formatCount(row.chunks)}</td>
-                    <td className="muted">{formatTs(row.first_ts)}</td>
-                    <td className="muted">{formatTs(row.last_ts)}</td>
+                    <td className="muted mono">{row.first_ts ?? "—"}</td>
+                    <td className="muted mono">{row.last_ts ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -252,7 +252,10 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
   const options = useMemo(() => runOptions(plugin), [plugin]);
   const [imprintId, setImprintId] = useState(() => defaultImprintId(source.name, new Date()));
   const [mode, setMode] = useState<"days" | "bounds">("days");
-  const [days, setDays] = useState(String(source.defaults.days ?? 10));
+  const [amount, setAmount] = useState(String(source.defaults.days ?? 10));
+  const [unit, setUnit] = useState<"days" | "hours">("days");
+  // The API takes `days` (fractional allowed); hours are just a smaller unit of it.
+  const days = unit === "hours" ? Number(amount) / 24 : Number(amount);
   const [tsFrom, setTsFrom] = useState("");
   const [tsTo, setTsTo] = useState("");
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -265,13 +268,13 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
   const [sensors, setSensors] = useState((source.defaults.sensors ?? []).join(", "));
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const preview = windowPreview(source.last_probe, Number(days));
+  const preview = windowPreview(source.last_probe, days);
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     const body: SourceRunRequest = { imprint_id: imprintId.trim() };
-    if (mode === "days") body.days = Number(days);
+    if (mode === "days") body.days = days;
     else {
       body.ts_from = Number(tsFrom);
       body.ts_to = Number(tsTo);
@@ -318,15 +321,18 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
               <input type="radio" name="window" checked={mode === "days"} onChange={() => setMode("days")} /> last
               <input
                 type="number"
-                aria-label="Days"
+                aria-label="Amount"
                 min="0"
                 step="any"
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
                 style={{ width: 80 }}
                 disabled={mode !== "days"}
               />
-              days
+              <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value as "days" | "hours")} disabled={mode !== "days"}>
+                <option value="days">days</option>
+                <option value="hours">hours</option>
+              </select>
             </label>
             <label>
               <input type="radio" name="window" checked={mode === "bounds"} onChange={() => setMode("bounds")} /> epoch bounds

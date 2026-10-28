@@ -19,6 +19,9 @@ describe("the source page after a test", () => {
     const sites = screen.getByRole("table", { name: "Sites" });
     expect(within(sites).getByText("corp-apcn-rdr1")).toBeTruthy();
     expect(within(sites).getByText("12")).toBeTruthy();
+    // First/Last are epoch seconds: the span above already gives the UTC reading.
+    expect(within(sites).getByText("1788723036")).toBeTruthy();
+    expect(within(sites).getByText("1791315036")).toBeTruthy();
     expect(screen.queryByText(/"systems"/)).toBeNull();
     // The access line carries the credential state; there is no second "Credential" row.
     expect(screen.getByText("SSH tunnel via fxadmin@corp-apcn-reader.swlab.axellio.dom:22, no credential")).toBeTruthy();

@@ -56,6 +56,17 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(screen.getByText("10.80.20.0/24")).toBeTruthy();
   }, 10000);
 
+  it("the window can be given in hours, sent to the API as fractional days", async () => {
+    const { api, state } = fakeApi({ sources: [tunnelSource()] });
+    renderAt(api, "/discovery/sources/src-1");
+    await screen.findByRole("button", { name: "Start discovery" });
+    fireEvent.change(screen.getByLabelText("Unit"), { target: { value: "hours" } });
+    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
+    await waitFor(() => expect(state.writes.some((w) => w.op === "run")).toBe(true));
+    expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ days: 0.25 });
+  });
+
   it("the run form is drawn from the plugin's schema, not a UI list", async () => {
     const { api, state } = fakeApi({ plugins: [AXQUERY, FOO_HTTP], sources: [tunnelSource({ plugin: "foo-http", defaults: { days: 2 } })] });
     renderAt(api, "/discovery/sources/src-1");

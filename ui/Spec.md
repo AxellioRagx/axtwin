@@ -126,6 +126,10 @@ its listed tests pass. T0.x is the release gate for UI v0.
   stay plain. A completed run offers its imprint only after the catalog
   confirms the bundle is there; a bundle removed since says so, with no link.
   *(`run.page.test.tsx`.)*
+- C1.11 (auto) The run window is "last N days|hours" (hours sent as fractional
+  `days`) or epoch-second bounds; the sites table gives first/last as epoch
+  seconds beside the span's UTC reading. *(`run.flow.test.tsx`,
+  `source.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 
