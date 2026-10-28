@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-27 · **Branch:** `wip/api-discovery-runs`, five commits past
+**Last updated:** 2026-10-28 · **Branch:** `wip/api-discovery-runs`, five commits past
 `master` (`614d0ed`); no remote configured, nothing to push (never push).
 
 ## What this session did
@@ -66,7 +66,10 @@ because it will be believed. -->
 
 1. Start the ten-day run again from the console (source `corp-apcn-reader`, last 10 days,
    imprint `corp-apcn-10d`) and watch the progress bar; on completion decide whether
-   `catalog/twins/corp-apcn-10d/` is committed.
+   `catalog/twins/corp-apcn-10d/` is committed. A one-hour run (`disc-f6aa0f01`,
+   2026-10-28 13:42, six minutes) installed `catalog/twins/corp-apcn-reader-20261028/`,
+   untracked: commit or remove it. Run records are in-memory; the two from before the
+   13:50 restart are saved as `~/.axrange/discovery/disc-*.json`.
 2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three
    commits above; decide whether `wip/api-discovery-runs` merges to `master`.
 3. Critical path item 2 (root `Claude.md`): attack-inject plus confirm as one action on
