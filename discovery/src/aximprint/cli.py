@@ -565,7 +565,12 @@ def cmd_pit(args) -> int:
             print(json.dumps({"pits": ir.pits()}, indent=2, default=str))
             return 0
         try:
-            row = ir.rename_pit(args.pit, args.name)
+            if args.action == "copy":
+                row = ir.copy_pit(args.pit, args.name)
+            elif args.action == "delete":
+                row = {"pit_id": ir.delete_pit(args.pit), "deleted": True}
+            else:
+                row = ir.rename_pit(args.pit, args.name)
         except KeyError as exc:
             print(f"{exc.args[0]}", file=sys.stderr)
             return 2
@@ -1352,6 +1357,14 @@ def main(argv=None) -> int:
     pp_r.add_argument("pit", metavar="PIT", help="the PIT's id or current name")
     pp_r.add_argument("name", metavar="NAME", help="the new name; must not be another PIT's "
                                                   "name or id")
+    pp_c = pp_sub.add_parser("copy", help="save-as: the same rows again under a new id and "
+                                          "name, with `derived_from` set")
+    pp_c.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
+    pp_c.add_argument("pit", metavar="PIT", help="the PIT's id or name")
+    pp_c.add_argument("name", metavar="NAME", help="the copy's name")
+    pp_d = pp_sub.add_parser("delete", help="remove a PIT's rows from every table")
+    pp_d.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
+    pp_d.add_argument("pit", metavar="PIT", help="the PIT's id or name")
     pp_.set_defaults(fn=cmd_pit)
 
     pc = sub.add_parser("cast", help="compile a PIT into axRange twin_config + tfc + tap")

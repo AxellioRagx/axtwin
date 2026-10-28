@@ -50,6 +50,8 @@ class IRStore:
         have = {r[1] for r in self.con.execute("PRAGMA table_info('ir_pit')").fetchall()}
         if "name" not in have:
             self.con.execute("ALTER TABLE ir_pit ADD COLUMN name VARCHAR")
+        if "derived_from" not in have:
+            self.con.execute("ALTER TABLE ir_pit ADD COLUMN derived_from VARCHAR")
         self.con.execute("UPDATE ir_pit SET name = pit_id WHERE name IS NULL")
 
     def _check_versions_readable(self) -> None:
@@ -85,7 +87,8 @@ class IRStore:
         """`{pit_id, name, as_of, source, network, vantage, windows, entities, segments}` per
         PIT, oldest first -- what `aximprint pit list` prints and the API publishes."""
         cols = ("pit_id", "name", "as_of", "observed_from", "observed_to", "source", "network",
-                "vantage", "windows", "entities", "segments", "merge_axis")
+                "vantage", "windows", "entities", "segments", "merge_axis", "derived_from",
+                "schema_version")
         rows = self.con.execute(
             f"SELECT {', '.join(cols)} FROM ir_pit ORDER BY as_of, pit_id").fetchall()
         return [dict(zip(cols, r)) for r in rows]
@@ -103,6 +106,42 @@ class IRStore:
         if hits:
             raise KeyError(f"{len(hits)} PITs are named {ref!r} ({hits}); use the id")
         raise KeyError(f"no PIT with id or name {ref!r} in {self.path}")
+
+    def copy_pit(self, ref: str, name: str) -> dict:
+        """The operator's save-as: every row of one PIT again under a NEW id, named `name`,
+        with `derived_from` pointing at the original. The new id is deterministic over
+        (source id, new name) so copying twice is the same copy, and it is refused if that
+        id or the name is taken. Returns the copy's row from `pits()`."""
+        import hashlib
+
+        name = str(name).strip()
+        if not name or "\n" in name:
+            raise IRStoreError("a PIT name is a non-empty single line")
+        src = self.resolve_pit(ref)
+        doc = self.read_pit(src)
+        head = doc["ir_pit"][0]
+        digest = hashlib.sha256(f"{src}|{name}".encode("utf-8")).hexdigest()[:10]
+        new_id = f"pit-{digest}-{int(head['as_of'] or 0)}"
+        if new_id in self.pit_ids():
+            raise IRStoreError(f"{self.path}: PIT {new_id!r} already exists (a copy of {src!r} "
+                               f"named {name!r} was made before)")
+        for rows in doc.values():
+            for r in rows:
+                r["pit_id"] = new_id
+        head["name"] = name
+        head["derived_from"] = src
+        head["schema_version"] = SCHEMA_VERSION
+        self.write_pit(doc)
+        return next(p for p in self.pits() if p["pit_id"] == new_id)
+
+    def delete_pit(self, ref: str) -> str:
+        """Remove one PIT's rows from every table. Returns the id removed. A PIT another one
+        was copied from stays deletable: the copy carries its own rows, and `derived_from`
+        is a record of where it came from, not a dependency."""
+        pit_id = self.resolve_pit(ref)
+        for table in IR_TABLES:
+            self.con.execute(f"DELETE FROM {table} WHERE pit_id = ?", [pit_id])
+        return pit_id
 
     def rename_pit(self, ref: str, name: str) -> dict:
         """Give one PIT a new name. The id never changes; the name must be non-empty, one

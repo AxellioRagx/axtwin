@@ -33,7 +33,7 @@ def test_the_name_defaults_to_the_id_and_the_id_is_unchanged(tmp_path):
     assert row["pit_id"] == pit_id and row["name"] == pit_id
     assert pit_id.startswith("pit-"), "the id is still the deterministic hash"
     assert ir.summary(pit_id)[0]["name"] == pit_id
-    assert ir.read_pit(pit_id)["ir_pit"][0]["schema_version"] == SCHEMA_VERSION == "1.5"
+    assert ir.read_pit(pit_id)["ir_pit"][0]["schema_version"] == SCHEMA_VERSION == "1.6"
     ir.close()
 
 
@@ -98,9 +98,9 @@ def test_a_1_4_store_gains_the_column_on_open_backfilled_with_the_id(tmp_path):
     from aximprint.ir.schema import _SCHEMA
 
     path = str(tmp_path / "old.duckdb")
-    old_ddl = _SCHEMA.replace(",\n  -- `1.5`", ");\n  -- `1.5`")  # cut `name` off the DDL
-    old_ddl = "\n".join(l for l in old_ddl.splitlines() if not l.strip().startswith("--"))
-    old_ddl = old_ddl.replace("name VARCHAR);", "")
+    old_ddl = "\n".join(l for l in _SCHEMA.splitlines() if not l.strip().startswith("--"))
+    old_ddl = old_ddl.replace("  name VARCHAR,\n  derived_from VARCHAR);", ");")
+    old_ddl = old_ddl.replace("merge_axis VARCHAR, merged_from JSON,\n);", "merge_axis VARCHAR, merged_from JSON);")
     con = duckdb.connect(path)
     con.execute(old_ddl)
     assert "name" not in {r[1] for r in con.execute("PRAGMA table_info('ir_pit')").fetchall()}
@@ -142,3 +142,41 @@ def test_the_cli_bakes_names_lists_and_renames(tmp_path):
              cwd=tmp_path)
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["pit_id"] == baked["pit_id"]
+
+
+def test_a_copy_is_a_new_pit_with_its_own_id_that_remembers_where_it_came_from(tmp_path):
+    """The operator's save-as (`docs/design/imprint-twin-split.md` §3.1): every row again
+    under a new id, named, `derived_from` set; the original is untouched and still deletable."""
+    ir, src = _bake_into(tmp_path, name="day one")
+    copy = ir.copy_pit("day one", "day one, corrected")
+    assert copy["pit_id"] != src and copy["pit_id"].startswith("pit-")
+    assert copy["name"] == "day one, corrected" and copy["derived_from"] == src
+    a, b = ir.read_pit(src), ir.read_pit(copy["pit_id"])
+    for table in a:
+        assert len(a[table]) == len(b[table]), table
+    assert ir.read_pit(src)["ir_pit"][0]["derived_from"] is None
+    assert ir.copy_pit(src, "x")["pit_id"] != copy["pit_id"], "the new id is per name"
+    with pytest.raises(IRStoreError, match="was made before"):
+        ir.copy_pit(src, "day one, corrected")
+    with pytest.raises(IRStoreError, match="already the name or id"):
+        ir.copy_pit(src, "day one")
+    assert ir.delete_pit(src) == src
+    assert {p["pit_id"] for p in ir.pits()} == {copy["pit_id"], ir.resolve_pit("x")}
+    assert ir.read_pit(copy["pit_id"])["ir_pit"][0]["derived_from"] == src, "lineage, not a link"
+    with pytest.raises(KeyError):
+        ir.resolve_pit(src)
+    ir.close()
+
+
+def test_the_cli_copies_and_deletes(tmp_path):
+    _store(tmp_path).close()
+    belief, ir_path = str(tmp_path / "s.duckdb"), str(tmp_path / "ir.duckdb")
+    baked = json.loads(_cli("bake", "--store", belief, "--out", ir_path, "--name", "one", cwd=tmp_path).stdout)
+    r = _cli("pit", "copy", "--store", ir_path, "one", "two", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    copy = json.loads(r.stdout)
+    assert copy["derived_from"] == baked["pit_id"] and copy["name"] == "two"
+    r = _cli("pit", "delete", "--store", ir_path, "one", cwd=tmp_path)
+    assert r.returncode == 0 and json.loads(r.stdout) == {"pit_id": baked["pit_id"], "deleted": True}
+    assert [p["name"] for p in json.loads(_cli("pit", "list", "--store", ir_path, cwd=tmp_path).stdout)["pits"]] == ["two"]
+    assert _cli("pit", "delete", "--store", ir_path, "one", cwd=tmp_path).returncode == 2

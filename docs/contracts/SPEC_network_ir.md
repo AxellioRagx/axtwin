@@ -1,6 +1,6 @@
 # SPEC — the network IR: a point-in-time structural representation
 
-**STATUS:** **VERSIONED — schema `1.5`.** This is the only versioned schema **in this project's
+**STATUS:** **VERSIONED — schema `1.6`.** This is the only versioned schema **in this project's
 data plane**, and the only place an `ir`-owned version field is permitted (`LES-001`, amended).
 Everything else — the event model, feature shapes, the plugin contract, the belief store — stays
 **incubating** and carries no version. Do not read this document as precedent for versioning any of
@@ -103,6 +103,7 @@ never named the artifact for the structural half.
 | `1.3` | `ir_traffic_profile` and `ir_capture_profile` tables added | **additive** → MINOR |
 | `1.4` | `EVIDENCE_CLASSES` gains `asserted` and `imported` **and becomes a precedence order**; `ir_entity.listen_ports`/`.dial_ports` (added 2026-08-27, never bumped) recorded here | **additive** → MINOR |
 | `1.5` | `ir_pit.name`: a mutable label beside the identity (2026-10-28, user). The step that writes a PIT is called **bake** (`aximprint bake`; `materialize` stays as an alias). A `1.4` store gains the column on open, backfilled with the id | **additive** → MINOR |
+| `1.6` | `ir_pit.derived_from`: the id a save-as copy came from (`aximprint pit copy`, `docs/design/imprint-twin-split.md` §3.1). `NULL` on a baked PIT | **additive** → MINOR |
 
 **Why `1.4` exists, and why it carries two changes rather than one.**
 `docs/WORK_ORDER_reference_ingest.md` D1/D2/D-a.
@@ -401,6 +402,7 @@ drift comparison is a join, not N file attaches.
 | `merge_axis` | VARCHAR | `vantage` / `time`. `NULL` = materialized from a belief store rather than merged. **Added at `1.2`** |
 | `merged_from` | JSON | contributing `pit_id`s, sorted. `NULL` on a materialized PIT. **Added at `1.2`** |
 | `name` | VARCHAR | the PIT's **label**, what a person calls it; defaults to `pit_id` at bake time and is the one column `IRStore.rename_pit` may change afterwards. Unique among names and ids in a store. Every verb that takes `--pit` resolves an id first, then a name. **Added at `1.5`** |
+| `derived_from` | VARCHAR | the `pit_id` this PIT was copied from by `IRStore.copy_pit` (the operator's save-as); the copy has its own id and rows. `NULL` on a baked PIT. **Added at `1.6`** |
 
 **A PIT is one tap point's view.** `source` is a filesystem path and says nothing about where the
 tap sat; `vantage` is the identity of the tap itself, and the two are not substitutes. The identity
