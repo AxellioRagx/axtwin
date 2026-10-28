@@ -212,13 +212,52 @@ def test_a_full_page_splits_the_interval_instead_of_asking_for_more(monkeypatch)
     assert all(f.ts is not None for f in flows)
 
 
+def _small_pages(monkeypatch, page=100, ceiling=400):
+    """Shrink the page and the leaf ceiling so a stub can fill them without 200,000-row bodies."""
+    from aximprint.ingest.axquery import sources as mod
+    monkeypatch.setattr(mod, "PAGE_ROWS", page)
+    monkeypatch.setattr(mod, "LEAF_ROWS_MAX", ceiling)
+
+
 def test_an_unsplittable_full_page_is_raised_never_silently_truncated(monkeypatch):
-    """Returning a prefix here would be the invisible truncation this project treats as a lie."""
-    _stub(monkeypatch, lambda path, p: {
-        "connections": [_conn(int(p["after"])) for _ in range(PAGE_ROWS)],
-        "coverage": {"complete": True}})
+    """Returning a prefix here would be the invisible truncation this project treats as a lie.
+    The stub fills WHATEVER limit it is asked for, so the floor leaf climbs to the ceiling and
+    is refused there."""
+    _small_pages(monkeypatch)
+    limits = []
+
+    def handler(path, p):
+        limits.append(int(p["limit"]))
+        return {"connections": [_conn(int(p["after"])) for _ in range(int(p["limit"]))],
+                "coverage": {"complete": True}}
+
+    _stub(monkeypatch, handler)
     with pytest.raises(AxQueryError, match="floor"):
         list(get_plugin("axquery").events(BASE, T0, T0 + 2))
+    assert max(limits) == 400, "the leaf climbs to the ceiling before it is refused"
+
+
+def test_a_one_second_burst_widens_that_leaf_only(monkeypatch):
+    """Measured 2026-10-28 on CorpAPCN: one host's port sweep put 20,723 rows in one second,
+    past a 20,000-row page. That second cannot be split finer, so it is re-read with a doubled
+    `limit` until it comes back short; every other leaf keeps the ordinary page. No full page
+    is ever consumed, so nothing comes from a merge-so-far response."""
+    _small_pages(monkeypatch, page=100, ceiling=800)
+    burst = [_conn(T0 + 1, op=10000 + i) for i in range(250)]   # all start in second T0+1
+    asked = []
+
+    def handler(path, p):
+        lo, hi, limit = int(p["after"]), int(p["before"]), int(p["limit"])
+        asked.append((lo, hi, limit))
+        rows = [r for r in burst if lo <= r["tsSec"] <= hi]       # `before` inclusive, as measured
+        return {"connections": rows[:limit], "coverage": {"complete": True}}
+
+    _stub(monkeypatch, handler)
+    flows = [e for e in get_plugin("axquery").events(BASE, T0, T0 + 4) if isinstance(e, FlowEvent)]
+    assert len(flows) == 250, "the whole burst, once"
+    wide = [(lo, hi, limit) for lo, hi, limit in asked if limit > 100]
+    assert wide and all(hi - lo <= 1 for lo, hi, _ in wide), "only a floor-width leaf is ever asked wider"
+    assert max(limit for _, _, limit in asked) == 400, "100 -> 200 -> 400 came back short"
 
 
 def test_only_connections_STARTING_in_a_leaf_are_emitted_by_it(monkeypatch):
@@ -338,14 +377,15 @@ def test_page_rows_exceeds_observed_peak_concurrency():
 
 def test_the_floor_error_says_narrowing_will_not_help(monkeypatch):
     """The refusal must not send the reader down the path that already failed. Narrowing the
-    range cannot fix a concurrency floor; only raising `PAGE_ROWS` can."""
+    range cannot fix a concurrency floor; only raising the leaf ceiling can."""
+    _small_pages(monkeypatch)
     _stub(monkeypatch, lambda path, p: {
-        "connections": [_conn(int(p["after"])) for _ in range(PAGE_ROWS)],
+        "connections": [_conn(int(p["after"])) for _ in range(int(p["limit"]))],
         "coverage": {"complete": True}})
     with pytest.raises(AxQueryError) as exc:
         list(get_plugin("axquery").events(BASE, T0, T0 + 2))
     assert "will NOT help" in str(exc.value)
-    assert "PAGE_ROWS" in str(exc.value)
+    assert "LEAF_ROWS_MAX" in str(exc.value)
 
 
 # -- identity from /api/events (2026-09-08: the rich half a router-mirror needs) ------

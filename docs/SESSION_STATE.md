@@ -42,27 +42,30 @@ because it will be believed. -->
   `axellio-hq/corp-apcn-rdr1` (12 streams), 2026-09-06 19:30 → 2026-10-06 19:30 UTC. It is
   **not** the two 20-hour-old test instances on `:26244`/`:26756` (a 2023 golden dataset),
   and nothing was started or written on the appliance.
-- **The ten-day run.** The first attempt (`disc-ef9ad362`, started 2026-10-27 16:03 UTC)
-  **failed after 15 min** in `ingest`: the one-second leaf `[1790496071, 1790496072)` held
-  5,148 rows against a 5,000-row page cap (4,641 of them one host's port sweep starting in
-  the next second; the server's `before` is inclusive at second granularity). `PAGE_ROWS` in
-  `discovery/src/aximprint/ingest/axquery/sources.py` was raised 5,000 → 20,000 with the
-  measurement recorded in its comment, and the one-hour window re-cast to the same 249 hosts /
-  42 segments at both values. The second attempt **`disc-4a1314cc`** (imprint `corp-apcn-10d`,
-  window 2026-09-26 19:30 → 2026-10-06 19:30 UTC, `network=corp-apcn`) started 2026-10-27
-  20:55 UTC; a one-hour slice takes ~4 min end to end, so expect the order of a day. It lands
-  in `catalog/twins/corp-apcn-10d/` (inside the checkout, uncommitted) with the belief store at
+- **The ten-day run.** Two attempts failed in `ingest` at a one-second leaf that overflowed
+  the page: `disc-ef9ad362` (2026-10-27 16:03 UTC, 5,148 rows against a 5,000 cap at
+  `[1790496071, 1790496072)`) and `disc-4a1314cc` (2026-10-27 20:55 UTC, 7.5 days in after
+  3 h 9 min, 20,723 rows against a 20,000 cap at `[1791100881, 1791100882)`). Both were one
+  host's port sweep (`10.80.75.125`) starting in that second and the next; the server's
+  `before` is inclusive at second granularity. Fix in
+  `discovery/src/aximprint/ingest/axquery/sources.py`: `PAGE_ROWS` 5,000 → 20,000 sizes the
+  ordinary page, and a floor-width leaf that still fills a page is re-read with a doubled
+  `limit` (that leaf only) up to `LEAF_ROWS_MAX = 200_000` before it is refused; a full page
+  is never consumed. The third attempt **`disc-0a6a9379`** (imprint `corp-apcn-10d`, window
+  2026-09-26 19:30 → 2026-10-06 19:30 UTC, `network=corp-apcn`) started 2026-10-28 10:57 UTC;
+  measured throughput is ~25 min per day of index, so expect ~4–5 h. It lands in
+  `catalog/twins/corp-apcn-10d/` (inside the checkout, uncommitted) with the belief store at
   `~/.axrange/discovery/corp-apcn-10d.belief.duckdb`. Watch it at
-  `http://10.80.72.52:8080/discovery/runs/disc-4a1314cc` or
-  `curl :8080/api/discovery/runs/disc-4a1314cc`. If `axrange serve` is restarted the run
+  `http://10.80.72.52:8080/discovery/runs/disc-0a6a9379` or
+  `curl :8080/api/discovery/runs/disc-0a6a9379`. If `axrange serve` is restarted the run
   record is lost (in-memory) and the subprocess is orphaned: check `pgrep -af "aximprint ingest"`
-  first. A second over the 20,000 cap anywhere in the ten days fails the run the same way.
+  first.
 - **dev45 environment:** unverified since 2026-10-05 (`corp-twin-3dae3188` and its tap/tfc);
   do not destroy anything there without asking.
 
 ## Next steps (ordered)
 
-1. When `disc-4a1314cc` completes: open `/imprints/corp-apcn-10d`, review the bundle, decide
+1. When `disc-0a6a9379` completes: open `/imprints/corp-apcn-10d`, review the bundle, decide
    whether `catalog/twins/corp-apcn-10d/` is committed. If it failed, the record's `error`
    has the stage and aximprint's stderr tail.
 2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three

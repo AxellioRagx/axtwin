@@ -63,16 +63,28 @@ from typing import Any, Iterator, Optional
 #: 3.6 MB, sub-second — the cap costs nothing when the window is small, as before. 20,000 is
 #: ~4x that peak. Re-measured: the one-hour window `[1791311436, 1791315037)` casts to the same
 #: 249 hosts / 42 segments at 5,000 and at 20,000 (no leaf in it was ever full, so no page was
-#: ever merge-so-far at either value).
+#: ever merge-so-far at either value). Since 2026-10-28 a floor-width leaf that still fills a
+#: page is re-read wider (see `LEAF_ROWS_MAX`), so this value sizes the ORDINARY page; the
+#: burst case no longer rides on it.
 PAGE_ROWS = 20000
 
 #: Wall-clock per request. A cold-chunk fault can be slow; a hang must not be forever.
 TIMEOUT_SECONDS = 120
 
-#: Floor on time-bisection. An interval this small that STILL fills a page is reported, never
-#: silently truncated — one second holding more than `PAGE_ROWS` connections is a real
-#: possibility on a 12-stream tap and the operator needs to know, not get a prefix.
+#: Floor on time-bisection. The server filters time at second granularity (and its `before` is
+#: inclusive at that granularity), so nothing narrower than a second asks a different question.
 MIN_BISECT_SECONDS = 1.0
+
+#: Ceiling on ONE floor-width leaf. A leaf at the floor that still fills a page is re-read with
+#: a doubled `limit` — that leaf only, never the window — until it comes back short or this
+#: ceiling is reached, and only then is it refused. Measured 2026-10-28 on CorpAPCN
+#: `[1791100881, 1791100882)`: 20,723 rows, 13.9 MB, 1.2 s, of which 20,272 were one host's
+#: port sweep across that second and the next. A burst like that is the honest shape of a
+#: scan on a 12-stream tap, not a reason to fail a ten-day read; the response it costs is
+#: bounded by one second of starts plus concurrency, which is the smallest complete answer
+#: there is. 200,000 is ~10x that burst and ~140 MB of JSON at the measured row size — the
+#: point past which a prefix is refused rather than fetched.
+LEAF_ROWS_MAX = 200_000
 
 #: Hard stop on pages per (endpoint, window). At PAGE_ROWS this is 200 M rows in one window,
 #: far past anything real — a runaway-cursor backstop, not a coverage limit. Hitting it is
@@ -270,34 +282,43 @@ class AxQuerySource:
         keys on it; a conn that began before `after` belongs to an earlier slice and is emitted
         when the caller reads that one.
 
-        An interval that cannot be split further and is STILL full is raised, not truncated: the
-        sensor holds more rows in one second than a bounded read can retrieve, and returning a
-        prefix would be the invisible truncation this project treats as a lie (`LES-006`).
+        A leaf at the floor that is STILL full is the one place `limit` is raised: that leaf is
+        re-read with a doubled cap, up to `LEAF_ROWS_MAX`, because a one-second burst (a port
+        sweep) cannot be split any finer and the response it costs is bounded by that second.
+        A full page is never consumed — only a page that came back SHORT of its own limit is,
+        so no row ever comes from a merge-so-far (truncated) response. Past the ceiling the
+        leaf is raised, not truncated: returning a prefix would be the invisible truncation
+        this project treats as a lie (`LES-006`).
         """
-        stack = [(float(after), float(before))]
+        stack = [(float(after), float(before), PAGE_ROWS)]
         while stack:
-            lo, hi = stack.pop()
-            blob = self.get(path, limit=PAGE_ROWS, after=int(lo), before=int(hi), **params)
+            lo, hi, limit = stack.pop()
+            blob = self.get(path, limit=limit, after=int(lo), before=int(hi), **params)
             rows = blob.get(key) or []
-            if len(rows) < PAGE_ROWS:
+            if len(rows) < limit:
                 for r in rows:
                     ts = start_ts(r)
                     if ts is not None and lo <= ts < hi:
                         yield r
                 continue
             if hi - lo <= MIN_BISECT_SECONDS:
-                raise AxQueryError(
-                    f"axquery {path}: {len(rows)} rows in [{int(lo)}, {int(hi)}) still fills a "
-                    f"page at the {MIN_BISECT_SECONDS}s floor. **Narrowing the time range will "
-                    f"NOT help** — `after`/`before` match conns that OVERLAP the interval, so "
-                    f"this count converges to the number of CONCURRENT connections, not to zero. "
-                    f"Raise PAGE_ROWS (currently {PAGE_ROWS}) above peak concurrency instead. "
-                    f"Refusing rather than returning a silent prefix.")
+                if limit >= LEAF_ROWS_MAX:
+                    raise AxQueryError(
+                        f"axquery {path}: {len(rows)} rows in [{int(lo)}, {int(hi)}) still "
+                        f"fills a page at the {MIN_BISECT_SECONDS}s floor and the "
+                        f"{LEAF_ROWS_MAX}-row leaf ceiling. **Narrowing the time range will "
+                        f"NOT help** — `after`/`before` match conns that OVERLAP the interval, "
+                        f"so this count converges to the number of CONCURRENT connections "
+                        f"plus one second of starts, not to zero. Raise LEAF_ROWS_MAX above "
+                        f"that peak instead. Refusing rather than returning a silent prefix.")
+                # The same second, asked wider. Only a floor leaf ever escalates.
+                stack.append((lo, hi, min(limit * 2, LEAF_ROWS_MAX)))
+                continue
             mid = lo + (hi - lo) / 2.0
             # Later half first so the LIFO stack yields in ascending time; the merge downstream
             # tolerates bounded disorder but there is no reason to manufacture any.
-            stack.append((mid, hi))
-            stack.append((lo, mid))
+            stack.append((mid, hi, PAGE_ROWS))
+            stack.append((lo, mid, PAGE_ROWS))
 
     def limited_rows(self, path: str, key: str, **params: Any) -> tuple[list[dict], bool]:
         """One bounded read of a non-pageable, non-time-filterable endpoint.
