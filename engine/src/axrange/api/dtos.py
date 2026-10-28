@@ -1177,8 +1177,10 @@ class ImprintSummaryDTO(BaseModel):
     # measurement. `sidecar_shape` is what was parsed
     # ("canonical" | "normalized" | "unrecognized" | "absent"), in the
     # vocabulary `CastSummaryDTO`/`ImprintProvenanceDTO` already use:
-    # `services`/`personas`/`out_of_vocab_pct` are measurements ONLY when it
-    # reads "normalized", and `warnings` says so in words when they are not.
+    # `out_of_vocab_pct` is a measurement ONLY when it reads "normalized", and
+    # `warnings` says so in words when it is not; `services` (declared
+    # listeners over host instances) and `personas` (persona documents in the
+    # bundle) are counted from the bundle for every other shape.
     # REQUIRED, as is `confidence_source` (GAP-082 review): the one builder
     # states both, so a default could only ever be a claim nobody made.
     sidecar_shape: str

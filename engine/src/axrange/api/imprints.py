@@ -137,13 +137,20 @@ warning (see above).
 
 `hosts`/`segments` (+ each segment's `cidr`/`host_count`) are DERIVED from
 the twin_config's real structural content (nodes/segments) -- they are
-facts the twin_config actually carries. `services`/`personas`/
-`mean_confidence`/`out_of_vocab_pct`/per-segment `confidence` have no home
-in the twin-config vocabulary at all (persona intent in particular was
-removed from `TwinConfigNode` entirely by the role/persona split, docs/
-WORK_ORDER_role_persona_tier.md) -- they are read straight from the
-sidecar's `summary`/`segment_confidence` blocks, never fabricated or
-averaged from the small illustrative `fields` sample.
+facts the twin_config actually carries. For a NORMALIZED sidecar,
+`services`/`personas`/`mean_confidence`/`out_of_vocab_pct`/per-segment
+`confidence` are read straight from its `summary`/`segment_confidence`
+blocks, never fabricated or averaged from the small illustrative `fields`
+sample. For every other shape (every real cast bundle), `services` and
+`personas` are COUNTED from the bundle itself (2026-10-28, CorpAPCN `test2`
+read 0/0 beside 17 persona files): `services` is the declared `listen:`
+entries summed over host INSTANCES (a `count: 3` group serving two ports is
+six), the same per-instance notion `hosts` uses; `personas` is the persona
+documents in the bundle's `personas/` folder, which is what `install-cast`
+ships and `AXRANGE_PERSONAS_DIR` loads. Persona intent has no home in the
+twin-config vocabulary (removed from `TwinConfigNode` by the role/persona
+split, docs/WORK_ORDER_role_persona_tier.md), so the folder is the only
+place to count it. `out_of_vocab_pct` alone stays unmeasured there.
 
 **A cast bundle SUMMARIZES too** (R7 -- superseding the S1 implementation
 call D3 (a)'s "`GET /{id}` stays strict" half, `docs/
@@ -1004,12 +1011,46 @@ def _unmeasured_stats_warning(imprint_id: str, shape: str) -> str:
         SIDECAR_UNRECOGNIZED: "an unrecognized provenance sidecar (not consumed)",
     }.get(shape, f"a {shape} provenance sidecar")
     return (
-        f"imprint {imprint_id!r}: services, personas and out_of_vocab_pct come "
-        f"only from a NORMALIZED sidecar's `summary` block, and this bundle has "
-        f"{what} -- all three read 0, which is NOT a measurement (sidecar_shape "
-        "says what was parsed; confidence_source says where mean_confidence "
-        "came from)"
+        f"imprint {imprint_id!r}: out_of_vocab_pct comes only from a NORMALIZED "
+        f"sidecar's `summary` block, and this bundle has {what} -- it reads 0, "
+        "which is NOT a measurement (sidecar_shape says what was parsed; "
+        "confidence_source says where mean_confidence came from). services is "
+        "the declared `listen:` entries summed over host instances and personas "
+        "the persona documents in the bundle's personas/ folder, both counted "
+        "from the bundle"
     )
+
+
+def _declared_service_count(tc: TwinConfig, *, imprint_id: str) -> int:
+    """Declared `listen:` entries summed over host INSTANCES, routers excluded --
+    the per-instance notion `_host_counts_by_segment` uses, so "262 hosts, 424
+    services" reads as served ports across those hosts. A node with no
+    `listen:` key makes no claim and counts nothing."""
+    total = 0
+    for node in tc.nodes:
+        if node.kind == "router" or not node.listen:
+            continue
+        if node.count in (None, ""):
+            count = 1
+        else:
+            try:
+                count = int(_resolved_count(node.count, tc))
+            except (TypeError, ValueError) as e:
+                raise ImprintDataError(
+                    f"imprint {imprint_id!r}: node {node.name!r} has a "
+                    f"non-numeric count: {node.count!r}"
+                ) from e
+        total += len(node.listen) * count
+    return total
+
+
+def _persona_document_count(dir_: Path) -> int:
+    """Persona documents shipped with the bundle (`<dir>/personas/*.yaml`, what
+    `install-cast` copies beside the twin config). No folder is 0."""
+    personas = dir_ / "personas"
+    if not personas.is_dir():
+        return 0
+    return sum(1 for p in personas.iterdir() if p.is_file() and p.suffix in (".yaml", ".yml"))
 
 
 # ---------------------------------------------------------------------------
@@ -1139,7 +1180,7 @@ def _summary_from(dir_: Path, imprint_id: str, *, sidecar: Optional[Any]) -> Imp
     if shape == SIDECAR_NORMALIZED:
         return _normalized_summary(imprint_id, tc, sidecar, warnings=warnings)
     return _cast_summary_of(
-        imprint_id, tc, sidecar, export, shape=shape, warnings=warnings,
+        imprint_id, tc, sidecar, export, dir_=dir_, shape=shape, warnings=warnings,
     )
 
 
@@ -1149,6 +1190,7 @@ def _cast_summary_of(
     sidecar: Optional[dict[str, Any]],
     export: _ExportScalars,
     *,
+    dir_: Path,
     shape: str,
     warnings: list[str],
 ) -> ImprintSummary:
@@ -1157,10 +1199,11 @@ def _cast_summary_of(
 
     Structure from the twin config, time from the export, confidence from
     the canonical sidecar's own per-field records (S1's mean over FINITE
-    confidences, its coverage in `confidence_source`). The normalized-only
-    stats have no source in any of these shapes: published as 0 so the
-    shipped plugin's unguarded render keeps working (D3 (a)'s
-    `mean_confidence` precedent), and named unmeasured."""
+    confidences, its coverage in `confidence_source`), services from the
+    declared listeners and personas from the bundle's persona folder (module
+    docstring). `out_of_vocab_pct` has no source in any of these shapes:
+    published as 0 so the shipped plugin's unguarded render keeps working
+    (D3 (a)'s `mean_confidence` precedent), and named unmeasured."""
     by_segment, total_hosts = _host_counts_by_segment(tc, imprint_id=imprint_id)
     out = list(warnings)
     if shape == SIDECAR_CANONICAL:
@@ -1193,8 +1236,8 @@ def _cast_summary_of(
         windows=export.windows,
         hosts=total_hosts,
         segments=len(tc.segments),
-        services=0,
-        personas=0,
+        services=_declared_service_count(tc, imprint_id=imprint_id),
+        personas=_persona_document_count(dir_),
         mean_confidence=mean_confidence,
         out_of_vocab_pct=0.0,
         topology_segments=[

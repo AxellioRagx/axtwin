@@ -220,7 +220,8 @@ def test_load_imprint_summary_without_a_sidecar_summarizes_and_says_so(tmp_path)
     assert s.id == "bare"
     assert s.sidecar_shape == "absent"
     assert s.confidence_source == "absent"
-    # 0 / 0.0, NOT None: the shipped plugin renders these unguarded.
+    # 0 / 0.0, NOT None: the shipped plugin renders these unguarded. Services
+    # and personas are COUNTS here (no `listen:`, no personas/ folder).
     assert (s.services, s.personas, s.mean_confidence, s.out_of_vocab_pct) == (0, 0, 0.0, 0.0)
     assert any("NOT a measurement" in w for w in s.warnings), s.warnings
     assert s.hosts == 1 and s.segments == 1
@@ -1318,3 +1319,39 @@ def test_any_rewrite_of_the_twin_config_invalidates_its_cached_parse(tmp_path, m
     assert cidrs() == ["10.5.0.0/24", new]
     assert cidrs() == ["10.5.0.0/24", new]
     assert len(parsed) == 2, parsed
+
+
+def test_a_cast_bundle_counts_its_services_and_personas_from_what_it_ships(tmp_path):
+    """CorpAPCN `test2` (2026-10-28, two hours): 262 hosts, 103 declared listeners on 35
+    hosts, 17 persona documents -- and the summary read services 0, personas 0, because
+    those two were taken only from a normalized sidecar's `summary` block. A cast bundle
+    carries both: `listen:` on its nodes, persona files in `personas/`. Counted per host
+    INSTANCE for services (the notion `hosts` uses), per document for personas; only
+    `out_of_vocab_pct` is still named unmeasured."""
+    d = _write_cast_bundle(tmp_path, "served", sidecar=_CANONICAL)
+    (d / "served.yaml").write_text(
+        "twin_config:\n"
+        "  id: served\n"
+        "  segments:\n"
+        "    - { name: lan, cidr: 10.5.0.0/24 }\n"
+        "  nodes:\n"
+        "    - { name: gw, kind: router, image: debian-12-cloud@v1, requires: [linux],\n"
+        "        nets: [{ segment: lan }], listen: [{ port: 22, proto: tcp }] }\n"
+        "    - { name: web, image: debian-12-cloud@v1, requires: [linux], net: lan, count: 3,\n"
+        "        listen: [{ port: 80, proto: tcp }, { port: 443, proto: tcp }] }\n"
+        "    - { name: dns, image: debian-12-cloud@v1, requires: [linux], net: lan,\n"
+        "        listen: [{ port: 53, proto: udp }] }\n"
+        "    - { name: quiet, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
+    )
+    (d / "personas").mkdir()
+    for pid in ("cast-web-tier", "cast-web-tier-local", "cast-dns-resolver"):
+        (d / "personas" / f"{pid}.yaml").write_text(f"persona:\n  id: {pid}\n")
+    (d / "personas" / "README.md").write_text("not a persona\n")
+    s = load_imprint_summary("served", fixtures_dir=tmp_path)
+    assert s.hosts == 5
+    assert s.services == 3 * 2 + 1, "per instance, router excluded, no claim counts nothing"
+    assert s.personas == 3
+    assert s.out_of_vocab_pct == 0.0
+    (w,) = [w for w in s.warnings if "NOT a measurement" in w]
+    assert "out_of_vocab_pct" in w and "services" in w and "personas" in w
+    assert "all three" not in w
