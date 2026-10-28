@@ -40,7 +40,7 @@ Environment variables the API and CLI read:
 | `AXRANGE_ADAPTER_CONFIG`, `AXRANGE_DB`, `AXRANGE_EXTRA_DBS`, `AXRANGE_TARGETS` | adapter config, primary state store, extra read-only stores, targets file |
 | `AXRANGE_IMAGES_ROOT`, `AXRANGE_SCENARIOS_DIR`, `AXRANGE_TWINS_DIR`, `AXRANGE_TWIN_CONFIGS_DIR`, `AXRANGE_PERSONAS_DIR` | content roots; unset defaults come from `axrange.paths` (`catalog/...`) |
 | `AXRANGE_IMPRINTS_DIR` | where installed casts live and where a discovery run writes; must be set for a run so it never writes into the package fixtures |
-| `AXRANGE_AXIMPRINT_BIN`, `AXRANGE_AXIMPRINT_STORE`, `AXRANGE_AXIMPRINT_TIMEOUT_S` | the `aximprint` executable, the IR store the API materializes into and casts from, the per-verb timeout |
+| `AXRANGE_AXIMPRINT_BIN`, `AXRANGE_AXIMPRINT_STORE`, `AXRANGE_AXIMPRINT_TIMEOUT_S` | the `aximprint` executable, the IR store the API bakes PITs into and casts from, the per-verb timeout |
 | `AXRANGE_API_TOKEN`, `AXRANGE_PROTECTED_DEPLOYS`, `AXRANGE_SPA_DIR` | the write token, deploy ids no write may touch without `override_protection`, the console bundle to co-serve |
 | `AXRANGE_DISCOVERY_DB`, `AXRANGE_DISCOVERY_TIMEOUT_S` | the discovery-sources store (`~/.axrange/discovery.db`, 0600; holds endpoints, access and credentials) and the per-stage budget of a source-driven run (default 6 h) |
 | `AXIMPRINT_SOURCE_USER`, `AXIMPRINT_SOURCE_PASSWORD`, `AXIMPRINT_SOURCE_API_KEY` | read by `aximprint`'s HTTP transport (axquery): the credential for a run by hand. `axrange serve` sets them for the subprocess from the source record; never put a secret in `argv` or the locator |
@@ -82,7 +82,9 @@ aximprint plugins                                                   # installed 
 aximprint probe --plugin axquery --source axquery:http://127.0.0.1:9090   # reachable? span? vantage? -- no events pulled
 aximprint ingest --plugin zeek --source <zeek log dir> --store imprint.duckdb [--vantage <tap>] [--network <name>]
 aximprint status --store imprint.duckdb
-aximprint materialize --store imprint.duckdb --out ir.duckdb [--as-of <epoch>] [--replace]
+aximprint bake --store imprint.duckdb --out ir.duckdb [--as-of <epoch>] [--replace] [--name NAME]   # was `materialize`, still accepted
+aximprint pit list --store ir.duckdb                 # every PIT: id (the identity) and name (the label)
+aximprint pit rename --store ir.duckdb <id or name> <new name>
 aximprint cast --store ir.duckdb --pit <pit id> --out <cast dir> --imprint-id <id> [--assertions <file>]
 aximprint install-cast <cast dir> ...                               # -> catalog/twins/<id>/ as a cast bundle
 ```
@@ -116,6 +118,9 @@ curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discover
 curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>   # 204; forgets a finished run's record (the imprint stays)
 curl -s :8080/api/imprints/corp-imprint        # resolves once completed
 curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/imprints/corp-imprint   # 204; removes the bundle + its belief store; 409 under an active run or a live deploy
+curl -s :8080/api/discovery/pits                 # every PIT in the IR store, by id and name
+curl -s -X PATCH -H "Authorization: Bearer $AXRANGE_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"name":"corp-apcn day one"}' :8080/api/discovery/pits/<pit id or name>   # rename; the id never changes
 ```
 
 Run records live in `~/.axrange/discovery.db` (`AXRANGE_DISCOVERY_DB`) beside the

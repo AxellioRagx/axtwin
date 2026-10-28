@@ -59,7 +59,7 @@ appliance / pcap ──(acquire, optional)──▶ sensor artifacts on disk
 sensor metadata ──▶ ingest plugin ──▶ events ──▶ windowing ──▶ learners ──▶ sinks
                                                                   │
                                        belief store (evidence log + DuckDB) ◀──┘
-                                                                  │ materialize
+                                                                  │ bake
                                                            network IR (a PIT)
                                                                   │ cast
                                        twin bundle: te.yaml + tfc + tap (+ assertions)
@@ -93,7 +93,7 @@ sensor metadata ──▶ ingest plugin ──▶ events ──▶ windowing ─
   not an inference input).
 - **`store/`** is an append-only evidence log with a rebuildable DuckDB
   projection; beliefs decay against `last_seen`.
-- **`ir/`** materializes a belief store as-of a time into a **PIT**, the
+- **`ir/`** bakes a belief store as-of a time into a **PIT**, the
   network IR (`docs/contracts/SPEC_network_ir.md`): entities, segments, edges,
   the unseen census, and the vantage that observed it. `merge` combines PITs
   across vantages or time; `visibility` and `drift` read them.
@@ -290,7 +290,7 @@ ingest plugins with their schemas (through `aximprint plugins`).
 `POST /api/discovery/runs {plugin, config, imprint_id}` validates the config
 against the plugin's closed schema, refuses an unknown plugin, an unsafe or
 already-present imprint id or an id another run is writing, then runs
-`ingest -> materialize -> cast -> install-cast` in a thread and answers `202`
+`ingest -> bake -> cast -> install-cast` in a thread and answers `202`
 with the run record. `GET /api/discovery/runs/{id}` reports
 `queued | running | completed | failed`, the stages done, the error or the
 `pit_id`. The installed bundle lands under `AXRANGE_IMPRINTS_DIR/<imprint_id>/`

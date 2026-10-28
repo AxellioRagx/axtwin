@@ -61,7 +61,7 @@ export function ImprintsPage() {
                       <span className="muted">—</span>
                     )}
                   </td>
-                  <td className="mono">{run?.pit_id ?? "—"}</td>
+                  <td className="mono" title={run?.pit_id ?? undefined}>{run ? (run.pit_name ?? run.pit_id ?? "—") : "—"}</td>
                   <td className="muted">{i.can_apply ? "yes" : i.apply_blocked_reason || "no"}</td>
                   <td>
                     <DeleteImprint id={i.id} compact onDeleted={(id) => setDeleted((d) => [...d, id])} />

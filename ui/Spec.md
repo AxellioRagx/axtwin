@@ -149,6 +149,11 @@ its listed tests pass. T0.x is the release gate for UI v0.
   persist across API restarts, so the Imprints page's Run column and the
   runs list survive one; a run the old process left active shows `failed`
   with the restart named. *(`imprints.page.test.tsx`.)*
+- C1.15 (auto) The second stage is `bake`. A completed run shows its PIT by
+  name, with the id beside it once the two differ, and a pencil renames it
+  (`PATCH /api/discovery/pits/{id}`); the Imprints page's PIT column shows the
+  name. A refused rename is shown in place and the old name stays.
+  *(`run.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

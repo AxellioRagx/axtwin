@@ -31,7 +31,7 @@ describe("C1.2 -- test, run, poll, open", () => {
       },
       runSteps: [
         { status: "running", stages_done: ["ingest"], ts_from: SPAN.last_ts + 1 - 10 * 86400, ts_to: SPAN.last_ts + 1, via: "ssh fxadmin@x:22 -> 127.0.0.1:9090 via 127.0.0.1:1" },
-        { status: "completed", stages_done: ["ingest", "materialize", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-27T17:03:18Z" },
+        { status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-27T17:03:18Z" },
       ],
     });
     renderAt(api, "/discovery/sources/src-1");
@@ -93,7 +93,7 @@ describe("C1.2 -- test, run, poll, open", () => {
   it("a failed run shows its error", async () => {
     const { api } = fakeApi({
       sources: [tunnelSource()],
-      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", imprint_id: "x", stages_done: [], stages: ["ingest", "materialize", "cast", "install"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null }],
+      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", imprint_id: "x", stages_done: [], stages: ["ingest", "bake", "cast", "install"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null }],
     });
     renderAt(api, "/discovery/runs/disc-9");
     const alert = await screen.findByRole("alert");

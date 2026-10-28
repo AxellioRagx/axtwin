@@ -1,6 +1,6 @@
 # SPEC — the network IR: a point-in-time structural representation
 
-**STATUS:** **VERSIONED — schema `1.4`.** This is the only versioned schema **in this project's
+**STATUS:** **VERSIONED — schema `1.5`.** This is the only versioned schema **in this project's
 data plane**, and the only place an `ir`-owned version field is permitted (`LES-001`, amended).
 Everything else — the event model, feature shapes, the plugin contract, the belief store — stays
 **incubating** and carries no version. Do not read this document as precedent for versioning any of
@@ -102,6 +102,7 @@ never named the artifact for the structural half.
 | `1.2` | `ir_pit.vantage`/`.network`/`.vantages`/`.merge_axis`/`.merged_from`, `ir_entity.vantages`, and the `ir_unseen` table added | **additive** → MINOR |
 | `1.3` | `ir_traffic_profile` and `ir_capture_profile` tables added | **additive** → MINOR |
 | `1.4` | `EVIDENCE_CLASSES` gains `asserted` and `imported` **and becomes a precedence order**; `ir_entity.listen_ports`/`.dial_ports` (added 2026-08-27, never bumped) recorded here | **additive** → MINOR |
+| `1.5` | `ir_pit.name`: a mutable label beside the identity (2026-10-28, user). The step that writes a PIT is called **bake** (`aximprint bake`; `materialize` stays as an alias). A `1.4` store gains the column on open, backfilled with the id | **additive** → MINOR |
 
 **Why `1.4` exists, and why it carries two changes rather than one.**
 `docs/WORK_ORDER_reference_ingest.md` D1/D2/D-a.
@@ -222,7 +223,10 @@ correctly *refuses* any mismatch because nothing is ever supposed to read it acr
 
 ## Identity
 
-**A PIT is identified by `(source, since, as_of)`**, carried as `pit_id`.
+**A PIT is identified by `(source, since, as_of)`**, carried as `pit_id`. Its **name** is not
+part of its identity: `ir_pit.name` (`1.5`) is a label that defaults to the id and can be
+renamed, so an operator can call a snapshot `corp-apcn-10d` while every row, every cast
+sidecar and every drift report keeps keying on the unchanging id.
 
 - `as_of` is the semantic *"the network as known at time T"* — `snapshot()`'s own parameter.
 - `since` bounds the observation from below. **Corrected 2026-08-17**: the identity was
@@ -396,6 +400,7 @@ drift comparison is a join, not N file attaches.
 | `vantages` | JSON | every tap a **merged** PIT combines, sorted. `NULL` on a materialized one. **Added at `1.2`** |
 | `merge_axis` | VARCHAR | `vantage` / `time`. `NULL` = materialized from a belief store rather than merged. **Added at `1.2`** |
 | `merged_from` | JSON | contributing `pit_id`s, sorted. `NULL` on a materialized PIT. **Added at `1.2`** |
+| `name` | VARCHAR | the PIT's **label**, what a person calls it; defaults to `pit_id` at bake time and is the one column `IRStore.rename_pit` may change afterwards. Unique among names and ids in a store. Every verb that takes `--pit` resolves an id first, then a name. **Added at `1.5`** |
 
 **A PIT is one tap point's view.** `source` is a filesystem path and says nothing about where the
 tap sat; `vantage` is the identity of the tap itself, and the two are not substitutes. The identity

@@ -119,7 +119,9 @@ export interface DiscoveryRun {
   imprint_id: string;
   stages_done: string[];
   stages: string[];
+  /** The PIT the bake produced: its identity, and its label (the id until renamed). */
   pit_id: string | null;
+  pit_name?: string | null;
   error: string | null;
   created_at: string;
   finished_at: string | null;
@@ -165,6 +167,14 @@ export interface ImprintList {
   imprints: ImprintListItem[];
   /** Catalog folders the listing could not read, with the reason. */
   skipped: Array<{ id: string; reason: string }>;
+}
+
+/** One PIT in the API's IR store. */
+export interface Pit {
+  pit_id: string;
+  name: string;
+  as_of?: number | null;
+  [k: string]: unknown;
 }
 
 export interface ImprintSummary {

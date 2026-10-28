@@ -382,6 +382,25 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         service.delete_discovery_run(run_id, runs=app.state.discovery_runs)
         return Response(status_code=204)
 
+    # ---- PITs (`api/Spec.md` A1, 2026-10-28): what a bake produced in the
+    # API's IR store, by id and name; the name is the one thing a PIT lets
+    # change, and every run that produced it follows.
+    @app.get("/api/discovery/pits", response_model=dtos.PitListDTO)
+    @_ro
+    def discovery_pits() -> dtos.PitListDTO:
+        return service.list_pits(settings, backend=app.state.discovery_backend)
+
+    @app.patch(
+        "/api/discovery/pits/{pit}",
+        response_model=dtos.PitDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_pit_rename(pit: str, req: dtos.PitRenameRequest) -> dtos.PitDTO:
+        return service.rename_pit(
+            settings, pit, req, backend=app.state.discovery_backend,
+            runs=app.state.discovery_runs,
+        )
+
     # ---- discovery sources (`api/Spec.md` A7) -- a saved way to reach a
     # sensor's query API (endpoint + direct/ssh-tunnel access + credential),
     # probed and run from the console. Reads never return a secret. Every

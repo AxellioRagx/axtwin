@@ -12,7 +12,7 @@ function imprint(id: string, over: Partial<ImprintSummary> = {}): ImprintSummary
 
 function run(id: string, imprint_id: string, status: DiscoveryRun["status"], created_at: string): DiscoveryRun {
   return {
-    id, status, plugin: "axquery", imprint_id, stages_done: [], stages: ["ingest", "materialize", "cast", "install"],
+    id, status, plugin: "axquery", imprint_id, stages_done: [], stages: ["ingest", "bake", "cast", "install"],
     pit_id: status === "completed" ? `pit-${id}` : null, error: null, created_at, finished_at: null, source_id: "src-1",
     started_at: created_at, ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null,
   };

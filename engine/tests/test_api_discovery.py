@@ -2,7 +2,7 @@
 `POST /api/discovery/runs`, `GET /api/discovery/runs/{id}`.
 
 A1.1 and A1.3 run against a fake backend (the suite never runs `aximprint`
-by accident). A1.2 runs the REAL chain -- ingest -> materialize -> cast ->
+by accident). A1.2 runs the REAL chain -- ingest -> bake -> cast ->
 install -- through the `aximprint` executable installed beside this
 interpreter, on a synthetic Zeek capture, and reads the installed imprint back
 through `GET /api/imprints/{id}`. It is skipped when the binary is not there.
@@ -78,6 +78,21 @@ class _FakeDiscovery:
         for s in disc.STAGES:
             on_stage(s)
         return disc.DiscoveryRunResult(pit_id="pit-fake", stages=list(disc.STAGES))
+
+    # The PIT table the fake "store" holds: `{pit_id: name}`.
+    pits = {"pit-fake": "pit-fake"}
+
+    def list_pits(self, store):
+        return [{"pit_id": p, "name": n, "as_of": 100.0} for p, n in self.pits.items()]
+
+    def rename_pit(self, store, pit, name):
+        hit = [p for p, n in self.pits.items() if p == pit or n == pit]
+        if not hit:
+            raise disc.DiscoveryError(f"no PIT {pit!r}")
+        if any(n == name or p == name for p, n in self.pits.items() if p != hit[0]):
+            raise disc.DiscoveryError(f"{name!r} is already the name or id of another PIT")
+        self.pits[hit[0]] = name
+        return {"pit_id": hit[0], "name": name, "as_of": 100.0}
 
 
 def _client(settings, *, backend=None, background="sync"):
@@ -248,7 +263,7 @@ def test_a_completed_run_reports_its_stages_and_pit(tmp_path):
     assert r.status_code == 202, r.text
     run = r.json()
     assert run["status"] == "completed"  # synchronous background
-    assert run["stages"] == ["ingest", "materialize", "cast", "install"]
+    assert run["stages"] == ["ingest", "bake", "cast", "install"]
     assert run["stages_done"] == run["stages"]
     assert run["pit_id"] == "pit-fake" and run["error"] is None
     assert run["created_at"].endswith("Z") and run["finished_at"]
@@ -269,7 +284,7 @@ def test_a_failed_stage_lands_on_the_record_and_the_partial_bundle_is_removed(tm
 
     def _fails(request, on_stage):
         on_stage("ingest")
-        on_stage("materialize")
+        on_stage("bake")
         on_stage("cast")
         half = request.catalog_root / request.imprint_id
         half.mkdir()
@@ -281,7 +296,7 @@ def test_a_failed_stage_lands_on_the_record_and_the_partial_bundle_is_removed(tm
     assert r.status_code == 202
     run = r.json()
     assert run["status"] == "failed"
-    assert run["stages_done"] == ["ingest", "materialize", "cast"]
+    assert run["stages_done"] == ["ingest", "bake", "cast"]
     assert "install-cast failed" in run["error"]
     assert run["pit_id"] is None
     assert _catalog_untouched(settings), "the half-written bundle is gone"
@@ -325,8 +340,8 @@ def test_the_argv_of_each_stage(tmp_path):
         "/opt/aximprint", "ingest", "--plugin", "zeek", "--source", "/cap",
         "--store", str(tmp_path / "site-a.belief.duckdb"),
     ]
-    assert be.build_materialize_argv(r) == [
-        "/opt/aximprint", "materialize", "--store", str(tmp_path / "site-a.belief.duckdb"),
+    assert be.build_bake_argv(r) == [
+        "/opt/aximprint", "bake", "--store", str(tmp_path / "site-a.belief.duckdb"),
         "--out", str(tmp_path / "ir.duckdb"), "--replace",
     ]
     assert be.build_cast_argv(r, "pit-1") == [
@@ -423,7 +438,7 @@ def test_a_real_discovery_run_lands_an_imprint_the_catalog_serves(tmp_path):
     assert r.status_code == 202, r.text
     run = r.json()
     assert run["status"] == "completed", run
-    assert run["stages_done"] == ["ingest", "materialize", "cast", "install"]
+    assert run["stages_done"] == ["ingest", "bake", "cast", "install"]
     assert run["pit_id"].startswith("pit-")
 
     # The imprint resolves through the catalog routes, with real numbers.
@@ -519,14 +534,14 @@ def test_the_chain_reports_ingest_progress_from_window_lines(tmp_path):
     r.scratch_dir.mkdir(parents=True, exist_ok=True)
     say = "import sys; print(sys.argv[-1])"
     be.build_ingest_argv = lambda rq: [sys.executable, "-c", "print('window 1200: 1 entities'); print('window 1800: 2 entities'); print('store sink complete')"]  # type: ignore[method-assign]
-    be.build_materialize_argv = lambda rq: [sys.executable, "-c", say, '{"pit_id": "pit-x"}']  # type: ignore[method-assign]
+    be.build_bake_argv = lambda rq: [sys.executable, "-c", say, '{"pit_id": "pit-x"}']  # type: ignore[method-assign]
     be.build_cast_argv = lambda rq, pit: [sys.executable, "-c", say, "cast"]  # type: ignore[method-assign]
     be.build_install_argv = lambda rq: [sys.executable, "-c", say, "install"]  # type: ignore[method-assign]
     progress: list[float] = []
     stages: list[str] = []
     result = be.run(r, on_stage=stages.append, on_progress=progress.append, handle=disc.RunHandle())
     assert progress == [1800.0, 2400.0]
-    assert stages == ["ingest", "materialize", "cast", "install"]
+    assert stages == ["ingest", "bake", "cast", "install"]
     assert result.pit_id == "pit-x"
 
 
@@ -739,3 +754,38 @@ def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_pa
         "the record outlives the bundle"
     assert c.delete("/api/imprints/site-a", headers=auth).status_code == 404
     assert c.delete("/api/imprints/../etc", headers=auth).status_code in (400, 404)
+
+
+# -- PITs: listed by id and name, renamed by either ------------------------------------------
+
+
+def test_a_pit_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(tmp_path):
+    """A PIT's id is its identity and never moves; its name is a label the operator may
+    change. The run that produced it carries both, and a rename reaches the record."""
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    auth = {"Authorization": "Bearer s3cret"}
+    be = _FakeDiscovery()
+    c = _client(settings, backend=be)
+    run = c.post("/api/discovery/runs", json=_run_body(), headers=auth).json()
+    assert (run["pit_id"], run["pit_name"]) == ("pit-fake", "pit-fake")
+    assert c.get("/api/discovery/pits").json() == {"pits": [
+        {"pit_id": "pit-fake", "name": "pit-fake", "as_of": 100.0, "observed_from": None,
+         "observed_to": None, "source": None, "network": None, "vantage": None, "windows": None,
+         "entities": None, "segments": None, "merge_axis": None}]}
+
+    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "day one"}).status_code == 401
+    r = c.patch("/api/discovery/pits/pit-fake", json={"name": "day one"}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "day one" and r.json()["pit_id"] == "pit-fake"
+    got = c.get(f"/api/discovery/runs/{run['id']}").json()
+    assert (got["pit_id"], got["pit_name"]) == ("pit-fake", "day one")
+    # By name too; a blank name and an unknown PIT are refused with the right codes.
+    assert c.patch("/api/discovery/pits/day%20one", json={"name": "day two"}, headers=auth).json()["name"] == "day two"
+    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "  "}, headers=auth).status_code == 400
+    assert c.patch("/api/discovery/pits/pit-nope", json={"name": "x"}, headers=auth).status_code == 404
+    be.pits["pit-2"] = "taken"
+    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "taken"}, headers=auth).status_code == 409
+    # The name survives a restart with the record.
+    c2 = _client(settings, backend=_FakeDiscovery())
+    assert c2.get(f"/api/discovery/runs/{run['id']}").json()["pit_name"] == "day two"

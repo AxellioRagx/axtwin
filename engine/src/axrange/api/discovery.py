@@ -1,4 +1,4 @@
-"""Discovery runs (`api/Spec.md` A1): the ingest -> materialize -> cast -> install
+"""Discovery runs (`api/Spec.md` A1): the ingest -> bake -> cast -> install
 chain as ONE control-plane action, over `aximprint`'s CLI.
 
 The engine never imports `aximprint` (root `CLAUDE.md`, the one-way boundary),
@@ -51,7 +51,8 @@ from axrange.api.recompile import (
 SETTING_IMPRINTS_DIR = "AXRANGE_IMPRINTS_DIR"
 
 #: The four stages, in order; a run record names which have completed.
-STAGES = ("ingest", "materialize", "cast", "install")
+#: `bake` was `materialize` until 2026-10-28 (the aximprint verb keeps the alias).
+STAGES = ("ingest", "bake", "cast", "install")
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -156,6 +157,8 @@ class DiscoveryRunRequest:
 class DiscoveryRunResult:
     pit_id: str
     stages: list[str]
+    #: The PIT's label (`ir_pit.name`); the id when nothing named it.
+    pit_name: Optional[str] = None
 
 
 class DiscoveryBackend(Protocol):
@@ -166,6 +169,10 @@ class DiscoveryBackend(Protocol):
     def run(self, request: DiscoveryRunRequest, *, on_stage,
             on_progress: Optional[Callable[[float], None]] = None,
             handle: Optional[RunHandle] = None) -> DiscoveryRunResult: ...
+
+    def list_pits(self, store: str) -> list[dict[str, Any]]: ...
+
+    def rename_pit(self, store: str, pit: str, name: str) -> dict[str, Any]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -275,18 +282,48 @@ class SubprocessDiscovery:
             argv += ["--subbuckets", str(cfg["subbuckets"])]
         return argv
 
-    def build_materialize_argv(self, r: DiscoveryRunRequest) -> list[str]:
+    def build_bake_argv(self, r: DiscoveryRunRequest) -> list[str]:
         # `--replace`: the IR store is this API's own working store and a PIT id
         # is deterministic over (source, as_of), so re-discovering the same
         # capture under a new imprint id must not be refused by the store's
         # "something may have compared against it" guard -- nothing here
-        # compares PITs.
+        # compares PITs. No `--name`: the PIT keeps its default label (the id)
+        # and the operator renames it afterwards if they want to.
         return [
-            self.binary, "materialize",
+            self.binary, "bake",
             "--store", str(r.belief_store),
             "--out", str(r.ir_store),
             "--replace",
         ]
+
+    build_materialize_argv = build_bake_argv
+
+    # -- PITs ---------------------------------------------------------------
+    def list_pits(self, store: str) -> list[dict[str, Any]]:
+        """`aximprint pit list`: every PIT in the IR store with its id and name."""
+        proc = self._run([self.binary, "pit", "list", "--store", store], stage="pit-list")
+        try:
+            doc = json.loads(proc.stdout or "")
+            return list(doc["pits"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} pit list` did not print a list: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
+
+    def rename_pit(self, store: str, pit: str, name: str) -> dict[str, Any]:
+        """`aximprint pit rename`: exit 2 is an unknown PIT, exit 1 a refused name."""
+        proc = self._run([self.binary, "pit", "rename", "--store", store, pit, name],
+                         stage="pit-rename", ok_codes=(0, 1, 2))
+        if proc.returncode == 2:
+            raise DiscoveryError(f"no PIT {pit!r}: {clip(proc.stderr or '', limit=300)}")
+        if proc.returncode == 1:
+            raise DiscoveryError(clip(proc.stderr or "", limit=300).strip() or "rename refused")
+        try:
+            return dict(json.loads(proc.stdout or ""))
+        except (ValueError, TypeError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} pit rename` did not print the PIT: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
 
     def build_cast_argv(self, r: DiscoveryRunRequest, pit_id: str) -> list[str]:
         return [
@@ -328,23 +365,24 @@ class SubprocessDiscovery:
                   on_line=_ingest_line, handle=handle)
         _did("ingest")
 
-        proc = self._run(self.build_materialize_argv(r), stage="materialize", env=r.env,
-                         handle=handle)
+        proc = self._run(self.build_bake_argv(r), stage="bake", env=r.env, handle=handle)
         try:
-            pit_id = str(json.loads(proc.stdout or "")["pit_id"])
+            baked = json.loads(proc.stdout or "")
+            pit_id = str(baked["pit_id"])
         except (ValueError, KeyError, TypeError) as e:
             raise DiscoveryError(
-                "materialize printed no `pit_id`: "
+                "bake printed no `pit_id`: "
                 f"{clip(proc.stdout or '', limit=300, keep='head')!r}"
             ) from e
-        _did("materialize")
+        pit_name = str(baked.get("name") or pit_id)
+        _did("bake")
 
         self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB, env=r.env, handle=handle)
         _did("cast")
 
         self._run(self.build_install_argv(r), stage=INSTALL_VERB, env=r.env, handle=handle)
         _did("install")
-        return DiscoveryRunResult(pit_id=pit_id, stages=done)
+        return DiscoveryRunResult(pit_id=pit_id, stages=done, pit_name=pit_name)
 
     def _run(self, argv: list[str], *, stage: str, env: Optional[dict[str, str]] = None,
              ok_codes: tuple[int, ...] = (0,),
@@ -431,6 +469,8 @@ class DiscoveryRun:
     status: str = STATUS_QUEUED
     stages_done: list[str] = field(default_factory=list)
     pit_id: Optional[str] = None
+    #: The PIT's label at the time of the run, kept in step by `rename_pit`.
+    pit_name: Optional[str] = None
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
@@ -628,6 +668,15 @@ class DiscoveryRuns:
             r.stages_done.append(stage)
             self._persist(r)
 
+    def rename_pit(self, pit_id: str, name: str) -> list[str]:
+        """Carry a PIT's new name onto every run that produced it. Returns their ids."""
+        with self._lock:
+            hit = [r for r in self._runs.values() if r.pit_id == pit_id]
+            for r in hit:
+                r.pit_name = name
+                self._persist(r)
+            return [r.id for r in hit]
+
 
 def execute_run(
     runs: DiscoveryRuns, run_id: str, backend: DiscoveryBackend,
@@ -660,7 +709,7 @@ def execute_run(
     finally:
         shutil.rmtree(request.scratch_dir, ignore_errors=True)
     runs.update(run_id, status=STATUS_COMPLETED, pit_id=result.pit_id,
-                finished_at=time.time())
+                pit_name=result.pit_name or result.pit_id, finished_at=time.time())
 
 
 def _progress_sink(runs: "DiscoveryRuns", run_id: str) -> Callable[[float], None]:
@@ -714,7 +763,7 @@ def execute_source_run(
     finally:
         shutil.rmtree(request.scratch_dir, ignore_errors=True)
     runs.update(run_id, status=STATUS_COMPLETED, pit_id=result.pit_id,
-                finished_at=time.time())
+                pit_name=result.pit_name or result.pit_id, finished_at=time.time())
 
 
 def _discard_partial_bundle(request: DiscoveryRunRequest) -> None:

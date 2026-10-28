@@ -45,12 +45,14 @@ order:
   `source` required, plus the shared run options `ts_from`, `ts_to`, `vantage`,
   `network`, `window`, `subbuckets`). Read through `aximprint plugins`.
 - `POST /api/discovery/runs` `{plugin, config, imprint_id, sensors?}` — start a
-  real discovery: `ingest` → `materialize` → `cast` → `install-cast`, landing
+  real discovery: `ingest` → `bake` → `cast` → `install-cast`, landing
   `<AXRANGE_IMPRINTS_DIR>/<imprint_id>/` as a cast bundle the imprint routes
   read. Returns `202` with the run record at once; the chain runs in a thread.
 - `GET /api/discovery/runs/{id}` — `status`
   (`queued|running|completed|failed|cancelled`), `stages_done`, the `error` if
-  failed, the `pit_id` if completed. The imprint id is the one the caller
+  failed, the `pit_id` and `pit_name` if completed (the id is the PIT's
+  identity, a hash of source and bounds; the name its label, the id until
+  renamed). The imprint id is the one the caller
   chose, so it resolves through `GET /api/imprints/{id}`. While `ingest` runs,
   `progress_ts` is the source time it has reached (the end of the last window
   it closed, read from the subprocess's own `window <start>:` lines as they
@@ -69,6 +71,11 @@ order:
   JSON document per run, no secret in it), so the list survives a restart. A
   run the previous process left queued or running is marked `failed` on open
   with an error saying the API restarted; its stages did not finish.
+- `GET /api/discovery/pits` — every PIT in the API's IR store (`aximprint pit
+  list`): `pit_id`, `name`, `as_of`, bounds, source, network, vantage, sizes.
+- `PATCH /api/discovery/pits/{id or name}` `{name}` (token) — rename a PIT;
+  the id never changes, and every run record that produced it carries the
+  new name. `400` blank, `404` unknown, `409` a name or id another PIT has.
 - `DELETE /api/imprints/{id}` (token, `204`) — remove a bundle from the
   catalog (`<imprints_dir>/<id>/`) and the belief store a run under that id
   left beside the IR store. `409` while a run for the id is queued or running
@@ -222,7 +229,7 @@ in `api/recompile.py`, and `AXRANGE_IMPRINTS_DIR`, which a run must have set
 so it never writes into the package's fixture directory) until the API imports
 `aximprint` directly, at which point `BIN` goes away and the others stay. A
 run's belief store lands beside the IR store as `<imprint_id>.belief.duckdb`;
-`materialize` runs with `--replace` because the IR store is the API's own
+`bake` (`aximprint bake`, formerly `materialize`) runs with `--replace` because the IR store is the API's own
 working store and nothing in the API compares PITs. `AXRANGE_SPA_DIR` co-serve is already
 wired. Writes stay behind `AXRANGE_API_TOKEN` exactly like the existing deploy
 writes; every new POST/PUT/DELETE above is token-gated.
@@ -276,6 +283,10 @@ state DB and the fake adapter, unless marked **(live)**.
   carries no secret. `DELETE /api/imprints/{id}` removes the bundle and its
   belief store, is `409` under an active run or a live deploy, and leaves the
   run record. *(`engine/tests/test_api_discovery.py`.)*
+- A1.6 The second stage is `bake`; a completed run carries `pit_name`; `GET
+  /api/discovery/pits` lists by id and name and `PATCH` renames by either,
+  the run records following and the name surviving a restart.
+  *(`engine/tests/test_api_discovery.py`.)*
 
 ## Notes
 

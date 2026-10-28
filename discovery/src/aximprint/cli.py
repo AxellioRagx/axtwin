@@ -517,18 +517,20 @@ def cmd_synth(args) -> int:
     return 0
 
 
-def cmd_materialize(args) -> int:
-    """Freeze the belief store into a PIT (`docs/WORK_ORDER_network_ir.md` build step 3).
+def cmd_bake(args) -> int:
+    """Bake the belief store into a PIT (`docs/WORK_ORDER_network_ir.md` build step 3; the verb
+    was `materialize` until 2026-10-28, kept as an alias).
 
     Prints the stats block as well as the summary: `unkeyable_entities` and `dangling_edges` are
-    what a materialization silently dropped, and an operator who cannot see them cannot tell a
-    clean PIT from a lossy one.
+    what a bake silently dropped, and an operator who cannot see them cannot tell a clean PIT
+    from a lossy one. The summary carries `pit_id` (the identity, a hash of source and
+    bounds) and `name` (the label: `--name`, else the id).
     """
-    from aximprint.ir.materialize import materialize
+    from aximprint.ir.materialize import bake
     from aximprint.ir.store import IRStore
 
     store = BeliefStore(args.store)
-    pit = materialize(store, as_of=args.as_of, since=args.since)
+    pit = bake(store, as_of=args.as_of, since=args.since, name=args.name)
     store.close()
     stats = pit.pop("_stats")
     ir = IRStore(args.out)
@@ -538,6 +540,42 @@ def cmd_materialize(args) -> int:
     print(json.dumps({**row, "rows": {t: len(r) for t, r in pit.items()}, **stats},
                      indent=2, default=str))
     return 0
+
+
+cmd_materialize = cmd_bake
+
+
+def _resolve_pit_or_exit(ir, ref: str) -> str:
+    """`--pit` takes an id or a name; an unknown or ambiguous one is exit 2 with the reason."""
+    try:
+        return ir.resolve_pit(ref)
+    except KeyError as exc:
+        print(f"{exc.args[0]}", file=sys.stderr)
+        raise SystemExit(2)
+
+
+def cmd_pit(args) -> int:
+    """`pit list` / `pit rename`: the PITs in an IR store, and the one thing about a PIT that may
+    change after it is baked -- its name. The id is the identity and never moves."""
+    from aximprint.ir.store import IRStore, IRStoreError
+
+    ir = IRStore(args.store)
+    try:
+        if args.action == "list":
+            print(json.dumps({"pits": ir.pits()}, indent=2, default=str))
+            return 0
+        try:
+            row = ir.rename_pit(args.pit, args.name)
+        except KeyError as exc:
+            print(f"{exc.args[0]}", file=sys.stderr)
+            return 2
+        except IRStoreError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(row, indent=2, default=str))
+        return 0
+    finally:
+        ir.close()
 
 
 def _write_serve_scripts(out: dict, pit: dict, dest, personas: dict) -> None:
@@ -750,6 +788,7 @@ def cmd_cast(args) -> int:
     from aximprint.operator_assertions import AssertionsError, load_assertions
 
     ir = IRStore(args.store)
+    args.pit = _resolve_pit_or_exit(ir, args.pit)
     pit = ir.read_pit(args.pit)
     ir.close()
     if not pit["ir_pit"]:
@@ -1078,7 +1117,7 @@ def cmd_merge(args) -> int:
 
     ir = IRStore(args.store)
     try:
-        combined = merge(ir, args.pits, args.axis)
+        combined = merge(ir, [_resolve_pit_or_exit(ir, p) for p in args.pits], args.axis)
         stats = combined.pop("_stats")
         ir.write_pit(combined, replace=args.replace)
         row = ir.summary(combined["ir_pit"][0]["pit_id"])[0]
@@ -1104,7 +1143,7 @@ def cmd_visibility(args) -> int:
 
     ir = IRStore(args.store)
     try:
-        out = report(ir, args.pit)
+        out = report(ir, _resolve_pit_or_exit(ir, args.pit))
     except KeyError as exc:
         print(f"{exc}", file=sys.stderr)
         return 2
@@ -1121,7 +1160,8 @@ def cmd_drift(args) -> int:
 
     ir = IRStore(args.store)
     try:
-        report = compare(ir, args.from_pit, args.to_pit)
+        report = compare(ir, _resolve_pit_or_exit(ir, args.from_pit),
+                         _resolve_pit_or_exit(ir, args.to_pit))
     except IncommensurableError as exc:
         # Exit 2, not 1: this is the tool declining to answer, which is a usage-level outcome
         # (the caller chose an unsuitable pair), not a failure of the comparison itself.
@@ -1279,8 +1319,9 @@ def main(argv=None) -> int:
     ps.add_argument("--store", default="imprint.duckdb")
     ps.set_defaults(fn=cmd_status)
 
-    pm = sub.add_parser("materialize",
-                        help="freeze the belief store into a point-in-time network IR")
+    pm = sub.add_parser("bake", aliases=["materialize"],
+                        help="bake the belief store into a point-in-time network IR (a PIT) "
+                             "and give it an id; `materialize` is the old spelling")
     pm.add_argument("--store", default="imprint.duckdb", help="belief-store path to read")
     pm.add_argument("--out", default="imprint-ir.duckdb",
                     help="IR store path to write (accumulates PITs; created if absent)")
@@ -1297,11 +1338,25 @@ def main(argv=None) -> int:
     pm.add_argument("--replace", action="store_true",
                     help="overwrite an existing PIT with the same id. Refused by default: "
                          "something may already have compared against it")
-    pm.set_defaults(fn=cmd_materialize)
+    pm.add_argument("--name", default=None, metavar="NAME",
+                    help="the PIT's label, distinct from its id; defaults to the id. Every "
+                         "verb that takes --pit accepts either, and `pit rename` changes it")
+    pm.set_defaults(fn=cmd_bake)
+
+    pp_ = sub.add_parser("pit", help="list the PITs in an IR store, or rename one")
+    pp_sub = pp_.add_subparsers(dest="action", required=True)
+    pp_l = pp_sub.add_parser("list", help="every PIT with its id, name, as_of and size")
+    pp_l.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
+    pp_r = pp_sub.add_parser("rename", help="give a PIT a new name (its id never changes)")
+    pp_r.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
+    pp_r.add_argument("pit", metavar="PIT", help="the PIT's id or current name")
+    pp_r.add_argument("name", metavar="NAME", help="the new name; must not be another PIT's "
+                                                  "name or id")
+    pp_.set_defaults(fn=cmd_pit)
 
     pc = sub.add_parser("cast", help="compile a PIT into axRange twin_config + tfc + tap")
     pc.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
-    pc.add_argument("--pit", required=True, metavar="PIT_ID")
+    pc.add_argument("--pit", required=True, metavar="PIT", help="a PIT id or name")
     pc.add_argument("--out", default="twin", help="output directory")
     pc.add_argument("--max-count", type=int, default=None, dest="max_count",
                     help="cap a collapsed node group's count. Uncapped by default — the network "
@@ -1403,7 +1458,7 @@ def main(argv=None) -> int:
     pv = sub.add_parser("visibility",
                         help="what a PIT's vantage saw, and who it knows it missed")
     pv.add_argument("--store", default="imprint-ir.duckdb", help="IR store path")
-    pv.add_argument("--pit", required=True, metavar="PIT_ID")
+    pv.add_argument("--pit", required=True, metavar="PIT", help="a PIT id or name")
     pv.set_defaults(fn=cmd_visibility)
 
     pd = sub.add_parser("drift", help="structural drift between two PITs in an IR store")

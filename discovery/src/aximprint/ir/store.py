@@ -14,7 +14,9 @@ reasoning, restated because the shape looks arbitrary otherwise:
 
 **Never a second source of truth.** The append-only evidence log is the source of truth, the belief
 store its rebuildable projection, and a PIT a frozen, re-derivable view of that projection at one
-instant. Nothing here updates a row.
+instant. Nothing here updates a row -- with one deliberate exception, `rename_pit`, which changes
+`ir_pit.name` and nothing else: the name is a label a person gave the snapshot, not a fact about
+the network, and every row stays keyed on the unchanging `pit_id`.
 """
 from __future__ import annotations
 
@@ -35,7 +37,20 @@ class IRStore:
         self.path = path
         self.con = duckdb.connect(path)
         self.con.execute(_SCHEMA)
+        self._add_missing_columns()
         self._check_versions_readable()
+
+    def _add_missing_columns(self) -> None:
+        """Bring a store written by an earlier MINOR up to this build's column list.
+
+        A MINOR is additive by definition (`schema.can_read`), so the only migration a store
+        ever needs is `ADD COLUMN` for each column the DDL now ends with and the file does not
+        have. `1.5` added `ir_pit.name`, backfilled with the id so every PIT has a name.
+        """
+        have = {r[1] for r in self.con.execute("PRAGMA table_info('ir_pit')").fetchall()}
+        if "name" not in have:
+            self.con.execute("ALTER TABLE ir_pit ADD COLUMN name VARCHAR")
+        self.con.execute("UPDATE ir_pit SET name = pit_id WHERE name IS NULL")
 
     def _check_versions_readable(self) -> None:
         """Refuse a store holding a PIT this build cannot read (§11 fail-closed load).
@@ -66,6 +81,44 @@ class IRStore:
         return [p for (p,) in self.con.execute(
             "SELECT pit_id FROM ir_pit ORDER BY as_of, pit_id").fetchall()]
 
+    def pits(self) -> list[dict]:
+        """`{pit_id, name, as_of, source, network, vantage, windows, entities, segments}` per
+        PIT, oldest first -- what `aximprint pit list` prints and the API publishes."""
+        cols = ("pit_id", "name", "as_of", "observed_from", "observed_to", "source", "network",
+                "vantage", "windows", "entities", "segments", "merge_axis")
+        rows = self.con.execute(
+            f"SELECT {', '.join(cols)} FROM ir_pit ORDER BY as_of, pit_id").fetchall()
+        return [dict(zip(cols, r)) for r in rows]
+
+    def resolve_pit(self, ref: str) -> str:
+        """The `pit_id` a caller means by `ref`: an id exactly, else the one PIT with that name.
+        Ids win over names so a name that happens to equal another PIT's id cannot hijack it;
+        no match raises `KeyError` naming the ref."""
+        if self.con.execute("SELECT 1 FROM ir_pit WHERE pit_id = ?", [ref]).fetchone():
+            return ref
+        hits = [p for (p,) in self.con.execute(
+            "SELECT pit_id FROM ir_pit WHERE name = ? ORDER BY pit_id", [ref]).fetchall()]
+        if len(hits) == 1:
+            return hits[0]
+        if hits:
+            raise KeyError(f"{len(hits)} PITs are named {ref!r} ({hits}); use the id")
+        raise KeyError(f"no PIT with id or name {ref!r} in {self.path}")
+
+    def rename_pit(self, ref: str, name: str) -> dict:
+        """Give one PIT a new name. The id never changes; the name must be non-empty, one
+        line, and not already another PIT's name or id. Returns the PIT's row from `pits()`."""
+        name = str(name).strip()
+        if not name or "\n" in name:
+            raise IRStoreError("a PIT name is a non-empty single line")
+        pit_id = self.resolve_pit(ref)
+        taken = self.con.execute(
+            "SELECT pit_id FROM ir_pit WHERE (name = ? OR pit_id = ?) AND pit_id <> ?",
+            [name, name, pit_id]).fetchone()
+        if taken:
+            raise IRStoreError(f"{name!r} is already the name or id of PIT {taken[0]!r}")
+        self.con.execute("UPDATE ir_pit SET name = ? WHERE pit_id = ?", [name, pit_id])
+        return next(p for p in self.pits() if p["pit_id"] == pit_id)
+
     def write_pit(self, pit: dict, *, replace: bool = False) -> None:
         """Persist one materialized PIT.
 
@@ -75,7 +128,11 @@ class IRStore:
         drift report already written without changing anything a reader could see. `replace=True`
         is the deliberate act of saying that is fine.
         """
-        pit_id = pit["ir_pit"][0]["pit_id"]
+        head = pit["ir_pit"][0]
+        pit_id = head["pit_id"]
+        # `1.5`: every PIT has a name; the id is the default one.
+        if not head.get("name"):
+            head["name"] = pit_id
         if pit_id in self.pit_ids():
             if not replace:
                 raise IRStoreError(
@@ -83,6 +140,12 @@ class IRStore:
                     f"compared against it; pass replace=True to overwrite deliberately.")
             for table in IR_TABLES:
                 self.con.execute(f"DELETE FROM {table} WHERE pit_id = ?", [pit_id])
+        taken = self.con.execute(
+            "SELECT pit_id FROM ir_pit WHERE (name = ? OR pit_id = ?) AND pit_id <> ?",
+            [head["name"], head["name"], pit_id]).fetchone()
+        if taken:
+            raise IRStoreError(
+                f"{self.path}: {head['name']!r} is already the name or id of PIT {taken[0]!r}")
         for table, columns in IR_TABLES.items():
             rows = pit.get(table) or []
             if not rows:
@@ -119,7 +182,7 @@ class IRStore:
         # side by side from these columns alone (`compare._check_commensurable`,
         # `merge._check_mergeable`), and a summary that omitted them would force both to re-open
         # every PIT to answer a question about its identity.
-        cols = ("pit_id", "source", "as_of", "observed_from", "observed_to", "windows",
+        cols = ("pit_id", "name", "source", "as_of", "observed_from", "observed_to", "windows",
                 "schema_version", "entities", "segments", "capture_loss_pct_max",
                 "code_fingerprint", "vantage", "network", "vantages", "merge_axis")
         rows = self.con.execute(

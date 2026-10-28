@@ -60,7 +60,7 @@ import json
 #:     — and only those two — must be detected by column-presence, never by version. Verified on
 #:     disk: six CorpAPCN IR stores written before 2026-08-27 say `1.3` and lack them; the
 #:     2026-09-02 re-materialization says `1.3` and carries them.
-SCHEMA_VERSION = "1.4"
+SCHEMA_VERSION = "1.5"
 
 #: Evidence classes an IR row may carry, **in PRECEDENCE ORDER — the tuple IS the ranking**
 #: (`docs/WORK_ORDER_reference_ingest.md` D1; axRange `docs/design/14-operator-assertions.md` §2).
@@ -163,7 +163,13 @@ CREATE TABLE IF NOT EXISTS ir_pit (
   capture_loss_pct_max DOUBLE,
   entities INTEGER, segments INTEGER,
   vantage VARCHAR, network VARCHAR, vantages JSON,
-  merge_axis VARCHAR, merged_from JSON);
+  merge_axis VARCHAR, merged_from JSON,
+  -- `1.5`: the operator-facing label, distinct from the identity. Defaults to `pit_id` at bake
+  -- time and is the ONE column a PIT allows to change afterwards (`IRStore.rename_pit`): a name
+  -- is how a person refers to a snapshot, not evidence about the network. LAST, deliberately:
+  -- a `1.4` store gains it by `ALTER TABLE ADD COLUMN`, which appends, and `write_pit` inserts
+  -- by position.
+  name VARCHAR);
 CREATE TABLE IF NOT EXISTS ir_entity (
   pit_id VARCHAR, entity_key VARCHAR, key_kind VARCHAR, source_entity VARCHAR,
   locality VARCHAR,

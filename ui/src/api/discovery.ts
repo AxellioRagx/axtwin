@@ -7,6 +7,7 @@ import type {
   DiscoverySourceList,
   ImprintList,
   ImprintSummary,
+  Pit,
   ProbeResult,
   SourceRunRequest,
   SourceUpdate,
@@ -26,6 +27,8 @@ export interface Api {
   listRuns(signal?: AbortSignal): Promise<DiscoveryRunList>;
   getRun(id: string, signal?: AbortSignal): Promise<DiscoveryRun>;
   cancelRun(id: string): Promise<DiscoveryRun>;
+  /** Give a PIT a new name; its id never changes. */
+  renamePit(pit: string, name: string): Promise<Pit>;
   /** Forget a finished run's record; the imprint it installed stays. */
   deleteRun(id: string): Promise<void>;
   listImprints(signal?: AbortSignal): Promise<ImprintList>;
@@ -49,6 +52,7 @@ export function makeApi(request: Requester): Api {
     listRuns: (signal) => request("GET", "/api/discovery/runs", { signal }),
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),
     cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, { auth: true }),
+    renamePit: (pit, name) => request("PATCH", `/api/discovery/pits/${enc(pit)}`, { body: { name }, auth: true }),
     deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, { auth: true }),
     listImprints: (signal) => request("GET", "/api/imprints", { signal }),
     getImprint: (id, signal) => request("GET", `/api/imprints/${enc(id)}`, { signal }),

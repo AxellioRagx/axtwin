@@ -7,6 +7,7 @@ import { formatDuration, formatIso, formatTs, runProgress } from "../../model/so
 import { ErrorLine, StatusBadge } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 import { ApiError } from "../../api/client";
+import { PitName } from "./PitName";
 import { RunAction } from "./RunActions";
 
 export const POLL_MS = 2000;
@@ -88,6 +89,14 @@ export function RunPage() {
               </dd>
               <dt>Reached via</dt>
               <dd>{run.via ?? (active ? "opening" : "—")}</dd>
+              {run.pit_id ? (
+                <>
+                  <dt>PIT</dt>
+                  <dd>
+                    <PitName run={run} onRenamed={(name) => setRun({ ...run, pit_name: name })} />
+                  </dd>
+                </>
+              ) : null}
               <dt>Started</dt>
               <dd>{formatIso(run.started_at)}</dd>
               <dt>Elapsed</dt>
@@ -166,7 +175,7 @@ function CompletedNotice({ run }: { run: DiscoveryRun }) {
   const gone = imprint.error instanceof ApiError && imprint.error.kind === "not-found";
   return (
     <div className={gone ? "error" : "notice"} role={gone ? "alert" : undefined}>
-      Completed; PIT <code>{run.pit_id}</code>.{" "}
+      Completed; PIT <code>{run.pit_name ?? run.pit_id}</code>.{" "}
       {gone ? (
         <>Imprint {run.imprint_id} is no longer in the catalog (the bundle was removed after this run).</>
       ) : imprint.data ? (

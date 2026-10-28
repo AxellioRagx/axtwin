@@ -425,6 +425,7 @@ def merge(ir_store, pit_ids: list[str], axis: str) -> dict:
     losses = [s["capture_loss_pct_max"] for s in chosen if s["capture_loss_pct_max"] is not None]
     pit = {
         "pit_id": merged_pit_id(ordered, axis, as_of),
+        "name": merged_pit_id(ordered, axis, as_of),
         "source": sources[0] if len(sources) == 1 else " + ".join(sources),
         "as_of": as_of,
         "observed_from": min(s["observed_from"] for s in chosen),

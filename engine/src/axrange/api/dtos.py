@@ -510,7 +510,11 @@ class DiscoveryRunDTO(BaseModel):
     # The four stages in order; the ones that have finished.
     stages_done: list[str]
     stages: list[str]
+    # The PIT the bake produced: `pit_id` is its identity (a hash of source and
+    # bounds, what the cast sidecar carries), `pit_name` its label, the id until
+    # someone renames it (`PATCH /api/discovery/pits/{id}`).
     pit_id: Optional[str] = None
+    pit_name: Optional[str] = None
     error: Optional[str] = None
     created_at: str
     finished_at: Optional[str] = None
@@ -529,6 +533,30 @@ class DiscoveryRunDTO(BaseModel):
     progress_at: Optional[str] = None
     # Set once a cancel was asked for; the status turns `cancelled` when the stage is dead.
     cancel_requested_at: Optional[str] = None
+
+
+class PitDTO(BaseModel):
+    """One PIT in the API's IR store (`aximprint pit list`)."""
+    pit_id: str
+    name: str
+    as_of: Optional[float] = None
+    observed_from: Optional[float] = None
+    observed_to: Optional[float] = None
+    source: Optional[str] = None
+    network: Optional[str] = None
+    vantage: Optional[str] = None
+    windows: Optional[int] = None
+    entities: Optional[int] = None
+    segments: Optional[int] = None
+    merge_axis: Optional[str] = None
+
+
+class PitListDTO(BaseModel):
+    pits: list[PitDTO]
+
+
+class PitRenameRequest(BaseModel):
+    name: str
 
 
 class DiscoveryRunListDTO(BaseModel):

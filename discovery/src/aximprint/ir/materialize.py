@@ -655,16 +655,28 @@ def snapshot_evidence(store, as_of: Optional[float] = None,
     )
 
 
-def materialize(store, as_of: Optional[float] = None,
-                since: Optional[float] = None) -> dict:
+def bake(store, as_of: Optional[float] = None,
+         since: Optional[float] = None, name: Optional[str] = None) -> dict:
     """A complete PIT: `{table_name: [row dicts]}`, ready for `IRStore.write_pit`.
 
-    Kept as the one-call form every caller already uses. Since build step 1 of
-    `docs/WORK_ORDER_evidence_plane_snapshots.md` it is exactly
+    "Bake" is the operator's word for this step (2026-10-28): the ingested beliefs are baked
+    into a point-in-time IR and given an id. Kept as the one-call form every caller already
+    uses. Since build step 1 of `docs/WORK_ORDER_evidence_plane_snapshots.md` it is exactly
     `resolve(snapshot_evidence(...))` and nothing else — the two halves are separable, and this
     composition is what a test pins as byte-identical to the pre-split output.
+
+    `name` is the PIT's label (`ir_pit.name`, schema `1.5`); it defaults to the id, which is
+    what the chain generated before names existed, and can be changed later
+    (`IRStore.rename_pit`). The id itself stays the deterministic hash of the identity.
     """
-    return resolve(snapshot_evidence(store, as_of=as_of, since=since))
+    pit = resolve(snapshot_evidence(store, as_of=as_of, since=since))
+    if name and name.strip():
+        pit["ir_pit"][0]["name"] = name.strip()
+    return pit
+
+
+#: The name this step had until 2026-10-28; every existing import keeps working.
+materialize = bake
 
 
 def resolve(ev: EvidenceSnapshot) -> dict:
@@ -876,8 +888,9 @@ def resolve(ev: EvidenceSnapshot) -> dict:
 
     # -- the PIT row ------------------------------------------------------------
     build = build_stamp()
+    pid = pit_id_for(ctx["source"], resolved_as_of, since, ctx["vantage"])
     pit = {
-        "pit_id": pit_id_for(ctx["source"], resolved_as_of, since, ctx["vantage"]),
+        "pit_id": pid,
         "source": ctx["source"], "as_of": resolved_as_of,
         "observed_from": min(windows["starts"]),
         "observed_to": max(windows["starts"]) + ctx["window_seconds"],
@@ -894,6 +907,7 @@ def resolve(ev: EvidenceSnapshot) -> dict:
         # PIT combines several" tellable apart by a reader that was handed only the artifact.
         "vantage": ctx["vantage"], "network": ctx["network"],
         "vantages": None, "merge_axis": None, "merged_from": None,
+        "name": pid,    # the default label; `bake(name=...)` overrides it
     }
     unseen = _unseen(ev.referenced_bindings, seen_addresses, set(per_segment_entities))
     # D7: the capture-wide behavioral profile, built from the unreduced evidence rather than

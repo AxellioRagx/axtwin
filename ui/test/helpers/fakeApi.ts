@@ -91,7 +91,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; rename?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -188,7 +188,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         plugin: s.plugin,
         imprint_id: body.imprint_id,
         stages_done: [],
-        stages: ["ingest", "materialize", "cast", "install"],
+        stages: ["ingest", "bake", "cast", "install"],
         pit_id: null,
         error: null,
         created_at: "2026-10-27T16:03:18Z",
@@ -214,6 +214,14 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       // The next poll finds the stage dead.
       state.runSteps.unshift({ status: "cancelled", finished_at: "2026-10-28T12:00:03Z", error: "ingest cancelled by the operator" });
       return { ...r, stages_done: [...r.stages_done] };
+    },
+    async renamePit(pit, name) {
+      state.writes.push({ op: "rename-pit", id: pit, body: { name } });
+      if (state.refuse.rename) throw state.refuse.rename;
+      const hits = state.runs.filter((r) => r.pit_id === pit || r.pit_name === pit);
+      if (hits.length === 0) throw notFound(`PIT '${pit}'`);
+      for (const r of hits) r.pit_name = name;
+      return { pit_id: String(hits[0]?.pit_id), name };
     },
     async deleteRun(id) {
       state.writes.push({ op: "delete-run", id });

@@ -89,6 +89,12 @@ because it will be believed. -->
 
 ## Gotchas
 
+- The second discovery stage is `bake` (2026-10-28; `aximprint materialize` is kept as an
+  alias). IR schema `1.5` adds `ir_pit.name`, a renamable label beside the unchanging id;
+  a `1.4` store gains the column on open. `aximprint pit list|rename`,
+  `GET/PATCH /api/discovery/pits`. The id was NOT made numeric: it is the identity every
+  cast sidecar, drift report and the recompile seam key on, and it must mean the same thing
+  outside the store it came from.
 - A short capture can leave a role with no synthesized persona (its hosts dialled nothing);
   the cast now DROPS that role's traffic assignment with a caveat instead of leaving it
   naming the catalog persona, which `install-cast` refused after the whole ingest had run

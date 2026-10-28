@@ -3424,7 +3424,7 @@ def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
     return dtos.DiscoveryRunDTO(
         id=run.id, status=run.status, plugin=run.plugin, imprint_id=run.imprint_id,
         stages_done=list(run.stages_done), stages=list(disc.STAGES),
-        pit_id=run.pit_id, error=run.error,
+        pit_id=run.pit_id, pit_name=run.pit_name, error=run.error,
         created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
         source_id=run.source_id, started_at=_iso(run.started_at),
         ts_from=run.ts_from, ts_to=run.ts_to, via=run.via,
@@ -3443,6 +3443,44 @@ def cancel_discovery_run(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
     if not runs.cancel(run_id):
         raise ApiError(409, f"discovery run {run_id!r} is already {run.status}; nothing to cancel")
     return _discovery_run_dto(runs.snapshot(run_id))
+
+
+def _pit_dto(row: dict[str, Any]) -> dtos.PitDTO:
+    return dtos.PitDTO(**{k: row.get(k) for k in dtos.PitDTO.model_fields})
+
+
+def list_pits(settings: ApiSettings, *, backend: Any) -> dtos.PitListDTO:
+    """Every PIT in the API's IR store, by id and name (`aximprint pit list`)."""
+    from axrange.api import discovery as disc
+
+    if not settings.aximprint_store:
+        raise ApiError(409, "no IR store: AXRANGE_AXIMPRINT_STORE is not set")
+    be = _discovery_backend(settings, backend)
+    try:
+        return dtos.PitListDTO(pits=[_pit_dto(r) for r in be.list_pits(settings.aximprint_store)])
+    except disc.DiscoveryError as e:
+        raise ApiError(502, str(e)) from e
+
+
+def rename_pit(settings: ApiSettings, pit: str, req: dtos.PitRenameRequest, *,
+               backend: Any, runs: Any) -> dtos.PitDTO:
+    """Give a PIT a new name; its id never changes. The run records that produced it
+    carry the new name too. 404 unknown, 409 a name another PIT already has."""
+    from axrange.api import discovery as disc
+
+    if not settings.aximprint_store:
+        raise ApiError(409, "no IR store: AXRANGE_AXIMPRINT_STORE is not set")
+    name = req.name.strip()
+    if not name or "\n" in name:
+        raise ApiError(400, "a PIT name is a non-empty single line")
+    be = _discovery_backend(settings, backend)
+    try:
+        row = be.rename_pit(settings.aximprint_store, pit, name)
+    except disc.DiscoveryError as e:
+        msg = str(e)
+        raise ApiError(404 if msg.startswith("no PIT") else 409, msg) from e
+    runs.rename_pit(str(row["pit_id"]), str(row["name"]))
+    return _pit_dto(row)
 
 
 def delete_discovery_run(run_id: str, *, runs: Any) -> None:
