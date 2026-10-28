@@ -84,6 +84,10 @@ because it will be believed. -->
 
 ## Gotchas
 
+- A short capture can leave a role with no synthesized persona (its hosts dialled nothing);
+  the cast now DROPS that role's traffic assignment with a caveat instead of leaving it
+  naming the catalog persona, which `install-cast` refused after the whole ingest had run
+  (`disc-7b100b4e`, one hour of CorpAPCN, `monitoring-collector`). `cli._drop_unsynthesized_roles`.
 - The host-global hooks activate on `docs/WORKFLOW.md` or `.claude-workflow.env` at the repo
   root. Neither exists; do not add them.
 - The two Python `tests/` trees must be run separately (conftest name clash). `ui` tests are

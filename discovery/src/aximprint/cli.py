@@ -696,6 +696,45 @@ def _write_serve_scripts(out: dict, pit: dict, dest, personas: dict) -> None:
             f"server half exists to remove.")
 
 
+def _drop_unsynthesized_roles(prof: dict, personas: dict, caveats: list) -> list[str]:
+    """Take out every role-level assignment whose persona this cast did not synthesize, and
+    say so in the caveats. Returns the roles dropped, sorted.
+
+    The compiler emits `{role, persona: <roles.yaml persona>}` for every role that has a
+    catalog persona, and `plan_assignments` re-points each at the `cast-<role>` document
+    synthesized from that role's observed dials. A role whose hosts were never seen dialling
+    anything gets no such document (`synthesize_personas` skips a group with no emits), so its
+    entry would still name the CATALOG persona -- `monitoring-collector`, say -- which is not
+    a file in this cast's folder. Two things are wrong with letting that through, and the
+    installer refuses it for the first: a profile must never reference a persona file that is
+    not next to it (`install.py`, "no base-persona fallback"); and the catalog document is an
+    author's archetype, not an observation -- axRange's `monitoring-collector` scrapes, syslogs
+    and SNMP-polls every workstation, while the CorpAPCN capture that found this (2026-10-28,
+    one hour) showed its collector speaking NTP and nothing else. Driving it with the archetype
+    would put conversations on the wire the source never had, in the artifact being measured.
+
+    So the role takes the same posture as a personaless one (D4): it is IN the twin, it serves
+    what it was observed serving, and it generates nothing it was not observed generating. The
+    remedy is the one the caveat names -- a longer capture, which is where the 30-day CorpAPCN
+    cast got its `cast-monitoring-collector` from.
+    """
+    dropped = sorted({str(a["role"]) for a in prof.get("assignments", [])
+                      if a.get("role") and a.get("persona") not in personas})
+    if not dropped:
+        return []
+    kept_names = {str(a.get("persona")) for a in prof["assignments"]
+                  if a.get("role") in dropped}
+    prof["assignments"] = [a for a in prof["assignments"] if a.get("role") not in dropped]
+    caveats.append(
+        f"role(s) {dropped} reached the twin but NO persona was synthesized for them: none "
+        f"of their hosts was observed dialling anything in this capture, so there is nothing "
+        f"to emit. Their traffic assignment is DROPPED rather than left naming the catalog "
+        f"persona ({sorted(kept_names)}), which this cast does not ship and which would "
+        f"generate conversations the source was never seen having (D4). The hosts stand up "
+        f"and serve what they were observed serving; capture longer to give them behaviour.")
+    return dropped
+
+
 def cmd_cast(args) -> int:
     """Compile a PIT into the three axRange documents (`WORK_ORDER_network_ir.md` step 4).
 
@@ -766,7 +805,8 @@ def cmd_cast(args) -> int:
     if personas:
         nodes_all = out["twin_config"]["twin_config"].get("nodes", [])
         # Re-point every assignment at its synthesized persona. A role with no dial evidence
-        # keeps its catalog persona rather than losing its assignment entirely.
+        # has none to be re-pointed at; `_drop_unsynthesized_roles` below takes its entry out
+        # rather than leaving it naming a catalog persona this cast does not ship.
         prof = out["traffic_profile"]["traffic-profile"]
         for a in prof.get("assignments", []):
             cand = f"cast-{a.get('role')}"
@@ -781,6 +821,7 @@ def cmd_cast(args) -> int:
         prof["assignments"] = plan_assignments(
             nodes_all, personas, local_population(pit, activity_bands(pit)),
             prof.get("assignments", []))
+        _drop_unsynthesized_roles(prof, personas, out["caveats"])
 
         # Drop a variant nothing was assigned. BEFORE `_write_serve_scripts` below,
         # deliberately: the internet sink's declared listen set is read from every persona it is

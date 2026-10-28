@@ -163,3 +163,41 @@ def test_a_dhcp_scope_that_cannot_be_derived_is_reported_and_falls_to_the_echo(t
     cli._write_serve_scripts(out, _EMPTY_PIT, tmp_path, {})
     assert any("no DHCP server" in c for c in out["caveats"])
     assert "responder.py 67/udp" in (tmp_path / "scripts" / "serve-h.sh").read_text()
+
+
+# -- a role with no synthesized persona loses its assignment, and says so -----------------
+
+
+def _profile(*assignments):
+    return {"target": "pit-x", "assignments": list(assignments)}
+
+
+def test_a_role_with_no_synthesized_persona_is_dropped_not_left_naming_the_catalog():
+    """CorpAPCN 2026-10-28 (one hour, `disc-7b100b4e`): the collector at 10.20.194.240 was
+    observed speaking NTP and nothing else, so `synthesize_personas` emitted nothing for its
+    role and the profile went to the installer still naming the CATALOG `monitoring-collector`
+    -- which the installer refused as a persona with no file, after the whole ingest had run.
+    The cast must settle this itself: the role is in the twin and silent, and the caveat says
+    why and what the remedy is."""
+    prof = _profile({"role": "monitoring-collector", "persona": "monitoring-collector",
+                     "seed": 1},
+                    {"role": "web-tier", "persona": "cast-web-tier", "seed": 2},
+                    {"node": "web-10-0-0", "persona": "cast-web-tier-local",
+                     "schedule": "24x7"})
+    caveats = []
+    dropped = cli._drop_unsynthesized_roles(
+        prof, {"cast-web-tier": {}, "cast-web-tier-local": {}}, caveats)
+    assert dropped == ["monitoring-collector"]
+    assert [a.get("role") or a.get("node") for a in prof["assignments"]] == \
+        ["web-tier", "web-10-0-0"], "every other assignment is untouched, in order"
+    assert len(caveats) == 1
+    assert "['monitoring-collector']" in caveats[0] and "capture longer" in caveats[0]
+    assert "catalog persona (['monitoring-collector'])" in caveats[0]
+
+
+def test_a_profile_whose_every_persona_was_synthesized_is_left_alone():
+    prof = _profile({"role": "web-tier", "persona": "cast-web-tier", "seed": 2})
+    caveats = []
+    assert cli._drop_unsynthesized_roles(prof, {"cast-web-tier": {}}, caveats) == []
+    assert prof["assignments"] == [{"role": "web-tier", "persona": "cast-web-tier", "seed": 2}]
+    assert caveats == []
