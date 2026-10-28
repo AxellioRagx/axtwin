@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { useApi } from "../../api/context";
@@ -5,6 +6,7 @@ import type { DiscoveryRun, ImprintListItem } from "../../api/types";
 import { formatCount, formatIso } from "../../model/sources";
 import { ErrorLine, StatusBadge } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { DeleteImprint } from "./DeleteImprint";
 
 /** Every imprint in the catalog, with the discovery run that produced it when this
  *  API process ran it (run records live in memory, so an older bundle shows none). */
@@ -13,7 +15,8 @@ export function ImprintsPage() {
   const imprints = useLoad((signal) => api.listImprints(signal), []);
   const runs = useLoad((signal) => api.listRuns(signal), []);
   const runOf = latestRunByImprint(runs.data?.runs ?? []);
-  const rows = imprints.data?.imprints ?? [];
+  const [deleted, setDeleted] = useState<string[]>([]);
+  const rows = (imprints.data?.imprints ?? []).filter((i) => !deleted.includes(i.id));
   const skipped = imprints.data?.skipped ?? [];
   return (
     <>
@@ -34,6 +37,7 @@ export function ImprintsPage() {
               <th>Run</th>
               <th>PIT</th>
               <th>Apply</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -59,6 +63,9 @@ export function ImprintsPage() {
                   </td>
                   <td className="mono">{run?.pit_id ?? "—"}</td>
                   <td className="muted">{i.can_apply ? "yes" : i.apply_blocked_reason || "no"}</td>
+                  <td>
+                    <DeleteImprint id={i.id} compact onDeleted={(id) => setDeleted((d) => [...d, id])} />
+                  </td>
                 </tr>
               );
             })}

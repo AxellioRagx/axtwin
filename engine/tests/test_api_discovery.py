@@ -637,3 +637,105 @@ def test_a_stale_belief_store_from_an_earlier_failed_run_is_removed_before_inges
     assert c.post("/api/discovery/runs", json=_run_body()).json()["status"] == "completed"
     assert seen["present_at_ingest"] is False
     assert not Path(f"{stale}.wal").exists()
+
+
+# -- the run table survives a restart ----------------------------------------------------
+
+
+def test_run_records_survive_a_restart_and_an_active_one_is_marked_failed(tmp_path):
+    """Run records used to live only in the process: a restart emptied the list and the
+    Imprints page lost which run produced which bundle. They are now written through to
+    the discovery DB. A run the old process left active cannot finish -- its thread died
+    with it -- so the next open marks it failed and says why, instead of showing a run
+    that is `running` forever with nothing driving it."""
+    settings = _settings(tmp_path)
+    db = Path(settings.discovery_db)
+    jobs = []
+    c = _client(settings, backend=_FakeDiscovery(), background=jobs.append)
+    done = c.post("/api/discovery/runs", json=_run_body(imprint_id="done-a")).json()
+    jobs.pop()()
+    stuck = c.post("/api/discovery/runs", json=_run_body(imprint_id="stuck-b")).json()
+    assert c.get(f"/api/discovery/runs/{done['id']}").json()["status"] == "completed"
+    assert c.get(f"/api/discovery/runs/{stuck['id']}").json()["status"] == "queued"
+    assert db.is_file() and oct(db.stat().st_mode & 0o777) == "0o600"
+
+    # The "restart": a second app over the same settings.
+    c2 = _client(settings, backend=_FakeDiscovery())
+    runs = {r["id"]: r for r in c2.get("/api/discovery/runs").json()["runs"]}
+    assert set(runs) == {done["id"], stuck["id"]}
+    assert runs[done["id"]]["status"] == "completed"
+    assert runs[done["id"]]["pit_id"] == "pit-fake"
+    assert runs[done["id"]]["stages_done"] == list(disc.STAGES)
+    assert runs[stuck["id"]]["status"] == "failed"
+    assert "restarted while this run was queued" in runs[stuck["id"]]["error"]
+    assert runs[stuck["id"]]["finished_at"] is not None
+    # Deleting through the new process removes the row for good.
+    assert c2.delete(f"/api/discovery/runs/{stuck['id']}").status_code == 204
+    c3 = _client(settings, backend=_FakeDiscovery())
+    assert [r["id"] for r in c3.get("/api/discovery/runs").json()["runs"]] == [done["id"]]
+
+
+def test_a_run_record_carries_no_secret_into_the_db(tmp_path):
+    settings = _settings(tmp_path)
+    c = _client(settings, backend=_FakeDiscovery())
+    c.post("/api/discovery/runs", json=_run_body())
+    import sqlite3
+    (doc,) = sqlite3.connect(settings.discovery_db).execute("SELECT record_json FROM runs").fetchone()
+    assert "password" not in doc.lower() and "api_key" not in doc.lower()
+    assert '"env"' not in doc
+
+
+# -- deleting an imprint -------------------------------------------------------------------
+
+
+def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_path):
+    """The Imprints page's bin. The bundle directory goes, and so does the belief store a
+    run under that id left beside the IR store; the run record stays. Refused while a run
+    for the id is active (it is writing there) and while a live deploy stands on it
+    (its destroy resolves the config by this id)."""
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    auth = {"Authorization": "Bearer s3cret"}
+    jobs = []
+    c = _client(settings, backend=_FakeDiscovery(), background=jobs.append)
+    run = c.post("/api/discovery/runs", json=_run_body(imprint_id="site-a"), headers=auth).json()
+    # Still queued: the id is claimed and the bundle not even there yet -- refused,
+    # pointing at cancel, before any directory check could say 404.
+    r = c.delete("/api/imprints/site-a", headers=auth)
+    assert r.status_code == 409 and "cancel it first" in r.json()["error"], r.text
+    jobs.pop()()
+    bundle = Path(settings.imprints_dir) / "site-a"
+    bundle.mkdir()
+    (bundle / "site-a.yaml").write_text(
+        "twin_config:\n  id: site-a\n  segments: [{ name: lan, cidr: 10.5.0.0/24 }]\n"
+        "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
+    )
+    stale = Path(settings.aximprint_store).parent / "site-a.belief.duckdb"
+    stale.write_bytes(b"left over")
+    assert c.get("/api/imprints/site-a").status_code == 200
+
+    # A live deploy on the id: refused, naming it.
+    from axrange.planner import StateStore
+    store = StateStore(settings.db_path)
+    try:
+        store.create_deploy(deploy_id="dep-1", scenario_id="site-a", scenario_version=None,
+                            scenario_schema_version=None, plan_id="plan-1", ir_hash="h",
+                            placement={})
+    finally:
+        store.close()
+    r = c.delete("/api/imprints/site-a", headers=auth)
+    assert r.status_code == 409 and "dep-1" in r.json()["error"], r.text
+    store = StateStore(settings.db_path)
+    try:
+        store.mark_destroyed("dep-1")
+    finally:
+        store.close()
+
+    assert c.delete("/api/imprints/site-a").status_code == 401, "a write"
+    assert c.delete("/api/imprints/site-a", headers=auth).status_code == 204
+    assert not bundle.exists() and not stale.exists()
+    assert c.get("/api/imprints/site-a").status_code == 404
+    assert c.get(f"/api/discovery/runs/{run['id']}").json()["status"] == "completed", \
+        "the record outlives the bundle"
+    assert c.delete("/api/imprints/site-a", headers=auth).status_code == 404
+    assert c.delete("/api/imprints/../etc", headers=auth).status_code in (400, 404)

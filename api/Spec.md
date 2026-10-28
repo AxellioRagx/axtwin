@@ -25,7 +25,7 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 (taps renamed from `/api/o2/taps` on 2026-10-20). Everything the console uses
 that is **not** listed under a seam below already exists:
 
-`GET /api/pcaps`, `GET /api/imprints[/{id}]`, `GET /api/imprints/{id}/cast`,
+`GET /api/pcaps`, `GET /api/imprints[/{id}]`, `DELETE /api/imprints/{id}`, `GET /api/imprints/{id}/cast`,
 `GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel`, `DELETE /api/discovery/runs/{id}` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
@@ -64,6 +64,17 @@ order:
 - `DELETE /api/discovery/runs/{id}` (token, `204`) — forget a finished run's
   record. The imprint it installed stays in the catalog. A queued or running
   run is `409` pointing at cancel; unknown is `404`.
+- Run records persist in the discovery DB (`AXRANGE_DISCOVERY_DB`, default
+  `~/.axrange/discovery.db`, the file the sources share; table `runs`, one
+  JSON document per run, no secret in it), so the list survives a restart. A
+  run the previous process left queued or running is marked `failed` on open
+  with an error saying the API restarted; its stages did not finish.
+- `DELETE /api/imprints/{id}` (token, `204`) — remove a bundle from the
+  catalog (`<imprints_dir>/<id>/`) and the belief store a run under that id
+  left beside the IR store. `409` while a run for the id is queued or running
+  (cancel it first) or while a live deploy stands on the id (destroy it
+  first); `404` unknown; `400` misaddressed, as every bundle route. The run
+  records that produced it stay.
 - A run's belief store (`<store dir>/<imprint_id>.belief.duckdb`) is removed
   before `ingest` if one is already there: it can only be what an earlier
   failed or cancelled run under that id left, and ingesting on top of it would
@@ -260,6 +271,11 @@ state DB and the fake adapter, unless marked **(live)**.
   mid-stream and reported as cancelled, not failed; a stage past its budget is
   killed and reported as a timeout. `DELETE` forgets a finished run and is
   `409` on an active one. *(`engine/tests/test_api_discovery.py`.)*
+- A1.5 Run records survive a second `create_app` over the same settings; a
+  run left queued/running is `failed` with the restart named; the record
+  carries no secret. `DELETE /api/imprints/{id}` removes the bundle and its
+  belief store, is `409` under an active run or a live deploy, and leaves the
+  run record. *(`engine/tests/test_api_discovery.py`.)*
 
 ## Notes
 

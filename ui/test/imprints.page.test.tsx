@@ -1,6 +1,7 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ApiError } from "../src/api/client";
 import type { DiscoveryRun, ImprintSummary } from "../src/api/types";
 import { fakeApi } from "./helpers/fakeApi";
 import { renderAt } from "./helpers/render";
@@ -68,5 +69,37 @@ describe("the imprints page", () => {
     const { api } = fakeApi();
     renderAt(api, "/imprints");
     await screen.findByText(/No imprint in the catalog/);
+  });
+});
+
+describe("deleting an imprint", () => {
+  it("removes the row after a confirmation, and keeps it when the API refuses", async () => {
+    const { api, state } = fakeApi({ imprints: { test2: imprint("test2"), keep: imprint("keep") } });
+    renderAt(api, "/imprints");
+    await screen.findAllByTestId("imprint-row");
+    fireEvent.click(screen.getByRole("button", { name: "Delete imprint test2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(state.writes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Delete imprint test2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
+    await waitFor(() => expect(screen.queryByRole("link", { name: "test2" })).toBeNull());
+    expect(state.writes).toEqual([{ op: "delete-imprint", id: "test2" }]);
+    expect(screen.getAllByTestId("imprint-row").length).toBe(1);
+
+    state.refuse.deleteImprint = new ApiError({ kind: "conflict", status: 409, message: "a discovery run for imprint 'keep' is still active; cancel it first", url: "" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete imprint keep" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete keep" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("cancel it first");
+    expect(screen.getAllByTestId("imprint-row").length).toBe(1);
+  });
+
+  it("the imprint page offers Delete imprint and returns to the list once gone", async () => {
+    const { api, state } = fakeApi({ imprints: { test2: imprint("test2") } });
+    renderAt(api, "/imprints/test2");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete imprint" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
+    await screen.findByText(/No imprint in the catalog/);
+    expect(state.writes).toEqual([{ op: "delete-imprint", id: "test2" }]);
   });
 });

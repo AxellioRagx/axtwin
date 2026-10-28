@@ -137,10 +137,13 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # Discovery runs (`api/Spec.md` A1): None -> `discovery.SubprocessDiscovery`
     # over AXRANGE_AXIMPRINT_BIN; tests inject a fake so the suite never runs
     # aximprint unless a test chooses to. The run table lives for the life
-    # of this app; `discovery_background` None -> a daemon thread.
+    # of this app AND in the discovery DB (`settings.discovery_db`, the
+    # file the sources share), so the list survives a restart; a run the
+    # old process left active is marked failed on open. `discovery_background`
+    # None -> a daemon thread.
     app.state.discovery_backend = None
     app.state.discovery_background = None
-    app.state.discovery_runs = _discovery.DiscoveryRuns()
+    app.state.discovery_runs = _discovery.DiscoveryRuns(db_path=settings.discovery_db)
     # Discovery sources (`api/Spec.md` A7): None -> `discovery_sources.SourceStore`
     # over `settings.discovery_db`, opened on first use; tests inject a store on
     # a temp path. `discovery_tunnel` None -> the real `SshTunnel`; tests inject a
@@ -315,6 +318,16 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @_ro
     def imprint_provenance(imprint_id: str) -> dtos.ImprintProvenanceDTO:
         return service.imprint_provenance(settings, imprint_id)
+
+    @app.delete(
+        "/api/imprints/{imprint_id}",
+        status_code=204,
+        response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def imprint_delete(imprint_id: str) -> Response:
+        service.delete_imprint(settings, imprint_id, runs=app.state.discovery_runs)
+        return Response(status_code=204)
 
     # ---- discovery runs (`api/Spec.md` A1; root `CLAUDE.md` critical path 1)
     # -- a real `aximprint` ingest -> materialize -> cast -> install, started

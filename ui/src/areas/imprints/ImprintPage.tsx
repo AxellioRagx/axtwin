@@ -1,18 +1,23 @@
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import { formatCount } from "../../model/sources";
 import { ErrorLine } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { DeleteImprint } from "./DeleteImprint";
 
 /** What discovery produced: the imprint's summary from the catalog. */
 export function ImprintPage() {
   const api = useApi();
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const { data, error, loading } = useLoad((signal) => api.getImprint(id, signal), [id]);
   return (
     <>
-      <h1>Imprint {id}</h1>
+      <div className="row">
+        <h1 style={{ flex: 1 }}>Imprint {id}</h1>
+        {data ? <DeleteImprint id={id} onDeleted={() => navigate("/imprints")} /> : null}
+      </div>
       <ErrorLine error={error} prefix="could not load the imprint" />
       {loading && !data ? <p className="muted">Loading…</p> : null}
       {data ? (

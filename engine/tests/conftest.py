@@ -15,6 +15,14 @@ import pytest
 from axrange.manifest.loader import ManifestRegistry, load_registry
 
 
+@pytest.fixture(autouse=True)
+def _discovery_db_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`create_app` opens the discovery DB (`settings.discovery_db`) for the run
+    table at startup. Its default is `~/.axrange/discovery.db`; a test that
+    builds settings without naming one must never touch the operator's file."""
+    monkeypatch.setenv("AXRANGE_DISCOVERY_DB", str(tmp_path / "axrange-home" / "discovery.db"))
+
+
 @pytest.fixture
 def fixtures_dir() -> Path:
     return Path(__file__).parent / "fixtures"

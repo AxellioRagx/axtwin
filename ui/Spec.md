@@ -142,6 +142,13 @@ its listed tests pass. T0.x is the release gate for UI v0.
   (its source on hover), the newest run this API process ran for that id
   with its status and PIT, whether apply is possible, and the folders the
   listing could not read with the reason. *(`imprints.page.test.tsx`.)*
+- C1.14 (auto) An imprint can be deleted behind a confirmation: a bin per
+  row on the Imprints page (the row leaves once accepted) and "Delete
+  imprint" on its page, which returns to the list. The API's refusal (an
+  active run, a live deploy, no token) is shown in place. Run records
+  persist across API restarts, so the Imprints page's Run column and the
+  runs list survive one; a run the old process left active shows `failed`
+  with the restart named. *(`imprints.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

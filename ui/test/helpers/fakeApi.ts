@@ -91,7 +91,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -247,6 +247,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         })),
         skipped: [...state.skippedImprints],
       };
+    },
+    async deleteImprint(id) {
+      state.writes.push({ op: "delete-imprint", id });
+      if (state.refuse.deleteImprint) throw state.refuse.deleteImprint;
+      if (!state.imprints[id]) throw notFound(`imprint '${id}'`);
+      delete state.imprints[id];
     },
     async getImprint(id) {
       const i = state.imprints[id];

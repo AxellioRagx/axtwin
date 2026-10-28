@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
+import os
 import re
 import secrets
 import shutil
@@ -446,13 +448,88 @@ class DiscoveryRun:
     cancel_requested_at: Optional[float] = None
 
 
-class DiscoveryRuns:
-    """In-memory, lock-guarded, one per `create_app`."""
+_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  record_json TEXT NOT NULL
+)
+"""
 
-    def __init__(self) -> None:
+#: The error written on a run the API found queued/running when it started: the
+#: job thread that was driving it died with the previous process.
+RESTART_ERROR = "the API restarted while this run was {status}; its remaining stages did not run"
+
+
+class DiscoveryRuns:
+    """The run table: lock-guarded, one per `create_app`, and -- given `db_path` --
+    written through to a `runs` table in that SQLite file (the discovery DB the
+    sources share), so the list survives a restart.
+
+    The in-memory dict stays the working set; every mutation persists the whole
+    record as one JSON document (`record_json`), with `status` and `created_at`
+    beside it for ordering. A record carries no secret: a source run's `config`
+    holds the base URL the tunnel exposed, and the credential rides in the
+    subprocess environment, never on the record.
+
+    On open, a stored run still `queued`/`running` is marked `failed` with
+    `RESTART_ERROR`: the thread driving it died with the old process, and no
+    stage will finish. Its child, started in its own session, may outlive us and
+    keep writing the belief store; the next run under that imprint id removes
+    that store before ingesting (`_discard_stale_belief_store`).
+    """
+
+    def __init__(self, db_path: Optional[str | os.PathLike[str]] = None) -> None:
         self._lock = threading.Lock()
         self._runs: dict[str, DiscoveryRun] = {}
         self._handles: dict[str, RunHandle] = {}
+        self._db: Optional[sqlite3.Connection] = None
+        if db_path is None:
+            return
+        path = Path(db_path)
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        existed = path.exists()
+        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        self._db.row_factory = sqlite3.Row
+        with self._db:
+            self._db.execute(_RUNS_SCHEMA)
+        if not existed:
+            os.chmod(path, 0o600)
+        self._load()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._db is not None:
+                self._db.close()
+                self._db = None
+
+    # -- persistence ----------------------------------------------------------
+    def _load(self) -> None:
+        assert self._db is not None
+        now = time.time()
+        rows = self._db.execute("SELECT record_json FROM runs").fetchall()
+        for row in rows:
+            doc = json.loads(row["record_json"])
+            run = DiscoveryRun(**doc)
+            if run.status in ACTIVE_STATUSES:
+                run.error = RESTART_ERROR.format(status=run.status)
+                run.status = STATUS_FAILED
+                run.finished_at = now
+                self._persist(run)
+            self._runs[run.id] = run
+
+    def _persist(self, run: DiscoveryRun) -> None:
+        """Write one record through. Called with the lock held (or from `_load`)."""
+        if self._db is None:
+            return
+        doc = {**run.__dict__, "stages_done": list(run.stages_done), "config": dict(run.config)}
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO runs (id, status, created_at, record_json) "
+                "VALUES (?,?,?,?)",
+                (run.id, run.status, run.created_at, json.dumps(doc)),
+            )
 
     def handle_for(self, run_id: str) -> RunHandle:
         """The run's cancel handle, made on first ask so a cancel that lands before the
@@ -471,6 +548,7 @@ class DiscoveryRuns:
                 return False
             if r.cancel_requested_at is None:
                 r.cancel_requested_at = time.time()
+                self._persist(r)
             h = self._handles.get(run_id)
             if h is None:
                 h = self._handles[run_id] = RunHandle()
@@ -489,6 +567,9 @@ class DiscoveryRuns:
                 raise ValueError(f"discovery run {run_id!r} is {r.status}; cancel it first")
             del self._runs[run_id]
             self._handles.pop(run_id, None)
+            if self._db is not None:
+                with self._db:
+                    self._db.execute("DELETE FROM runs WHERE id = ?", (run_id,))
             return True
 
     def new(self, plugin: str, imprint_id: str, config: dict[str, Any],
@@ -501,6 +582,7 @@ class DiscoveryRuns:
             run = DiscoveryRun(id=run_id, plugin=plugin, imprint_id=imprint_id,
                                config=dict(config), source_id=source_id)
             self._runs[run_id] = run
+            self._persist(run)
             return run
 
     def get(self, run_id: str) -> Optional[DiscoveryRun]:
@@ -538,10 +620,13 @@ class DiscoveryRuns:
             r = self._runs[run_id]
             for k, v in fields.items():
                 setattr(r, k, v)
+            self._persist(r)
 
     def stage_done(self, run_id: str, stage: str) -> None:
         with self._lock:
-            self._runs[run_id].stages_done.append(stage)
+            r = self._runs[run_id]
+            r.stages_done.append(stage)
+            self._persist(r)
 
 
 def execute_run(

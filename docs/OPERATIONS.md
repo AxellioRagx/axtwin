@@ -115,6 +115,18 @@ curl -s :8080/api/discovery/runs/<run id>      # queued | running | completed | 
 curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>/cancel   # 202; kills the stage, removes the partial bundle + belief store
 curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>   # 204; forgets a finished run's record (the imprint stays)
 curl -s :8080/api/imprints/corp-imprint        # resolves once completed
+curl -s -X DELETE -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/imprints/corp-imprint   # 204; removes the bundle + its belief store; 409 under an active run or a live deploy
+```
+
+Run records live in `~/.axrange/discovery.db` (`AXRANGE_DISCOVERY_DB`) beside the
+sources, so they survive a restart. Restarting while a run is active marks it
+`failed` ("the API restarted while this run was running"): the thread driving the
+chain died with the process. The `aximprint` child it started runs in its own
+session and may outlive the restart; it stops on its own at the end of its
+stage, and the next run under the same imprint id removes the belief store it
+left before ingesting.
+
+```sh
 ```
 
 **Discovery sources (A7)** — a saved sensor endpoint plus how to reach it, the

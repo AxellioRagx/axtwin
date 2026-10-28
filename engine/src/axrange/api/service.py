@@ -3803,6 +3803,44 @@ def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
     )
 
 
+def delete_imprint(settings: ApiSettings, imprint_id: str, *, runs: Any) -> None:
+    """Remove a bundle from the catalog: the directory `<imprints_dir>/<id>/`
+    and the belief store a run under that id left beside the IR store. Refused
+    while a run is queued/running for the id (409: it is writing there) and
+    while a live deploy stands on it (409: `te destroy`/`--update` resolve the
+    config by this id). Run records that produced it stay; the run page says the
+    bundle is gone. The same addressing guard as every other bundle route
+    (404 unknown, 400 misaddressed)."""
+    import shutil
+
+    from axrange.planner import StateStore
+
+    # Before the directory guard: while a run is active the bundle is absent or
+    # half-written, and "cancel it first" is the answer, not 404.
+    if imprint_id in runs.active_imprint_ids():
+        raise ApiError(409, f"a discovery run for imprint {imprint_id!r} is still active; "
+                            "cancel it first")
+    bundle_dir = _imprint_bundle_dir(settings, imprint_id)
+    if Path(settings.db_path).exists():
+        store = StateStore(settings.db_path)
+        try:
+            live = [d.deploy_id for d in
+                    store.deploys_matching(scenario_id=imprint_id, exclude_destroyed=True)]
+        finally:
+            store.close()
+        if live:
+            raise ApiError(409, f"imprint {imprint_id!r} is the config of live deploy(s) "
+                                f"{live}; destroy them first")
+    if bundle_dir.is_symlink():
+        raise ApiError(400, f"imprint {imprint_id!r} is a symlink; not removed")
+    shutil.rmtree(bundle_dir)
+    if settings.aximprint_store:
+        stale = Path(settings.aximprint_store).parent / f"{imprint_id}.belief.duckdb"
+        for p in (stale, Path(f"{stale}.wal")):
+            if p.is_file():
+                p.unlink()
+
+
 def imprint_summary(settings: ApiSettings, imprint_id: str) -> dtos.ImprintSummaryDTO:
     from axrange.api.imprints import ImprintDataError, ImprintNotFoundError, load_imprint_summary
 

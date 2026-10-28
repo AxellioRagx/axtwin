@@ -30,6 +30,8 @@ export interface Api {
   deleteRun(id: string): Promise<void>;
   listImprints(signal?: AbortSignal): Promise<ImprintList>;
   getImprint(id: string, signal?: AbortSignal): Promise<ImprintSummary>;
+  /** Remove the bundle from the catalog; refused under an active run or a live deploy. */
+  deleteImprint(id: string): Promise<void>;
 }
 
 const enc = encodeURIComponent;
@@ -50,5 +52,6 @@ export function makeApi(request: Requester): Api {
     deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, { auth: true }),
     listImprints: (signal) => request("GET", "/api/imprints", { signal }),
     getImprint: (id, signal) => request("GET", `/api/imprints/${enc(id)}`, { signal }),
+    deleteImprint: (id) => request("DELETE", `/api/imprints/${enc(id)}`, { auth: true }),
   };
 }

@@ -68,8 +68,10 @@ because it will be believed. -->
    imprint `corp-apcn-10d`) and watch the progress bar; on completion decide whether
    `catalog/twins/corp-apcn-10d/` is committed. A one-hour run (`disc-f6aa0f01`,
    2026-10-28 13:42, six minutes) installed `catalog/twins/corp-apcn-reader-20261028/`,
-   untracked: commit or remove it. Run records are in-memory; the two from before the
-   13:50 restart are saved as `~/.axrange/discovery/disc-*.json`.
+   untracked: commit or remove it. Run records now persist in `~/.axrange/discovery.db`
+   (table `runs`); the three from before persistence landed are saved as
+   `~/.axrange/discovery/disc-*.json`. The Imprints page has a bin per bundle and the
+   runs table a bin/× per run.
 2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three
    commits above; decide whether `wip/api-discovery-runs` merges to `master`.
 3. Critical path item 2 (root `Claude.md`): attack-inject plus confirm as one action on
