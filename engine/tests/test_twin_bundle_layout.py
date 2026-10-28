@@ -103,9 +103,9 @@ def test_a_broken_manifest_fails_loud_rather_than_falling_back_to_a_sibling(tmp_
 # The imprint API reads a twin folder exactly as it reads the legacy bundle
 # ---------------------------------------------------------------------------
 def _read_all(c: TestClient) -> dict:
-    out = {"list": c.get("/api/imprints").json()}
+    out = {"list": c.get("/api/twins").json()}
     for route in ("", "/cast", "/provenance", "/topology"):
-        r = c.get(f"/api/imprints/{ID}{route}")
+        r = c.get(f"/api/twins/{ID}{route}")
         assert r.status_code == 200, (route, r.text[:300])
         out[route] = r.json()
     return out
@@ -160,7 +160,7 @@ def test_the_listing_over_a_twins_root_skips_shared_assets_silently(tmp_path):
     root = tmp_path / "twins"
     _twin_folder(root)
     (root / "_shared" / "scripts").mkdir(parents=True)
-    body = _client(root, tmp_path).get("/api/imprints").json()
+    body = _client(root, tmp_path).get("/api/twins").json()
     assert [e["id"] for e in body["imprints"]] == [ID]
     assert body["skipped"] == []
 
@@ -172,7 +172,7 @@ def test_a_twin_folder_plans_through_the_api_with_its_scripts(tmp_path, monkeypa
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     root = tmp_path / "twins"
     _twin_folder(root)
-    r = _client(root, tmp_path).post(f"/api/imprints/{ID}/plan", json={"target_node": "pxtest1"})
+    r = _client(root, tmp_path).post(f"/api/twins/{ID}/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:400]
     assert r.json()["ops"] > 0
 
@@ -186,11 +186,11 @@ def test_a_layout_pin_lands_in_generated_and_reads_back(tmp_path):
     shutil.rmtree(d / "generated")  # a hand-authored twin's first pin: no generated/ yet
     c = _client(root, tmp_path)
     body = {"schema": "axr-layout/1", "imprint": ID, "pins": {"site:10.5": {"x": 1, "y": 2}}}
-    put = c.put(f"/api/imprints/{ID}/layout", json=body)
+    put = c.put(f"/api/twins/{ID}/layout", json=body)
     assert put.status_code == 200, put.text[:300]
     assert (d / "generated" / "layout.json").is_file()
     assert not (d / "layout.json").exists()
-    got = c.get(f"/api/imprints/{ID}/layout").json()
+    got = c.get(f"/api/twins/{ID}/layout").json()
     assert got["exists"] is True and got["pins"] == body["pins"]
 
 
@@ -201,7 +201,7 @@ def test_the_assertions_document_stays_at_the_twin_root(tmp_path):
     doc = {"schema": "axr-assertions/1", "imprint": ID, "as_of": "2026-09-26T00:00:00Z",
            "source": "operator: tester", "add": [], "override": [],
            "suppress": [{"key": "address:10.5.0.9", "note": "out of scope"}]}
-    r = _client(root, tmp_path).put(f"/api/imprints/{ID}/assertions", json=doc)
+    r = _client(root, tmp_path).put(f"/api/twins/{ID}/assertions", json=doc)
     assert r.status_code == 200, r.text[:300]
     assert (d / f"{ID}.assertions.yaml").is_file()
 
@@ -214,7 +214,7 @@ def test_apply_refuses_a_twin_folder_before_it_saves_anything(tmp_path):
     before = sorted(str(p.relative_to(d)) for p in d.rglob("*"))
     doc = {"schema": "axr-assertions/1", "imprint": ID, "as_of": "2026-09-26T00:00:00Z",
            "source": "operator: tester", "add": [], "override": [], "suppress": []}
-    r = _client(root, tmp_path).post(f"/api/imprints/{ID}/apply", json={"document": doc})
+    r = _client(root, tmp_path).post(f"/api/twins/{ID}/apply", json={"document": doc})
     assert r.status_code == 422, r.text[:300]
     assert "D4" in r.json()["error"]
     assert sorted(str(p.relative_to(d)) for p in d.rglob("*")) == before

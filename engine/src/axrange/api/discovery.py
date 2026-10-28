@@ -1,4 +1,4 @@
-"""Discovery runs (`api/Spec.md` A1): the ingest -> bake -> cast -> install
+"""Discovery runs (`api/Spec.md` A1): ingest -> bake, producing an imprint (a PIT); cast
 chain as ONE control-plane action, over `aximprint`'s CLI.
 
 The engine never imports `aximprint` (root `CLAUDE.md`, the one-way boundary),
@@ -51,8 +51,10 @@ from axrange.api.recompile import (
 SETTING_IMPRINTS_DIR = "AXRANGE_IMPRINTS_DIR"
 
 #: The four stages, in order; a run record names which have completed.
-#: `bake` was `materialize` until 2026-10-28 (the aximprint verb keeps the alias).
-STAGES = ("ingest", "bake", "cast", "install")
+#: `bake` was `materialize` until 2026-10-28 (the aximprint verb keeps the alias). A run
+#: ends at the imprint; casting it into a twin is its own action (`CastRequest`,
+#: `docs/design/imprint-twin-split.md`).
+STAGES = ("ingest", "bake")
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -142,6 +144,9 @@ def _kill_group(proc: subprocess.Popen) -> None:
 class DiscoveryRunRequest:
     plugin: str
     config: dict[str, Any]
+    #: The imprint's NAME (`ir_pit.name`): what the bake labels the PIT, and the stem of
+    #: the belief store. The field keeps its old spelling; the catalog id it used to be is
+    #: chosen at cast time now.
     imprint_id: str
     belief_store: Path
     ir_store: Path
@@ -151,6 +156,36 @@ class DiscoveryRunRequest:
     #: Extra environment for every `aximprint` subprocess of this run -- the credential
     #: a stored discovery source carries (`discovery_sources.env_for`). Never `argv`.
     env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        return self.imprint_id
+
+
+@dataclass
+class CastRequest:
+    """Cast one imprint (a PIT, with its assertions) into a twin in the catalog: the
+    producer's `cast` into a scratch dir, then `install-cast` into `<catalog_root>/<twin_id>/`,
+    presented as one action. `assertions` is the imprint's operator file, passed only when it
+    exists (`cast` would refuse an explicit path that does not)."""
+    ir_store: Path
+    pit_id: str
+    twin_id: str
+    scratch_dir: Path
+    catalog_root: Path
+    sensors: list[str] = field(default_factory=list)
+    assertions: Optional[Path] = None
+    relocate: Optional[str] = None
+    max_count: Optional[int] = None
+    no_chatter: bool = False
+
+
+@dataclass
+class CastResult:
+    twin_id: str
+    pit_id: str
+    caveats: list[str]
+    install_report: str
 
 
 @dataclass
@@ -173,6 +208,12 @@ class DiscoveryBackend(Protocol):
     def list_pits(self, store: str) -> list[dict[str, Any]]: ...
 
     def rename_pit(self, store: str, pit: str, name: str) -> dict[str, Any]: ...
+
+    def copy_pit(self, store: str, pit: str, name: str) -> dict[str, Any]: ...
+
+    def delete_pit(self, store: str, pit: str) -> str: ...
+
+    def cast(self, request: CastRequest) -> CastResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +335,7 @@ class SubprocessDiscovery:
             "--store", str(r.belief_store),
             "--out", str(r.ir_store),
             "--replace",
+            "--name", r.imprint_id,
         ]
 
     build_materialize_argv = build_bake_argv
@@ -325,23 +367,73 @@ class SubprocessDiscovery:
                 f"`{self.binary} pit rename` did not print the PIT: "
                 f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
 
-    def build_cast_argv(self, r: DiscoveryRunRequest, pit_id: str) -> list[str]:
-        return [
+    def build_cast_argv(self, c: CastRequest) -> list[str]:
+        argv = [
             self.binary, CAST_VERB,
-            "--store", str(r.ir_store),
-            "--pit", pit_id,
-            "--out", str(r.scratch_dir),
-            "--imprint-id", r.imprint_id,
+            "--store", str(c.ir_store),
+            "--pit", c.pit_id,
+            "--out", str(c.scratch_dir),
+            "--imprint-id", c.twin_id,
         ]
+        if c.assertions is not None:
+            argv += ["--assertions", str(c.assertions)]
+        if c.relocate:
+            argv += ["--relocate", c.relocate]
+        if c.max_count is not None:
+            argv += ["--max-count", str(int(c.max_count))]
+        if c.no_chatter:
+            argv.append("--no-chatter")
+        return argv
 
-    def build_install_argv(self, r: DiscoveryRunRequest) -> list[str]:
+    def build_install_argv(self, c: CastRequest) -> list[str]:
         argv = [
             self.binary, INSTALL_VERB,
-            str(r.scratch_dir), str(r.catalog_root), r.imprint_id,
+            str(c.scratch_dir), str(c.catalog_root), c.twin_id,
         ]
-        if r.sensors:
-            argv += ["--sensors", *r.sensors]
+        if c.sensors:
+            argv += ["--sensors", *c.sensors]
         return argv
+
+    def cast(self, c: CastRequest) -> CastResult:
+        """The cast action: compile into scratch, then install into the catalog. Exit 1 from
+        the installer is a FINDING about the cast (an assignment naming no instance, a
+        script the folder does not carry) and is reported as such."""
+        proc = self._run(self.build_cast_argv(c), stage=CAST_VERB)
+        try:
+            doc = json.loads(proc.stdout or "")
+            caveats = [str(x) for x in (doc.get("caveats") or [])]
+        except (ValueError, AttributeError):
+            caveats = []
+        iproc = self._run(self.build_install_argv(c), stage=INSTALL_VERB)
+        return CastResult(twin_id=c.twin_id, pit_id=c.pit_id, caveats=caveats,
+                          install_report=(iproc.stdout or "").strip())
+
+    def copy_pit(self, store: str, pit: str, name: str) -> dict[str, Any]:
+        """`aximprint pit copy`: the operator's save-as."""
+        proc = self._run([self.binary, "pit", "copy", "--store", store, pit, name],
+                         stage="pit-copy", ok_codes=(0, 1, 2))
+        if proc.returncode == 2:
+            raise DiscoveryError(f"no PIT {pit!r}: {clip(proc.stderr or '', limit=300)}")
+        if proc.returncode == 1:
+            raise DiscoveryError(clip(proc.stderr or "", limit=300).strip() or "copy refused")
+        try:
+            return dict(json.loads(proc.stdout or ""))
+        except (ValueError, TypeError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} pit copy` did not print the PIT: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
+
+    def delete_pit(self, store: str, pit: str) -> str:
+        proc = self._run([self.binary, "pit", "delete", "--store", store, pit],
+                         stage="pit-delete", ok_codes=(0, 2))
+        if proc.returncode == 2:
+            raise DiscoveryError(f"no PIT {pit!r}: {clip(proc.stderr or '', limit=300)}")
+        try:
+            return str(json.loads(proc.stdout or "")["pit_id"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} pit delete` did not print the PIT: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
 
     def run(self, r: DiscoveryRunRequest, *, on_stage,
             on_progress: Optional[Callable[[float], None]] = None,
@@ -376,12 +468,6 @@ class SubprocessDiscovery:
             ) from e
         pit_name = str(baked.get("name") or pit_id)
         _did("bake")
-
-        self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB, env=r.env, handle=handle)
-        _did("cast")
-
-        self._run(self.build_install_argv(r), stage=INSTALL_VERB, env=r.env, handle=handle)
-        _did("install")
         return DiscoveryRunResult(pit_id=pit_id, stages=done, pit_name=pit_name)
 
     def _run(self, argv: list[str], *, stage: str, env: Optional[dict[str, str]] = None,
@@ -684,11 +770,8 @@ def execute_run(
 ) -> None:
     """The job a background thread runs. Every outcome lands on the record;
     nothing escapes (a thread with no handler would print a traceback and
-    leave the run `running` forever).
-
-    A failed install may have left a half-written bundle under the imprint
-    id; it is removed, because this run was refused at POST unless that
-    directory did NOT exist, so whatever is there is this run's own.
+    leave the run `running` forever). A run writes the belief store and the
+    IR store only; nothing lands in the catalog until the imprint is cast.
     """
     runs.update(run_id, status=STATUS_RUNNING, started_at=time.time())
     try:
@@ -697,12 +780,10 @@ def execute_run(
                              on_progress=_progress_sink(runs, run_id),
                              handle=runs.handle_for(run_id))
     except DiscoveryCancelled as e:
-        _discard_partial_bundle(request)
         _discard_stale_belief_store(request)
         runs.update(run_id, status=STATUS_CANCELLED, error=str(e), finished_at=time.time())
         return
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
-        _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
                     finished_at=time.time())
         return
@@ -751,12 +832,10 @@ def execute_source_run(
                                  on_progress=_progress_sink(runs, run_id),
                                  handle=runs.handle_for(run_id))
     except DiscoveryCancelled as e:
-        _discard_partial_bundle(request)
         _discard_stale_belief_store(request)
         runs.update(run_id, status=STATUS_CANCELLED, error=str(e), finished_at=time.time())
         return
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
-        _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
                     finished_at=time.time())
         return

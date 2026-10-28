@@ -270,8 +270,8 @@ def test_a_param_defaulting_to_zero_counts_zero_hosts_everywhere(tmp_path):
     (d / "twin.yaml").write_text(
         "twin:\n  id: zt\n  containment: uncontained\n  tiers:\n    te: { default: te.yaml }\n")
     c = TestClient(create_app(ApiSettings(db_path=str(tmp_path / "s.db"), imprints_dir=str(root))))
-    summary = c.get("/api/imprints/zt").json()
-    cast = c.get("/api/imprints/zt/cast").json()
+    summary = c.get("/api/twins/zt").json()
+    cast = c.get("/api/twins/zt/cast").json()
     assert summary["hosts"] == cast["hosts"] == 1
 
 

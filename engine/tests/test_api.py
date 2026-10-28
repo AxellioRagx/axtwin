@@ -2419,15 +2419,15 @@ def test_twin_config_detail_unknown_404(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Imprints (aximprint-integration Track C, `docs/WORK_ORDER_
-# aximprint_console.md`) -- `GET /api/imprints` / `GET /api/imprints/{id}` /
-# `GET /api/imprints/{id}/provenance`. Exercised against the REAL shipped
+# aximprint_console.md`) -- `GET /api/twins` / `GET /api/twins/{id}` /
+# `GET /api/twins/{id}/provenance`. Exercised against the REAL shipped
 # `axrange/api/fixtures/imprints/` fixture catalog (no `AXRANGE_IMPRINTS_DIR`
 # override needed), same "test the shipped content" posture as
 # `test_twin_configs_list` above.
 # ---------------------------------------------------------------------------
 def test_imprints_list(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.get("/api/imprints")
+    r = c.get("/api/twins")
     assert r.status_code == 200
     by_id = {e["id"]: e for e in r.json()["imprints"]}
     assert "corp-enterprise" in by_id
@@ -2440,7 +2440,7 @@ def test_imprints_list(tmp_path):
 
 def test_imprint_detail_matches_console_sample(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.get("/api/imprints/corp-enterprise")
+    r = c.get("/api/twins/corp-enterprise")
     assert r.status_code == 200
     j = r.json()
     assert j["id"] == "corp-enterprise"
@@ -2469,13 +2469,13 @@ def test_imprint_detail_matches_console_sample(tmp_path):
 
 def test_imprint_detail_unknown_404(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.get("/api/imprints/does-not-exist")
+    r = c.get("/api/twins/does-not-exist")
     assert r.status_code == 404
 
 
 def test_imprint_provenance_rows(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.get("/api/imprints/corp-enterprise/provenance")
+    r = c.get("/api/twins/corp-enterprise/provenance")
     assert r.status_code == 200
     j = r.json()
     assert j["imprint_id"] == "corp-enterprise"
@@ -2492,7 +2492,7 @@ def test_imprint_provenance_rows(tmp_path):
 
 def test_imprint_provenance_unknown_404(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.get("/api/imprints/does-not-exist/provenance")
+    r = c.get("/api/twins/does-not-exist/provenance")
     assert r.status_code == 404
 
 
@@ -2543,7 +2543,7 @@ def test_imprint_detail_non_numeric_summary_scalar_is_400_not_500(tmp_path):
         "services": "a-lot", "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
     })
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints/broken")
+    r = c.get("/api/twins/broken")
     assert r.status_code == 400
     assert "services" in r.json()["error"]
 
@@ -2555,7 +2555,7 @@ def test_imprint_detail_non_numeric_days_observed_is_400_not_500(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_broken_imprint(fixtures, "broken", days_observed="ten")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints/broken")
+    r = c.get("/api/twins/broken")
     assert r.status_code == 400
     assert "days_observed" in r.json()["error"]
 
@@ -2569,7 +2569,7 @@ def test_imprint_provenance_non_numeric_confidence_is_400_not_500(tmp_path):
         },
     })
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints/broken/provenance")
+    r = c.get("/api/twins/broken/provenance")
     assert r.status_code == 400
     assert "confidence" in r.json()["error"]
 
@@ -2578,7 +2578,7 @@ def test_imprint_detail_id_mismatch_is_400_not_404_or_500(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_broken_imprint(fixtures, "dirname-a", tc_id="content-id-b", sidecar_id="sidecar-id-c")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints/dirname-a")
+    r = c.get("/api/twins/dirname-a")
     assert r.status_code == 400
     assert "dirname-a" in r.json()["error"]
 
@@ -2591,10 +2591,10 @@ def test_imprint_detail_sidecar_naming_another_imprint_is_400_again(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_broken_imprint(fixtures, "dirname-a", sidecar_id="sidecar-id-c")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints/dirname-a")
+    r = c.get("/api/twins/dirname-a")
     assert r.status_code == 400, r.text
     assert "sidecar-id-c" in r.json()["error"]
-    listing = c.get("/api/imprints").json()
+    listing = c.get("/api/twins").json()
     assert listing["imprints"] == []
     assert listing["skipped"] == [{"id": "dirname-a", "reason": r.json()["error"]}]
 
@@ -2604,7 +2604,7 @@ def test_imprints_list_skips_an_id_mismatched_entry(tmp_path):
     _write_broken_imprint(fixtures, "good")
     _write_broken_imprint(fixtures, "bad-dir", tc_id="something-else")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/imprints")
+    r = c.get("/api/twins")
     assert r.status_code == 200
     assert [e["id"] for e in r.json()["imprints"]] == ["good"]
 
@@ -2713,8 +2713,8 @@ def test_create_deploy_unknown_config_is_400(tmp_path):
 
 # ---------------------------------------------------------------------------
 # Imprints -- "deploy as twin" (aximprint-integration Track C slice 2,
-# `docs/WORK_ORDER_aximprint_console.md` PART A). `POST /api/imprints/{id}/
-# plan` (pure preview) + `POST /api/imprints/{id}/deploy` (the real thing,
+# `docs/WORK_ORDER_aximprint_console.md` PART A). `POST /api/twins/{id}/
+# plan` (pure preview) + `POST /api/twins/{id}/deploy` (the real thing,
 # reusing the SAME async lease-guarded `/api/deploys` machinery a `config`
 # deploy uses -- exercised directly via `runner=_fake_runner()`, i.e. NO
 # real cluster call, matching every other deploy test in this file). Uses
@@ -2727,7 +2727,7 @@ def test_imprint_plan_success(tmp_path):
     write, no lease, no execution -- what makes PART A unit-testable with
     no cluster and what the Console calls before offering "Deploy as twin"."""
     c = _client(_settings(tmp_path))
-    r = c.post("/api/imprints/corp-enterprise/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/corp-enterprise/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200
     j = r.json()
     assert j["scenario_id"] == "corp-enterprise"
@@ -2744,14 +2744,14 @@ def test_imprint_plan_defaults_body_to_empty(tmp_path):
     failure an omitted `target_node` produces on every other plan/deploy
     endpoint, may still 400)."""
     c = _client(_settings(tmp_path))
-    r = c.post("/api/imprints/corp-enterprise/plan")
+    r = c.post("/api/twins/corp-enterprise/plan")
     assert r.status_code == 400
     assert "DEFAULT_NODE" in r.json()["error"]
 
 
 def test_imprint_plan_unknown_is_404(tmp_path):
     c = _client(_settings(tmp_path))
-    r = c.post("/api/imprints/does-not-exist/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/does-not-exist/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 404
 
 
@@ -2776,8 +2776,8 @@ def test_imprint_plan_reaches_the_planner_for_a_cast_shaped_bundle(tmp_path):
         "windows": 3, "segments": [], "nodes": [], "edges": [], "census": {},
     }))
     c = _client(_imprint_settings(tmp_path, root))
-    assert c.get("/api/imprints/corp-enterprise").status_code == 200
-    r = c.post("/api/imprints/corp-enterprise/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/corp-enterprise").status_code == 200
+    r = c.post("/api/twins/corp-enterprise/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text
     assert r.json()["scenario_id"] == "corp-enterprise"
 
@@ -2788,7 +2788,7 @@ def test_imprint_plan_still_refuses_a_bundle_whose_twin_config_names_another_id(
     fixtures = tmp_path / "imprints"
     _write_broken_imprint(fixtures, "dirname-a", tc_id="content-id-b")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.post("/api/imprints/dirname-a/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/dirname-a/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 400
     assert "twin_config.id" in r.json()["error"]
 
@@ -2825,7 +2825,7 @@ def test_imprint_plan_validation_failure_is_clean_4xx_not_500(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_unresolvable_image_imprint(fixtures, "bad-ir")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.post("/api/imprints/bad-ir/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/bad-ir/plan", json={"target_node": "pxtest1"})
     assert r.status_code not in (500,)
     assert r.status_code == 422
     assert any(f["rule_id"] == "REF-120" for f in r.json()["detail"])
@@ -2835,7 +2835,7 @@ def test_imprint_deploy_validation_failure_is_clean_4xx_not_500(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_unresolvable_image_imprint(fixtures, "bad-ir")
     c = _client(_imprint_settings(tmp_path, fixtures), runner=_fake_runner())
-    r = c.post("/api/imprints/bad-ir/deploy", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/bad-ir/deploy", json={"target_node": "pxtest1"})
     assert r.status_code not in (500,)
     assert r.status_code == 422
 
@@ -2847,7 +2847,7 @@ def test_imprint_deploy_wires_to_the_existing_deploy_entry(tmp_path):
     completed status), never a real cluster call (the fake adapter stands
     in, exactly like every other deploy test in this file)."""
     c = _client(_settings(tmp_path), runner=_fake_runner())
-    r = c.post("/api/imprints/corp-enterprise/deploy", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/corp-enterprise/deploy", json={"target_node": "pxtest1"})
     assert r.status_code == 200
     body = r.json()
     did = body["deploy_id"]
@@ -2871,7 +2871,7 @@ def test_imprint_deploy_wires_to_the_existing_deploy_entry(tmp_path):
 
 def test_imprint_deploy_unknown_is_404(tmp_path):
     c = _client(_settings(tmp_path), runner=_fake_runner())
-    r = c.post("/api/imprints/does-not-exist/deploy", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/does-not-exist/deploy", json={"target_node": "pxtest1"})
     assert r.status_code == 404
 
 
@@ -2880,13 +2880,13 @@ def test_imprint_deploy_requires_write_token_when_configured(tmp_path):
     settings.api_token = "s3cret"
     c = _client(settings, runner=_fake_runner())
     body = {"target_node": "pxtest1"}
-    assert c.post("/api/imprints/corp-enterprise/deploy", json=body).status_code == 401
+    assert c.post("/api/twins/corp-enterprise/deploy", json=body).status_code == 401
     assert c.post(
-        "/api/imprints/corp-enterprise/deploy", json=body,
+        "/api/twins/corp-enterprise/deploy", json=body,
         headers={"Authorization": "Bearer nope"},
     ).status_code == 401
     r = c.post(
-        "/api/imprints/corp-enterprise/deploy", json=body,
+        "/api/twins/corp-enterprise/deploy", json=body,
         headers={"Authorization": "Bearer s3cret"},
     )
     assert r.status_code == 200
@@ -2898,7 +2898,7 @@ def test_imprint_plan_is_open_without_token(tmp_path):
     settings = _settings(tmp_path)
     settings.api_token = "s3cret"
     c = _client(settings)
-    r = c.post("/api/imprints/corp-enterprise/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/corp-enterprise/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200
 
 
@@ -3401,7 +3401,7 @@ def test_imprint_plan_surfaces_deploy_gate_warnings(tmp_path):
     fixtures = tmp_path / "imprints"
     _write_gated_imprint(fixtures, "gated-imprint")
     c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.post("/api/imprints/gated-imprint/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/gated-imprint/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text
     warnings = r.json()["config_warnings"]
     assert any("effective DEPLOY_MIN_OCCUPANCY=0.8" in w for w in warnings), warnings

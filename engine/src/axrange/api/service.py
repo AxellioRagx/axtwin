@@ -3423,6 +3423,7 @@ def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
 
     return dtos.DiscoveryRunDTO(
         id=run.id, status=run.status, plugin=run.plugin, imprint_id=run.imprint_id,
+        name=run.imprint_id,
         stages_done=list(run.stages_done), stages=list(disc.STAGES),
         pit_id=run.pit_id, pit_name=run.pit_name, error=run.error,
         created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
@@ -3445,21 +3446,253 @@ def cancel_discovery_run(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
     return _discovery_run_dto(runs.snapshot(run_id))
 
 
-def _pit_dto(row: dict[str, Any]) -> dtos.PitDTO:
-    return dtos.PitDTO(**{k: row.get(k) for k in dtos.PitDTO.model_fields})
+def _check_imprint_name(settings: ApiSettings, name: str, *, be: Any, runs: Any) -> None:
+    """A run's imprint name: a usable token (it stems the belief-store file and is the
+    PIT's label), not already an imprint in the IR store, not being baked by another run."""
+    from axrange.api import discovery as disc
+    from axrange.api.imprints import is_safe_catalog_id
+
+    if not is_safe_catalog_id(name):
+        raise ApiError(400, f"name {name!r} is not a usable imprint name (letters, digits, "
+                            "'.', '_' and '-')")
+    if name in runs.active_imprint_ids():
+        raise ApiError(409, f"a discovery run for imprint {name!r} is already in progress")
+    if settings.aximprint_store:
+        try:
+            taken = {str(p.get("name")) for p in be.list_pits(settings.aximprint_store)} | {
+                str(p.get("pit_id")) for p in be.list_pits(settings.aximprint_store)}
+        except disc.DiscoveryError as e:
+            raise ApiError(502, str(e)) from e
+        if name in taken:
+            raise ApiError(409, f"an imprint named {name!r} already exists; a discovery run "
+                                "never replaces one -- choose another name, or delete it")
+
+
+def _pit_files_dir(settings: ApiSettings, pit_id: str) -> Path:
+    """Where an imprint's operator files live: `<store dir>/pits/<pit_id>/`, keyed by the
+    unchanging id so a rename cannot orphan them (`docs/design/imprint-twin-split.md` §3.1)."""
+    return Path(settings.aximprint_store).parent / "pits" / pit_id
+
+
+def _twins_by_pit(settings: ApiSettings) -> dict[str, list[str]]:
+    from axrange.api.imprints import list_imprints_with_skips
+
+    out: dict[str, list[str]] = {}
+    for e in list_imprints_with_skips(settings.imprints_dir or None)[0]:
+        if e.pit_id:
+            out.setdefault(e.pit_id, []).append(e.id)
+    return out
+
+
+def _pit_dto(settings: ApiSettings, row: dict[str, Any],
+             twins: Optional[dict[str, list[str]]] = None) -> dtos.PitDTO:
+    from axrange.api.console_files import assertions_path
+
+    pit_id = str(row.get("pit_id"))
+    by_pit = twins if twins is not None else _twins_by_pit(settings)
+    return dtos.PitDTO(
+        **{k: row.get(k) for k in dtos.PitDTO.model_fields
+           if k not in ("has_assertions", "twins")},
+        has_assertions=assertions_path(_pit_files_dir(settings, pit_id), pit_id).is_file(),
+        twins=[dtos.PitTwinRefDTO(id=t) for t in by_pit.get(pit_id, [])],
+    )
+
+
+def _ir_backend(settings: ApiSettings, backend: Any):
+    if not settings.aximprint_store:
+        raise ApiError(409, "no IR store: AXRANGE_AXIMPRINT_STORE is not set")
+    return _discovery_backend(settings, backend)
 
 
 def list_pits(settings: ApiSettings, *, backend: Any) -> dtos.PitListDTO:
-    """Every PIT in the API's IR store, by id and name (`aximprint pit list`)."""
+    """Every imprint: the PITs in the API's IR store, by id and name (`aximprint pit
+    list`), each with whether it has assertions and the twins cast from it."""
     from axrange.api import discovery as disc
 
-    if not settings.aximprint_store:
-        raise ApiError(409, "no IR store: AXRANGE_AXIMPRINT_STORE is not set")
-    be = _discovery_backend(settings, backend)
+    be = _ir_backend(settings, backend)
     try:
-        return dtos.PitListDTO(pits=[_pit_dto(r) for r in be.list_pits(settings.aximprint_store)])
+        rows = be.list_pits(settings.aximprint_store)
     except disc.DiscoveryError as e:
         raise ApiError(502, str(e)) from e
+    twins = _twins_by_pit(settings)
+    return dtos.PitListDTO(pits=[_pit_dto(settings, r, twins) for r in rows])
+
+
+def _pit_row(settings: ApiSettings, be: Any, pit: str) -> dict[str, Any]:
+    """One PIT's row by id or name, 404 when neither matches."""
+    from axrange.api import discovery as disc
+
+    try:
+        rows = be.list_pits(settings.aximprint_store)
+    except disc.DiscoveryError as e:
+        raise ApiError(502, str(e)) from e
+    for r in rows:
+        if str(r.get("pit_id")) == pit:
+            return r
+    named = [r for r in rows if str(r.get("name")) == pit]
+    if len(named) == 1:
+        return named[0]
+    if named:
+        raise ApiError(409, f"{len(named)} imprints are named {pit!r}; use the id")
+    raise ApiError(404, f"no imprint with id or name {pit!r}")
+
+
+def pit_detail(settings: ApiSettings, pit: str, *, backend: Any) -> dtos.PitDTO:
+    be = _ir_backend(settings, backend)
+    return _pit_dto(settings, _pit_row(settings, be, pit))
+
+
+def copy_pit(settings: ApiSettings, pit: str, req: dtos.PitCopyRequest, *,
+             backend: Any) -> dtos.PitDTO:
+    """Save-as: a new imprint with the same rows, `derived_from` set, and the operator
+    files copied, so the copy starts from the original's corrections."""
+    import shutil
+
+    from axrange.api import discovery as disc
+
+    be = _ir_backend(settings, backend)
+    name = req.name.strip()
+    if not name or "\n" in name:
+        raise ApiError(400, "a PIT name is a non-empty single line")
+    src = _pit_row(settings, be, pit)
+    try:
+        row = be.copy_pit(settings.aximprint_store, str(src["pit_id"]), name)
+    except disc.DiscoveryError as e:
+        msg = str(e)
+        raise ApiError(404 if msg.startswith("no PIT") else 409, msg) from e
+    src_files = _pit_files_dir(settings, str(src["pit_id"]))
+    if src_files.is_dir():
+        dst = _pit_files_dir(settings, str(row["pit_id"]))
+        shutil.copytree(src_files, dst, dirs_exist_ok=True)
+        # The copied assertions file names the original imprint; re-stem it.
+        from axrange.api.console_files import assertions_path
+        old = assertions_path(dst, str(src["pit_id"]))
+        if old.is_file():
+            old.rename(assertions_path(dst, str(row["pit_id"])))
+    return _pit_dto(settings, row)
+
+
+def delete_pit(settings: ApiSettings, pit: str, *, backend: Any, runs: Any) -> None:
+    """Remove an imprint: its rows and its operator files. The twins cast from it stand
+    (they carry their own documents); a run still baking it is refused."""
+    import shutil
+
+    from axrange.api import discovery as disc
+
+    be = _ir_backend(settings, backend)
+    row = _pit_row(settings, be, pit)
+    if str(row.get("name")) in runs.active_imprint_ids():
+        raise ApiError(409, f"a discovery run for imprint {row.get('name')!r} is still active; "
+                            "cancel it first")
+    try:
+        pit_id = be.delete_pit(settings.aximprint_store, str(row["pit_id"]))
+    except disc.DiscoveryError as e:
+        raise ApiError(404, str(e)) from e
+    runs.rename_pit(pit_id, str(row.get("name")))  # the records keep the last name
+    files = _pit_files_dir(settings, pit_id)
+    if files.is_dir():
+        shutil.rmtree(files, ignore_errors=True)
+    stale = Path(settings.aximprint_store).parent / f"{row.get('name')}.belief.duckdb"
+    for p in (stale, Path(f"{stale}.wal")):
+        if p.is_file():
+            p.unlink()
+
+
+def pit_assertions(settings: ApiSettings, pit: str, *, backend: Any) -> dtos.AssertionsDocDTO:
+    """The imprint's operator claims about the network (`axr-assertions/1`); an imprint
+    with none yet is a 200 with empty lists and `etag: null`."""
+    from axrange.api.console_files import ConsoleFileError, read_assertions
+
+    be = _ir_backend(settings, backend)
+    pit_id = str(_pit_row(settings, be, pit)["pit_id"])
+    try:
+        return _assertions_dto(read_assertions(_pit_files_dir(settings, pit_id), pit_id))
+    except ConsoleFileError as e:
+        raise _console_file_error(e) from e
+
+
+def put_pit_assertions(settings: ApiSettings, pit: str, body: dict[str, Any], *,
+                       if_match: Optional[str] = None, backend: Any) -> dtos.AssertionsDocDTO:
+    from axrange.api.console_files import ConsoleFileError, write_assertions
+
+    be = _ir_backend(settings, backend)
+    pit_id = str(_pit_row(settings, be, pit)["pit_id"])
+    if not isinstance(body, dict):
+        raise ApiError(400, "body must be an assertions document (a JSON object)")
+    etag = _etag_from(if_match, body)
+    d = _pit_files_dir(settings, pit_id)
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        return _assertions_dto(write_assertions(d, pit_id, body, if_match=etag))
+    except ConsoleFileError as e:
+        raise _console_file_error(e) from e
+
+
+#: Twin ids a cast is writing right now (one process): a second cast to the same id, or a
+#: delete of it, is refused rather than racing the first.
+_CASTING: set[str] = set()
+_CASTING_LOCK = threading.Lock()
+
+
+def cast_pit(settings: ApiSettings, pit: str, req: dtos.CastRequestDTO, *,
+             backend: Any, runs: Any) -> dtos.CastResponseDTO:
+    """The cast action: compile the imprint, with its assertions when it has any, into
+    `catalog/twins/<twin_id>/`. An existing twin of that id is refused unless `replace`,
+    and never while a live deploy stands on it (`delete_imprint`'s rule). The response is
+    the new twin's summary plus the compiler's caveats."""
+    import shutil
+    import tempfile
+
+    from axrange.api import discovery as disc
+    from axrange.api.console_files import assertions_path
+    from axrange.api.imprints import is_safe_catalog_id
+
+    be = _ir_backend(settings, backend)
+    twin_id = req.twin_id.strip()
+    if not is_safe_catalog_id(twin_id):
+        raise ApiError(400, f"twin_id {twin_id!r} is not a usable catalog id")
+    for s_ in req.sensors:
+        if not isinstance(s_, str) or not s_.strip():
+            raise ApiError(400, "sensors must be non-empty names")
+    row = _pit_row(settings, be, pit)
+    pit_id = str(row["pit_id"])
+    catalog_root = Path(settings.imprints_dir)
+    existing = catalog_root / twin_id
+    with _CASTING_LOCK:
+        if twin_id in _CASTING:
+            raise ApiError(409, f"a cast into twin {twin_id!r} is already running")
+        _CASTING.add(twin_id)
+    try:
+        replaced = False
+        if existing.exists():
+            if not req.replace:
+                raise ApiError(409, f"twin {twin_id!r} already exists in the catalog; pass "
+                                    "replace: true to overwrite it, or choose another id")
+            delete_imprint(settings, twin_id, runs=runs)
+            replaced = True
+        assertions = assertions_path(_pit_files_dir(settings, pit_id), pit_id)
+        scratch = Path(tempfile.mkdtemp(prefix=f"axrange-cast-{twin_id}-"))
+        try:
+            result = be.cast(disc.CastRequest(
+                ir_store=Path(settings.aximprint_store), pit_id=pit_id, twin_id=twin_id,
+                scratch_dir=scratch, catalog_root=catalog_root,
+                sensors=[s_.strip() for s_ in req.sensors],
+                assertions=assertions if assertions.is_file() else None,
+                relocate=req.relocate, max_count=req.max_count, no_chatter=req.no_chatter,
+            ))
+        except disc.DiscoveryError as e:
+            if existing.is_dir() and not existing.is_symlink():
+                shutil.rmtree(existing, ignore_errors=True)
+            raise ApiError(502, str(e)) from e
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+    finally:
+        with _CASTING_LOCK:
+            _CASTING.discard(twin_id)
+    return dtos.CastResponseDTO(
+        twin=imprint_summary(settings, twin_id), pit_id=result.pit_id, replaced=replaced,
+        caveats=list(result.caveats), install_report=result.install_report,
+    )
 
 
 def rename_pit(settings: ApiSettings, pit: str, req: dtos.PitRenameRequest, *,
@@ -3468,19 +3701,17 @@ def rename_pit(settings: ApiSettings, pit: str, req: dtos.PitRenameRequest, *,
     carry the new name too. 404 unknown, 409 a name another PIT already has."""
     from axrange.api import discovery as disc
 
-    if not settings.aximprint_store:
-        raise ApiError(409, "no IR store: AXRANGE_AXIMPRINT_STORE is not set")
+    be = _ir_backend(settings, backend)
     name = req.name.strip()
     if not name or "\n" in name:
         raise ApiError(400, "a PIT name is a non-empty single line")
-    be = _discovery_backend(settings, backend)
     try:
         row = be.rename_pit(settings.aximprint_store, pit, name)
     except disc.DiscoveryError as e:
         msg = str(e)
         raise ApiError(404 if msg.startswith("no PIT") else 409, msg) from e
     runs.rename_pit(str(row["pit_id"]), str(row["name"]))
-    return _pit_dto(row)
+    return _pit_dto(settings, row)
 
 
 def delete_discovery_run(run_id: str, *, runs: Any) -> None:
@@ -3523,31 +3754,20 @@ def create_discovery_run(
             400, f"config rejected by plugin {req.plugin!r}'s schema: " + "; ".join(problems),
             detail={"problems": problems},
         )
-    if not is_safe_catalog_id(req.imprint_id):
-        raise ApiError(400, f"imprint_id {req.imprint_id!r} is not a usable catalog id")
-    for name in req.sensors:
-        if not isinstance(name, str) or not name.strip():
-            raise ApiError(400, "sensors must be non-empty names")
+    _check_imprint_name(settings, req.name, be=be, runs=runs)
     catalog_root = Path(settings.imprints_dir)
-    if (catalog_root / req.imprint_id).exists():
-        raise ApiError(
-            409, f"imprint {req.imprint_id!r} already exists in {catalog_root}; "
-            "a discovery run never overwrites a bundle -- choose another id",
-        )
-    if req.imprint_id in runs.active_imprint_ids():
-        raise ApiError(409, f"a discovery run for imprint {req.imprint_id!r} is already in progress")
 
     import tempfile
 
     ir_store = Path(settings.aximprint_store)
-    belief_store = ir_store.parent / f"{req.imprint_id}.belief.duckdb"
-    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.imprint_id}-"))
+    belief_store = ir_store.parent / f"{req.name}.belief.duckdb"
+    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.name}-"))
     request = disc.DiscoveryRunRequest(
-        plugin=req.plugin, config=dict(req.config), imprint_id=req.imprint_id,
+        plugin=req.plugin, config=dict(req.config), imprint_id=req.name,
         belief_store=belief_store, ir_store=ir_store, scratch_dir=scratch,
-        catalog_root=catalog_root, sensors=[s.strip() for s in req.sensors],
+        catalog_root=catalog_root,
     )
-    run = runs.new(req.plugin, req.imprint_id, req.config)
+    run = runs.new(req.plugin, req.name, req.config)
 
     def _job() -> None:
         disc.execute_run(runs, run.id, be, request)
@@ -3769,20 +3989,8 @@ def create_discovery_source_run(
             400, f"config rejected by plugin {rec.plugin!r}'s schema: " + "; ".join(problems),
             detail={"problems": problems},
         )
-    sensors = req.sensors if req.sensors is not None else list(rec.defaults.get("sensors") or [])
-    for name in sensors:
-        if not isinstance(name, str) or not name.strip():
-            raise ApiError(400, "sensors must be non-empty names")
-    if not is_safe_catalog_id(req.imprint_id):
-        raise ApiError(400, f"imprint_id {req.imprint_id!r} is not a usable catalog id")
+    _check_imprint_name(settings, req.name, be=be, runs=runs)
     catalog_root = Path(settings.imprints_dir)
-    if (catalog_root / req.imprint_id).exists():
-        raise ApiError(
-            409, f"imprint {req.imprint_id!r} already exists in {catalog_root}; "
-            "a discovery run never overwrites a bundle -- choose another id",
-        )
-    if req.imprint_id in runs.active_imprint_ids():
-        raise ApiError(409, f"a discovery run for imprint {req.imprint_id!r} is already in progress")
     if rec.access.transport == "ssh_tunnel" and rec.access.ssh is not None:
         key = Path(rec.access.ssh.key_path).expanduser()
         if not key.is_file():
@@ -3791,14 +3999,14 @@ def create_discovery_source_run(
             )
 
     ir_store = Path(settings.aximprint_store)
-    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.imprint_id}-"))
+    scratch = Path(tempfile.mkdtemp(prefix=f"axrange-discovery-{req.name}-"))
     request = disc.DiscoveryRunRequest(
-        plugin=rec.plugin, config=config, imprint_id=req.imprint_id,
-        belief_store=ir_store.parent / f"{req.imprint_id}.belief.duckdb", ir_store=ir_store,
-        scratch_dir=scratch, catalog_root=catalog_root, sensors=[s.strip() for s in sensors],
+        plugin=rec.plugin, config=config, imprint_id=req.name,
+        belief_store=ir_store.parent / f"{req.name}.belief.duckdb", ir_store=ir_store,
+        scratch_dir=scratch, catalog_root=catalog_root,
     )
     spec = _access_spec(store, rec)
-    run = runs.new(rec.plugin, req.imprint_id, config, source_id=source_id)
+    run = runs.new(rec.plugin, req.name, config, source_id=source_id)
 
     def _job() -> None:
         disc.execute_source_run(
@@ -3813,7 +4021,21 @@ def create_discovery_source_run(
     return _discovery_run_dto(runs.snapshot(run.id))
 
 
-def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
+def _pit_names(settings: ApiSettings, backend: Any) -> dict[str, str]:
+    """`{pit_id: name}` from the IR store, or `{}` when there is no store or it cannot
+    be read -- lineage is still published by id."""
+    from axrange.api import discovery as disc
+
+    if not settings.aximprint_store or disc.unset_settings(settings) is not None:
+        return {}
+    try:
+        return {str(r.get("pit_id")): str(r.get("name"))
+                for r in _discovery_backend(settings, backend).list_pits(settings.aximprint_store)}
+    except (disc.DiscoveryError, ApiError, OSError):
+        return {}
+
+
+def list_imprints(settings: ApiSettings, *, backend: Any = None) -> dtos.ImprintListDTO:
     """The tolerant catalog listing, WITH what it could not publish (S5).
 
     A browsing endpoint that silently drops a bundle it cannot read leaves
@@ -3823,6 +4045,7 @@ def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
 
     fixtures_dir = settings.imprints_dir or None
     entries, skipped = list_imprints_with_skips(fixtures_dir)
+    names = _pit_names(settings, backend) if any(e.pit_id for e in entries) else {}
     return dtos.ImprintListDTO(
         imprints=[
             dtos.ImprintListItemDTO(
@@ -3831,6 +4054,8 @@ def list_imprints(settings: ApiSettings) -> dtos.ImprintListDTO:
                 has_provenance=e.has_provenance,
                 confidence_source=e.confidence_source,
                 has_topology_export=e.has_topology_export,
+                cast_from=(dtos.CastFromDTO(pit_id=e.pit_id, pit_name=names.get(e.pit_id))
+                           if e.pit_id else None),
                 **_apply_capability(settings, e.id),
             )
             for e in entries
@@ -3913,6 +4138,7 @@ def imprint_summary(settings: ApiSettings, imprint_id: str) -> dtos.ImprintSumma
         # R7 (GAP-082): what was parsed, where the confidence came from, and
         # every statement the reader publishes instead of refusing.
         sidecar_shape=s.sidecar_shape,
+        pit_id=s.pit_id,
         confidence_source=s.confidence_source,
         warnings=list(s.warnings),
     )

@@ -590,17 +590,17 @@ def test_imprints_expose_can_apply_and_why_not(tmp_path):
 
     app = create_app(ApiSettings(db_path=str(tmp_path / "s.db")))
     c = TestClient(app)
-    items = c.get("/api/imprints").json()["imprints"]
+    items = c.get("/api/twins").json()["imprints"]
     assert items
     for it in items:
         assert it["can_apply"] is False
         assert rc.SETTING_BIN in it["apply_blocked_reason"]
-    one = c.get(f"/api/imprints/{items[0]['id']}").json()
+    one = c.get(f"/api/twins/{items[0]['id']}").json()
     assert one["can_apply"] is False and rc.SETTING_BIN in one["apply_blocked_reason"]
 
     app2 = create_app(ApiSettings(db_path=str(tmp_path / "s.db"), aximprint_bin="/bin/true",
                                   aximprint_store="/tmp/x.duckdb"))
-    items2 = TestClient(app2).get("/api/imprints").json()["imprints"]
+    items2 = TestClient(app2).get("/api/twins").json()["imprints"]
     for it in items2:
         assert it["can_apply"] is (it["apply_blocked_reason"] is None)
         if not it["can_apply"]:

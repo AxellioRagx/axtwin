@@ -370,7 +370,7 @@ def test_a_parameterized_bundle_is_listed_not_skipped(tmp_path):
     root = Path(__file__).resolve().parents[2] / "catalog" / "twins"
     c = TestClient(create_app(ApiSettings(db_path=str(tmp_path / "s.db"),
                                           imprints_dir=str(root))))
-    body = c.get("/api/imprints").json()
+    body = c.get("/api/twins").json()
     ids = {e["id"]: e for e in body["imprints"]}
     assert "corp-enterprise" in ids and ids["corp-enterprise"]["hosts"] >= 25
     assert all("non-numeric count" not in s["reason"] for s in body["skipped"])

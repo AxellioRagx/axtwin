@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_serializer
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_serializer
 
 
 # --------------------------------------------------------------------------
@@ -490,15 +490,16 @@ class DiscoveryPluginListDTO(BaseModel):
 
 
 class DiscoveryRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     # An installed plugin name (`GET /api/discovery/plugins`).
     plugin: str
     # Validated against that plugin's `config_schema`; `source` is required.
     config: dict[str, Any]
-    # The stable catalog id the imprint is installed under. Refused if a
-    # bundle of that id already exists -- never overwritten.
-    imprint_id: str
-    # o2/external sensor name(s) to fill into every tap binding at install
-    # time; empty leaves `sensors:` absent (what `tap deploy` refuses).
+    # The imprint's NAME: what the bake labels the PIT (`ir_pit.name`), refused
+    # if an imprint of that name exists. `imprint_id` is accepted as the old
+    # spelling. A catalog id is chosen at cast time, not here.
+    name: str = Field(validation_alias=AliasChoices("name", "imprint_id"))
+    # Kept for one release: sensors are a cast-time choice now and ignored here.
     sensors: list[str] = []
 
 
@@ -510,9 +511,12 @@ class DiscoveryRunDTO(BaseModel):
     # The four stages in order; the ones that have finished.
     stages_done: list[str]
     stages: list[str]
+    # The imprint's name as asked for at POST; `imprint_id` carries the same
+    # value for one release.
+    name: str = ""
     # The PIT the bake produced: `pit_id` is its identity (a hash of source and
-    # bounds, what the cast sidecar carries), `pit_name` its label, the id until
-    # someone renames it (`PATCH /api/discovery/pits/{id}`).
+    # bounds, what the cast sidecar carries), `pit_name` its label, the name
+    # until someone renames it (`PATCH /api/imprints/{id}`).
     pit_id: Optional[str] = None
     pit_name: Optional[str] = None
     error: Optional[str] = None
@@ -535,10 +539,26 @@ class DiscoveryRunDTO(BaseModel):
     cancel_requested_at: Optional[str] = None
 
 
+class CastFromDTO(BaseModel):
+    """A twin's lineage: the imprint it was cast from (`cast_invocation.pit_id`
+    in its topology export), with the imprint's current name when the IR store
+    still holds it."""
+    pit_id: str
+    pit_name: Optional[str] = None
+
+
+class PitTwinRefDTO(BaseModel):
+    id: str
+
+
 class PitDTO(BaseModel):
-    """One PIT in the API's IR store (`aximprint pit list`)."""
+    """One imprint: a PIT in the API's IR store (`aximprint pit list`), with
+    its operator state and the twins cast from it."""
     pit_id: str
     name: str
+    derived_from: Optional[str] = None
+    has_assertions: bool = False
+    twins: list[PitTwinRefDTO] = []
     as_of: Optional[float] = None
     observed_from: Optional[float] = None
     observed_to: Optional[float] = None
@@ -557,6 +577,32 @@ class PitListDTO(BaseModel):
 
 class PitRenameRequest(BaseModel):
     name: str
+
+
+class PitCopyRequest(BaseModel):
+    name: str
+
+
+class CastRequestDTO(BaseModel):
+    """`POST /api/imprints/{pit}/cast`: compile the imprint, with its
+    assertions, into `catalog/twins/<twin_id>/`."""
+    twin_id: str
+    # o2/external sensor name(s) to fill into every tap binding; empty leaves
+    # `sensors:` absent, which `tap deploy` refuses.
+    sensors: list[str] = []
+    # Replace an existing twin of that id (refused if it is a live deploy's).
+    replace: bool = False
+    relocate: Optional[str] = None
+    max_count: Optional[int] = None
+    no_chatter: bool = False
+
+
+class CastResponseDTO(BaseModel):
+    twin: "ImprintSummaryDTO"
+    pit_id: str
+    replaced: bool
+    caveats: list[str] = []
+    install_report: str = ""
 
 
 class DiscoveryRunListDTO(BaseModel):
@@ -641,8 +687,9 @@ class DiscoveryProbeDTO(BaseModel):
 
 
 class DiscoverySourceRunRequest(BaseModel):
-    # The catalog id the imprint is installed under (never overwritten).
-    imprint_id: str
+    model_config = ConfigDict(populate_by_name=True)
+    # The imprint's NAME (`ir_pit.name`); `imprint_id` is the old spelling.
+    name: str = Field(validation_alias=AliasChoices("name", "imprint_id"))
     # EITHER `days` (the last N days of what the source holds, resolved from its
     # own span when the run starts) OR explicit epoch-second bounds.
     days: Optional[float] = None
@@ -1149,6 +1196,9 @@ class ImprintListItemDTO(BaseModel):
     # Unified Console: whether the bundle carries a topology export (with
     # `has_provenance`, capture-backed vs hand-authored in the outline).
     has_topology_export: bool = False
+    # The imprint this twin was cast from, or None for an authored twin
+    # (`docs/design/imprint-twin-split.md` §3.2).
+    cast_from: Optional["CastFromDTO"] = None
     # Fix round 1: whether `POST /api/imprints/{id}/apply` can run here, and
     # why not -- a twins/ folder, aximprint bin/store unset, or no
     # `cast_invocation` block -- so the UI states it instead of guessing.
@@ -1212,6 +1262,8 @@ class ImprintSummaryDTO(BaseModel):
     # REQUIRED, as is `confidence_source` (GAP-082 review): the one builder
     # states both, so a default could only ever be a claim nobody made.
     sidecar_shape: str
+    # The PIT this twin was cast from (its topology export's baked id), or None.
+    pit_id: Optional[str] = None
     # Where `mean_confidence` came from -- the listing entry's own field
     # (`ImprintListItemDTO.confidence_source`), so an entry and its summary
     # make the same statement.

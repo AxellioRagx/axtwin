@@ -349,6 +349,8 @@ class ImprintSummary:
     #: a list entry and its summary make the same statement (both are built
     #: by `_summary_from`). Required for the same reason.
     confidence_source: str
+    #: The topology export's baked PIT id when it is a string; lineage, never an address.
+    pit_id: Optional[str] = None
     #: Baked-id disagreements and unmeasured stats, STATED (R7) -- the
     #: channel that replaced the refusals.
     warnings: list[str] = dc_field(default_factory=list)
@@ -367,6 +369,9 @@ class ImprintCatalogEntry:
     # these two fields are what stop that 0.0 from being read as evidence.
     has_provenance: bool = True
     confidence_source: str = CONFIDENCE_FROM_SIDECAR
+    #: The PIT this bundle was cast from (the topology export's baked id when
+    #: it is a string), or None: lineage for the twin listing.
+    pit_id: Optional[str] = None
     #: Unified Console: whether the bundle carries a topology export -- with
     #: `has_provenance`, what tells a CAPTURE-backed bundle from a
     #: hand-authored one in the Console's outline.
@@ -1250,6 +1255,7 @@ def _cast_summary_of(
         ],
         sidecar_shape=shape,
         confidence_source=confidence_source,
+        pit_id=export.pit_id if isinstance(export.pit_id, str) and export.pit_id else None,
         warnings=out,
     )
 
@@ -1463,6 +1469,7 @@ def list_imprints_with_skips(
                 mean_confidence=s.mean_confidence,
                 has_provenance=s.sidecar_shape != SIDECAR_ABSENT,
                 confidence_source=s.confidence_source,
+                pit_id=s.pit_id,
                 has_topology_export=_artifact_path(d, f"{d.name}.topology.json").is_file(),
             )
         )

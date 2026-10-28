@@ -5,7 +5,7 @@ A1.1 and A1.3 run against a fake backend (the suite never runs `aximprint`
 by accident). A1.2 runs the REAL chain -- ingest -> bake -> cast ->
 install -- through the `aximprint` executable installed beside this
 interpreter, on a synthetic Zeek capture, and reads the installed imprint back
-through `GET /api/imprints/{id}`. It is skipped when the binary is not there.
+through `GET /api/twins/{id}`. It is skipped when the binary is not there.
 """
 from __future__ import annotations
 
@@ -67,6 +67,9 @@ class _FakeDiscovery:
         ]
         self.behaviour = behaviour
         self.requests: list[disc.DiscoveryRunRequest] = []
+        # The PIT table the fake "store" holds: `{pit_id: name}`; and every cast asked for.
+        self.pits = {"pit-fake": "pit-fake"}
+        self.casts: list = []
 
     def list_plugins(self):
         return list(self.plugins)
@@ -79,9 +82,6 @@ class _FakeDiscovery:
             on_stage(s)
         return disc.DiscoveryRunResult(pit_id="pit-fake", stages=list(disc.STAGES))
 
-    # The PIT table the fake "store" holds: `{pit_id: name}`.
-    pits = {"pit-fake": "pit-fake"}
-
     def list_pits(self, store):
         return [{"pit_id": p, "name": n, "as_of": 100.0} for p, n in self.pits.items()]
 
@@ -93,6 +93,43 @@ class _FakeDiscovery:
             raise disc.DiscoveryError(f"{name!r} is already the name or id of another PIT")
         self.pits[hit[0]] = name
         return {"pit_id": hit[0], "name": name, "as_of": 100.0}
+
+    def copy_pit(self, store, pit, name):
+        hit = [p for p, n in self.pits.items() if p == pit or n == pit]
+        if not hit:
+            raise disc.DiscoveryError(f"no PIT {pit!r}")
+        if any(n == name or p == name for p, n in self.pits.items()):
+            raise disc.DiscoveryError(f"{name!r} is already the name or id of another PIT")
+        new = f"pit-copy-{len(self.pits)}"
+        self.pits[new] = name
+        self.derived = {**getattr(self, "derived", {}), new: hit[0]}
+        return {"pit_id": new, "name": name, "as_of": 100.0, "derived_from": hit[0]}
+
+    def delete_pit(self, store, pit):
+        hit = [p for p, n in self.pits.items() if p == pit or n == pit]
+        if not hit:
+            raise disc.DiscoveryError(f"no PIT {pit!r}")
+        del self.pits[hit[0]]
+        return hit[0]
+
+    def cast(self, request):
+        """Lands a minimal bundle, the way install-cast would, with the PIT id baked into
+        a topology export so the twin listing can show its lineage."""
+        import json as _json
+        self.casts.append(request)
+        d = request.catalog_root / request.twin_id
+        d.mkdir(parents=True)
+        (d / f"{request.twin_id}.yaml").write_text(
+            f"twin_config:\n  id: {request.twin_id}\n"
+            "  segments: [{ name: lan, cidr: 10.5.0.0/24 }]\n"
+            "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
+        )
+        (d / f"{request.twin_id}.topology.json").write_text(_json.dumps({
+            "bundle_schema": "axr-topology/1.5", "imprint_id": request.twin_id,
+            "pit_id": request.pit_id, "as_of": "2026-10-06T19:00:00Z", "windows": 3,
+            "nodes": [], "edges": [], "segments": []}))
+        return disc.CastResult(twin_id=request.twin_id, pit_id=request.pit_id,
+                               caveats=["fake cast"], install_report="installed")
 
 
 def _client(settings, *, backend=None, background="sync"):
@@ -201,19 +238,25 @@ def test_an_invalid_config_is_refused_with_the_schema_s_reason(tmp_path, config,
     assert _catalog_untouched(settings)
 
 
-def test_an_unsafe_or_taken_imprint_id_is_refused(tmp_path):
+def test_an_unsafe_or_taken_imprint_name_is_refused(tmp_path):
+    """The run's name labels the PIT and stems the belief-store file, so it is held to the
+    catalog-id grammar; and an imprint of that name already in the IR store is never
+    replaced by a run."""
     settings = _settings(tmp_path)
     be = _FakeDiscovery()
     c = _client(settings, backend=be)
     r = c.post("/api/discovery/runs", json=_run_body(imprint_id="../escape"))
     assert r.status_code == 400
-    assert "catalog id" in r.json()["error"]
+    assert "usable imprint name" in r.json()["error"]
 
-    (Path(settings.imprints_dir) / "site-a").mkdir()
-    r = c.post("/api/discovery/runs", json=_run_body(imprint_id="site-a"))
+    be.pits["pit-1"] = "site-a"
+    r = c.post("/api/discovery/runs", json=_run_body(name="site-a"))
     assert r.status_code == 409
-    assert "never overwrites" in r.json()["error"]
+    assert "already exists" in r.json()["error"]
     assert be.requests == []
+    # The catalog is not what is checked any more: a twin of that id is no obstacle.
+    (Path(settings.imprints_dir) / "site-b").mkdir()
+    assert c.post("/api/discovery/runs", json=_run_body(name="site-b")).status_code == 202
 
 
 def test_a_second_run_for_an_in_progress_imprint_is_refused(tmp_path):
@@ -258,49 +301,42 @@ def test_a_completed_run_reports_its_stages_and_pit(tmp_path):
     be = _FakeDiscovery()
     c = _client(settings, backend=be)
     r = c.post("/api/discovery/runs", json=_run_body(
-        config={"source": "/captures/one", "window": 600, "vantage": "core-tap"},
-        sensors=["XPress-SW-A"]))
+        config={"source": "/captures/one", "window": 600, "vantage": "core-tap"}))
     assert r.status_code == 202, r.text
     run = r.json()
     assert run["status"] == "completed"  # synchronous background
-    assert run["stages"] == ["ingest", "bake", "cast", "install"]
+    assert run["stages"] == ["ingest", "bake"], "a run ends at the imprint; cast is an action"
     assert run["stages_done"] == run["stages"]
-    assert run["pit_id"] == "pit-fake" and run["error"] is None
+    assert run["name"] == "site-a" == run["imprint_id"]
+    assert run["pit_id"] == "pit-fake" and run["pit_name"] == "pit-fake" and run["error"] is None
     assert run["created_at"].endswith("Z") and run["finished_at"]
     assert c.get(f"/api/discovery/runs/{run['id']}").json() == run
 
     (req,) = be.requests
-    assert req.plugin == "zeek" and req.imprint_id == "site-a"
+    assert req.plugin == "zeek" and req.imprint_id == "site-a" == req.name
     assert req.config == {"source": "/captures/one", "window": 600, "vantage": "core-tap"}
-    assert req.sensors == ["XPress-SW-A"]
     assert req.ir_store == Path(settings.aximprint_store)
     assert req.belief_store == Path(settings.aximprint_store).parent / "site-a.belief.duckdb"
-    assert req.catalog_root == Path(settings.imprints_dir)
     assert not req.scratch_dir.exists(), "scratch is removed after the run"
+    assert _catalog_untouched(settings), "nothing lands in the catalog until a cast"
 
 
-def test_a_failed_stage_lands_on_the_record_and_the_partial_bundle_is_removed(tmp_path):
+def test_a_failed_stage_lands_on_the_record(tmp_path):
     settings = _settings(tmp_path)
 
     def _fails(request, on_stage):
         on_stage("ingest")
-        on_stage("bake")
-        on_stage("cast")
-        half = request.catalog_root / request.imprint_id
-        half.mkdir()
-        (half / f"{request.imprint_id}.yaml").write_text("twin_config: {}\n")
-        raise disc.DiscoveryError("install-cast failed (exit 1): 1 assignment(s) reference a persona")
+        raise disc.DiscoveryError("bake failed (exit 1): no window was ever closed")
 
     c = _client(settings, backend=_FakeDiscovery(behaviour=_fails))
     r = c.post("/api/discovery/runs", json=_run_body())
     assert r.status_code == 202
     run = r.json()
     assert run["status"] == "failed"
-    assert run["stages_done"] == ["ingest", "bake", "cast"]
-    assert "install-cast failed" in run["error"]
+    assert run["stages_done"] == ["ingest"]
+    assert "bake failed" in run["error"]
     assert run["pit_id"] is None
-    assert _catalog_untouched(settings), "the half-written bundle is gone"
-    # The id is free again.
+    # The name is free again.
     assert c.post("/api/discovery/runs", json=_run_body()).status_code == 202
 
 
@@ -342,13 +378,21 @@ def test_the_argv_of_each_stage(tmp_path):
     ]
     assert be.build_bake_argv(r) == [
         "/opt/aximprint", "bake", "--store", str(tmp_path / "site-a.belief.duckdb"),
-        "--out", str(tmp_path / "ir.duckdb"), "--replace",
+        "--out", str(tmp_path / "ir.duckdb"), "--replace", "--name", "site-a",
     ]
-    assert be.build_cast_argv(r, "pit-1") == [
+    c = disc.CastRequest(ir_store=tmp_path / "ir.duckdb", pit_id="pit-1", twin_id="site-a",
+                         scratch_dir=tmp_path / "scratch", catalog_root=tmp_path / "imprints",
+                         sensors=["S1", "S2"])
+    assert be.build_cast_argv(c) == [
         "/opt/aximprint", "cast", "--store", str(tmp_path / "ir.duckdb"), "--pit", "pit-1",
         "--out", str(tmp_path / "scratch"), "--imprint-id", "site-a",
     ]
-    assert be.build_install_argv(r) == [
+    c.assertions, c.relocate, c.max_count, c.no_chatter = tmp_path / "a.yaml", "10.200.0.0/16", 4, True
+    assert be.build_cast_argv(c)[-7:] == [
+        "--assertions", str(tmp_path / "a.yaml"), "--relocate", "10.200.0.0/16",
+        "--max-count", "4", "--no-chatter",
+    ]
+    assert be.build_install_argv(c) == [
         "/opt/aximprint", "install-cast", str(tmp_path / "scratch"),
         str(tmp_path / "imprints"), "site-a", "--sensors", "S1", "S2",
     ]
@@ -422,7 +466,7 @@ def _real_aximprint() -> Path | None:
 
 
 @pytest.mark.skipif(_real_aximprint() is None, reason="aximprint is not installed beside this python")
-def test_a_real_discovery_run_lands_an_imprint_the_catalog_serves(tmp_path):
+def test_a_real_discovery_run_lands_an_imprint_and_a_cast_lands_a_twin(tmp_path):
     capture = tmp_path / "zeek"
     _write_zeek_capture(capture)
     settings = _settings(tmp_path, aximprint_bin=str(_real_aximprint()))
@@ -432,44 +476,57 @@ def test_a_real_discovery_run_lands_an_imprint_the_catalog_serves(tmp_path):
     assert "zeek" in {p["name"] for p in plugins}
 
     r = c.post("/api/discovery/runs", json={
-        "plugin": "zeek", "config": {"source": str(capture)}, "imprint_id": "office-a",
-        "sensors": ["XPress-SW-A"],
-    })
+        "plugin": "zeek", "config": {"source": str(capture)}, "name": "office-a"})
     assert r.status_code == 202, r.text
     run = r.json()
     assert run["status"] == "completed", run
-    assert run["stages_done"] == ["ingest", "bake", "cast", "install"]
-    assert run["pit_id"].startswith("pit-")
+    assert run["stages_done"] == ["ingest", "bake"]
+    assert run["pit_id"].startswith("pit-") and run["pit_name"] == "office-a"
 
-    # The imprint resolves through the catalog routes, with real numbers.
-    detail = c.get("/api/imprints/office-a")
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["hosts"] > 0 and detail.json()["segments"] >= 1
-    listed = c.get("/api/imprints").json()
-    assert [i["id"] for i in listed["imprints"]] == ["office-a"] and listed["skipped"] == []
-    assert c.get("/api/imprints/office-a/cast").status_code == 200
-
-    # Where it all landed: the bundle in the catalog, the belief store beside
-    # the IR store, and the installer filled the sensors in.
-    bundle = Path(settings.imprints_dir) / "office-a"
-    assert (bundle / "office-a.yaml").is_file()
-    assert (bundle / "office-a.provenance.json").is_file()
-    assert (bundle / "office-a.topology.json").is_file()
-    assert "XPress-SW-A" in (bundle / "tap-cast.yaml").read_text()
+    # The imprint is in the IR store, by name; nothing is in the catalog yet.
+    imprints = c.get("/api/imprints").json()["pits"]
+    assert [i["name"] for i in imprints] == ["office-a"]
+    assert imprints[0]["pit_id"] == run["pit_id"] and imprints[0]["twins"] == []
+    assert c.get("/api/imprints/office-a").json()["pit_id"] == run["pit_id"]
+    assert _catalog_untouched(settings)
     assert (Path(settings.aximprint_store).parent / "office-a.belief.duckdb").is_file()
-    assert Path(settings.aximprint_store).is_file()
 
-    # A second run under the same id is refused; the bundle is untouched.
-    before = (bundle / "office-a.yaml").read_bytes()
+    # Cast it: the twin resolves through the catalog routes, with real numbers.
+    r = c.post("/api/imprints/office-a/cast", json={"twin_id": "office-twin", "sensors": ["XPress-SW-A"]})
+    assert r.status_code == 201, r.text
+    cast = r.json()
+    assert cast["twin"]["id"] == "office-twin" and cast["pit_id"] == run["pit_id"]
+    assert cast["twin"]["hosts"] > 0 and cast["twin"]["segments"] >= 1 and not cast["replaced"]
+    assert cast["twin"]["pit_id"] == run["pit_id"]
+    listed = c.get("/api/twins").json()
+    assert [i["id"] for i in listed["imprints"]] == ["office-twin"] and listed["skipped"] == []
+    assert listed["imprints"][0]["cast_from"] == {"pit_id": run["pit_id"], "pit_name": "office-a"}
+    assert c.get("/api/twins/office-twin/cast").status_code == 200
+    assert c.get("/api/imprints/office-a").json()["twins"] == [{"id": "office-twin"}]
+
+    bundle = Path(settings.imprints_dir) / "office-twin"
+    assert (bundle / "office-twin.yaml").is_file()
+    assert (bundle / "office-twin.provenance.json").is_file()
+    assert (bundle / "office-twin.topology.json").is_file()
+    assert "XPress-SW-A" in (bundle / "tap-cast.yaml").read_text()
+
+    # The same twin id again is refused without `replace`; with it, the twin is re-cast.
+    before = (bundle / "office-twin.yaml").read_bytes()
+    r = c.post("/api/imprints/office-a/cast", json={"twin_id": "office-twin"})
+    assert r.status_code == 409 and (bundle / "office-twin.yaml").read_bytes() == before
+    r = c.post("/api/imprints/office-a/cast", json={"twin_id": "office-twin", "replace": True})
+    assert r.status_code == 201 and r.json()["replaced"] is True
+
+    # A second run under the same name is refused; re-discovering the SAME capture under
+    # another name is not blocked by the IR store's duplicate-PIT guard.
     r = c.post("/api/discovery/runs", json={
-        "plugin": "zeek", "config": {"source": str(capture)}, "imprint_id": "office-a"})
+        "plugin": "zeek", "config": {"source": str(capture)}, "name": "office-a"})
     assert r.status_code == 409
-    assert (bundle / "office-a.yaml").read_bytes() == before
-    # ...and re-discovering the SAME capture under another id is not blocked
-    # by the IR store's duplicate-PIT guard.
     r = c.post("/api/discovery/runs", json={
-        "plugin": "zeek", "config": {"source": str(capture)}, "imprint_id": "office-b"})
+        "plugin": "zeek", "config": {"source": str(capture)}, "name": "office-b"})
     assert r.status_code == 202 and r.json()["status"] == "completed", r.text
+    # ...which replaced the PIT row (same id) and so renamed it: one PIT, named office-b.
+    assert [i["name"] for i in c.get("/api/imprints").json()["pits"]] == ["office-b"]
 
 
 # ---------------------------------------------------------------------------
@@ -534,29 +591,25 @@ def test_the_chain_reports_ingest_progress_from_window_lines(tmp_path):
     r.scratch_dir.mkdir(parents=True, exist_ok=True)
     say = "import sys; print(sys.argv[-1])"
     be.build_ingest_argv = lambda rq: [sys.executable, "-c", "print('window 1200: 1 entities'); print('window 1800: 2 entities'); print('store sink complete')"]  # type: ignore[method-assign]
-    be.build_bake_argv = lambda rq: [sys.executable, "-c", say, '{"pit_id": "pit-x"}']  # type: ignore[method-assign]
-    be.build_cast_argv = lambda rq, pit: [sys.executable, "-c", say, "cast"]  # type: ignore[method-assign]
-    be.build_install_argv = lambda rq: [sys.executable, "-c", say, "install"]  # type: ignore[method-assign]
+    be.build_bake_argv = lambda rq: [sys.executable, "-c", say, '{"pit_id": "pit-x", "name": "site-a"}']  # type: ignore[method-assign]
     progress: list[float] = []
     stages: list[str] = []
     result = be.run(r, on_stage=stages.append, on_progress=progress.append, handle=disc.RunHandle())
     assert progress == [1800.0, 2400.0]
-    assert stages == ["ingest", "bake", "cast", "install"]
-    assert result.pit_id == "pit-x"
+    assert stages == ["ingest", "bake"]
+    assert result.pit_id == "pit-x" and result.pit_name == "site-a"
 
 
 def test_cancel_over_the_api_stops_a_queued_run_and_clears_what_it_wrote(tmp_path):
     """A run held in the queue (the job is captured, not run) is cancelled over the API:
     202 with `cancel_requested_at`, and when the job then runs its first stage sees the
-    handle already cancelled, so the record turns `cancelled`, the half bundle and the
-    belief store are gone, and the imprint id is free again."""
+    handle already cancelled, so the record turns `cancelled`, the belief store is gone,
+    and the imprint name is free again."""
     settings = _settings(tmp_path)
     jobs = []
 
     def _behaviour(request, on_stage, on_progress=None, handle=None):
         on_progress(1790456400.0)
-        half = request.catalog_root / request.imprint_id
-        half.mkdir()
         request.belief_store.write_bytes(b"partial")
         if handle is not None and handle.cancelled:
             raise disc.DiscoveryCancelled("ingest cancelled by the operator")
@@ -716,7 +769,7 @@ def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_pa
     run = c.post("/api/discovery/runs", json=_run_body(imprint_id="site-a"), headers=auth).json()
     # Still queued: the id is claimed and the bundle not even there yet -- refused,
     # pointing at cancel, before any directory check could say 404.
-    r = c.delete("/api/imprints/site-a", headers=auth)
+    r = c.delete("/api/twins/site-a", headers=auth)
     assert r.status_code == 409 and "cancel it first" in r.json()["error"], r.text
     jobs.pop()()
     bundle = Path(settings.imprints_dir) / "site-a"
@@ -727,7 +780,7 @@ def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_pa
     )
     stale = Path(settings.aximprint_store).parent / "site-a.belief.duckdb"
     stale.write_bytes(b"left over")
-    assert c.get("/api/imprints/site-a").status_code == 200
+    assert c.get("/api/twins/site-a").status_code == 200
 
     # A live deploy on the id: refused, naming it.
     from axrange.planner import StateStore
@@ -738,7 +791,7 @@ def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_pa
                             placement={})
     finally:
         store.close()
-    r = c.delete("/api/imprints/site-a", headers=auth)
+    r = c.delete("/api/twins/site-a", headers=auth)
     assert r.status_code == 409 and "dep-1" in r.json()["error"], r.text
     store = StateStore(settings.db_path)
     try:
@@ -746,20 +799,20 @@ def test_an_imprint_can_be_deleted_unless_a_run_or_a_deploy_still_uses_it(tmp_pa
     finally:
         store.close()
 
-    assert c.delete("/api/imprints/site-a").status_code == 401, "a write"
-    assert c.delete("/api/imprints/site-a", headers=auth).status_code == 204
+    assert c.delete("/api/twins/site-a").status_code == 401, "a write"
+    assert c.delete("/api/twins/site-a", headers=auth).status_code == 204
     assert not bundle.exists() and not stale.exists()
-    assert c.get("/api/imprints/site-a").status_code == 404
+    assert c.get("/api/twins/site-a").status_code == 404
     assert c.get(f"/api/discovery/runs/{run['id']}").json()["status"] == "completed", \
         "the record outlives the bundle"
-    assert c.delete("/api/imprints/site-a", headers=auth).status_code == 404
-    assert c.delete("/api/imprints/../etc", headers=auth).status_code in (400, 404)
+    assert c.delete("/api/twins/site-a", headers=auth).status_code == 404
+    assert c.delete("/api/twins/../etc", headers=auth).status_code in (400, 404)
 
 
 # -- PITs: listed by id and name, renamed by either ------------------------------------------
 
 
-def test_a_pit_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(tmp_path):
+def test_an_imprint_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(tmp_path):
     """A PIT's id is its identity and never moves; its name is a label the operator may
     change. The run that produced it carries both, and a rename reaches the record."""
     settings = _settings(tmp_path)
@@ -769,23 +822,111 @@ def test_a_pit_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(tmp_pa
     c = _client(settings, backend=be)
     run = c.post("/api/discovery/runs", json=_run_body(), headers=auth).json()
     assert (run["pit_id"], run["pit_name"]) == ("pit-fake", "pit-fake")
-    assert c.get("/api/discovery/pits").json() == {"pits": [
-        {"pit_id": "pit-fake", "name": "pit-fake", "as_of": 100.0, "observed_from": None,
-         "observed_to": None, "source": None, "network": None, "vantage": None, "windows": None,
+    listed = c.get("/api/imprints").json()
+    assert listed == c.get("/api/discovery/pits").json(), "the old path is an alias"
+    assert listed == {"pits": [
+        {"pit_id": "pit-fake", "name": "pit-fake", "derived_from": None, "has_assertions": False,
+         "twins": [], "as_of": 100.0, "observed_from": None, "observed_to": None,
+         "source": None, "network": None, "vantage": None, "windows": None,
          "entities": None, "segments": None, "merge_axis": None}]}
+    assert c.get("/api/imprints/pit-fake").json()["name"] == "pit-fake"
+    assert c.get("/api/imprints/nope").status_code == 404
 
-    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "day one"}).status_code == 401
-    r = c.patch("/api/discovery/pits/pit-fake", json={"name": "day one"}, headers=auth)
+    assert c.patch("/api/imprints/pit-fake", json={"name": "day one"}).status_code == 401
+    r = c.patch("/api/imprints/pit-fake", json={"name": "day one"}, headers=auth)
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "day one" and r.json()["pit_id"] == "pit-fake"
     got = c.get(f"/api/discovery/runs/{run['id']}").json()
     assert (got["pit_id"], got["pit_name"]) == ("pit-fake", "day one")
     # By name too; a blank name and an unknown PIT are refused with the right codes.
-    assert c.patch("/api/discovery/pits/day%20one", json={"name": "day two"}, headers=auth).json()["name"] == "day two"
-    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "  "}, headers=auth).status_code == 400
-    assert c.patch("/api/discovery/pits/pit-nope", json={"name": "x"}, headers=auth).status_code == 404
+    assert c.patch("/api/imprints/day%20one", json={"name": "day two"}, headers=auth).json()["name"] == "day two"
+    assert c.patch("/api/imprints/pit-fake", json={"name": "  "}, headers=auth).status_code == 400
+    assert c.patch("/api/imprints/pit-nope", json={"name": "x"}, headers=auth).status_code == 404
     be.pits["pit-2"] = "taken"
-    assert c.patch("/api/discovery/pits/pit-fake", json={"name": "taken"}, headers=auth).status_code == 409
+    assert c.patch("/api/imprints/pit-fake", json={"name": "taken"}, headers=auth).status_code == 409
     # The name survives a restart with the record.
     c2 = _client(settings, backend=_FakeDiscovery())
     assert c2.get(f"/api/discovery/runs/{run['id']}").json()["pit_name"] == "day two"
+
+
+def test_an_imprints_assertions_live_with_the_pit_and_a_copy_takes_them_along(tmp_path):
+    """Operator claims attach to the IMPRINT (keyed by its unchanging id), not to a twin:
+    `GET` is empty before the first save, `PUT` validates and writes
+    `<store dir>/pits/<pit_id>/<pit_id>.assertions.yaml`, and save-as copies the file so
+    the copy starts from the original's corrections. A rename moves nothing."""
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    auth = {"Authorization": "Bearer s3cret"}
+    be = _FakeDiscovery()
+    c = _client(settings, backend=be)
+    empty = c.get("/api/imprints/pit-fake/assertions")
+    assert empty.status_code == 200 and empty.json()["exists"] is False
+    doc = {"schema": "axr-assertions/1", "imprint": "pit-fake", "as_of": "2026-10-06T19:00:00Z",
+           "source": "operator:raghu", "add": [], "override": [], "suppress": []}
+    assert c.put("/api/imprints/pit-fake/assertions", json=doc).status_code == 401
+    r = c.put("/api/imprints/pit-fake/assertions", json=doc, headers=auth)
+    assert r.status_code == 200, r.text
+    path = Path(settings.aximprint_store).parent / "pits" / "pit-fake" / "pit-fake.assertions.yaml"
+    assert path.is_file()
+    assert c.get("/api/imprints/pit-fake").json()["has_assertions"] is True
+    c.patch("/api/imprints/pit-fake", json={"name": "renamed"}, headers=auth)
+    assert path.is_file() and c.get("/api/imprints/renamed/assertions").json()["exists"]
+
+    r = c.post("/api/imprints/renamed/copy", json={"name": "renamed, take two"}, headers=auth)
+    assert r.status_code == 201, r.text
+    copy = r.json()
+    assert copy["derived_from"] == "pit-fake" and copy["has_assertions"] is True
+    copied = Path(settings.aximprint_store).parent / "pits" / copy["pit_id"] / f"{copy['pit_id']}.assertions.yaml"
+    assert copied.is_file()
+    assert c.post("/api/imprints/renamed/copy", json={"name": "renamed"}, headers=auth).status_code == 409
+    assert c.post("/api/imprints/nope/copy", json={"name": "x"}, headers=auth).status_code == 404
+
+    # Delete removes the rows and the files; the run record keeps its last name.
+    run = c.post("/api/discovery/runs", json=_run_body(), headers=auth).json()
+    assert c.delete("/api/imprints/renamed").status_code == 401
+    assert c.delete("/api/imprints/renamed", headers=auth).status_code == 204
+    assert not path.exists() and "pit-fake" not in be.pits
+    assert c.get("/api/imprints/renamed").status_code == 404
+    assert c.get(f"/api/discovery/runs/{run['id']}").json()["pit_name"] == "renamed"
+    assert c.delete("/api/imprints/renamed", headers=auth).status_code == 404
+
+
+def test_the_cast_action_lands_a_twin_with_its_lineage_and_refuses_a_taken_id(tmp_path):
+    """`POST /api/imprints/{pit}/cast`: the imprint's assertions ride along when it has
+    any, the twin appears in the catalog with `cast_from`, the imprint lists the twin, and
+    an existing twin id is refused unless `replace`."""
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    auth = {"Authorization": "Bearer s3cret"}
+    be = _FakeDiscovery()
+    c = _client(settings, backend=be)
+    assert c.post("/api/imprints/pit-fake/cast", json={"twin_id": "t1"}).status_code == 401
+    assert c.post("/api/imprints/pit-fake/cast", json={"twin_id": "../t"}, headers=auth).status_code == 400
+    assert c.post("/api/imprints/nope/cast", json={"twin_id": "t1"}, headers=auth).status_code == 404
+
+    r = c.post("/api/imprints/pit-fake/cast", json={"twin_id": "t1", "sensors": ["S1"]}, headers=auth)
+    assert r.status_code == 201, r.text
+    assert r.json()["twin"]["id"] == "t1" and r.json()["caveats"] == ["fake cast"]
+    (req,) = be.casts
+    assert (req.pit_id, req.twin_id, req.sensors, req.assertions) == ("pit-fake", "t1", ["S1"], None)
+    twins = c.get("/api/twins").json()["imprints"]
+    assert [(t["id"], t["cast_from"]) for t in twins] == [("t1", {"pit_id": "pit-fake", "pit_name": "pit-fake"})]
+    assert c.get("/api/imprints/pit-fake").json()["twins"] == [{"id": "t1"}]
+    assert c.get("/api/twins/t1").json()["pit_id"] == "pit-fake"
+
+    # With assertions saved, the cast carries them by path.
+    doc = {"schema": "axr-assertions/1", "imprint": "pit-fake", "as_of": "2026-10-06T19:00:00Z",
+           "source": "operator:raghu", "add": [], "override": [], "suppress": []}
+    c.put("/api/imprints/pit-fake/assertions", json=doc, headers=auth)
+    r = c.post("/api/imprints/pit-fake/cast", json={"twin_id": "t1"}, headers=auth)
+    assert r.status_code == 409 and "replace" in r.json()["error"]
+    r = c.post("/api/imprints/pit-fake/cast", json={"twin_id": "t1", "replace": True}, headers=auth)
+    assert r.status_code == 201 and r.json()["replaced"] is True
+    assert be.casts[-1].assertions is not None and be.casts[-1].assertions.name == "pit-fake.assertions.yaml"
+    # An authored twin shows no lineage.
+    (Path(settings.imprints_dir) / "hand").mkdir()
+    (Path(settings.imprints_dir) / "hand" / "hand.yaml").write_text(
+        "twin_config:\n  id: hand\n  segments: [{ name: lan, cidr: 10.5.0.0/24 }]\n"
+        "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n")
+    by_id = {t["id"]: t["cast_from"] for t in c.get("/api/twins").json()["imprints"]}
+    assert by_id == {"t1": {"pit_id": "pit-fake", "pit_name": "pit-fake"}, "hand": None}

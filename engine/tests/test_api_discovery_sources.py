@@ -71,9 +71,14 @@ class _FakeDiscovery:
         self.requests: list[disc.DiscoveryRunRequest] = []
         self._probe = probe
         self._run = run
+        # The imprints the fake IR store holds: `{pit_id: name}`.
+        self.pits: dict[str, str] = {}
 
     def list_plugins(self):
         return list(self.plugins)
+
+    def list_pits(self, store):
+        return [{"pit_id": p, "name": n} for p, n in self.pits.items()]
 
     def probe(self, plugin, source, *, env):
         self.probes.append((plugin, source, dict(env)))
@@ -397,8 +402,7 @@ def test_days_is_clamped_to_the_sources_first_ts(tmp_path):
     ({"imprint_id": "x", "days": 5, "ts_from": 1.0, "ts_to": 2.0}, "not both"),
     ({"imprint_id": "x", "ts_from": 5.0, "ts_to": 2.0}, "ts_to > ts_from"),
     ({"imprint_id": "x", "ts_from": 1.0}, "both be set"),
-    ({"imprint_id": "../x", "days": 1}, "not a usable catalog id"),
-    ({"imprint_id": "x", "days": 1, "sensors": [""]}, "non-empty names"),
+    ({"imprint_id": "../x", "days": 1}, "not a usable imprint name"),
 ])
 def test_a_bad_run_request_is_refused_before_the_tunnel_opens(tmp_path, body, needle):
     be = _FakeDiscovery()
@@ -417,11 +421,12 @@ def test_no_days_anywhere_is_refused(tmp_path):
     assert r.status_code == 400 and "no default days" in r.text
 
 
-def test_an_existing_bundle_or_active_run_is_a_409(tmp_path):
+def test_an_existing_imprint_or_active_run_is_a_409(tmp_path):
     settings = _settings(tmp_path)
-    (Path(settings.imprints_dir) / "taken").mkdir()
+    be = _FakeDiscovery()
+    be.pits["pit-1"] = "taken"
     started: list = []
-    c = _client(settings, backend=_FakeDiscovery(), background=started.append)
+    c = _client(settings, backend=be, background=started.append)
     sid = c.post("/api/discovery/sources", json=_tunnel_source()).json()["id"]
     assert c.post(f"/api/discovery/sources/{sid}/runs", json={"imprint_id": "taken", "days": 1}).status_code == 409
     assert c.post(f"/api/discovery/sources/{sid}/runs", json={"imprint_id": "busy", "days": 1}).status_code == 202
@@ -465,11 +470,10 @@ def test_an_unreachable_probe_fails_the_run_before_ingest(tmp_path):
     assert be.requests == [] and _FakeTunnel.log[-1] == "close"
 
 
-def test_a_failed_stage_closes_the_tunnel_and_discards_the_partial_bundle(tmp_path):
+def test_a_failed_stage_closes_the_tunnel_and_lands_nothing(tmp_path):
     def boom(request, on_stage):
         on_stage("ingest")
-        (request.catalog_root / request.imprint_id).mkdir()
-        raise disc.DiscoveryError("materialize failed (exit 1): no events")
+        raise disc.DiscoveryError("bake failed (exit 1): no events")
 
     be = _FakeDiscovery(run=boom)
     settings = _settings(tmp_path)
@@ -477,7 +481,7 @@ def test_a_failed_stage_closes_the_tunnel_and_discards_the_partial_bundle(tmp_pa
     sid = c.post("/api/discovery/sources", json=_tunnel_source()).json()["id"]
     run = c.post(f"/api/discovery/sources/{sid}/runs", json={"imprint_id": "half", "days": 1}).json()
     assert run["status"] == "failed" and run["stages_done"] == ["ingest"]
-    assert "materialize failed" in run["error"]
+    assert "bake failed" in run["error"]
     assert not (Path(settings.imprints_dir) / "half").exists()
     assert _FakeTunnel.log == ["open fxadmin@reader.example:22 -> ('127.0.0.1', 9090)", "close"]
 

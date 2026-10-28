@@ -3,7 +3,7 @@ S1.1-S1.8; `docs/design/15-console-canvas.md` §10).
 
 Covers, over a Starlette TestClient:
 
-  - S1.1 `GET /api/imprints/{id}/topology` -- the ALIAS (D1 (a)): asserted to
+  - S1.1 `GET /api/twins/{id}/topology` -- the ALIAS (D1 (a)): asserted to
     return the SAME payload as the shipped `?source=imprint` route, which is
     the only way "no second reader" is actually a test rather than a claim.
   - S1.2 `GET .../cast`             -- nulls, not zeros, on an older bundle.
@@ -164,13 +164,13 @@ def _doc(**overrides):
 
 
 # ===========================================================================
-# S1.1 -- GET /api/imprints/{id}/topology (the alias, D1 (a))
+# S1.1 -- GET /api/twins/{id}/topology (the alias, D1 (a))
 # ===========================================================================
 def test_imprint_topology_is_identical_to_the_shipped_export_route(tmp_path):
     """The alias must be the SAME payload from the SAME reader -- if these
     two ever diverge, a second reader has appeared (LES-025/LES-037)."""
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    alias = c.get("/api/imprints/mini-cast-prov/topology")
+    alias = c.get("/api/twins/mini-cast-prov/topology")
     shipped = c.get(
         "/api/scenarios/mini-cast-prov/topology-export", params={"source": "imprint"},
     )
@@ -180,7 +180,7 @@ def test_imprint_topology_is_identical_to_the_shipped_export_route(tmp_path):
 
 def test_imprint_topology_carries_the_fixture_export_content(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast-prov/topology").json()
+    j = c.get("/api/twins/mini-cast-prov/topology").json()
     assert j["pit_id"]
     assert j["nodes"] and j["segments"]
     assert j["census"]["entities_total"] >= len(j["nodes"])
@@ -190,7 +190,7 @@ def test_imprint_topology_carries_the_fixture_export_content(tmp_path):
 def test_imprint_topology_on_the_real_corpapcn_bundle(tmp_path):
     """LES-185: the shipped 786/1437/32 bundle, through the real route."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    r = c.get("/api/imprints/corpapcn-twin/topology")
+    r = c.get("/api/twins/corpapcn-twin/topology")
     assert r.status_code == 200
     j = r.json()
     assert len(j["nodes"]) == 786
@@ -203,7 +203,7 @@ def test_imprint_topology_on_the_real_corpapcn_bundle(tmp_path):
 
 def test_imprint_topology_unknown_id_404(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    assert c.get("/api/imprints/does-not-exist/topology").status_code == 404
+    assert c.get("/api/twins/does-not-exist/topology").status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -212,16 +212,16 @@ def test_imprint_topology_unknown_id_404(tmp_path):
 def test_console_reads_refuse_path_traversal(tmp_path, route):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
     for bad in ("..", "%2e%2e"):
-        r = c.get(f"/api/imprints/{bad}/{route}")
+        r = c.get(f"/api/twins/{bad}/{route}")
         assert r.status_code == 404, (bad, route, r.status_code)
 
 
 # ===========================================================================
-# S1.2 -- GET /api/imprints/{id}/cast
+# S1.2 -- GET /api/twins/{id}/cast
 # ===========================================================================
 def test_cast_summary_canonical_fixture(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast-prov/cast").json()
+    j = c.get("/api/twins/mini-cast-prov/cast").json()
     assert j["id"] == "mini-cast-prov"
     assert j["twin_config_id"] == "mini-cast-prov"
     assert j["pit_id"] == "pit-miniprov-0000000001"
@@ -242,7 +242,7 @@ def test_cast_summary_reports_absent_as_null_never_zero(tmp_path):
     publishes `code_fingerprint: null` -- `0.0`/`""` would say something
     false (`docs/WORK_ORDER_console_canvas.md` S1.2)."""
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast/cast").json()
+    j = c.get("/api/twins/mini-cast/cast").json()
     assert j["code_fingerprint"] is None
     assert j["has_provenance"] is False
     assert j["provenance_schema"] is None
@@ -257,7 +257,7 @@ def test_cast_summary_real_sidecarless_bundle_uses_the_engine_default_threshold(
     is the engine's -- published with its source rather than as if the cast
     had asked for it."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-twin/cast").json()
+    j = c.get("/api/twins/corpapcn-twin/cast").json()
     assert j["params"] == {}
     assert j["deploy_min_occupancy"] == 0.8
     assert j["deploy_min_occupancy_source"] == "engine default"
@@ -271,7 +271,7 @@ def test_cast_summary_real_sidecarless_bundle_uses_the_engine_default_threshold(
 @requires_real_golden
 def test_cast_summary_real_golden_bundle_publishes_the_1_4_schema_and_fingerprint(tmp_path):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-golden/cast").json()
+    j = c.get("/api/twins/corpapcn-golden/cast").json()
     # `axr-topology/1.5` since the 2026-09-06 recast that added
     # `cast_invocation` (R3). Pinned to the exact string on purpose: the
     # Console must refuse a MAJOR version it does not know rather than
@@ -287,15 +287,15 @@ def test_cast_summary_real_golden_bundle_publishes_the_1_4_schema_and_fingerprin
 
 def test_cast_summary_unknown_id_404(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    assert c.get("/api/imprints/nope/cast").status_code == 404
+    assert c.get("/api/twins/nope/cast").status_code == 404
 
 
 # ===========================================================================
-# S1.3 -- GET / PUT /api/imprints/{id}/assertions
+# S1.3 -- GET / PUT /api/twins/{id}/assertions
 # ===========================================================================
 def test_assertions_get_on_a_bundle_with_no_file_is_an_empty_200(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/assertions")
+    r = c.get("/api/twins/mini-cast-prov/assertions")
     assert r.status_code == 200
     j = r.json()
     assert j["exists"] is False
@@ -310,7 +310,7 @@ def test_assertions_put_round_trip_writes_the_file_and_sets_an_etag(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
 
-    put = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
+    put = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
     assert put.status_code == 200, put.text
     j = put.json()
     assert j["exists"] is True and j["etag"]
@@ -320,12 +320,12 @@ def test_assertions_put_round_trip_writes_the_file_and_sets_an_etag(tmp_path):
     on_disk = root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml"
     assert on_disk.is_file()
 
-    get = c.get("/api/imprints/mini-cast-prov/assertions")
+    get = c.get("/api/twins/mini-cast-prov/assertions")
     assert get.json()["etag"] == j["etag"]
     assert get.json()["add"] == j["add"]
     # The GET payload is exactly what PUT accepts (round-trip symmetry: the
     # read-only decorations are stripped server-side).
-    again = c.put("/api/imprints/mini-cast-prov/assertions", json=get.json())
+    again = c.put("/api/twins/mini-cast-prov/assertions", json=get.json())
     assert again.status_code == 200
     # ... and a no-op save leaves the file byte-identical (`14` §3's
     # determinism rule -- a churning file breaks no-op-apply determinism).
@@ -373,16 +373,16 @@ def test_a_clone_shaped_batch_re_saves_byte_identical(tmp_path):
     add.append({"kind": "conduit", "key": f"{clone}|10.80.72.0/24", "note": note})
 
     doc = _doc(add=add, override=[], suppress=[])
-    put = c.put("/api/imprints/mini-cast-prov/assertions", json=doc)
+    put = c.put("/api/twins/mini-cast-prov/assertions", json=doc)
     assert put.status_code == 200, put.text
     on_disk = root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml"
     first = on_disk.read_bytes()
     assert len(put.json()["add"]) == 20
 
     # Read it back and save exactly that -- the round trip the Console makes.
-    got = c.get("/api/imprints/mini-cast-prov/assertions").json()
+    got = c.get("/api/twins/mini-cast-prov/assertions").json()
     assert got["add"] == put.json()["add"]
-    again = c.put("/api/imprints/mini-cast-prov/assertions", json=got)
+    again = c.put("/api/twins/mini-cast-prov/assertions", json=got)
     assert again.status_code == 200, again.text
     assert on_disk.read_bytes() == first
     assert again.json()["etag"] == put.json()["etag"]
@@ -412,13 +412,13 @@ def test_a_clone_shaped_batch_re_saves_byte_identical(tmp_path):
 def test_assertions_put_with_a_stale_etag_is_412_and_leaves_the_file_untouched(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    first = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()
+    first = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()
     path = root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml"
     before = path.read_bytes()
 
     changed = _doc(source="operator: someone-else")
     changed["etag"] = "0" * 64
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=changed)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=changed)
     assert r.status_code == 412
     # The refusal NAMES the on-disk etag so the caller can reload.
     assert first["etag"] in r.json()["error"]
@@ -429,8 +429,8 @@ def test_assertions_put_with_a_stale_etag_is_412_and_leaves_the_file_untouched(t
 def test_assertions_put_with_no_etag_against_an_existing_file_is_refused(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=_doc(source="operator: x"))
+    c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=_doc(source="operator: x"))
     assert r.status_code == 412
     assert "If-Match" in r.json()["error"]
 
@@ -440,9 +440,9 @@ def test_assertions_etag_is_accepted_in_the_if_match_header_too(tmp_path):
     guarded write into an unguarded one (work order §3)."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    etag = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions",
+        "/api/twins/mini-cast-prov/assertions",
         json=_doc(source="operator: second"),
         headers={"If-Match": f'"{etag}"'},
     )
@@ -453,11 +453,11 @@ def test_assertions_etag_is_accepted_in_the_if_match_header_too(tmp_path):
 def test_assertions_disagreeing_etags_are_refused_rather_than_guessed(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    etag = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
     body = _doc(source="operator: second")
     body["etag"] = "f" * 64
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=body,
+        "/api/twins/mini-cast-prov/assertions", json=body,
         headers={"If-Match": f'"{etag}"'},
     )
     assert r.status_code == 400
@@ -513,7 +513,7 @@ def test_assertions_put_refuses_a_bad_record_naming_the_accepted_set(tmp_path, m
     c = _client(_settings(root, tmp_path))
     d = _doc()
     mutate(d)
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, r.text
     assert expect in r.json()["error"], r.json()["error"]
     assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
@@ -524,7 +524,7 @@ def test_assertions_put_refuses_a_key_in_both_add_and_suppress(tmp_path):
     c = _client(_settings(root, tmp_path))
     d = _doc()
     d["suppress"].append({"key": "address:10.80.20.5", "note": "also suppressed"})
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400
     assert "both `add` and `suppress`" in r.json()["error"]
 
@@ -536,7 +536,7 @@ def test_assertions_put_refuses_a_key_field_in_both_add_and_override(tmp_path):
     d["override"].append(
         {"key": "address:10.80.20.5", "field": "role", "value": "web", "note": "n"}
     )
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400
     assert "both `add` and `override`" in r.json()["error"]
 
@@ -545,7 +545,7 @@ def test_assertions_put_refuses_a_document_for_another_imprint(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_doc(imprint="somebody-else"),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(imprint="somebody-else"),
     )
     assert r.status_code == 400
     assert "somebody-else" in r.json()["error"]
@@ -555,7 +555,7 @@ def test_assertions_put_refuses_a_foreign_schema(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_doc(schema="axr-assertions/2"),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(schema="axr-assertions/2"),
     )
     assert r.status_code == 400
     assert "axr-assertions/1" in r.json()["error"]
@@ -568,7 +568,7 @@ def test_assertions_written_file_is_readable_yaml_in_the_authored_vocabulary(tmp
 
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
+    c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
     raw = YAML(typ="safe").load(
         (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
     )
@@ -587,29 +587,29 @@ def test_assertions_written_file_is_readable_yaml_in_the_authored_vocabulary(tmp
 def test_assertions_put_requires_the_write_token(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path, token="s3cret"))
-    assert c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).status_code == 401
+    assert c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).status_code == 401
     ok = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC,
+        "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
         headers={"Authorization": "Bearer s3cret"},
     )
     assert ok.status_code == 200
     # ... and the read stays open on a trusted bind, like every other read.
-    assert c.get("/api/imprints/mini-cast-prov/assertions").status_code == 200
+    assert c.get("/api/twins/mini-cast-prov/assertions").status_code == 200
 
 
 def test_assertions_put_unknown_imprint_404(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    assert c.put("/api/imprints/nope/assertions", json=_VALID_DOC).status_code == 404
+    assert c.put("/api/twins/nope/assertions", json=_VALID_DOC).status_code == 404
 
 
 # ===========================================================================
-# S1.4 -- GET /api/imprints/{id}/provenance (the two shapes + absent)
+# S1.4 -- GET /api/twins/{id}/provenance (the two shapes + absent)
 # ===========================================================================
 def test_provenance_normalized_fixture_keeps_its_shipped_shape(tmp_path):
     """The packaged Track-C fixture and the Grafana screen that reads it are
     untouched by the adapter."""
     c = _client(ApiSettings(db_path=str(tmp_path / "s.db"), adapter_config="/nonexistent.conf"))
-    j = c.get("/api/imprints/corp-enterprise/provenance").json()
+    j = c.get("/api/twins/corp-enterprise/provenance").json()
     assert j["sidecar_shape"] == "normalized"
     assert j["evidence_source"] == "sidecar fields"
     assert j["warnings"] == []
@@ -624,7 +624,7 @@ def test_provenance_normalized_fixture_keeps_its_shipped_shape(tmp_path):
 
 def test_provenance_canonical_sidecar_folds_to_rows_with_the_six_classes(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast-prov/provenance").json()
+    j = c.get("/api/twins/mini-cast-prov/provenance").json()
     assert j["sidecar_shape"] == "canonical"
     assert j["sidecar_schema"] == "axr-cast-provenance/1"
     assert j["evidence_source"] == "sidecar fields"
@@ -654,7 +654,7 @@ def test_provenance_canonical_sidecar_folds_to_rows_with_the_six_classes(tmp_pat
 
 def test_provenance_absent_sidecar_is_a_200_that_says_so(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    r = c.get("/api/imprints/mini-cast/provenance")
+    r = c.get("/api/twins/mini-cast/provenance")
     assert r.status_code == 200
     j = r.json()
     assert j["sidecar_shape"] == "absent"
@@ -666,7 +666,7 @@ def test_provenance_absent_sidecar_is_a_200_that_says_so(tmp_path):
 @requires_real_golden
 def test_provenance_real_golden_bundle_reads_every_field(tmp_path):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-golden/provenance").json()
+    j = c.get("/api/twins/corpapcn-golden/provenance").json()
     assert j["sidecar_shape"] == "canonical"
     assert len(j["rows"]) > 500          # 687 fields on the 2026-09-05 cast
     six = {"asserted", "imported", "observed", "referenced", "imputed", "compiler"}
@@ -678,7 +678,7 @@ def test_provenance_real_golden_bundle_reads_every_field(tmp_path):
 @requires_real_sidecarless
 def test_provenance_real_sidecarless_bundle_reports_absent(tmp_path):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-twin/provenance").json()
+    j = c.get("/api/twins/corpapcn-twin/provenance").json()
     assert j["sidecar_shape"] == "absent"
     assert j["rows"] == []
 
@@ -694,11 +694,11 @@ def test_provenance_malformed_sidecar_is_still_400(tmp_path):
     )
     (root / "broken" / "broken.provenance.json").write_text("{ not json")
     c = _client(_settings(root, tmp_path))
-    assert c.get("/api/imprints/broken/provenance").status_code == 400
+    assert c.get("/api/twins/broken/provenance").status_code == 400
 
 
 # ===========================================================================
-# S1.6 -- GET / PUT /api/imprints/{id}/layout
+# S1.6 -- GET / PUT /api/twins/{id}/layout
 # ===========================================================================
 _LAYOUT = {
     "schema": "axr-layout/1",
@@ -711,17 +711,17 @@ def test_layout_get_absent_then_put_round_trip(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
 
-    first = c.get("/api/imprints/mini-cast-prov/layout").json()
+    first = c.get("/api/twins/mini-cast-prov/layout").json()
     assert first["exists"] is False and first["etag"] is None and first["pins"] == {}
 
-    put = c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT)
+    put = c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT)
     assert put.status_code == 200, put.text
     j = put.json()
     assert j["exists"] is True and j["etag"]
     assert j["pins"]["site:10.80"] == {"x": 40.0, "y": 12.5}
     assert (root / "mini-cast-prov" / "layout.json").is_file()
 
-    got = c.get("/api/imprints/mini-cast-prov/layout")
+    got = c.get("/api/twins/mini-cast-prov/layout")
     assert got.json()["etag"] == j["etag"]
     assert got.headers["ETag"] == f'"{j["etag"]}"'
 
@@ -729,9 +729,9 @@ def test_layout_get_absent_then_put_round_trip(tmp_path):
 def test_layout_put_stale_etag_is_412(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT)
+    c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT)
     body = dict(_LAYOUT, etag="0" * 64)
-    r = c.put("/api/imprints/mini-cast-prov/layout", json=body)
+    r = c.put("/api/twins/mini-cast-prov/layout", json=body)
     assert r.status_code == 412
 
 
@@ -749,7 +749,7 @@ def test_layout_put_stale_etag_is_412(tmp_path):
 def test_layout_put_refuses_a_bad_pin(tmp_path, pins, expect):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    r = c.put("/api/imprints/mini-cast-prov/layout", json=dict(_LAYOUT, pins=pins))
+    r = c.put("/api/twins/mini-cast-prov/layout", json=dict(_LAYOUT, pins=pins))
     assert r.status_code == 400, r.text
     assert expect in r.json()["error"]
     assert not (root / "mini-cast-prov" / "layout.json").exists()
@@ -768,14 +768,14 @@ def test_layout_plane_stamp_round_trips_through_the_file(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
 
-    put = c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT_STAMPED)
+    put = c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT_STAMPED)
     assert put.status_code == 200, put.text
     assert put.json()["plane"] == _STAMP
     # It is in the FILE, not only in the response -- the next reader of the
     # bundle is what the stamp exists for.
     text = (root / "mini-cast-prov" / "layout.json").read_text()
     assert f'"plane": "{_STAMP}"' in text
-    assert c.get("/api/imprints/mini-cast-prov/layout").json()["plane"] == _STAMP
+    assert c.get("/api/twins/mini-cast-prov/layout").json()["plane"] == _STAMP
 
 
 def test_layout_with_no_plane_is_LEGACY_and_is_not_invented(tmp_path):
@@ -785,11 +785,11 @@ def test_layout_with_no_plane_is_LEGACY_and_is_not_invented(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
 
-    put = c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT)
+    put = c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT)
     assert put.status_code == 200, put.text
     assert put.json()["plane"] is None
     assert '"plane"' not in (root / "mini-cast-prov" / "layout.json").read_text()
-    assert c.get("/api/imprints/mini-cast-prov/layout").json()["plane"] is None
+    assert c.get("/api/twins/mini-cast-prov/layout").json()["plane"] is None
 
 
 def test_layout_accepts_an_EXPLICIT_null_plane_as_absent(tmp_path):
@@ -801,22 +801,22 @@ def test_layout_accepts_an_EXPLICIT_null_plane_as_absent(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
 
-    r = c.put("/api/imprints/mini-cast-prov/layout", json=dict(_LAYOUT, plane=None))
+    r = c.put("/api/twins/mini-cast-prov/layout", json=dict(_LAYOUT, plane=None))
     assert r.status_code == 200, r.text
     assert r.json()["plane"] is None
     assert '"plane"' not in (root / "mini-cast-prov" / "layout.json").read_text()
-    assert c.get("/api/imprints/mini-cast-prov/layout").json()["plane"] is None
+    assert c.get("/api/twins/mini-cast-prov/layout").json()["plane"] is None
 
 
 def test_layout_stamped_payload_is_re_puttable_verbatim(tmp_path):
     """The GET → PUT round trip of LES-231, with the new field on it."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT_STAMPED)
-    got = c.get("/api/imprints/mini-cast-prov/layout").json()
+    c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT_STAMPED)
+    got = c.get("/api/twins/mini-cast-prov/layout").json()
     before = (root / "mini-cast-prov" / "layout.json").read_text()
 
-    again = c.put("/api/imprints/mini-cast-prov/layout", json=got)
+    again = c.put("/api/twins/mini-cast-prov/layout", json=got)
     assert again.status_code == 200, again.text
     assert (root / "mini-cast-prov" / "layout.json").read_text() == before
 
@@ -836,7 +836,7 @@ def test_layout_stamped_payload_is_re_puttable_verbatim(tmp_path):
 def test_layout_refuses_a_malformed_plane_stamp(tmp_path, plane, expect):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    r = c.put("/api/imprints/mini-cast-prov/layout", json=dict(_LAYOUT, plane=plane))
+    r = c.put("/api/twins/mini-cast-prov/layout", json=dict(_LAYOUT, plane=plane))
     assert r.status_code == 400, r.text
     assert expect in r.json()["error"]
     assert not (root / "mini-cast-prov" / "layout.json").exists()
@@ -845,9 +845,9 @@ def test_layout_refuses_a_malformed_plane_stamp(tmp_path, plane, expect):
 def test_layout_put_requires_the_write_token(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path, token="s3cret"))
-    assert c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT).status_code == 401
+    assert c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT).status_code == 401
     assert c.put(
-        "/api/imprints/mini-cast-prov/layout", json=_LAYOUT,
+        "/api/twins/mini-cast-prov/layout", json=_LAYOUT,
         headers={"Authorization": "Bearer s3cret"},
     ).status_code == 200
 
@@ -855,15 +855,15 @@ def test_layout_put_requires_the_write_token(tmp_path):
 def test_cast_summary_sees_the_two_operator_files_once_written(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    assert c.get("/api/imprints/mini-cast-prov/cast").json()["has_assertions"] is False
-    c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
-    c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT)
-    j = c.get("/api/imprints/mini-cast-prov/cast").json()
+    assert c.get("/api/twins/mini-cast-prov/cast").json()["has_assertions"] is False
+    c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
+    c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT)
+    j = c.get("/api/twins/mini-cast-prov/cast").json()
     assert j["has_assertions"] is True and j["has_layout"] is True
 
 
 # ===========================================================================
-# S1.5 -- POST /api/imprints/{id}/apply (fake backend; no real subprocess)
+# S1.5 -- POST /api/twins/{id}/apply (fake backend; no real subprocess)
 # ===========================================================================
 class _FakeRecompile:
     """Records the request and returns a canned success. The suite NEVER runs
@@ -904,7 +904,7 @@ def test_apply_saves_then_recompiles_and_reports_both_fingerprints(tmp_path):
     c = _client(_apply_settings(root, tmp_path), backend=fake)
 
     r = c.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": _VALID_DOC},
     )
     assert r.status_code == 200, r.text
@@ -964,7 +964,7 @@ def test_apply_refuses_an_invalid_document_before_running_anything(tmp_path):
     c = _client(_apply_settings(root, tmp_path), backend=fake)
     bad = _doc()
     bad["add"].append({"kind": "network", "key": "10.9.0.0/24", "note": "n"})
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": bad})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": bad})
     assert r.status_code == 400
     assert fake.calls == []      # never recompiled
     assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
@@ -974,9 +974,9 @@ def test_apply_with_a_stale_etag_is_412_and_does_not_recompile(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     fake = _FakeRecompile()
     c = _client(_apply_settings(root, tmp_path), backend=fake)
-    c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
+    c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
     r = c.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": _doc(source="operator: other"), "etag": "0" * 64},
     )
     assert r.status_code == 412
@@ -994,7 +994,7 @@ def test_apply_exit_2_is_422_carrying_the_compilers_own_stderr_line(tmp_path):
         ),
     )
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile(raise_=boom))
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 422
     assert "unknown field 'colour'" in r.json()["error"]
     # A failed compile still leaves the operator's saved work on disk (`14`
@@ -1011,7 +1011,7 @@ def test_apply_other_nonzero_exit_is_502_with_the_stderr_tail(tmp_path):
         result=RecompileResult(argv=["fake"], returncode=1, stderr="duckdb: no such store"),
     )
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile(raise_=boom))
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 502
     assert "duckdb: no such store" in r.json()["error"]
 
@@ -1025,7 +1025,7 @@ def test_apply_without_its_settings_is_503_naming_the_key(tmp_path, unset, expec
     settings = _apply_settings(root, tmp_path)
     setattr(settings, unset, "")
     c = _client(settings, backend=_FakeRecompile())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 503
     assert expect in r.json()["error"]
 
@@ -1034,10 +1034,10 @@ def test_apply_requires_the_write_token(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path, token="s3cret"), backend=_FakeRecompile())
     assert c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).status_code == 401
     assert c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
         headers={"Authorization": "Bearer s3cret"},
     ).status_code == 200
 
@@ -1045,7 +1045,7 @@ def test_apply_requires_the_write_token(tmp_path):
 def test_apply_without_a_document_is_400(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={})
     assert r.status_code == 400
     assert "document" in r.json()["error"]
 
@@ -1059,7 +1059,7 @@ def test_apply_on_a_SIDECARLESS_bundle_still_has_a_content_fingerprint(tmp_path)
     root = _copy_bundle(tmp_path, "mini-cast")
     doc = _doc(imprint="mini-cast")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    r = c.post("/api/imprints/mini-cast/apply", json={"document": doc})
+    r = c.post("/api/twins/mini-cast/apply", json={"document": doc})
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["fingerprint_before"] and j["history_written"] is True
@@ -1088,7 +1088,7 @@ def test_apply_refuses_a_bundle_that_cannot_say_how_it_was_cast(tmp_path):
 
     fake = _FakeRecompile()
     c = _client(_apply_settings(root, tmp_path), backend=fake)
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 422, r.text
     assert "cast_invocation" in r.json()["error"]
     assert "Recast" in r.json()["error"]
@@ -1155,7 +1155,7 @@ def test_apply_reports_a_compiler_change_as_its_own_outcome(tmp_path):
         _apply_settings(root, tmp_path),
         backend=_RecompileAsANewerCompiler("fixture-castbuild-02"),
     )
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 200, r.text
     j = r.json()
 
@@ -1203,7 +1203,7 @@ def test_a_recompile_that_lands_an_UNREADABLE_bundle_is_still_a_400(tmp_path):
             return RecompileResult(argv=["fake", "cast"], returncode=0)
 
     c = _client(_apply_settings(root, tmp_path), backend=_LandsGarbage())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 400, r.text
     assert "DEPLOY_MIN_OCCUPANCY" in r.json()["error"]
     # S9: and the etag of the file that IS on disk still travels with it.
@@ -1222,15 +1222,15 @@ def test_cast_publishes_the_CONTENT_fingerprint_an_apply_reports(tmp_path):
         _apply_settings(root, tmp_path),
         backend=_RecompileAsANewerCompiler("fixture-castbuild-02"),
     )
-    cast0 = c.get("/api/imprints/mini-cast-prov/cast").json()
+    cast0 = c.get("/api/twins/mini-cast-prov/cast").json()
     assert cast0["bundle_fingerprint"]
     assert cast0["code_fingerprint"] == "fixture-0000000000"
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert j["fingerprint_before"] == cast0["bundle_fingerprint"]
     assert j["changed"] is True
-    cast1 = c.get("/api/imprints/mini-cast-prov/cast").json()
+    cast1 = c.get("/api/twins/mini-cast-prov/cast").json()
     assert cast1["bundle_fingerprint"] == j["fingerprint_after"]
     assert cast1["bundle_fingerprint"] != cast0["bundle_fingerprint"]
     # ...while the PIT stamp the drafts USED to key on never moved.
@@ -1260,7 +1260,7 @@ def test_the_post_apply_bundle_is_read_INSIDE_the_apply_lock(tmp_path, monkeypat
         _apply_settings(root, tmp_path),
         backend=_RecompileAsANewerCompiler("fixture-castbuild-02"),
     )
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 200, r.text
     assert len(held) == 2, held      # the pre- and the post-apply load
     assert all(held), held
@@ -1292,7 +1292,7 @@ def test_a_compiler_that_did_not_change_says_so_without_a_note(tmp_path):
         backend=_RecompileAsANewerCompiler("fixture-castbuild-01"),
     )
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert j["compiler_changed"] is False
     assert j["compiler_note"] is None
@@ -1528,7 +1528,7 @@ def test_an_unrecoverable_sensor_name_reaches_the_apply_response(tmp_path):
     )
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert any("names no sensors" in w for w in j["warnings"]), j["warnings"]
 
@@ -1582,11 +1582,11 @@ def test_apply_lock_refuses_a_second_concurrent_apply(tmp_path):
 
 
 # ===========================================================================
-# S1.7 -- GET /api/imprints/{id}/diff?since=<fingerprint>
+# S1.7 -- GET /api/twins/{id}/diff?since=<fingerprint>
 # ===========================================================================
 def test_diff_unknown_fingerprint_is_404_stating_the_limit(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/diff", params={"since": "deadbeef"})
+    r = c.get("/api/twins/mini-cast-prov/diff", params={"since": "deadbeef"})
     assert r.status_code == 404
     assert "apply" in r.json()["error"]
 
@@ -1602,7 +1602,7 @@ def test_diff_reports_added_removed_and_changed_against_an_apply_snapshot(tmp_pa
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     applied = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     fp = applied["fingerprint_before"]
     assert applied["history_written"] is True
@@ -1620,7 +1620,7 @@ def test_diff_reports_added_removed_and_changed_against_an_apply_snapshot(tmp_pa
     del observed["segments"][removed_segment]                 # -> added (now present)
     snap_path.write_text(json.dumps(snap))
 
-    r = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp})
+    r = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp})
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["since"] == fp
@@ -1643,11 +1643,11 @@ def test_diff_of_an_unchanged_bundle_is_empty(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
     assert rc.list_history(root / "mini-cast-prov") == [fp]
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     empty = {"added": [], "removed": [], "changed": []}
     assert j["observed"] == {"nodes": empty, "segments": empty}
     assert j["twin"] == {"hosts": empty, "segments": empty, "conduits": empty}
@@ -1656,7 +1656,7 @@ def test_diff_of_an_unchanged_bundle_is_empty(tmp_path):
 
 def test_diff_refuses_a_path_shaped_fingerprint(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/diff", params={"since": "../../etc/passwd"})
+    r = c.get("/api/twins/mini-cast-prov/diff", params={"since": "../../etc/passwd"})
     assert r.status_code == 400
 
 
@@ -1675,7 +1675,7 @@ def test_history_is_pruned_to_the_last_n(tmp_path):
 # ===========================================================================
 def test_list_imprints_over_http_tolerates_a_sidecarless_bundle(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    by_id = {e["id"]: e for e in c.get("/api/imprints").json()["imprints"]}
+    by_id = {e["id"]: e for e in c.get("/api/twins").json()["imprints"]}
     assert {"mini-cast", "mini-cast-prov"} <= set(by_id)
     bare = by_id["mini-cast"]
     assert bare["has_provenance"] is False
@@ -1699,7 +1699,7 @@ def test_list_imprints_over_http_sees_the_real_cast_bundles(tmp_path):
     """S1.8's headline: `AXRANGE_IMPRINTS_DIR=twin-configs-cast` used to list
     NOTHING (work order §2's measured fact)."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    by_id = {e["id"]: e for e in c.get("/api/imprints").json()["imprints"]}
+    by_id = {e["id"]: e for e in c.get("/api/twins").json()["imprints"]}
     assert "corpapcn-twin" in by_id
     assert by_id["corpapcn-twin"]["has_provenance"] is False
     assert by_id["corpapcn-twin"]["hosts"] == 137
@@ -1712,7 +1712,7 @@ def test_list_imprints_over_http_sees_a_canonical_sidecar_bundle(tmp_path):
     fields of which 151 have a confidence (mean 0.708). The listing publishes
     that mean with its coverage, not a 0.0 that reads as "nothing known"."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    by_id = {e["id"]: e for e in c.get("/api/imprints").json()["imprints"]}
+    by_id = {e["id"]: e for e in c.get("/api/twins").json()["imprints"]}
     golden = by_id["corpapcn-golden"]
     assert golden["has_provenance"] is True
     assert golden["confidence_source"] == "canonical sidecar (151/687 fields)"
@@ -1737,7 +1737,7 @@ def test_list_imprints_publishes_what_it_SKIPPED_and_why(tmp_path):
     (root / "broken-prov" / "broken-prov.provenance.json").write_text("{ truncated")
 
     c = _client(_settings(root, tmp_path))
-    j = c.get("/api/imprints").json()
+    j = c.get("/api/twins").json()
     assert {e["id"] for e in j["imprints"]} == {"mini-cast-prov"}
     by_id = {e["id"]: e["reason"] for e in j["skipped"]}
     assert set(by_id) == {"not-a-bundle", "broken-prov"}
@@ -1755,10 +1755,10 @@ def test_imprint_detail_summarizes_the_real_sidecarless_bundle(tmp_path):
     measured is SAID (`sidecar_shape`, `confidence_source`, `warnings`)
     rather than defaulted into a finding."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    r = c.get("/api/imprints/corpapcn-twin")
+    r = c.get("/api/twins/corpapcn-twin")
     assert r.status_code == 200, r.text
     j = r.json()
-    listed = {e["id"]: e for e in c.get("/api/imprints").json()["imprints"]}["corpapcn-twin"]
+    listed = {e["id"]: e for e in c.get("/api/twins").json()["imprints"]}["corpapcn-twin"]
     assert j["id"] == "corpapcn-twin"
     assert (j["hosts"], j["segments"]) == (137, 27) == (listed["hosts"], listed["segments"])
     assert j["as_of"] == listed["as_of"] != ""
@@ -1819,9 +1819,9 @@ def test_serve_imprints_dir_flag_reaches_serve(monkeypatch):
 def test_apply_accepts_the_etag_in_the_if_match_header(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    etag = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
     r = c.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": _doc(source="operator: second")},
         headers={"If-Match": f'"{etag}"'},
     )
@@ -1837,7 +1837,7 @@ def test_apply_survives_a_history_snapshot_it_cannot_write(tmp_path):
     # A FILE where the history directory has to go: `mkdir` cannot succeed.
     (root / "mini-cast-prov" / ".history").write_text("not a directory")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["history_written"] is False
@@ -1866,12 +1866,12 @@ def test_layout_get_payload_is_re_puttable_verbatim(tmp_path):
     the etag in the body must satisfy the guard on its own."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT)
+    c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT)
 
-    got = c.get("/api/imprints/mini-cast-prov/layout").json()
+    got = c.get("/api/twins/mini-cast-prov/layout").json()
     assert {"imprint_id", "path", "exists", "etag"} <= set(got)
 
-    again = c.put("/api/imprints/mini-cast-prov/layout", json=got)
+    again = c.put("/api/twins/mini-cast-prov/layout", json=got)
     assert again.status_code == 200, again.text
     # A no-op save is byte-identical (same determinism rule as assertions).
     assert again.json()["etag"] == got["etag"]
@@ -1885,12 +1885,12 @@ def test_assertions_get_payload_of_an_EMPTY_document_is_re_puttable(tmp_path):
     the body must read as "no etag", not as a supplied one."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    empty = c.get("/api/imprints/mini-cast-prov/assertions").json()
+    empty = c.get("/api/twins/mini-cast-prov/assertions").json()
     assert empty["etag"] is None and empty["exists"] is False
 
     empty["as_of"] = "2026-09-05T00:00:00Z"
     empty["source"] = "operator: tester"
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=empty)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=empty)
     assert r.status_code == 200, r.text
     assert r.json()["exists"] is True and r.json()["etag"]
 
@@ -1901,7 +1901,7 @@ def test_assertions_record_round_trip_drops_no_authored_field(tmp_path):
     operator DID author may be dropped by the same compaction."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    first = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()
+    first = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()
 
     host_add = next(r for r in first["add"] if r["kind"] == "host")
     assert host_add["segment"] == "10.80.20.0/24"
@@ -1914,7 +1914,7 @@ def test_assertions_record_round_trip_drops_no_authored_field(tmp_path):
     assert "field" not in host_add and "value" not in host_add
     assert "zone_type" not in host_add
 
-    again = c.put("/api/imprints/mini-cast-prov/assertions", json=first)
+    again = c.put("/api/twins/mini-cast-prov/assertions", json=first)
     assert again.status_code == 200, again.text
     assert again.json()["add"] == first["add"]
 
@@ -1935,7 +1935,7 @@ def test_override_value_of_none_survives_the_null_dropping(tmp_path):
         {"key": "address:10.0.0.7", "field": "role", "value": None,
          "note": "observed role is wrong and there is no right one"},
     ]
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 200, r.text
     # The FILE is right (this half already holds) ...
     from ruamel.yaml import YAML
@@ -1945,10 +1945,10 @@ def test_override_value_of_none_survives_the_null_dropping(tmp_path):
     )
     assert "value" in raw["override"][0] and raw["override"][0]["value"] is None
     # ... and the payload must be re-PUT-able, which is the half that fails.
-    got = c.get("/api/imprints/mini-cast-prov/assertions").json()
+    got = c.get("/api/twins/mini-cast-prov/assertions").json()
     assert "value" in got["override"][0]
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=got,
+        "/api/twins/mini-cast-prov/assertions", json=got,
     ).status_code == 200
 
 
@@ -1997,7 +1997,7 @@ def test_every_assertions_refusal_names_what_would_have_been_accepted(
     c = _client(_settings(root, tmp_path))
     d = _doc()
     mutate(d)
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, (label, r.status_code, r.text)
     msg = r.json()["error"]
     # Either it lists the accepted set, or it says WHY this one thing is
@@ -2024,7 +2024,7 @@ def test_layout_refuses_every_host_shaped_pin_key(tmp_path, bad_key):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
-        "/api/imprints/mini-cast-prov/layout",
+        "/api/twins/mini-cast-prov/layout",
         json=dict(_LAYOUT, pins={bad_key: {"x": 1, "y": 2}}),
     )
     assert r.status_code == 400, r.text
@@ -2054,7 +2054,7 @@ def test_atomic_write_failure_leaves_neither_a_partial_file_nor_a_temp_sibling(
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     bundle, apath, _ = _atomic_targets(root)
     c = _client(_settings(root, tmp_path))
-    first = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()
+    first = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()
     before = apath.read_bytes()
 
     def _boom(src, dst):
@@ -2068,7 +2068,7 @@ def test_atomic_write_failure_leaves_neither_a_partial_file_nor_a_temp_sibling(
     # because a read-only bundle directory is the server's environment, not
     # the operator's document -- telling them their edit was malformed sends
     # them to fix the wrong thing.
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 503, r.text
     assert "cannot write" in r.json()["error"]
 
@@ -2086,12 +2086,12 @@ def test_a_refused_save_leaves_an_EXISTING_assertions_file_byte_identical(tmp_pa
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     _, apath, _ = _atomic_targets(root)
     c = _client(_settings(root, tmp_path))
-    good = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()
+    good = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()
     before = apath.read_bytes()
 
     bad = _doc(etag=good["etag"])
     bad["add"].append({"kind": "nonsense", "key": "10.9.0.0/24", "note": "x"})
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=bad)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=bad)
     assert r.status_code == 400
     assert apath.read_bytes() == before
 
@@ -2100,11 +2100,11 @@ def test_a_refused_save_leaves_an_EXISTING_layout_file_byte_identical(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     _, _, lpath = _atomic_targets(root)
     c = _client(_settings(root, tmp_path))
-    good = c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT).json()
+    good = c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT).json()
     before = lpath.read_bytes()
 
     r = c.put(
-        "/api/imprints/mini-cast-prov/layout",
+        "/api/twins/mini-cast-prov/layout",
         json=dict(_LAYOUT, etag=good["etag"], pins={"host:x": {"x": 1, "y": 1}}),
     )
     assert r.status_code == 400
@@ -2116,9 +2116,9 @@ def test_layout_disagreeing_etags_are_refused_rather_than_guessed(tmp_path):
     copy of the same check, so it needs its own test or the copy can rot."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    etag = c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT).json()["etag"]
     r = c.put(
-        "/api/imprints/mini-cast-prov/layout",
+        "/api/twins/mini-cast-prov/layout",
         json=dict(_LAYOUT, etag=etag),
         headers={"If-Match": '"' + "0" * 64 + '"'},
     )
@@ -2132,9 +2132,9 @@ def test_etag_conflict_carries_the_on_disk_etag_so_a_client_can_reload(tmp_path)
     refresh and hope."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
-    good = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()
+    good = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_doc(etag="0" * 64),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(etag="0" * 64),
     )
     assert r.status_code == 412
     body = r.json()
@@ -2250,7 +2250,7 @@ def test_diff_against_a_corrupt_snapshot_is_a_404_not_a_500(tmp_path):
     rc.history_dir(root / "mini-cast-prov").mkdir(parents=True)
     (rc.history_dir(root / "mini-cast-prov") / "fpZ.json").write_text("{ nope")
     c = _client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/diff", params={"since": "fpZ"})
+    r = c.get("/api/twins/mini-cast-prov/diff", params={"since": "fpZ"})
     assert r.status_code == 404, r.text
     # S3: the 404 says UNREADABLE, not "no such fingerprint" -- the file is
     # there and `list_history` lists it.
@@ -2269,7 +2269,7 @@ def test_apply_over_http_is_409_while_the_imprint_lock_is_held(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     with imprint_apply_lock("mini-cast-prov"):
-        r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+        r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
         assert r.status_code == 409, r.text
         assert "already running" in r.json()["error"]
         # A DIFFERENT imprint is unaffected (the lock is per-imprint, and a
@@ -2277,7 +2277,7 @@ def test_apply_over_http_is_409_while_the_imprint_lock_is_held(tmp_path):
         assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
     # Released: the same call now gets past the guard.
     assert c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).status_code == 200
 
 
@@ -2305,14 +2305,14 @@ def test_two_genuinely_concurrent_applies_yield_one_200_and_one_409(tmp_path):
 
     def _first():
         results["a"] = c1.post(
-            "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+            "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
         ).status_code
 
     t = threading.Thread(target=_first, daemon=True)
     t.start()
     assert entered.wait(timeout=30), "the first apply never reached the backend"
     try:
-        r2 = c2.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+        r2 = c2.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
         results["b"] = r2.status_code
     finally:
         release.set()
@@ -2337,7 +2337,7 @@ def test_apply_timeout_is_502_and_names_the_timeout(tmp_path):
 
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_Hangs())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 502, r.text
     assert "timed out" in r.json()["error"]
     # The lock was released despite the failure, so the operator can retry.
@@ -2362,7 +2362,7 @@ def test_apply_backend_unavailable_is_503_not_502(tmp_path):
 
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_Missing())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 503, r.text
 
 
@@ -2469,7 +2469,7 @@ def test_the_no_op_apply_warning_reaches_the_HTTP_response_unambiguous(tmp_path)
         backend=_RecompileAsANewerCompiler("fixture-castbuild-01"),
     )
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert j["changed"] is False
     (unchanged,) = [w for w in j["warnings"] if "fingerprint is unchanged" in w]
@@ -2505,7 +2505,7 @@ def test_the_diff_since_description_names_the_field_that_actually_works(tmp_path
     #    prose and the value this test drives cannot drift apart.
     spec = c.get("/openapi.json").json()
     param = next(
-        p for p in spec["paths"]["/api/imprints/{imprint_id}/diff"]["get"]["parameters"]
+        p for p in spec["paths"]["/api/twins/{imprint_id}/diff"]["get"]["parameters"]
         if p["name"] == "since"
     )
     assert f"`{DIFF_SINCE_FIELD}`" in param["description"]
@@ -2513,11 +2513,11 @@ def test_the_diff_since_description_names_the_field_that_actually_works(tmp_path
     assert DIFF_SINCE_FIELD in dtos.ImprintApplyResponse.model_fields
 
     applied = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     # 3. The named field's value is diffable.
     named = c.get(
-        "/api/imprints/mini-cast-prov/diff", params={"since": applied[DIFF_SINCE_FIELD]},
+        "/api/twins/mini-cast-prov/diff", params={"since": applied[DIFF_SINCE_FIELD]},
     )
     assert named.status_code == 200, named.text
 
@@ -2525,7 +2525,7 @@ def test_the_diff_since_description_names_the_field_that_actually_works(tmp_path
     #    (`pit_code_fingerprint_before` is the same value the field formerly
     #    spelled `code_fingerprint_before` carried.)
     stale = c.get(
-        "/api/imprints/mini-cast-prov/diff",
+        "/api/twins/mini-cast-prov/diff",
         params={"since": applied["pit_code_fingerprint_before"]},
     )
     assert stale.status_code == 404, stale.text
@@ -2639,7 +2639,7 @@ def test_apply_reads_the_REAL_cast_stdout_shape(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_RealShapedStdout())
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert j["record_counts"] == {"add": 0, "override": 0, "suppress": 1}
     assert "path" not in j["record_counts"]      # a string is not a count
@@ -2690,7 +2690,7 @@ def test_a_huge_stdout_document_is_capped_in_the_response(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_Chatty())
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert "_elided" in j["stdout_json"]
     assert "caveats" not in j["stdout_json"]
@@ -2710,7 +2710,7 @@ def test_a_huge_stderr_is_capped_in_the_error_detail(tmp_path):
     )
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile(raise_=boom))
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 502
     assert len(r.json()["detail"]["stderr"]) <= rc.MAX_STREAM_CHARS + 200
     assert len(r.json()["error"]) < 10_000
@@ -2745,7 +2745,7 @@ def test_provenance_states_its_shape_and_evidence_source_for_all_three(
         ))
     else:
         c = _client(_settings(CAST_FIXTURES, tmp_path))
-    r = c.get(f"/api/imprints/{imprint}/provenance")
+    r = c.get(f"/api/twins/{imprint}/provenance")
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["sidecar_shape"] == shape
@@ -2775,7 +2775,7 @@ def test_an_unknown_evidence_class_in_a_CANONICAL_sidecar_warns_and_is_published
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     _doctor_canonical_class(root, "mini-cast-prov", "hearsay")
     c = _client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/provenance")
+    r = c.get("/api/twins/mini-cast-prov/provenance")
     assert r.status_code == 200, r.text
     j = r.json()
     assert "hearsay" in {row["evidence_class"] for row in j["rows"]}
@@ -2803,7 +2803,7 @@ def test_an_unknown_evidence_class_in_a_NORMALIZED_sidecar_warns_too(tmp_path):
     p.write_text(json.dumps(doc))
 
     c = _client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/corp-enterprise/provenance")
+    r = c.get("/api/twins/corp-enterprise/provenance")
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["sidecar_shape"] == "normalized"
@@ -2818,7 +2818,7 @@ def test_a_canonical_row_with_a_non_object_overrides_is_a_400_not_a_500(tmp_path
     doc["fields"][sorted(doc["fields"])[0]]["overrides"] = "imputed"
     p.write_text(json.dumps(doc))
     c = _client(_settings(root, tmp_path))
-    assert c.get("/api/imprints/mini-cast-prov/provenance").status_code == 400
+    assert c.get("/api/twins/mini-cast-prov/provenance").status_code == 400
 
 
 def test_a_canonical_row_that_is_not_an_object_is_a_400_not_a_500(tmp_path):
@@ -2828,7 +2828,7 @@ def test_a_canonical_row_that_is_not_an_object_is_a_400_not_a_500(tmp_path):
     doc["fields"]["twin_config.bogus"] = "not an object"
     p.write_text(json.dumps(doc))
     c = _client(_settings(root, tmp_path))
-    assert c.get("/api/imprints/mini-cast-prov/provenance").status_code == 400
+    assert c.get("/api/twins/mini-cast-prov/provenance").status_code == 400
 
 
 def test_canonical_overrides_read_the_legacy_class_spelling_too(tmp_path):
@@ -2849,7 +2849,7 @@ def test_canonical_overrides_read_the_legacy_class_spelling_too(tmp_path):
     p.write_text(json.dumps(doc))
     c = _client(_settings(root, tmp_path))
     row = next(
-        r for r in c.get("/api/imprints/mini-cast-prov/provenance").json()["rows"]
+        r for r in c.get("/api/twins/mini-cast-prov/provenance").json()["rows"]
         if r["field"] == key
     )
     assert row["overrides"]["evidence_class"] == "observed"
@@ -2869,7 +2869,7 @@ def test_topology_alias_matches_the_shipped_route_on_the_real_bundles(tmp_path, 
     only on the fixture -- the two differ by 700 nodes and a bundle schema,
     and an alias that diverged would do so on scale, not on the toy."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    alias = c.get(f"/api/imprints/{imprint}/topology")
+    alias = c.get(f"/api/twins/{imprint}/topology")
     direct = c.get(f"/api/scenarios/{imprint}/topology-export", params={"source": "imprint"})
     assert alias.status_code == direct.status_code == 200, (alias.text, direct.text)
     assert alias.json() == direct.json()
@@ -2880,7 +2880,7 @@ def test_cast_summary_on_the_real_golden_bundle_reports_the_whole_sheet(tmp_path
     """The Console's header. Pinned against the shipped bundle so a change in
     what the compiler emits shows up here rather than as a blank panel."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-golden/cast").json()
+    j = c.get("/api/twins/corpapcn-golden/cast").json()
     assert j["id"] == "corpapcn-golden"
     assert j["twin_config_id"] == "corpapcn-golden"
     assert j["pit_id"] == "pit-03de65ec67-1787823960"
@@ -2909,8 +2909,8 @@ def test_cast_summary_on_the_real_golden_bundle_reports_the_whole_sheet(tmp_path
 )
 def test_the_two_real_bundles_are_the_two_sidecar_states(tmp_path, imprint, shape, has_prov):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    cast = c.get(f"/api/imprints/{imprint}/cast").json()
-    prov = c.get(f"/api/imprints/{imprint}/provenance").json()
+    cast = c.get(f"/api/twins/{imprint}/cast").json()
+    prov = c.get(f"/api/twins/{imprint}/provenance").json()
     assert cast["sidecar_shape"] == prov["sidecar_shape"] == shape
     assert cast["has_provenance"] is has_prov
     assert cast["evidence_source"] == prov["evidence_source"]
@@ -2930,7 +2930,7 @@ def test_the_real_golden_sidecars_classes_are_all_inside_the_six(tmp_path):
     class, this is where axRange finds out -- as a warning, on the bundle
     that ships."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-golden/provenance").json()
+    j = c.get("/api/twins/corpapcn-golden/provenance").json()
     seen = {r["evidence_class"] for r in j["rows"]}
     assert seen <= set(_SIX), seen
     assert not any("outside the six-class" in w for w in j["warnings"]), j["warnings"]
@@ -2991,14 +2991,14 @@ def test_a_full_edit_round_trip_on_a_COPY_of_the_real_golden_bundle(tmp_path):
         ],
     }
     c = _client(_settings(root, tmp_path))
-    put = c.put("/api/imprints/corpapcn-golden/assertions", json=doc)
+    put = c.put("/api/twins/corpapcn-golden/assertions", json=doc)
     assert put.status_code == 200, put.text
 
-    got = c.get("/api/imprints/corpapcn-golden/assertions").json()
+    got = c.get("/api/twins/corpapcn-golden/assertions").json()
     assert got["override"][0]["key"] == host
     assert got["suppress"][0]["key"] == "address:203.0.113.9"
 
-    again = c.put("/api/imprints/corpapcn-golden/assertions", json=got)
+    again = c.put("/api/twins/corpapcn-golden/assertions", json=got)
     assert again.status_code == 200, again.text
     assert again.json()["etag"] == got["etag"]
 
@@ -3011,7 +3011,7 @@ def test_a_full_edit_round_trip_on_a_COPY_of_the_real_golden_bundle(tmp_path):
     assert raw["override"][0]["key"] == host
     assert raw["override"][0]["field"] == "role"
     # The cast summary now sees the operator file beside the real bundle.
-    assert c.get("/api/imprints/corpapcn-golden/cast").json()["has_assertions"] is True
+    assert c.get("/api/twins/corpapcn-golden/cast").json()["has_assertions"] is True
     # ... and the CHECKED-IN bundle was never touched.
     assert not (REAL_GOLDEN / "corpapcn-golden.assertions.yaml").exists()
     assert segment  # used above; keeps the key derivation honest
@@ -3024,8 +3024,8 @@ def test_the_real_bundles_have_no_operator_files_and_reading_them_creates_none(t
     working tree, which is easy to explain away."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
     for imprint in ("corpapcn-twin",) + (("corpapcn-golden",) if REAL_GOLDEN.is_dir() else ()):
-        a = c.get(f"/api/imprints/{imprint}/assertions").json()
-        lay = c.get(f"/api/imprints/{imprint}/layout").json()
+        a = c.get(f"/api/twins/{imprint}/assertions").json()
+        lay = c.get(f"/api/twins/{imprint}/layout").json()
         assert a["exists"] is False and a["etag"] is None
         assert lay["exists"] is False and lay["etag"] is None
         assert not (REAL_CAST_ROOT / imprint / f"{imprint}.assertions.yaml").exists()
@@ -3064,7 +3064,7 @@ def test_written_records_carry_only_keys_the_compiler_accepts(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC,
+        "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
     ).status_code == 200
     raw = YAML(typ="safe").load(
         (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
@@ -3087,7 +3087,7 @@ def test_a_segment_key_that_is_not_a_network_address_is_refused(tmp_path):
     d["add"] = [{"kind": "segment", "key": "10.80.31.5/24", "name": "n", "note": "x"}]
     d["override"] = []
     d["suppress"] = []
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, r.text
 
 
@@ -3105,7 +3105,7 @@ def test_a_listen_proto_outside_the_wire_vocabulary_is_refused(tmp_path):
     d["override"] = []
     d["suppress"] = []
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=d,
+        "/api/twins/mini-cast-prov/assertions", json=d,
     ).status_code == 400
 
 
@@ -3120,7 +3120,7 @@ def test_a_mac_host_key_is_accepted(tmp_path):
     d["override"] = []
     d["suppress"] = [{"key": "mac:00:11:22:33:44:55", "note": "a printer"}]
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=d,
+        "/api/twins/mini-cast-prov/assertions", json=d,
     ).status_code == 200
 
 
@@ -3132,7 +3132,7 @@ def test_the_remaining_closed_vocabularies_match_the_compilers(tmp_path):
 
     def _put(add):
         return c.put(
-            "/api/imprints/mini-cast-prov/assertions",
+            "/api/twins/mini-cast-prov/assertions",
             json=dict(_doc(), add=add, override=[], suppress=[]),
         )
 
@@ -3146,7 +3146,7 @@ def test_the_remaining_closed_vocabularies_match_the_compilers(tmp_path):
     # ... and the canonical (sorted) spelling is what lands on disk.
     assert _put([{"kind": "conduit", "key": "10.2.0.0/24|10.1.0.0/24",
                   "note": "n"}]).status_code == 200
-    got = c.get("/api/imprints/mini-cast-prov/assertions").json()
+    got = c.get("/api/twins/mini-cast-prov/assertions").json()
     assert got["add"][0]["key"] == "10.1.0.0/24|10.2.0.0/24"
 
 
@@ -3171,12 +3171,12 @@ _WRITE_ROUTES = (
 def test_write_routes_refuse_a_dot_shaped_id(tmp_path, bad, verb, route, kw):
     """M1, and it was reachable: the old guard rejected `/`, `\\` and `..`
     but accepted a lone `.`, which arrives percent-encoded as `%2e` and
-    resolves to the catalog ROOT -- `PUT /api/imprints/%2e/layout` wrote
+    resolves to the catalog ROOT -- `PUT /api/twins/%2e/layout` wrote
     `layout.json` into it. A deny-list of the traversal spellings somebody
     thought of is not an allow-list of the ids that are legal."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    r = getattr(c, verb)(f"/api/imprints/{bad}/{route}", **kw)
+    r = getattr(c, verb)(f"/api/twins/{bad}/{route}", **kw)
     # 404 from the guard, or 404/405 from the router for a spelling that URL
     # normalization collapses before it ever arrives (which is exactly why
     # the PERCENT-ENCODED `%2e` was the one nobody thought of). Never a 2xx,
@@ -3236,7 +3236,7 @@ def test_two_genuinely_concurrent_puts_yield_one_200_and_one_refusal(tmp_path):
     def _put(i: int) -> None:
         barrier.wait()
         r = clients[i].put(
-            "/api/imprints/mini-cast-prov/assertions",
+            "/api/twins/mini-cast-prov/assertions",
             json=_doc(source=f"operator: writer-{i}"),
         )
         with lock:
@@ -3352,7 +3352,7 @@ def test_the_design_notes_own_example_file_reads_back(tmp_path):
     path.write_text(_DESIGN_EXAMPLE)
 
     c = _client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/assertions")
+    r = c.get("/api/twins/mini-cast-prov/assertions")
     assert r.status_code == 200, r.text
     j = r.json()
     # Coerced to the ONE ISO-8601 `Z` spelling the compiler canonicalizes to.
@@ -3362,7 +3362,7 @@ def test_the_design_notes_own_example_file_reads_back(tmp_path):
     # ... and the read payload is re-PUT-able, which is the round trip that
     # matters (the etag comes from the hand-authored bytes).
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=j,
+        "/api/twins/mini-cast-prov/assertions", json=j,
         headers={"If-Match": f'"{j["etag"]}"'},
     ).status_code == 200
 
@@ -3392,7 +3392,7 @@ def test_every_as_of_spelling_a_yaml_loader_can_produce_is_accepted(
         'source: "operator: tester"\n'
     )
     c = _client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/mini-cast-prov/assertions")
+    r = c.get("/api/twins/mini-cast-prov/assertions")
     assert r.status_code == 200, r.text
     assert r.json()["as_of"] == expect
 
@@ -3401,7 +3401,7 @@ def test_an_as_of_that_is_not_a_timestamp_is_refused(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_doc(as_of="last tuesday"),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(as_of="last tuesday"),
     )
     assert r.status_code == 400
     assert "ISO-8601" in r.json()["error"]
@@ -3661,7 +3661,7 @@ def test_a_source_that_is_not_operator_prefixed_is_REFUSED_not_warned(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     for bad in ("raghu", "operator:", "operator:   ", "author: raghu"):
-        r = c.put("/api/imprints/mini-cast-prov/assertions", json=_doc(source=bad))
+        r = c.put("/api/twins/mini-cast-prov/assertions", json=_doc(source=bad))
         assert r.status_code == 400, (bad, r.text)
         assert "operator:" in r.json()["error"]
     assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
@@ -3677,7 +3677,7 @@ def test_both_source_spellings_are_accepted_and_kept_as_authored(tmp_path, spell
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_doc(source=spelling),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(source=spelling),
     ).status_code == 200
     raw = YAML(typ="safe").load(
         (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
@@ -3692,7 +3692,7 @@ def test_a_segment_key_is_normalized_to_its_strict_network_form(tmp_path):
     c = _client(_settings(root, tmp_path))
     d = _doc(add=[{"kind": "segment", "key": "10.9.0.5/24", "name": "n", "note": "x"}],
              override=[], suppress=[])
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400
     assert "10.9.0.0/24" in r.json()["error"]      # names the form that works
 
@@ -3707,13 +3707,13 @@ def test_an_address_key_that_is_not_an_ip_is_WARNED_about_not_refused(tmp_path):
     c = _client(_settings(root, tmp_path))
     d = _doc(add=[], override=[],
              suppress=[{"key": "address:dc01.corp.local", "note": "x"}])
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 200, r.text
     assert any("join against nothing" in w for w in r.json()["warnings"])
     # ... and a real address warns about nothing.
     d2 = _doc(add=[], override=[], suppress=[{"key": "address:10.0.0.9", "note": "x"}],
               etag=r.json()["etag"])
-    r2 = c.put("/api/imprints/mini-cast-prov/assertions", json=d2)
+    r2 = c.put("/api/twins/mini-cast-prov/assertions", json=d2)
     assert r2.status_code == 200 and r2.json()["warnings"] == []
 
 
@@ -3732,7 +3732,7 @@ def test_a_misdeclared_kind_is_refused_in_BOTH_blocks(tmp_path, block):
         rec.update({"field": "role", "value": "web"})
     d = _doc(add=[], override=[], suppress=[])
     d[block] = [rec]
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, r.text
     assert "but key" in r.json()["error"]
 
@@ -3744,7 +3744,7 @@ def test_the_written_file_keeps_the_canonical_key_order(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC,
+        "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
     ).status_code == 200
     text = (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
     assert text.startswith("schema: axr-assertions/1\n")
@@ -3768,7 +3768,7 @@ def test_the_diff_reports_conduits(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     snap_path = rc.history_dir(bundle) / f"{fp}.json"
@@ -3779,7 +3779,7 @@ def test_the_diff_reports_conduits(tmp_path):
     }
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert "10.99.0.0/24|10.99.1.0/24" in j["twin"]["conduits"]["removed"]
     assert j["twin"]["conduits"]["added"] == []
 
@@ -3795,16 +3795,16 @@ def test_the_diff_publishes_a_twin_config_change_the_topology_cannot_show(tmp_pa
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
-    unchanged = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    unchanged = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert unchanged["twin_config_changed"] is False
 
     # Move the twin config without touching a single observed entity.
     tc = bundle / "mini-cast-prov.yaml"
     tc.write_text(tc.read_text() + "\n# an operator changed an image\n")
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["twin_config_changed"] is True
     assert j["observed"]["nodes"] == {"added": [], "removed": [], "changed": []}
     assert j["twin"]["hosts"] == {"added": [], "removed": [], "changed": []}
@@ -3824,9 +3824,9 @@ def test_apply_refuses_disagreeing_etags_like_the_two_PUTs_do(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     fake = _FakeRecompile()
     c = _client(_apply_settings(root, tmp_path), backend=fake)
-    etag = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
     r = c.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": _doc(source="operator: second"), "etag": etag},
         headers={"If-Match": '"' + "0" * 64 + '"'},
     )
@@ -3863,13 +3863,13 @@ def test_every_post_save_failure_hands_back_the_saved_etag(tmp_path, raise_, sta
 
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile(raise_=boom))
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == status, r.text
     etag = r.json()["detail"]["etag"]
     assert etag
     # ... and it is the etag a follow-up write is actually guarded by.
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions",
+        "/api/twins/mini-cast-prov/assertions",
         json=_doc(source="operator: retry", etag=etag),
     ).status_code == 200
 
@@ -4068,7 +4068,7 @@ def test_a_read_endpoint_loads_each_artifact_once(tmp_path, monkeypatch, route):
 
         monkeypatch.setattr(Path, "read_text", _text)
         monkeypatch.setattr(Path, "read_bytes", _bytes)
-        assert c.get("/api/imprints/mini-cast-prov/cast").status_code == 200
+        assert c.get("/api/twins/mini-cast-prov/cast").status_code == 200
         hashed = {p.format(id="mini-cast-prov") for p in FINGERPRINT_FILES}
         for (method, name), n in by.items():
             assert n <= 1, (method, name, n, dict(by))
@@ -4076,7 +4076,7 @@ def test_a_read_endpoint_loads_each_artifact_once(tmp_path, monkeypatch, route):
                 assert name in hashed, (name, dict(by))
         return
     counts = _count_reads(monkeypatch, root)
-    assert c.get(f"/api/imprints/mini-cast-prov/{route}").status_code == 200
+    assert c.get(f"/api/twins/mini-cast-prov/{route}").status_code == 200
     for name, n in counts.items():
         assert n <= 1, (route, name, n, dict(counts))
 
@@ -4091,7 +4091,7 @@ def test_the_listing_reads_each_bundles_files_once(tmp_path, monkeypatch):
     shutil.copytree(CAST_FIXTURES / "mini-cast", root / "mini-cast")
     c = _client(_settings(root, tmp_path))
     counts = _count_reads(monkeypatch, root)
-    assert c.get("/api/imprints").status_code == 200
+    assert c.get("/api/twins").status_code == 200
     for name, n in counts.items():
         assert n <= 1, (name, n, dict(counts))
 
@@ -4143,9 +4143,9 @@ def test_opening_the_console_parses_the_twin_config_once(tmp_path, monkeypatch):
     _cold_twin_config_cache(monkeypatch)
     c = _client(_settings(root, tmp_path))
     parses = _count_twin_config_parses(monkeypatch, root / "mini-cast-prov" / "mini-cast-prov.yaml")
-    assert c.get("/api/imprints").status_code == 200
+    assert c.get("/api/twins").status_code == 200
     for route in _CONSOLE_READ_ROUTES:
-        r = c.get(f"/api/imprints/mini-cast-prov{route}")
+        r = c.get(f"/api/twins/mini-cast-prov{route}")
         assert r.status_code == 200, (route, r.text[:300])
     assert parses == ["axrange.api.imprints"], parses
 
@@ -4168,7 +4168,7 @@ def test_a_plan_preview_parses_the_twin_config_twice_cold_and_once_warm(tmp_path
         ["axrange.twinconfig.registry"],                          # warm
     ):
         parses.clear()
-        r = c.post("/api/imprints/mini-cast-prov/plan", json={"target_node": "pxtest1"})
+        r = c.post("/api/twins/mini-cast-prov/plan", json={"target_node": "pxtest1"})
         assert r.status_code == 200, r.text[:300]
         assert sorted(parses) == expected, parses
 
@@ -4237,11 +4237,11 @@ def test_a_mistyped_or_unpublishable_export_value_is_a_400_naming_it(tmp_path, w
     root = _with_export(tmp_path, **{where: value})
     c = _client(_settings(root, tmp_path))
     for route in routes:
-        r = c.get(f"/api/imprints/mini-cast-prov{route}")
+        r = c.get(f"/api/twins/mini-cast-prov{route}")
         assert r.status_code == 400, (route, r.status_code, r.text[:300])
         assert field in r.json()["error"], (route, r.json()["error"])
-    assert c.get("/api/imprints/mini-cast-prov").status_code == 200
-    assert [e["id"] for e in c.get("/api/imprints").json()["imprints"]] == ["mini-cast-prov"]
+    assert c.get("/api/twins/mini-cast-prov").status_code == 200
+    assert [e["id"] for e in c.get("/api/twins").json()["imprints"]] == ["mini-cast-prov"]
 
 
 @pytest.mark.parametrize(("windows", "published"), [(2**53 - 1, 2**53 - 1), (2**53, None)],
@@ -4255,18 +4255,18 @@ def test_a_windows_a_browser_cannot_read_exactly_is_null_on_the_summary_and_a_40
     published as is by all three."""
     root = _with_export(tmp_path, windows=windows)
     c = _client(_settings(root, tmp_path))
-    s = c.get("/api/imprints/mini-cast-prov").json()
+    s = c.get("/api/twins/mini-cast-prov").json()
     assert s["windows"] == published
     reasons = [w for w in s["warnings"] if "`windows`" in w]
     if published is None:
         assert len(reasons) == 1 and "is out of range" in reasons[0], s["warnings"]
         for route in ("/topology", "/cast"):
-            r = c.get(f"/api/imprints/mini-cast-prov{route}")
+            r = c.get(f"/api/twins/mini-cast-prov{route}")
             assert r.status_code == 400 and "`windows`" in r.json()["error"], (route, r.text[:300])
     else:
         assert reasons == [], s["warnings"]
-        assert c.get("/api/imprints/mini-cast-prov/topology").json()["windows"] == published
-        assert c.get("/api/imprints/mini-cast-prov/cast").status_code == 200
+        assert c.get("/api/twins/mini-cast-prov/topology").json()["windows"] == published
+        assert c.get("/api/twins/mini-cast-prov/cast").status_code == 200
 
 
 def _count_bundle_loads(monkeypatch) -> list[str]:
@@ -4296,7 +4296,7 @@ def test_apply_loads_the_bundle_once_before_and_once_after(tmp_path, monkeypatch
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     calls = _count_bundle_loads(monkeypatch)
     assert c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).status_code == 200
     assert len(calls) == 2, calls
 
@@ -4311,11 +4311,11 @@ def test_a_read_endpoint_builds_the_object_graph_once(tmp_path, monkeypatch, rou
     params = {}
     if route == "diff":
         params["since"] = c.post(
-            "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+            "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
         ).json()["fingerprint_before"]
     calls = _count_bundle_loads(monkeypatch)
     assert c.get(
-        f"/api/imprints/mini-cast-prov/{route}", params=params,
+        f"/api/twins/mini-cast-prov/{route}", params=params,
     ).status_code == 200
     assert len(calls) == 1, (route, calls)
 
@@ -4333,13 +4333,13 @@ def test_a_console_endpoint_does_not_cite_the_scorecard_work_order(tmp_path):
 
     root = _copy_bundle(tmp_path, "mini-cast")
     c = _client(_settings(root, tmp_path))
-    j = c.get("/api/imprints/mini-cast/cast").json()
+    j = c.get("/api/twins/mini-cast/cast").json()
     assert j["warnings"], "a sidecar-less bundle must still say so"
     for w in j["warnings"]:
         assert "WORK_ORDER_fidelity_scorecard" not in w, w
         assert "WORK_ORDER_console_canvas" in w or "sidecar absent" in w, w
     # ... and the same rewrite on the provenance endpoint.
-    for w in c.get("/api/imprints/mini-cast/provenance").json()["warnings"]:
+    for w in c.get("/api/twins/mini-cast/provenance").json()["warnings"]:
         assert "WORK_ORDER_fidelity_scorecard" not in w, w
 
 
@@ -4525,7 +4525,7 @@ def test_no_assertions_record_may_carry_an_evidence_class(tmp_path, block, cls):
     c = _client(_settings(root, tmp_path))
     d = _doc()
     d[block][0]["evidence_class"] = cls
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, r.text
     assert "evidence_class" in r.json()["error"]
     assert "accepted" in r.json()["error"]
@@ -4538,7 +4538,7 @@ def test_provenance_rows_still_publish_the_compiler_class(tmp_path):
     the honest label for a catalog default, and the provenance endpoint must
     keep publishing them."""
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast-prov/provenance").json()
+    j = c.get("/api/twins/mini-cast-prov/provenance").json()
     classes = {r["evidence_class"] for r in j["rows"]}
     assert "compiler" in classes
     assert not any("outside the six-class" in w for w in j["warnings"])
@@ -4563,7 +4563,7 @@ def test_every_required_key_the_schema_declares_is_enforced(tmp_path):
     for key in sorted(set(doc["required"]) | {"imprint"}):
         d = _doc()
         del d[key]
-        r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+        r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
         assert r.status_code == 400, (key, r.text)
         assert key in r.json()["error"], (key, r.json()["error"])
 
@@ -4580,7 +4580,7 @@ def test_every_required_key_the_schema_declares_is_enforced(tmp_path):
             rec = dict(samples[kind])
             del rec[key]
             r = c.put(
-                "/api/imprints/mini-cast-prov/assertions",
+                "/api/twins/mini-cast-prov/assertions",
                 json=_doc(add=[rec], override=[], suppress=[]),
             )
             assert r.status_code == 400, (kind, key, r.text)
@@ -4591,7 +4591,7 @@ def test_every_required_key_the_schema_declares_is_enforced(tmp_path):
         rec = dict(override)
         del rec[key]
         r = c.put(
-            "/api/imprints/mini-cast-prov/assertions",
+            "/api/twins/mini-cast-prov/assertions",
             json=_doc(add=[], override=[rec], suppress=[]),
         )
         assert r.status_code == 400, (key, r.text)
@@ -4599,7 +4599,7 @@ def test_every_required_key_the_schema_declares_is_enforced(tmp_path):
         rec = {"key": "address:10.9.0.4", "note": "x"}
         del rec[key]
         r = c.put(
-            "/api/imprints/mini-cast-prov/assertions",
+            "/api/twins/mini-cast-prov/assertions",
             json=_doc(add=[], override=[], suppress=[rec]),
         )
         assert r.status_code == 400, (key, r.text)
@@ -4644,7 +4644,7 @@ def test_the_six_refusals_the_schema_cannot_express_are_code_checks(
     c = _client(_settings(root, tmp_path))
     d = _doc()
     mutate(d)
-    r = c.put("/api/imprints/mini-cast-prov/assertions", json=d)
+    r = c.put("/api/twins/mini-cast-prov/assertions", json=d)
     assert r.status_code == 400, (label, r.text)
     assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
 
@@ -4763,7 +4763,7 @@ def test_a_real_sized_stdout_survives_the_whole_apply(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_Big())
     j = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()
     assert j["record_counts"] == {"add": 2, "override": 1, "suppress": 1}
     assert j["cast_counts"] == {"segments": 4, "nodes": 9}
@@ -4782,7 +4782,7 @@ def test_a_population_change_is_not_reported_as_a_field_edit(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     # Stand in for the live result: the twin config moved (a host was
@@ -4792,7 +4792,7 @@ def test_a_population_change_is_not_reported_as_a_field_edit(tmp_path):
     snap["twin_config_sha256"] = "0" * 64
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     warned = " ".join(j["warnings"])
     assert "twin config changed" in warned, warned
     # It must NOT claim to know WHICH kind of change it was.
@@ -4872,7 +4872,7 @@ def test_a_suppress_shows_as_a_twin_side_removal(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     # Stand in for the recompile: a host that WAS emitted no longer is,
@@ -4887,7 +4887,7 @@ def test_a_suppress_shows_as_a_twin_side_removal(tmp_path):
     snap["population"]["suppressed"] = ["address:203.0.113.9"]
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert ghost in j["twin"]["hosts"]["removed"]
     assert gone not in j["twin"]["hosts"]["removed"]
     # The observed side is genuinely unchanged, and says so by being EMPTY
@@ -4908,7 +4908,7 @@ def test_the_twin_side_reports_a_relocated_segment_as_a_CHANGED_field(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     snap_path = rc.history_dir(bundle) / f"{fp}.json"
@@ -4917,7 +4917,7 @@ def test_the_twin_side_reports_a_relocated_segment_as_a_CHANGED_field(tmp_path):
     snap["twin"]["segments"][name] = {"cidr": "10.255.255.0/24"}
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     changed = {e["key"]: e for e in j["twin"]["segments"]["changed"]}
     assert name in changed
     assert changed[name]["fields"]["cidr"]["before"] == "10.255.255.0/24"
@@ -4940,7 +4940,7 @@ def test_an_unknown_snapshot_version_is_omitted_not_reported_empty(tmp_path, ver
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     snap_path = rc.history_dir(bundle) / f"{fp}.json"
@@ -4951,7 +4951,7 @@ def test_an_unknown_snapshot_version_is_omitted_not_reported_empty(tmp_path, ver
         snap["schema"] = version
     snap_path.write_text(json.dumps(snap))
 
-    r = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp})
+    r = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp})
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["observed"] is None and j["twin"] is None
@@ -4970,7 +4970,7 @@ def test_a_missing_SECTION_is_omitted_with_its_own_warning(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     snap_path = rc.history_dir(bundle) / f"{fp}.json"
@@ -4978,7 +4978,7 @@ def test_a_missing_SECTION_is_omitted_with_its_own_warning(tmp_path):
     del snap["twin"]
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["twin"] is None
     assert j["observed"] is not None
     assert any("`twin` side is absent" in w for w in j["warnings"]), j["warnings"]
@@ -5032,13 +5032,13 @@ def test_a_saved_assertions_file_is_readable_by_the_compilers_uid(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC,
+        "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
     ).status_code == 200
     apath = root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml"
     assert _stat.S_IMODE(apath.stat().st_mode) & 0o044, oct(apath.stat().st_mode)
 
     lpath = root / "mini-cast-prov" / "layout.json"
-    assert c.put("/api/imprints/mini-cast-prov/layout", json=_LAYOUT).status_code == 200
+    assert c.put("/api/twins/mini-cast-prov/layout", json=_LAYOUT).status_code == 200
     assert _stat.S_IMODE(lpath.stat().st_mode) & 0o044, oct(lpath.stat().st_mode)
 
 
@@ -5052,17 +5052,17 @@ def test_apply_accepts_the_etag_inside_the_document_too(tmp_path):
     one route and UNGUARDED through the other."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
-    read = c.get("/api/imprints/mini-cast-prov/assertions").json()
+    c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
+    read = c.get("/api/twins/mini-cast-prov/assertions").json()
     assert read["etag"]
 
     # The literal GET payload as `document`, etag and all, with nothing
     # beside it -- and it is GUARDED, not ignored.
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": read})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": read})
     assert r.status_code == 200, r.text
 
     stale = dict(read, etag="0" * 64)
-    r2 = c.post("/api/imprints/mini-cast-prov/apply", json={"document": stale})
+    r2 = c.post("/api/twins/mini-cast-prov/apply", json={"document": stale})
     assert r2.status_code == 412, r2.text
 
 
@@ -5073,7 +5073,7 @@ def test_apply_accepts_the_etag_inside_the_document_too(tmp_path):
 def test_disagreeing_etags_are_refused_from_any_pair_of_places(tmp_path, where):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
-    etag = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
+    etag = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC).json()["etag"]
     other = "0" * 64
 
     doc = _doc(source="operator: second")
@@ -5089,12 +5089,12 @@ def test_disagreeing_etags_are_refused_from_any_pair_of_places(tmp_path, where):
         body["etag"] = etag
         doc["etag"] = other
 
-    r = c.post("/api/imprints/mini-cast-prov/apply", json=body, headers=headers)
+    r = c.post("/api/twins/mini-cast-prov/apply", json=body, headers=headers)
     assert r.status_code == 400, r.text
     assert "disagree" in r.json()["error"]
     # ... and all three placements AGREEING is accepted.
     ok = c.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": dict(_doc(source="operator: third"), etag=etag), "etag": etag},
         headers={"If-Match": f'"{etag}"'},
     )
@@ -5114,16 +5114,16 @@ def test_a_save_during_an_apply_is_409(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     with imprint_apply_lock("mini-cast-prov"):
-        r = c.put("/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC)
+        r = c.put("/api/twins/mini-cast-prov/assertions", json=_VALID_DOC)
         assert r.status_code == 409, r.text
         assert "apply" in r.json()["error"]
         assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
         # A DIFFERENT imprint is unaffected -- the guard is per-imprint.
         assert c.put(
-            "/api/imprints/nope/assertions", json=_VALID_DOC,
+            "/api/twins/nope/assertions", json=_VALID_DOC,
         ).status_code == 404
     assert c.put(
-        "/api/imprints/mini-cast-prov/assertions", json=_VALID_DOC,
+        "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
     ).status_code == 200
 
 
@@ -5149,7 +5149,7 @@ def test_a_failed_install_says_the_bundle_may_be_partially_installed(tmp_path, m
             )
 
     c = _client(_apply_settings(root, tmp_path), backend=_InstallFails())
-    r = c.post("/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC})
+    r = c.post("/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC})
     assert r.status_code == 502, r.text
     assert "PARTIALLY INSTALLED" in r.json()["error"]
     # ... and a stage-1 failure says no such thing. (The first apply saved,
@@ -5161,7 +5161,7 @@ def test_a_failed_install_says_the_bundle_may_be_partially_installed(tmp_path, m
     )
     c2 = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile(raise_=boom))
     r2 = c2.post(
-        "/api/imprints/mini-cast-prov/apply",
+        "/api/twins/mini-cast-prov/apply",
         json={"document": _VALID_DOC, "etag": etag},
     )
     assert r2.status_code == 502, r2.text
@@ -5267,13 +5267,13 @@ def test_the_diff_names_the_authored_key_a_suppression_used(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
     assert rc.list_history(bundle) == [fp]
 
     _suppress_in_sidecar(bundle, "mini-cast-prov", "address:10.1.0.14")
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["suppressed_keys"] == {
         "added": ["address:10.1.0.14"], "removed": [], "changed": [],
     }
@@ -5287,11 +5287,11 @@ def test_the_diff_reports_an_UNsuppression_too(tmp_path):
     _suppress_in_sidecar(bundle, "mini-cast-prov", "address:10.1.0.14")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     _suppress_in_sidecar(bundle, "mini-cast-prov")     # the record is gone
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["suppressed_keys"]["removed"] == ["address:10.1.0.14"]
     assert j["suppressed_keys"]["added"] == []
 
@@ -5302,9 +5302,9 @@ def test_an_unchanged_suppression_set_is_present_and_empty(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["suppressed_keys"] == {"added": [], "removed": [], "changed": []}
 
 
@@ -5318,7 +5318,7 @@ def test_the_authored_key_join_is_NULL_when_a_side_has_no_accounting(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     snap_path = rc.history_dir(bundle) / f"{fp}.json"
@@ -5326,7 +5326,7 @@ def test_the_authored_key_join_is_NULL_when_a_side_has_no_accounting(tmp_path):
     del snap["population"]                     # an older, pre-accounting snapshot
     snap_path.write_text(json.dumps(snap))
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["suppressed_keys"] is None
     warned = " ".join(j["warnings"])
     assert "population.suppressed" in warned
@@ -5341,11 +5341,11 @@ def test_the_authored_key_join_names_the_CURRENT_bundle_when_it_is_the_gap(tmp_p
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     (bundle / "mini-cast-prov.provenance.json").unlink()
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["suppressed_keys"] is None
     assert "current bundle" in " ".join(j["warnings"])
 
@@ -5429,7 +5429,7 @@ def test_an_unknown_API_path_never_falls_back_to_the_spa(tmp_path):
     """A typo'd endpoint answered with the SPA's HTML and a 200 is a silent
     success: the caller parses HTML as JSON and reports something unrelated."""
     c = _spa_client(tmp_path)
-    for path in ("/api/nonexistent", "/api/imprints/mini-cast-prov/nonexistent"):
+    for path in ("/api/nonexistent", "/api/twins/mini-cast-prov/nonexistent"):
         r = c.get(path)
         assert r.status_code == 404, path
         assert "<div id=" not in r.text, path
@@ -5438,9 +5438,9 @@ def test_an_unknown_API_path_never_falls_back_to_the_spa(tmp_path):
 def test_the_api_is_intact_beside_the_mounted_spa(tmp_path):
     c = _spa_client(tmp_path)
     assert c.get("/api/health").status_code == 200
-    ids = {e["id"] for e in c.get("/api/imprints").json()["imprints"]}
+    ids = {e["id"] for e in c.get("/api/twins").json()["imprints"]}
     assert "mini-cast-prov" in ids
-    assert c.get("/api/imprints/mini-cast-prov/cast").json()["segments"] > 0
+    assert c.get("/api/twins/mini-cast-prov/cast").json()["segments"] > 0
 
 
 def test_headless_is_unchanged_when_no_spa_dir_is_set(tmp_path):
@@ -5468,7 +5468,7 @@ def test_a_suppression_that_moved_NOTHING_else_is_still_movement(tmp_path):
     bundle = root / "mini-cast-prov"
     c = _client(_apply_settings(root, tmp_path), backend=_FakeRecompile())
     fp = c.post(
-        "/api/imprints/mini-cast-prov/apply", json={"document": _VALID_DOC},
+        "/api/twins/mini-cast-prov/apply", json={"document": _VALID_DOC},
     ).json()["fingerprint_before"]
 
     # The sidecar records the suppression; the twin config's bytes move too
@@ -5477,7 +5477,7 @@ def test_a_suppression_that_moved_NOTHING_else_is_still_movement(tmp_path):
     tc = bundle / "mini-cast-prov.yaml"
     tc.write_text(tc.read_text() + "\n# recompiled\n")
 
-    j = c.get("/api/imprints/mini-cast-prov/diff", params={"since": fp}).json()
+    j = c.get("/api/twins/mini-cast-prov/diff", params={"since": fp}).json()
     assert j["twin_config_changed"] is True
     assert j["suppressed_keys"]["added"] == ["hostname:never-observed"]
     assert "nothing for the canvas to highlight" not in " ".join(j["warnings"])
@@ -5730,7 +5730,7 @@ def test_a_very_long_client_route_is_answered_not_crashed(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "path", ["/api", "/api/", "/api/nonexistent", "/api/imprints/x/nonexistent"],
+    "path", ["/api", "/api/", "/api/nonexistent", "/api/twins/x/nonexistent"],
 )
 def test_every_api_shaped_path_refuses_the_fallback(tmp_path, path):
     """`/api` bare and `/api/` trailing-slash reach the mount the same way an
@@ -5829,7 +5829,7 @@ def test_HEAD_on_a_deep_client_route_is_a_200_with_no_body(tmp_path):
 _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     "ImprintListDTO": {"imprints", "skipped"},
     "ImprintListItemDTO": {
-        "apply_blocked_reason", "as_of", "can_apply", "confidence_source",
+        "apply_blocked_reason", "as_of", "can_apply", "cast_from", "confidence_source",
         "has_provenance", "has_topology_export", "hosts", "id", "mean_confidence",
         "segments",
     },
@@ -5858,7 +5858,7 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     "ImprintSummaryDTO": {
         "apply_blocked_reason", "as_of", "can_apply",
         "confidence_source", "days_observed", "hosts", "id",
-        "mean_confidence", "out_of_vocab_pct", "personas", "segments",
+        "mean_confidence", "out_of_vocab_pct", "personas", "pit_id", "segments",
         "services", "sidecar_shape", "store", "topology_segments",
         "warnings", "windows",
     },
@@ -5960,14 +5960,14 @@ def _assert_served_consistently(c: TestClient, imprint: str, baked: str) -> dict
     SAME canonical id and the same structural counts; the topology export's
     baked id is published as data; and the summary NAMES that baked id once."""
     for route in _CONSOLE_READ_ROUTES:
-        r = c.get(f"/api/imprints/{imprint}{route}")
+        r = c.get(f"/api/twins/{imprint}{route}")
         assert r.status_code == 200, (route, r.status_code, r.text[:300])
-    listed = {e["id"]: e for e in c.get("/api/imprints").json()["imprints"]}
+    listed = {e["id"]: e for e in c.get("/api/twins").json()["imprints"]}
     assert imprint in listed
-    summary = c.get(f"/api/imprints/{imprint}").json()
-    cast = c.get(f"/api/imprints/{imprint}/cast").json()
-    topo = c.get(f"/api/imprints/{imprint}/topology").json()
-    prov = c.get(f"/api/imprints/{imprint}/provenance").json()
+    summary = c.get(f"/api/twins/{imprint}").json()
+    cast = c.get(f"/api/twins/{imprint}/cast").json()
+    topo = c.get(f"/api/twins/{imprint}/topology").json()
+    prov = c.get(f"/api/twins/{imprint}/provenance").json()
     assert summary["id"] == cast["id"] == cast["twin_config_id"] == prov["imprint_id"] == imprint
     assert summary["hosts"] == cast["hosts"] == listed[imprint]["hosts"]
     assert summary["segments"] == cast["segments"] == listed[imprint]["segments"]
@@ -6009,10 +6009,10 @@ def test_every_listed_bundle_summarizes_with_its_listing_numbers(tmp_path, root)
     come from the LISTING at run time (LES-223), so a bundle added later is
     covered without editing this test."""
     c = _lenient_client(_settings(root, tmp_path))
-    listed = c.get("/api/imprints").json()["imprints"]
+    listed = c.get("/api/twins").json()["imprints"]
     assert listed, root
     for e in listed:
-        r = c.get(f"/api/imprints/{e['id']}")
+        r = c.get(f"/api/twins/{e['id']}")
         assert r.status_code == 200, (e["id"], r.status_code, r.text[:300])
         j = r.json()
         for key in ("id", "hosts", "segments", "as_of", "mean_confidence", "confidence_source"):
@@ -6034,10 +6034,10 @@ def test_the_addressing_guard_still_refuses_a_renamed_cast_bundle(tmp_path, shap
         if f.name.startswith(src + "."):
             f.rename(dst / ("renamed" + f.name[len(src):]))
     c = _lenient_client(_settings(root, tmp_path))
-    r = c.get("/api/imprints/renamed")
+    r = c.get("/api/twins/renamed")
     assert r.status_code == 400 and "twin_config.id" in r.json()["error"], r.text
-    assert c.get("/api/imprints/renamed/cast").status_code == 400
-    j = c.get("/api/imprints").json()
+    assert c.get("/api/twins/renamed/cast").status_code == 400
+    j = c.get("/api/twins").json()
     assert j["imprints"] == []
     assert [s["id"] for s in j["skipped"]] == ["renamed"]
 
@@ -6049,7 +6049,7 @@ def test_the_summary_route_reads_each_artifact_once(tmp_path, monkeypatch):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     counts = _count_reads(monkeypatch, root)
-    assert c.get("/api/imprints/mini-cast-prov").status_code == 200
+    assert c.get("/api/twins/mini-cast-prov").status_code == 200
     assert counts, "the summary route read no bundle file at all?"
     for name, n in counts.items():
         assert n <= 1, (name, n, dict(counts))
@@ -6072,7 +6072,7 @@ def test_the_real_twin_publishes_its_22_conduits_and_the_gateways_27_legs(tmp_pa
         _real_config("corpapcn-twin").read_text()
     )["twin_config"]
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corpapcn-twin/cast").json()
+    j = c.get("/api/twins/corpapcn-twin/cast").json()
     assert j["conduits"] == 22 == len(j["conduit_roster"])
     assert j["conduit_roster"] == [{"from": x["from"], "to": x["to"]} for x in raw["conduits"]]
     assert j["conduit_roster"][0] == {"from": "seg-10-20-192-0", "to": "seg-10-20-196-0"}
@@ -6091,8 +6091,8 @@ def test_the_real_twin_publishes_its_22_conduits_and_the_gateways_27_legs(tmp_pa
 @pytest.mark.parametrize("root", _catalogs(), ids=lambda p: p.name)
 def test_the_roster_agrees_with_the_count_on_every_listed_bundle(tmp_path, root):
     c = _client(_settings(root, tmp_path))
-    for e in c.get("/api/imprints").json()["imprints"]:
-        j = c.get(f"/api/imprints/{e['id']}/cast").json()
+    for e in c.get("/api/twins").json()["imprints"]:
+        j = c.get(f"/api/twins/{e['id']}/cast").json()
         assert len(j["conduit_roster"]) == j["conduits"], e["id"]
         assert all(set(x) == {"from", "to"} for x in j["conduit_roster"]), e["id"]
         for router in j["routers"]:
@@ -6111,16 +6111,16 @@ def test_a_sidecarless_bundle_with_no_conduits_or_router_carries_empty_rosters_a
         "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
     )
     c = _client(_settings(root, tmp_path))
-    j = c.get("/api/imprints/bare/cast").json()
+    j = c.get("/api/twins/bare/cast").json()
     assert (j["conduits"], j["conduit_roster"], j["routers"]) == (0, [], [])
     assert j["has_provenance"] is False
-    assert [e["id"] for e in c.get("/api/imprints").json()["imprints"]] == ["bare"]
+    assert [e["id"] for e in c.get("/api/twins").json()["imprints"]] == ["bare"]
 
 
 def test_the_two_r5_fields_are_independent_on_the_packaged_fixture(tmp_path):
     """`corp-enterprise` declares no conduits, but its gateway has legs."""
     c = _client(ApiSettings(db_path=str(tmp_path / "s.db"), adapter_config="/nonexistent.conf"))
-    j = c.get("/api/imprints/corp-enterprise/cast").json()
+    j = c.get("/api/twins/corp-enterprise/cast").json()
     assert (j["conduits"], j["conduit_roster"]) == (0, [])
     assert len(j["routers"]) == 1
     assert sorted(j["routers"][0]["segments"]) == ["corp-lan", "db", "dmz", "mgmt"]
@@ -6147,7 +6147,7 @@ def test_a_config_with_several_routers_publishes_each_with_its_own_legs(tmp_path
         )
         expected.append({"name": node["name"], "segments": list(dict.fromkeys(names))})
     assert len(expected) >= 2, "the premise: datacenter is the multi-router config"
-    j = _client(_settings(root, tmp_path)).get("/api/imprints/datacenter/cast").json()
+    j = _client(_settings(root, tmp_path)).get("/api/twins/datacenter/cast").json()
     assert j["routers"] == expected
 
 
@@ -6186,7 +6186,7 @@ def test_a_real_cast_publishes_its_segment_roster_as_written(tmp_path, bundle):
     if not d.is_dir():
         pytest.skip(f"twins/{bundle} not present")
     raw = YAML(typ="safe").load(_real_config(bundle).read_text())["twin_config"]
-    j = _client(_settings(REAL_CAST_ROOT, tmp_path)).get(f"/api/imprints/{bundle}/cast").json()
+    j = _client(_settings(REAL_CAST_ROOT, tmp_path)).get(f"/api/twins/{bundle}/cast").json()
 
     expected = [
         {"name": x["name"], "cidr": x["cidr"], "zone_type": x.get("zone_type")}
@@ -6313,10 +6313,10 @@ def test_the_console_conduit_roster_fixture_matches_the_real_twin_configs():
 @pytest.mark.parametrize("root", _catalogs(), ids=lambda p: p.name)
 def test_the_segment_roster_agrees_with_the_segment_count_on_every_listed_bundle(tmp_path, root):
     c = _client(_settings(root, tmp_path))
-    listed = c.get("/api/imprints").json()["imprints"]
+    listed = c.get("/api/twins").json()["imprints"]
     assert listed, root
     for e in listed:
-        j = c.get(f"/api/imprints/{e['id']}/cast").json()
+        j = c.get(f"/api/twins/{e['id']}/cast").json()
         assert len(j["segment_roster"]) == j["segments"], e["id"]
         for x in j["segment_roster"]:
             assert set(x) == {"name", "cidr", "zone_type"}, e["id"]
@@ -6339,7 +6339,7 @@ def test_a_bare_config_publishes_a_null_zone_type_as_null_not_the_effective_zone
         "    - { name: ot, cidr: 10.6.0.0/24, zone_type: vlan }\n"
         "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
     )
-    j = _client(_settings(root, tmp_path)).get("/api/imprints/bare/cast").json()
+    j = _client(_settings(root, tmp_path)).get("/api/twins/bare/cast").json()
     assert j["segments"] == 2
     assert j["segment_roster"] == [
         {"name": "lan", "cidr": "10.5.0.0/24", "zone_type": None},
@@ -6353,7 +6353,7 @@ def test_the_packaged_fixture_publishes_its_segment_roster(tmp_path):
     from ruamel.yaml import YAML
 
     c = _client(ApiSettings(db_path=str(tmp_path / "s.db"), adapter_config="/nonexistent.conf"))
-    j = c.get("/api/imprints/corp-enterprise/cast").json()
+    j = c.get("/api/twins/corp-enterprise/cast").json()
     raw = YAML(typ="safe").load(
         (_packaged_imprints() / "corp-enterprise" / "corp-enterprise.yaml").read_text()
     )["twin_config"]
@@ -6429,7 +6429,7 @@ def test_a_renamed_bundle_is_refused_by_every_console_route_that_addresses_it(tm
         ("POST", "/apply", {"document": _VALID_DOC}),
         ("GET", "/diff?since=deadbeef", None),
     ):
-        r = c.request(method, f"/api/imprints/renamed{route}", json=body)
+        r = c.request(method, f"/api/twins/renamed{route}", json=body)
         assert r.status_code == 400, (method, route, r.status_code, r.text[:300])
         assert "twin_config.id='mini-cast-prov'" in r.json()["error"], (route, r.json())
     # Nothing was written into the bundle...
@@ -6452,9 +6452,9 @@ def test_the_plan_pre_check_reads_the_twin_config_and_never_the_sidecar_or_expor
     (d / "mini-cast-prov.provenance.json").write_bytes(b"\xff\xfe{}")
     (d / "mini-cast-prov.topology.json").write_bytes(b"\xff\xfe{}")
     c = _lenient_client(_plan_settings(root, tmp_path))
-    assert c.get("/api/imprints/mini-cast-prov").status_code == 400
+    assert c.get("/api/twins/mini-cast-prov").status_code == 400
     counts = _count_reads(monkeypatch, root)
-    r = c.post("/api/imprints/mini-cast-prov/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/mini-cast-prov/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:400]
     assert "mini-cast-prov.provenance.json" not in counts, dict(counts)
     assert "mini-cast-prov.topology.json" not in counts, dict(counts)
@@ -6473,9 +6473,9 @@ def test_a_plan_preview_leaves_no_materialized_twin_config_behind(tmp_path, monk
         "  nodes:\n    - { name: h1, image: no-such-image@v9, requires: [linux], net: lan }\n"
     )
     c = _lenient_client(_plan_settings(root, tmp_path))
-    ok = c.post("/api/imprints/mini-cast-prov/plan", json={"target_node": "pxtest1"})
+    ok = c.post("/api/twins/mini-cast-prov/plan", json={"target_node": "pxtest1"})
     assert ok.status_code == 200, ok.text[:300]
-    refused = c.post("/api/imprints/bad/plan", json={"target_node": "pxtest1"})
+    refused = c.post("/api/twins/bad/plan", json={"target_node": "pxtest1"})
     assert refused.status_code in (400, 422), refused.text[:300]
     assert list(private.iterdir()) == []
 
@@ -6542,7 +6542,7 @@ def test_every_real_cast_bundle_plans_through_the_api(tmp_path, monkeypatch, bun
     private TMPDIR, no state DB written, nothing deployed."""
     private = _private_tmp(tmp_path, monkeypatch)
     c = _lenient_client(_plan_settings(REAL_CAST_ROOT, tmp_path))
-    r = c.post(f"/api/imprints/{bundle}/plan", json={"target_node": "pxtest1"})
+    r = c.post(f"/api/twins/{bundle}/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:500]
     assert r.json()["ops"] > 0
     assert list(private.iterdir()) == []
@@ -6567,7 +6567,7 @@ def test_a_bundle_of_symlinks_plans_against_the_links_target_directory(tmp_path,
     assert not (link / "scripts").exists()
     assert twin_config_source_dir("mini-cast-prov", catalog_dir=root) == real.resolve()
     c = _lenient_client(_plan_settings(root, tmp_path))
-    r = c.post("/api/imprints/mini-cast-prov/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/mini-cast-prov/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:400]
 
 
@@ -6610,7 +6610,7 @@ def test_cast_summary_publishes_the_node_roster_behind_node_specs_and_vms(tmp_pa
     entry per `nodes[]` spec (its length IS `node_specs`), whose counts sum to
     `vms`, each with its legs' segment names and its fanned-out node ids."""
     c = _client(_settings(CAST_FIXTURES, tmp_path))
-    j = c.get("/api/imprints/mini-cast/cast").json()
+    j = c.get("/api/twins/mini-cast/cast").json()
     roster = j["node_roster"]
     assert len(roster) == j["node_specs"]
     assert sum(n["count"] for n in roster) == j["vms"]
@@ -6626,7 +6626,7 @@ def test_cast_summary_node_roster_on_the_real_hand_authored_corp_twin(tmp_path):
     this asserts on it rather than skipping when absent (LES-352)."""
     assert (REAL_CAST_ROOT / "corp-twin").is_dir(), "twins/corp-twin is checked in"
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    j = c.get("/api/imprints/corp-twin/cast").json()
+    j = c.get("/api/twins/corp-twin/cast").json()
     assert j["has_topology_export"] is False and j["has_provenance"] is False
     roster = j["node_roster"]
     assert len(roster) == j["node_specs"] == 118
@@ -6639,7 +6639,7 @@ def test_imprint_list_says_which_bundles_carry_a_topology_export(tmp_path):
     """The outline's "from capture" / "hand-authored" label: the three real
     cast bundles carry an export, `twins/corp-twin` (hand-authored) does not."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
-    items = {i["id"]: i for i in c.get("/api/imprints").json()["imprints"]}
+    items = {i["id"]: i for i in c.get("/api/twins").json()["imprints"]}
     assert items["corp-twin"]["has_topology_export"] is False
     assert items["corp-twin"]["has_provenance"] is False
     for cast in ("corpapcn-golden", "corpapcn-twin"):

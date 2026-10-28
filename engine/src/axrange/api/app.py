@@ -296,23 +296,23 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def twin_config_detail(config_id: str) -> dtos.TwinConfigDetailDTO:
         return service.twin_config_detail(settings, config_id)
 
-    # ---- imprints (aximprint-integration Track C, `docs/WORK_ORDER_
-    # aximprint_console.md`) -- a read-only belief-store/provenance surface
-    # over a checked-in FIXTURE imprint. axRange reads only the imprint's two
-    # artifact files (twin_config YAML + provenance JSON sidecar) -- never
-    # aximprint itself. ----
-    @app.get("/api/imprints", response_model=dtos.ImprintListDTO)
+    # ---- twins (`docs/design/imprint-twin-split.md`): the catalog of
+    # deployable twin definitions -- cast from an imprint, or authored. These
+    # routes lived under `/api/imprints` until 2026-10-28; the handler and
+    # DTO names still say "imprint" (follow-on §7). axRange reads only the
+    # bundle's artifact files, never aximprint itself. ----
+    @app.get("/api/twins", response_model=dtos.ImprintListDTO)
     @_ro
     def imprints() -> dtos.ImprintListDTO:
-        return service.list_imprints(settings)
+        return service.list_imprints(settings, backend=app.state.discovery_backend)
 
-    @app.get("/api/imprints/{imprint_id}", response_model=dtos.ImprintSummaryDTO)
+    @app.get("/api/twins/{imprint_id}", response_model=dtos.ImprintSummaryDTO)
     @_ro
     def imprint_detail(imprint_id: str) -> dtos.ImprintSummaryDTO:
         return service.imprint_summary(settings, imprint_id)
 
     @app.get(
-        "/api/imprints/{imprint_id}/provenance",
+        "/api/twins/{imprint_id}/provenance",
         response_model=dtos.ImprintProvenanceDTO,
     )
     @_ro
@@ -320,7 +320,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         return service.imprint_provenance(settings, imprint_id)
 
     @app.delete(
-        "/api/imprints/{imprint_id}",
+        "/api/twins/{imprint_id}",
         status_code=204,
         response_class=Response,
         dependencies=[Depends(write_token)],
@@ -382,21 +382,92 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         service.delete_discovery_run(run_id, runs=app.state.discovery_runs)
         return Response(status_code=204)
 
-    # ---- PITs (`api/Spec.md` A1, 2026-10-28): what a bake produced in the
-    # API's IR store, by id and name; the name is the one thing a PIT lets
-    # change, and every run that produced it follows.
-    @app.get("/api/discovery/pits", response_model=dtos.PitListDTO)
+    # ---- imprints (`docs/design/imprint-twin-split.md`): what discovery
+    # produced -- the PITs in the API's IR store, each with a renamable name,
+    # the operator's assertions, and a cast action that lands a twin in the
+    # catalog. `/api/discovery/pits` is kept as an alias of the list and the
+    # rename. Every write runs the aximprint subprocess, so it is a plain
+    # `def` on a worker thread.
+    @app.get("/api/imprints", response_model=dtos.PitListDTO)
+    @app.get("/api/discovery/pits", response_model=dtos.PitListDTO, include_in_schema=False)
     @_ro
-    def discovery_pits() -> dtos.PitListDTO:
+    def imprints_list() -> dtos.PitListDTO:
         return service.list_pits(settings, backend=app.state.discovery_backend)
 
+    @app.get("/api/imprints/{pit}", response_model=dtos.PitDTO)
+    @_ro
+    def imprint_pit_detail(pit: str) -> dtos.PitDTO:
+        return service.pit_detail(settings, pit, backend=app.state.discovery_backend)
+
+    @app.patch(
+        "/api/imprints/{pit}",
+        response_model=dtos.PitDTO,
+        dependencies=[Depends(write_token)],
+    )
     @app.patch(
         "/api/discovery/pits/{pit}",
         response_model=dtos.PitDTO,
         dependencies=[Depends(write_token)],
+        include_in_schema=False,
     )
-    def discovery_pit_rename(pit: str, req: dtos.PitRenameRequest) -> dtos.PitDTO:
+    def imprint_pit_rename(pit: str, req: dtos.PitRenameRequest) -> dtos.PitDTO:
         return service.rename_pit(
+            settings, pit, req, backend=app.state.discovery_backend,
+            runs=app.state.discovery_runs,
+        )
+
+    @app.post(
+        "/api/imprints/{pit}/copy",
+        response_model=dtos.PitDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def imprint_pit_copy(pit: str, req: dtos.PitCopyRequest) -> dtos.PitDTO:
+        return service.copy_pit(settings, pit, req, backend=app.state.discovery_backend)
+
+    @app.delete(
+        "/api/imprints/{pit}",
+        status_code=204,
+        response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def imprint_pit_delete(pit: str) -> Response:
+        service.delete_pit(settings, pit, backend=app.state.discovery_backend,
+                           runs=app.state.discovery_runs)
+        return Response(status_code=204)
+
+    @app.get("/api/imprints/{pit}/assertions", response_model=dtos.AssertionsDocDTO)
+    @_ro
+    def imprint_pit_assertions(response: Response, pit: str) -> dtos.AssertionsDocDTO:
+        doc = service.pit_assertions(settings, pit, backend=app.state.discovery_backend)
+        if doc.etag:
+            response.headers["ETag"] = f'"{doc.etag}"'
+        return doc
+
+    @app.put(
+        "/api/imprints/{pit}/assertions",
+        response_model=dtos.AssertionsDocDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def put_imprint_pit_assertions(
+        response: Response, pit: str, body: dict = Body(...),
+        if_match: Optional[str] = Header(default=None, alias="If-Match"),
+    ) -> dtos.AssertionsDocDTO:
+        doc = service.put_pit_assertions(
+            settings, pit, body, if_match=if_match, backend=app.state.discovery_backend,
+        )
+        if doc.etag:
+            response.headers["ETag"] = f'"{doc.etag}"'
+        return doc
+
+    @app.post(
+        "/api/imprints/{pit}/cast",
+        response_model=dtos.CastResponseDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def imprint_pit_cast(pit: str, req: dtos.CastRequestDTO) -> dtos.CastResponseDTO:
+        return service.cast_pit(
             settings, pit, req, backend=app.state.discovery_backend,
             runs=app.state.discovery_runs,
         )
@@ -491,7 +562,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # like every other read here; the three MUTATING routes (assertions PUT,
     # layout PUT, apply POST) carry the write token. ----
     @app.get(
-        "/api/imprints/{imprint_id}/topology",
+        "/api/twins/{imprint_id}/topology",
         response_model=dtos.TopologyExportDTO,
     )
     @_ro
@@ -502,13 +573,13 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         second implementation)."""
         return service.imprint_topology(settings, imprint_id)
 
-    @app.get("/api/imprints/{imprint_id}/cast", response_model=dtos.CastSummaryDTO)
+    @app.get("/api/twins/{imprint_id}/cast", response_model=dtos.CastSummaryDTO)
     @_ro
     def imprint_cast(imprint_id: str) -> dtos.CastSummaryDTO:
         return service.imprint_cast(settings, imprint_id)
 
     @app.get(
-        "/api/imprints/{imprint_id}/assertions",
+        "/api/twins/{imprint_id}/assertions",
         response_model=dtos.AssertionsDocDTO,
     )
     @_ro
@@ -523,7 +594,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         return doc
 
     @app.put(
-        "/api/imprints/{imprint_id}/assertions",
+        "/api/twins/{imprint_id}/assertions",
         response_model=dtos.AssertionsDocDTO,
         dependencies=[Depends(write_token)],
     )
@@ -538,7 +609,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             response.headers["ETag"] = f'"{doc.etag}"'
         return doc
 
-    @app.get("/api/imprints/{imprint_id}/layout", response_model=dtos.LayoutDocDTO)
+    @app.get("/api/twins/{imprint_id}/layout", response_model=dtos.LayoutDocDTO)
     @_ro
     def imprint_layout(response: Response, imprint_id: str) -> dtos.LayoutDocDTO:
         doc = service.imprint_layout(settings, imprint_id)
@@ -547,7 +618,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         return doc
 
     @app.put(
-        "/api/imprints/{imprint_id}/layout",
+        "/api/twins/{imprint_id}/layout",
         response_model=dtos.LayoutDocDTO,
         dependencies=[Depends(write_token)],
     )
@@ -561,7 +632,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         return doc
 
     @app.post(
-        "/api/imprints/{imprint_id}/apply",
+        "/api/twins/{imprint_id}/apply",
         response_model=dtos.ImprintApplyResponse,
         dependencies=[Depends(write_token)],
     )
@@ -578,7 +649,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             backend=app.state.recompile_backend,
         )
 
-    @app.get("/api/imprints/{imprint_id}/diff", response_model=dtos.ImprintDiffDTO)
+    @app.get("/api/twins/{imprint_id}/diff", response_model=dtos.ImprintDiffDTO)
     @_ro
     def imprint_diff(
         imprint_id: str,
@@ -595,7 +666,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # `imprint_deploy` shares `create_deploy`'s test seams
     # (`app.state.deploy_runner`/`deploy_background`) one-for-one. ----
     @app.post(
-        "/api/imprints/{imprint_id}/plan", response_model=dtos.PlanSummaryDTO,
+        "/api/twins/{imprint_id}/plan", response_model=dtos.PlanSummaryDTO,
     )
     @_ro
     def imprint_plan(
@@ -607,7 +678,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         )
 
     @app.post(
-        "/api/imprints/{imprint_id}/deploy",
+        "/api/twins/{imprint_id}/deploy",
         response_model=dtos.CreateDeployResponse,
         dependencies=[Depends(write_token)],
     )

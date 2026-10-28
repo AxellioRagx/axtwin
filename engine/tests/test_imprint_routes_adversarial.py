@@ -184,7 +184,7 @@ def _client(settings: ApiSettings, *, runner: _MustNotRun | None = None) -> Test
 
 
 def _cast(c: TestClient, name: str) -> dict:
-    r = c.get(f"/api/imprints/{name}/cast")
+    r = c.get(f"/api/twins/{name}/cast")
     assert r.status_code == 200, (name, r.status_code, r.text[:300])
     return r.json()
 
@@ -210,7 +210,7 @@ def test_the_addressing_guard_refuses_on_every_route_that_resolves_an_imprint(tm
     runner = _MustNotRun()
     c = _client(settings, runner=runner)
 
-    listing = c.get("/api/imprints")
+    listing = c.get("/api/twins")
     assert listing.status_code == 200, listing.text[:300]
     body = listing.json()
     assert [e["id"] for e in body["imprints"]] == ["healthy"]
@@ -221,7 +221,7 @@ def test_the_addressing_guard_refuses_on_every_route_that_resolves_an_imprint(tm
         ("GET", ""), ("GET", "/provenance"), ("GET", "/cast"),
         ("POST", "/plan"), ("POST", "/deploy"),
     ):
-        url = f"/api/imprints/renamed{route}"
+        url = f"/api/twins/renamed{route}"
         r = c.post(url, json={"target_node": "pxtest1"}) if method == "POST" else c.get(url)
         assert r.status_code == 400, (method, route, r.status_code, r.text[:300])
         assert "another-twin" in r.json()["error"], (route, r.json()["error"])
@@ -241,7 +241,7 @@ def test_the_addressing_guard_refuses_on_every_route_that_resolves_an_imprint(tm
 def test_the_topology_route_refuses_a_renamed_bundle_too(tmp_path, shape):
     root = tmp_path / "imprints"
     _renamed_catalog(root, shape)
-    r = _client(_settings(tmp_path, root)).get("/api/imprints/renamed/topology")
+    r = _client(_settings(tmp_path, root)).get("/api/twins/renamed/topology")
     assert r.status_code in (400, 404), (r.status_code, r.text[:200])
 
 
@@ -386,7 +386,7 @@ def test_no_route_answers_5xx_on_a_damaged_bundle(damaged, route):
     or skipped with a reason), never silently gone (S5)."""
     c = damaged
     if route == "list":
-        r = c.get("/api/imprints")
+        r = c.get("/api/twins")
         assert r.status_code == 200, (r.status_code, r.text[:300])
         body = r.json()
         listed = [e["id"] for e in body["imprints"]]
@@ -394,9 +394,9 @@ def test_no_route_answers_5xx_on_a_damaged_bundle(damaged, route):
         assert _X in listed + [s["id"] for s in body["skipped"]], body
         return
     if route == "plan":
-        r = c.post(f"/api/imprints/{_X}/plan", json={"target_node": "pxtest1"})
+        r = c.post(f"/api/twins/{_X}/plan", json={"target_node": "pxtest1"})
     else:
-        r = c.get(f"/api/imprints/{_X}" + ("" if route == "summary" else f"/{route}"))
+        r = c.get(f"/api/twins/{_X}" + ("" if route == "summary" else f"/{route}"))
     assert r.status_code < 500, (route, r.status_code, r.text[:300])
 
 
@@ -410,8 +410,8 @@ def test_an_empty_conduits_block_publishes_an_empty_roster_and_keeps_the_legs(tm
     j = _cast(c, "b")
     assert (j["conduits"], j["conduit_roster"]) == (0, [])
     assert j["routers"] == [{"name": "gw", "segments": ["lan", "dmz"]}]
-    assert [e["id"] for e in c.get("/api/imprints").json()["imprints"]] == ["b"]
-    assert c.get("/api/imprints/b").status_code == 200
+    assert [e["id"] for e in c.get("/api/twins").json()["imprints"]] == ["b"]
+    assert c.get("/api/twins/b").status_code == 200
 
 
 def test_a_null_conduits_block_is_one_400_on_every_route_that_parses_the_config(tmp_path):
@@ -421,11 +421,11 @@ def test_a_null_conduits_block_is_one_400_on_every_route_that_parses_the_config(
     root = tmp_path / "imprints"
     _write_bundle(root, "b", conduits="  conduits:\n")
     c = _client(_settings(tmp_path, root))
-    summary = c.get("/api/imprints/b")
+    summary = c.get("/api/twins/b")
     assert summary.status_code == 400 and "conduits" in summary.json()["error"]
-    assert c.get("/api/imprints/b/cast").status_code == 400
-    assert c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"}).status_code == 400
-    body = c.get("/api/imprints").json()
+    assert c.get("/api/twins/b/cast").status_code == 400
+    assert c.post("/api/twins/b/plan", json={"target_node": "pxtest1"}).status_code == 400
+    body = c.get("/api/twins").json()
     assert body["imprints"] == []
     assert body["skipped"] == [{"id": "b", "reason": summary.json()["error"]}]
 
@@ -444,8 +444,8 @@ def test_conduits_naming_absent_segments_are_published_as_written_and_refused_at
         {"from": "lan", "to": "nowhere"}, {"from": "ghost", "to": "dmz"},
     ]
     assert j["conduits"] == 2
-    assert c.get("/api/imprints/b").status_code == 200
-    r = c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/b").status_code == 200
+    r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 400, r.text[:300]
     assert "'lan'->'nowhere'" in r.json()["error"], r.json()["error"]
 
@@ -502,7 +502,7 @@ def test_two_routers_publish_each_its_own_ordered_legs(tmp_path):
     for router in j["routers"]:
         union += [seg for seg in router["segments"] if seg not in union]
     assert union == ["lan", "dmz", "core"]
-    s = c.get("/api/imprints/b").json()
+    s = c.get("/api/twins/b").json()
     assert s["hosts"] == 3 == j["hosts"]
     assert {seg["name"]: seg["host_count"] for seg in s["topology_segments"]} == {
         "lan": 3, "dmz": 0, "core": 0, "iso": 3,
@@ -516,7 +516,7 @@ def test_duplicate_legs_are_published_once_and_never_crash_the_plan(tmp_path):
     assert _cast(c, "b")["routers"] == [{"name": "gw", "segments": ["lan", "dmz"]}]
     # Whether a duplicated HOST leg is legal is the validator's call (it
     # answers 422 today); the contract here is only that it never 5xxs.
-    r = c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"})
+    r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code < 500, (r.status_code, r.text[:300])
 
 
@@ -581,7 +581,7 @@ def test_the_listing_and_the_summary_partition_every_shipped_catalog_identically
     vanishes, none is both, and two reads agree to the byte -- warnings
     included."""
     c = _client(_settings(tmp_path, root))
-    body = c.get("/api/imprints").json()
+    body = c.get("/api/twins").json()
     listed = {e["id"]: e for e in body["imprints"]}
     skipped = {s["id"]: s["reason"] for s in body["skipped"]}
     # `_`-prefixed: a `twins/` root's cross-twin assets folder, never a bundle.
@@ -592,7 +592,7 @@ def test_the_listing_and_the_summary_partition_every_shipped_catalog_identically
     assert not listed.keys() & skipped.keys()
     assert listed.keys() | skipped.keys() == candidates
     for name in sorted(candidates):
-        first, second = c.get(f"/api/imprints/{name}"), c.get(f"/api/imprints/{name}")
+        first, second = c.get(f"/api/twins/{name}"), c.get(f"/api/twins/{name}")
         assert (first.status_code, first.json()) == (second.status_code, second.json()), name
         if name in listed:
             assert first.status_code == 200, (name, first.text[:300])
@@ -620,9 +620,9 @@ def test_a_bundle_lists_if_and_only_if_its_cast_opens(tmp_path, sidecar):
     root = tmp_path / "imprints"
     _write_bundle(root, "b", sidecar=sidecar, export=_export("b"))
     c = _client(_settings(tmp_path, root))
-    listed = "b" in [e["id"] for e in c.get("/api/imprints").json()["imprints"]]
-    summarizes = c.get("/api/imprints/b").status_code == 200
-    opens = c.get("/api/imprints/b/cast").status_code == 200
+    listed = "b" in [e["id"] for e in c.get("/api/twins").json()["imprints"]]
+    summarizes = c.get("/api/twins/b").status_code == 200
+    opens = c.get("/api/twins/b/cast").status_code == 200
     assert listed == summarizes == opens, {
         "listed": listed, "summarizes": summarizes, "cast opens": opens,
     }
@@ -637,8 +637,8 @@ def test_a_non_finite_canonical_confidence_never_publishes_a_null_mean(tmp_path,
         '"b": {"class": "observed", "confidence": 0.6}}}' % literal
     ))
     c = _client(_settings(tmp_path, root))
-    docs = list(c.get("/api/imprints").json()["imprints"])
-    summary = c.get("/api/imprints/b")
+    docs = list(c.get("/api/twins").json()["imprints"])
+    summary = c.get("/api/twins/b")
     if summary.status_code == 200:
         docs.append(summary.json())
     assert docs, "neither listed nor summarized"
@@ -655,8 +655,8 @@ def test_a_cast_bundle_with_relative_script_installs_plans_through_the_api(tmp_p
     shutil.copytree(CAST_FIXTURES / "mini-cast-prov", root / "mini-cast-prov")
     c = _client(_settings(tmp_path, root))
     # R7's half holds: the summary pre-check no longer refuses a cast bundle.
-    assert c.get("/api/imprints/mini-cast-prov").status_code == 200
-    r = c.post("/api/imprints/mini-cast-prov/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/mini-cast-prov").status_code == 200
+    r = c.post("/api/twins/mini-cast-prov/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:400]
 
 
@@ -730,7 +730,7 @@ def test_an_unaddressable_id_is_404_on_every_route(tmp_path, ref):
     c = _client(settings, runner=runner)
     before = _tree(root)
     for method, route, body in _every_route(ref):
-        r = c.request(method, f"/api/imprints/{ref}{route}", json=body)
+        r = c.request(method, f"/api/twins/{ref}{route}", json=body)
         assert r.status_code == 404, (ref, method, route, r.status_code, r.text[:200])
     assert runner.calls == [] and _deploy_rows(settings) == []
     assert _tree(root) == before
@@ -780,12 +780,12 @@ def test_an_unaddressable_bundle_is_400_on_every_route(tmp_path, case):
     before = _tree(root)
     statuses = {}
     for method, route, body in _every_route("b"):
-        r = c.request(method, f"/api/imprints/b{route}", json=body)
+        r = c.request(method, f"/api/twins/b{route}", json=body)
         statuses[f"{method} {route or '(summary)'}"] = r.status_code
     assert set(statuses.values()) == {400}, statuses
     assert runner.calls == [] and _deploy_rows(settings) == []
     assert _tree(root) == before
-    body = c.get("/api/imprints").json()
+    body = c.get("/api/twins").json()
     assert [e["id"] for e in body["imprints"]] == ["healthy"]
     assert [s["id"] for s in body["skipped"]] == ["b"]
 
@@ -805,24 +805,24 @@ def test_an_unrecognized_sidecar_is_present_and_unconsumed_on_every_route(tmp_pa
         "fields": {"twin_config.nodes[1].role": {"class": "observed", "confidence": 0.9}},
     })
     c = _client(_settings(tmp_path, root))
-    summary = c.get("/api/imprints/b")
+    summary = c.get("/api/twins/b")
     assert summary.status_code == 200, summary.text[:300]
     s = summary.json()
     assert (s["sidecar_shape"], s["mean_confidence"], s["confidence_source"]) == (
         "unrecognized", 0.0, "unrecognized sidecar (not consumed)",
     )
     assert any("not one this reader consumes" in w for w in s["warnings"]), s["warnings"]
-    [entry] = c.get("/api/imprints").json()["imprints"]
+    [entry] = c.get("/api/twins").json()["imprints"]
     assert (entry["id"], entry["has_provenance"], entry["confidence_source"]) == (
         "b", True, s["confidence_source"],
     )
     cast = _cast(c, "b")
     assert (cast["sidecar_shape"], cast["has_provenance"]) == ("unrecognized", True)
-    prov = c.get("/api/imprints/b/provenance")
+    prov = c.get("/api/twins/b/provenance")
     assert prov.status_code == 200, prov.text[:300]
     assert (prov.json()["sidecar_shape"], prov.json()["rows"]) == ("unrecognized", [])
-    assert c.get("/api/imprints/b/topology").status_code == 200
-    r = c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/b/topology").status_code == 200
+    r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:300]
 
 
@@ -853,16 +853,16 @@ def test_a_sidecar_without_a_fields_object_is_refused_in_one_voice_by_every_read
     c = _client(_settings(tmp_path, root))
     refusals = {}
     for route in ("", "/cast", "/provenance"):
-        r = c.get(f"/api/imprints/b{route}")
+        r = c.get(f"/api/twins/b{route}")
         assert r.status_code == 400, (route, r.status_code, r.text[:300])
         refusals[route or "summary"] = r.json()["error"]
     assert len(set(refusals.values())) == 1, refusals
     assert "`fields` object" in refusals["summary"], refusals
-    body = c.get("/api/imprints").json()
+    body = c.get("/api/twins").json()
     assert [e["id"] for e in body["imprints"]] == ["healthy"]
     assert body["skipped"] == [{"id": "b", "reason": refusals["summary"]}]
-    assert c.get("/api/imprints/b/topology").status_code == 200
-    r = c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/b/topology").status_code == 200
+    r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:300]
 
 
@@ -924,9 +924,9 @@ def test_a_mistyped_nested_export_field_is_never_a_5xx(tmp_path, case):
     root = tmp_path / "imprints"
     _write_bundle(root, "b", export=_NESTED[case])
     c = _client(_settings(tmp_path, root))
-    statuses = {"list": c.get("/api/imprints").status_code}
+    statuses = {"list": c.get("/api/twins").status_code}
     for route in ("", "/topology", "/cast", "/provenance"):
-        statuses[route or "summary"] = c.get(f"/api/imprints/b{route}").status_code
+        statuses[route or "summary"] = c.get(f"/api/twins/b{route}").status_code
     assert all(status < 500 for status in statuses.values()), statuses
     assert (statuses["summary"], statuses["list"]) == (200, 200), statuses
 
@@ -961,8 +961,8 @@ def test_multi_router_content_is_published_as_the_raw_config_spells_it(tmp_path,
     c = _client(_settings(tmp_path, root))
     cast = _cast(c, "b")
     _assert_roster_is_the_raw_config(d / "b.yaml", cast)
-    assert c.get("/api/imprints/b").json()["hosts"] == 1
-    r = c.post("/api/imprints/b/plan", json={"target_node": "pxtest1"})
+    assert c.get("/api/twins/b").json()["hosts"] == 1
+    r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code < 500, r.text[:300]
 
 
@@ -1049,10 +1049,10 @@ def test_the_symlinked_pit_bundle_passes_the_guard_on_its_operator_read_routes(t
     links = _links(real_pit)
     c = _client(_settings(tmp_path, root))
     for route in ("/assertions", "/layout"):
-        r = c.get(f"/api/imprints/{PIT}{route}")
+        r = c.get(f"/api/twins/{PIT}{route}")
         assert r.status_code == 200, (route, r.text[:300])
         assert r.json()["imprint_id"] == PIT
-    r = c.get(f"/api/imprints/{PIT}/diff?since=0123456789abcdef")
+    r = c.get(f"/api/twins/{PIT}/diff?since=0123456789abcdef")
     assert r.status_code == 404, r.text[:300]
     assert "twin_config.id" not in r.json()["error"], r.json()["error"]
     assert _links(real_pit) == links
@@ -1100,18 +1100,18 @@ def test_the_symlinked_pit_bundle_takes_operator_writes_without_writing_through_
     app.state.recompile_backend = backend
     c = TestClient(app, raise_server_exceptions=False)
 
-    layout = c.get(f"/api/imprints/{PIT}/layout")
+    layout = c.get(f"/api/twins/{PIT}/layout")
     assert layout.status_code == 200, layout.text[:300]
     etag = layout.json()["etag"]
-    put = c.put(f"/api/imprints/{PIT}/layout", json=_layout_doc(PIT),
+    put = c.put(f"/api/twins/{PIT}/layout", json=_layout_doc(PIT),
                 headers={"If-Match": etag} if etag else {})
     assert put.status_code == 200, put.text[:300]
-    applied = c.post(f"/api/imprints/{PIT}/apply", json={"document": _assertions_doc(PIT)})
+    applied = c.post(f"/api/twins/{PIT}/apply", json={"document": _assertions_doc(PIT)})
     assert applied.status_code == 200, applied.text[:400]
     assert len(backend.calls) == 1
-    diff = c.get(f"/api/imprints/{PIT}/diff?since={applied.json()['fingerprint_before']}")
+    diff = c.get(f"/api/twins/{PIT}/diff?since={applied.json()['fingerprint_before']}")
     assert diff.status_code == 200, diff.text[:300]
-    assert c.get(f"/api/imprints/{PIT}/assertions").json()["exists"] is True
+    assert c.get(f"/api/twins/{PIT}/assertions").json()["exists"] is True
 
     assert _links(pit) == links
     assert _digest(disco) == disco_before

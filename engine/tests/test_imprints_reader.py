@@ -511,7 +511,7 @@ def test_load_imprint_summary_well_formed_fixture_publishes_directory_name(tmp_p
     """The positive case: when all three ids genuinely agree, the published
     `id` is the directory name (`load_imprint_summary`'s own `imprint_id`
     argument) — the SAME value a caller used to look it up, guaranteeing
-    `GET /api/imprints/{id}` round-trips."""
+    `GET /api/twins/{id}` round-trips."""
     _write_fixture(tmp_path, "aligned")
     s = load_imprint_summary("aligned", fixtures_dir=tmp_path)
     assert s.id == "aligned"
