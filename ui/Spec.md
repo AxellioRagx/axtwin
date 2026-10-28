@@ -113,6 +113,15 @@ its listed tests pass. T0.x is the release gate for UI v0.
   `15.5 TB`), the sensor's sites as a table, never as raw JSON; the access line
   carries the credential state (`password stored` / `no password stored`).
   *(`source.page.test.tsx`, `sources.model.test.ts`.)*
+- C1.8 (auto) A run page draws its window as a bar: the bounds at the ends,
+  the point the ingest has reached (`progress_ts`) as the fill, the covered
+  days out of the total, and the remainder at the rate so far; full once
+  ingest is done. The runs list carries the same figure as a column.
+  *(`run.page.test.tsx`.)*
+- C1.9 (auto) A queued or running run offers "Cancel run" behind a
+  confirmation; the badge reads `cancelling` from the request until the next
+  poll finds the stage dead, then `cancelled` with what was cleaned up. A
+  finished run offers no cancel. *(`run.page.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

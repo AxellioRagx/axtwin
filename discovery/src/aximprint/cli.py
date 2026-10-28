@@ -333,9 +333,12 @@ def _pipeline(plugin_name: str, source: str, *, ts_from: float | None, ts_to: fl
                 ) from exc
             written.append(name)
         windows += 1
+        # `flush=True`: `axrange serve` reads this line as the run's progress while the
+        # ingest is still going; block-buffered into a pipe it would arrive at exit.
         print(f"window {win.window_start:.0f}: "
               f"{len(win.nodes)} entities, {len(win.edges)} edges, "
-              f"{len(assertions)} assertions, health={win.health['event_counts']}")
+              f"{len(assertions)} assertions, health={win.health['event_counts']}",
+              flush=True)
 
     try:
         for win in wm.process(plugin.events(source, ts_from, ts_to)):

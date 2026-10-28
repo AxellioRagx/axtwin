@@ -82,7 +82,7 @@ class _FakeDiscovery:
         return {"supported": True, "reachable": True, "error": None, **SPAN,
                 "vantage": "axellio-hq/corp-apcn-rdr1:12", "extra": {"chunks": 69}}
 
-    def run(self, request, *, on_stage):
+    def run(self, request, *, on_stage, on_progress=None, handle=None):
         self.requests.append(request)
         if self._run is not None:
             return self._run(request, on_stage)

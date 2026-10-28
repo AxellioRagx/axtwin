@@ -110,7 +110,7 @@ export interface SourceRunRequest {
   sensors?: string[];
 }
 
-export type RunStatus = "queued" | "running" | "completed" | "failed";
+export type RunStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface DiscoveryRun {
   id: string;
@@ -128,6 +128,11 @@ export interface DiscoveryRun {
   ts_from: number | null;
   ts_to: number | null;
   via: string | null;
+  /** Source time the ingest has reached (the end of the last window it closed), and when it said so. */
+  progress_ts: number | null;
+  progress_at: string | null;
+  /** Set once a cancel was asked for; the status turns `cancelled` when the stage is dead. */
+  cancel_requested_at: string | null;
 }
 
 export interface DiscoveryRunList {

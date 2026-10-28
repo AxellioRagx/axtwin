@@ -9,6 +9,7 @@
  */
 import type {
   DiscoveryPlugin,
+  DiscoveryRun,
   DiscoverySource,
   JsonSchemaProperty,
   Probe,
@@ -302,4 +303,29 @@ export function describeAccess(src: DiscoverySource): string {
     return `SSH tunnel via ${s.user}@${s.host}:${s.port}, ${auth}`;
   }
   return `direct, ${auth}`;
+}
+
+export interface RunProgress {
+  /** 0..1 of the window the ingest has covered; 1 once ingest is done. */
+  fraction: number;
+  /** Source time reached, or null before the first window closed. */
+  reached: number | null;
+  /** Seconds the rest should take at the rate so far; null until there is a rate. */
+  remainingS: number | null;
+  ingestDone: boolean;
+}
+
+/** Where a run is in its window, from what the record says and the wall clock. */
+export function runProgress(run: DiscoveryRun, nowMs: number): RunProgress | null {
+  if (run.ts_from === null || run.ts_to === null || run.ts_to <= run.ts_from) return null;
+  const ingestDone = run.stages_done.includes("ingest");
+  const span = run.ts_to - run.ts_from;
+  if (ingestDone) return { fraction: 1, reached: run.ts_to, remainingS: null, ingestDone };
+  // `== null`: an API built before progress existed answers without the field at all.
+  const reached = run.progress_ts == null ? null : Math.min(Math.max(run.progress_ts, run.ts_from), run.ts_to);
+  const covered = reached === null ? 0 : reached - run.ts_from;
+  const startedMs = run.started_at ? Date.parse(run.started_at) : NaN;
+  const elapsedS = Number.isFinite(startedMs) ? (nowMs - startedMs) / 1000 : NaN;
+  const remainingS = covered > 0 && elapsedS > 0 ? ((span - covered) / covered) * elapsedS : null;
+  return { fraction: covered / span, reached, remainingS, ingestDone };
 }

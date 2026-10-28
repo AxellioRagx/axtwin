@@ -504,7 +504,7 @@ class DiscoveryRunRequest(BaseModel):
 
 class DiscoveryRunDTO(BaseModel):
     id: str
-    status: str  # queued | running | completed | failed
+    status: str  # queued | running | completed | failed | cancelled
     plugin: str
     imprint_id: str
     # The four stages in order; the ones that have finished.
@@ -522,6 +522,13 @@ class DiscoveryRunDTO(BaseModel):
     ts_from: Optional[float] = None
     ts_to: Optional[float] = None
     via: Optional[str] = None
+    # Source time the ingest has reached (epoch seconds; the end of the last window it
+    # closed) and when it last said so. Null until the first window closes; the stage
+    # list says when ingest is over.
+    progress_ts: Optional[float] = None
+    progress_at: Optional[str] = None
+    # Set once a cancel was asked for; the status turns `cancelled` when the stage is dead.
+    cancel_requested_at: Optional[str] = None
 
 
 class DiscoveryRunListDTO(BaseModel):

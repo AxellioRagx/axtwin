@@ -25,14 +25,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
+import signal
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 from axrange.api.recompile import (
     CAST_VERB,
@@ -53,6 +55,16 @@ STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
+STATUS_CANCELLED = "cancelled"
+ACTIVE_STATUSES = (STATUS_QUEUED, STATUS_RUNNING)
+
+#: Seconds between SIGTERM and SIGKILL when a run is cancelled.
+CANCEL_GRACE_S = 5.0
+
+#: What `aximprint ingest` prints as each window closes: `window <start>: ...`. The start
+#: plus the window length is the point in source time the ingest has reached -- a window
+#: closes only when an event past its end has arrived.
+_WINDOW_LINE = re.compile(r"^window (\d+(?:\.\d+)?):")
 
 
 class DiscoveryError(Exception):
@@ -61,6 +73,66 @@ class DiscoveryError(Exception):
 
 class DiscoveryUnavailableError(DiscoveryError):
     """The binary cannot be run at all (unset, missing, not executable)."""
+
+
+class DiscoveryCancelled(DiscoveryError):
+    """The operator cancelled the run; the stage's process was killed on purpose."""
+
+
+def progress_from_line(line: str, window_seconds: float) -> Optional[float]:
+    """The source-time position a `window <start>:` line proves the ingest has passed."""
+    m = _WINDOW_LINE.match(line)
+    if not m:
+        return None
+    return float(m.group(1)) + float(window_seconds)
+
+
+class RunHandle:
+    """The one thing a cancel can reach: whichever subprocess the run is in right now.
+
+    `cancel()` marks the handle and kills the attached process GROUP (every stage is
+    started in its own session, so a plugin's own children die with it); a stage that
+    attaches after the mark is killed on attach. SIGTERM first, SIGKILL after
+    `CANCEL_GRACE_S` if the process is still there.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._proc: Optional[subprocess.Popen] = None
+        self.cancelled = False
+
+    def attach(self, proc: subprocess.Popen) -> None:
+        with self._lock:
+            self._proc = proc
+            if self.cancelled:
+                _kill_group(proc)
+
+    def detach(self) -> None:
+        with self._lock:
+            self._proc = None
+
+    def cancel(self) -> None:
+        with self._lock:
+            self.cancelled = True
+            proc = self._proc
+        if proc is not None:
+            _kill_group(proc)
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    def _sig(sig: int) -> None:
+        try:
+            os.killpg(proc.pid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+    _sig(signal.SIGTERM)
+
+    def _escalate() -> None:
+        if proc.poll() is None:
+            _sig(signal.SIGKILL)
+
+    threading.Timer(CANCEL_GRACE_S, _escalate).start()
 
 
 @dataclass
@@ -89,7 +161,9 @@ class DiscoveryBackend(Protocol):
 
     def probe(self, plugin: str, source: str, *, env: dict[str, str]) -> dict[str, Any]: ...
 
-    def run(self, request: DiscoveryRunRequest, *, on_stage) -> DiscoveryRunResult: ...
+    def run(self, request: DiscoveryRunRequest, *, on_stage,
+            on_progress: Optional[Callable[[float], None]] = None,
+            handle: Optional[RunHandle] = None) -> DiscoveryRunResult: ...
 
 
 # ---------------------------------------------------------------------------
@@ -230,17 +304,30 @@ class SubprocessDiscovery:
             argv += ["--sensors", *r.sensors]
         return argv
 
-    def run(self, r: DiscoveryRunRequest, *, on_stage) -> DiscoveryRunResult:
+    def run(self, r: DiscoveryRunRequest, *, on_stage,
+            on_progress: Optional[Callable[[float], None]] = None,
+            handle: Optional[RunHandle] = None) -> DiscoveryRunResult:
         done: list[str] = []
 
         def _did(stage: str) -> None:
             done.append(stage)
             on_stage(stage)
 
-        self._run(self.build_ingest_argv(r), stage="ingest", env=r.env)
+        window_seconds = float(r.config.get("window") or 3600)
+
+        def _ingest_line(line: str) -> None:
+            if on_progress is None:
+                return
+            ts = progress_from_line(line, window_seconds)
+            if ts is not None:
+                on_progress(ts)
+
+        self._run(self.build_ingest_argv(r), stage="ingest", env=r.env,
+                  on_line=_ingest_line, handle=handle)
         _did("ingest")
 
-        proc = self._run(self.build_materialize_argv(r), stage="materialize", env=r.env)
+        proc = self._run(self.build_materialize_argv(r), stage="materialize", env=r.env,
+                         handle=handle)
         try:
             pit_id = str(json.loads(proc.stdout or "")["pit_id"])
         except (ValueError, KeyError, TypeError) as e:
@@ -250,36 +337,84 @@ class SubprocessDiscovery:
             ) from e
         _did("materialize")
 
-        self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB, env=r.env)
+        self._run(self.build_cast_argv(r, pit_id), stage=CAST_VERB, env=r.env, handle=handle)
         _did("cast")
 
-        self._run(self.build_install_argv(r), stage=INSTALL_VERB, env=r.env)
+        self._run(self.build_install_argv(r), stage=INSTALL_VERB, env=r.env, handle=handle)
         _did("install")
         return DiscoveryRunResult(pit_id=pit_id, stages=done)
 
     def _run(self, argv: list[str], *, stage: str, env: Optional[dict[str, str]] = None,
-             ok_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
+             ok_codes: tuple[int, ...] = (0,),
+             on_line: Optional[Callable[[str], None]] = None,
+             handle: Optional[RunHandle] = None) -> subprocess.CompletedProcess:
+        """One stage, streamed: stdout is read line by line as it arrives (`on_line` is
+        how ingest progress reaches the run record), stderr is collected for the error
+        tail, the process runs in its own session so a cancel or a timeout kills it and
+        everything it started. `PYTHONUNBUFFERED` because a Python child block-buffers a
+        pipe, and a progress line that arrives at exit is no progress at all."""
+        full_env = {**os.environ, **(env or {}), "PYTHONUNBUFFERED": "1"}
         try:
-            proc = subprocess.run(  # noqa: S603 -- argv list, no shell
-                argv, capture_output=True, text=True, timeout=self.timeout_s,
-                env={**os.environ, **env} if env else None,
+            proc = subprocess.Popen(  # noqa: S603 -- argv list, no shell
+                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                env=full_env, start_new_session=True,
             )
         except OSError as e:
             raise DiscoveryUnavailableError(
                 f"cannot run {self.binary!r}: {e} (set {SETTING_BIN} to the aximprint "
                 "executable)"
             ) from e
-        except subprocess.TimeoutExpired as e:
+        if handle is not None:
+            handle.attach(proc)
+        err_chunks: list[str] = []
+
+        def _drain_stderr() -> None:
+            assert proc.stderr is not None
+            for chunk in proc.stderr:
+                err_chunks.append(chunk)
+                # Keep the tail only; a plugin's stderr over a multi-day read is unbounded.
+                if len(err_chunks) > 400:
+                    del err_chunks[:200]
+
+        timed_out = threading.Event()
+
+        def _on_timeout() -> None:
+            timed_out.set()
+            _kill_group(proc)
+
+        timer = threading.Timer(self.timeout_s, _on_timeout)
+        timer.daemon = True
+        reader = threading.Thread(target=_drain_stderr, name=f"{stage}-stderr", daemon=True)
+        timer.start()
+        reader.start()
+        out_lines: list[str] = []
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                out_lines.append(line)
+                if on_line is not None:
+                    on_line(line.rstrip("\n"))
+            proc.wait()
+        finally:
+            timer.cancel()
+            reader.join()
+            if handle is not None:
+                handle.detach()
+        stdout = "".join(out_lines)
+        stderr = "".join(err_chunks)
+        if handle is not None and handle.cancelled:
+            raise DiscoveryCancelled(f"{stage} cancelled by the operator")
+        if timed_out.is_set():
             raise DiscoveryError(
                 f"{stage} timed out after {self.timeout_s:g}s: "
-                f"{stderr_tail(e.stderr if isinstance(e.stderr, str) else '') or '<no stderr>'}"
-            ) from e
+                f"{stderr_tail(stderr) or '<no stderr>'}"
+            )
         if proc.returncode not in ok_codes:
             raise DiscoveryError(
                 f"{stage} failed (exit {proc.returncode}): "
-                f"{stderr_tail(clip(proc.stderr or '')) or '<no stderr>'}"
+                f"{stderr_tail(clip(stderr)) or '<no stderr>'}"
             )
-        return proc
+        return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +439,11 @@ class DiscoveryRun:
     ts_to: Optional[float] = None
     #: How the source was reached ("direct", "ssh ... via 127.0.0.1:NNN"); no secret.
     via: Optional[str] = None
+    #: Source time the ingest has reached (`progress_from_line`), and when it said so.
+    progress_ts: Optional[float] = None
+    progress_at: Optional[float] = None
+    #: When a cancel was asked for; the status turns `cancelled` once the stage is dead.
+    cancel_requested_at: Optional[float] = None
 
 
 class DiscoveryRuns:
@@ -312,6 +452,30 @@ class DiscoveryRuns:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._runs: dict[str, DiscoveryRun] = {}
+        self._handles: dict[str, RunHandle] = {}
+
+    def handle_for(self, run_id: str) -> RunHandle:
+        """The run's cancel handle, made on first ask so a cancel that lands before the
+        job thread has started still reaches the first stage."""
+        with self._lock:
+            h = self._handles.get(run_id)
+            if h is None:
+                h = self._handles[run_id] = RunHandle()
+            return h
+
+    def cancel(self, run_id: str) -> bool:
+        """Ask a queued/running run to stop. False when it is not active."""
+        with self._lock:
+            r = self._runs.get(run_id)
+            if r is None or r.status not in ACTIVE_STATUSES:
+                return False
+            if r.cancel_requested_at is None:
+                r.cancel_requested_at = time.time()
+            h = self._handles.get(run_id)
+            if h is None:
+                h = self._handles[run_id] = RunHandle()
+        h.cancel()
+        return True
 
     def new(self, plugin: str, imprint_id: str, config: dict[str, Any],
             *, source_id: Optional[str] = None) -> DiscoveryRun:
@@ -380,7 +544,15 @@ def execute_run(
     """
     runs.update(run_id, status=STATUS_RUNNING, started_at=time.time())
     try:
-        result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s))
+        _discard_stale_belief_store(request)
+        result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s),
+                             on_progress=_progress_sink(runs, run_id),
+                             handle=runs.handle_for(run_id))
+    except DiscoveryCancelled as e:
+        _discard_partial_bundle(request)
+        _discard_stale_belief_store(request)
+        runs.update(run_id, status=STATUS_CANCELLED, error=str(e), finished_at=time.time())
+        return
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
         _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
@@ -390,6 +562,12 @@ def execute_run(
         shutil.rmtree(request.scratch_dir, ignore_errors=True)
     runs.update(run_id, status=STATUS_COMPLETED, pit_id=result.pit_id,
                 finished_at=time.time())
+
+
+def _progress_sink(runs: "DiscoveryRuns", run_id: str) -> Callable[[float], None]:
+    def _sink(ts: float) -> None:
+        runs.update(run_id, progress_ts=ts, progress_at=time.time())
+    return _sink
 
 
 def execute_source_run(
@@ -420,7 +598,15 @@ def execute_source_run(
                 request.config["ts_to"] = ts_to
             runs.update(run_id, config=dict(request.config),
                         ts_from=request.config.get("ts_from"), ts_to=request.config.get("ts_to"))
-            result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s))
+            _discard_stale_belief_store(request)
+            result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s),
+                                 on_progress=_progress_sink(runs, run_id),
+                                 handle=runs.handle_for(run_id))
+    except DiscoveryCancelled as e:
+        _discard_partial_bundle(request)
+        _discard_stale_belief_store(request)
+        runs.update(run_id, status=STATUS_CANCELLED, error=str(e), finished_at=time.time())
+        return
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
         _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
@@ -436,6 +622,20 @@ def _discard_partial_bundle(request: DiscoveryRunRequest) -> None:
     d = request.catalog_root / request.imprint_id
     if d.is_dir() and not d.is_symlink():
         shutil.rmtree(d, ignore_errors=True)
+
+
+def _discard_stale_belief_store(request: DiscoveryRunRequest) -> None:
+    """The belief store under this imprint id is this run's to write. One that already
+    exists can only be what an earlier failed or cancelled run left (a completed run's
+    bundle would have refused this run at POST), and ingesting on top of it would merge
+    two reads into one store. Removed, with DuckDB's `-wal`."""
+    for suffix in ("", ".wal"):
+        p = Path(f"{request.belief_store}{suffix}")
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 
 def unset_settings(settings: Any) -> Optional[str]:

@@ -106,6 +106,14 @@ button:disabled { opacity: 0.55; cursor: default; }
 .badge.running, .badge.queued { color: var(--warn); border-color: var(--warn); }
 .badge.completed { color: var(--ok); border-color: var(--ok); }
 .badge.failed { color: var(--bad); border-color: var(--bad); }
+.badge.cancelled, .badge.cancelling { color: var(--muted); border-color: var(--muted); }
+.progress-block { margin: 10px 0; }
+.progress { position: relative; height: 12px; border-radius: 6px; background: var(--line); overflow: visible; }
+.progress-fill { height: 100%; border-radius: 6px; background: var(--ok); transition: width 0.4s ease; }
+.progress-mark { position: absolute; top: -4px; width: 2px; height: 20px; margin-left: -1px; background: var(--fg); }
+.progress-ends { display: flex; justify-content: space-between; font-size: 12px; margin-top: 4px; }
+.progress-line { margin: 6px 0 0; }
+.cancel { display: flex; align-items: center; gap: 8px; }
 .stages { list-style: none; padding: 0; margin: 8px 0; display: flex; gap: 14px; flex-wrap: wrap; }
 .stages li { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
 .stages li.done { color: var(--ok); border-color: var(--ok); }

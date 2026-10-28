@@ -110,7 +110,9 @@ curl -s :8080/api/discovery/plugins
 curl -s -X POST :8080/api/discovery/runs -H "Authorization: Bearer $AXRANGE_API_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"plugin":"zeek","config":{"source":"/path/to/zeek/logs"},"imprint_id":"corp-imprint"}'
-curl -s :8080/api/discovery/runs/<run id>      # queued | running | completed | failed
+curl -s :8080/api/discovery/runs/<run id>      # queued | running | completed | failed | cancelled;
+                                               # progress_ts = source time the ingest has reached
+curl -s -X POST -H "Authorization: Bearer $AXRANGE_API_TOKEN" :8080/api/discovery/runs/<run id>/cancel   # 202; kills the stage, removes the partial bundle + belief store
 curl -s :8080/api/imprints/corp-imprint        # resolves once completed
 ```
 

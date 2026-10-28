@@ -89,7 +89,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -195,9 +195,22 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         ts_from: null,
         ts_to: null,
         via: null,
+        progress_ts: null,
+        progress_at: null,
+        cancel_requested_at: null,
       };
       state.runs.unshift(run);
       return { ...run };
+    },
+    async cancelRun(id) {
+      state.writes.push({ op: "cancel", id });
+      if (state.refuse.cancel) throw state.refuse.cancel;
+      const r = state.runs.find((x) => x.id === id);
+      if (!r) throw notFound(`discovery run '${id}'`);
+      r.cancel_requested_at = "2026-10-28T12:00:00Z";
+      // The next poll finds the stage dead.
+      state.runSteps.unshift({ status: "cancelled", finished_at: "2026-10-28T12:00:03Z", error: "ingest cancelled by the operator" });
+      return { ...r, stages_done: [...r.stages_done] };
     },
     async listRuns() {
       return { runs: state.runs };

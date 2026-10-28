@@ -71,7 +71,7 @@ class _FakeDiscovery:
     def list_plugins(self):
         return list(self.plugins)
 
-    def run(self, request, *, on_stage):
+    def run(self, request, *, on_stage, on_progress=None, handle=None):
         self.requests.append(request)
         if self.behaviour is not None:
             return self.behaviour(request, on_stage)
@@ -455,3 +455,151 @@ def test_a_real_discovery_run_lands_an_imprint_the_catalog_serves(tmp_path):
     r = c.post("/api/discovery/runs", json={
         "plugin": "zeek", "config": {"source": str(capture)}, "imprint_id": "office-b"})
     assert r.status_code == 202 and r.json()["status"] == "completed", r.text
+
+
+# ---------------------------------------------------------------------------
+# A1.4 -- progress and cancel
+# ---------------------------------------------------------------------------
+def test_a_window_line_is_the_point_the_ingest_has_reached():
+    assert disc.progress_from_line("window 1790452800: 240 entities, 900 edges", 3600) == 1790456400.0
+    assert disc.progress_from_line("window 100.0: x", 60) == 160.0
+    assert disc.progress_from_line("store sink complete: 3 window(s)", 3600) is None
+    assert disc.progress_from_line("", 3600) is None
+
+
+_SLOW_CHILD = (
+    "import sys, time\n"
+    "for i in range(200):\n"
+    "    print(f'window {i * 60}: 1 entities', flush=True)\n"
+    "    time.sleep(0.05)\n"
+)
+
+
+def test_a_stage_streams_its_stdout_and_a_cancel_kills_it_mid_way():
+    """The real mechanism: a child in its own session, read line by line, killed as a
+    group when the handle is cancelled, reported as `DiscoveryCancelled` not as a
+    failure."""
+    be = disc.SubprocessDiscovery(sys.executable, timeout_s=30)
+    handle = disc.RunHandle()
+    seen: list[str] = []
+
+    def on_line(line: str) -> None:
+        seen.append(line)
+        if len(seen) == 3:
+            handle.cancel()
+
+    import time as _t
+    t0 = _t.monotonic()
+    with pytest.raises(disc.DiscoveryCancelled, match="ingest cancelled"):
+        be._run([sys.executable, "-c", _SLOW_CHILD], stage="ingest", on_line=on_line, handle=handle)
+    assert _t.monotonic() - t0 < 5, "the cancel killed the child; it did not run to the end"
+    assert seen[:3] == ["window 0: 1 entities", "window 60: 1 entities", "window 120: 1 entities"]
+    assert len(seen) < 200
+
+
+def test_a_cancel_that_lands_before_the_stage_starts_kills_it_on_attach():
+    be = disc.SubprocessDiscovery(sys.executable, timeout_s=30)
+    handle = disc.RunHandle()
+    handle.cancel()
+    with pytest.raises(disc.DiscoveryCancelled):
+        be._run([sys.executable, "-c", _SLOW_CHILD], stage="ingest", handle=handle)
+
+
+def test_a_stage_past_its_budget_is_killed_and_reported_as_a_timeout():
+    be = disc.SubprocessDiscovery(sys.executable, timeout_s=0.5)
+    with pytest.raises(disc.DiscoveryError, match="timed out after 0.5s"):
+        be._run([sys.executable, "-c", _SLOW_CHILD], stage="ingest")
+
+
+def test_the_chain_reports_ingest_progress_from_window_lines(tmp_path):
+    """`run()` turns the ingest's `window N:` lines into `on_progress(N + window)` and
+    passes the handle to every stage; the other stages are stubbed by argv."""
+    be = disc.SubprocessDiscovery(sys.executable, timeout_s=30)
+    r = _request(tmp_path, window=600)
+    r.scratch_dir.mkdir(parents=True, exist_ok=True)
+    say = "import sys; print(sys.argv[-1])"
+    be.build_ingest_argv = lambda rq: [sys.executable, "-c", "print('window 1200: 1 entities'); print('window 1800: 2 entities'); print('store sink complete')"]  # type: ignore[method-assign]
+    be.build_materialize_argv = lambda rq: [sys.executable, "-c", say, '{"pit_id": "pit-x"}']  # type: ignore[method-assign]
+    be.build_cast_argv = lambda rq, pit: [sys.executable, "-c", say, "cast"]  # type: ignore[method-assign]
+    be.build_install_argv = lambda rq: [sys.executable, "-c", say, "install"]  # type: ignore[method-assign]
+    progress: list[float] = []
+    stages: list[str] = []
+    result = be.run(r, on_stage=stages.append, on_progress=progress.append, handle=disc.RunHandle())
+    assert progress == [1800.0, 2400.0]
+    assert stages == ["ingest", "materialize", "cast", "install"]
+    assert result.pit_id == "pit-x"
+
+
+def test_cancel_over_the_api_stops_a_queued_run_and_clears_what_it_wrote(tmp_path):
+    """A run held in the queue (the job is captured, not run) is cancelled over the API:
+    202 with `cancel_requested_at`, and when the job then runs its first stage sees the
+    handle already cancelled, so the record turns `cancelled`, the half bundle and the
+    belief store are gone, and the imprint id is free again."""
+    settings = _settings(tmp_path)
+    jobs = []
+
+    def _behaviour(request, on_stage, on_progress=None, handle=None):
+        on_progress(1790456400.0)
+        half = request.catalog_root / request.imprint_id
+        half.mkdir()
+        request.belief_store.write_bytes(b"partial")
+        if handle is not None and handle.cancelled:
+            raise disc.DiscoveryCancelled("ingest cancelled by the operator")
+        on_stage("ingest")
+        return disc.DiscoveryRunResult(pit_id="pit-fake", stages=["ingest"])
+
+    be = _FakeDiscovery()
+    be.run = lambda request, *, on_stage, on_progress=None, handle=None: _behaviour(  # type: ignore[method-assign]
+        request, on_stage, on_progress, handle)
+    c = _client(settings, backend=be, background=jobs.append)
+    run = c.post("/api/discovery/runs", json=_run_body()).json()
+    assert run["status"] == "queued" and run["progress_ts"] is None
+
+    r = c.post(f"/api/discovery/runs/{run['id']}/cancel")
+    assert r.status_code == 202, r.text
+    assert r.json()["cancel_requested_at"] is not None
+    assert r.json()["status"] == "queued", "the status turns only when the stage is dead"
+
+    (job,) = jobs
+    job()
+    done = c.get(f"/api/discovery/runs/{run['id']}").json()
+    assert done["status"] == "cancelled"
+    assert done["progress_ts"] == 1790456400.0 and done["progress_at"] is not None
+    assert "cancelled by the operator" in done["error"]
+    assert _catalog_untouched(settings)
+    assert not (Path(settings.aximprint_store).parent / "site-a.belief.duckdb").exists()
+    # The id is free again, and a second cancel of a finished run is a 409 naming its state.
+    assert c.post(f"/api/discovery/runs/{run['id']}/cancel").status_code == 409
+    assert "already cancelled" in c.post(f"/api/discovery/runs/{run['id']}/cancel").json()["error"]
+    assert c.post("/api/discovery/runs/disc-nope/cancel").status_code == 404
+
+
+def test_cancel_is_a_write(tmp_path):
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    c = _client(settings, backend=_FakeDiscovery())
+    run = c.post("/api/discovery/runs", json=_run_body(), headers={"Authorization": "Bearer s3cret"}).json()
+    assert c.post(f"/api/discovery/runs/{run['id']}/cancel").status_code == 401
+    assert c.post(f"/api/discovery/runs/{run['id']}/cancel",
+                  headers={"Authorization": "Bearer s3cret"}).status_code == 409
+
+
+def test_a_stale_belief_store_from_an_earlier_failed_run_is_removed_before_ingest(tmp_path):
+    settings = _settings(tmp_path)
+    stale = Path(settings.aximprint_store).parent / "site-a.belief.duckdb"
+    stale.write_bytes(b"left by a failed run")
+    Path(f"{stale}.wal").write_bytes(b"wal")
+    seen = {}
+
+    def _behaviour(request, on_stage, **kw):
+        seen["present_at_ingest"] = request.belief_store.exists()
+        for s in disc.STAGES:
+            on_stage(s)
+        return disc.DiscoveryRunResult(pit_id="pit-fake", stages=list(disc.STAGES))
+
+    be = _FakeDiscovery()
+    be.run = lambda request, *, on_stage, on_progress=None, handle=None: _behaviour(request, on_stage)  # type: ignore[method-assign]
+    c = _client(settings, backend=be)
+    assert c.post("/api/discovery/runs", json=_run_body()).json()["status"] == "completed"
+    assert seen["present_at_ingest"] is False
+    assert not Path(f"{stale}.wal").exists()

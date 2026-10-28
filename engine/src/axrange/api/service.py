@@ -3428,7 +3428,21 @@ def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
         created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
         source_id=run.source_id, started_at=_iso(run.started_at),
         ts_from=run.ts_from, ts_to=run.ts_to, via=run.via,
+        progress_ts=run.progress_ts, progress_at=_iso(run.progress_at),
+        cancel_requested_at=_iso(run.cancel_requested_at),
     )
+
+
+def cancel_discovery_run(run_id: str, *, runs: Any) -> dtos.DiscoveryRunDTO:
+    """Stop a queued/running run: the stage's process group is killed, the partial
+    bundle and belief store are removed, the record turns `cancelled`. A run that has
+    already finished is a 409 that names its status."""
+    run = runs.snapshot(run_id)
+    if run is None:
+        raise ApiError(404, f"no discovery run {run_id!r}")
+    if not runs.cancel(run_id):
+        raise ApiError(409, f"discovery run {run_id!r} is already {run.status}; nothing to cancel")
+    return _discovery_run_dto(runs.snapshot(run_id))
 
 
 def create_discovery_run(

@@ -26,7 +26,7 @@ Existing routes, verified against the registered FastAPI routes on 2026-10-19
 that is **not** listed under a seam below already exists:
 
 `GET /api/pcaps`, `GET /api/imprints[/{id}]`, `GET /api/imprints/{id}/cast`,
-`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]` (A1, built),
+`GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
@@ -48,9 +48,23 @@ order:
   real discovery: `ingest` → `materialize` → `cast` → `install-cast`, landing
   `<AXRANGE_IMPRINTS_DIR>/<imprint_id>/` as a cast bundle the imprint routes
   read. Returns `202` with the run record at once; the chain runs in a thread.
-- `GET /api/discovery/runs/{id}` — `status` (`queued|running|completed|failed`),
-  `stages_done`, the `error` if failed, the `pit_id` if completed. The imprint
-  id is the one the caller chose, so it resolves through `GET /api/imprints/{id}`.
+- `GET /api/discovery/runs/{id}` — `status`
+  (`queued|running|completed|failed|cancelled`), `stages_done`, the `error` if
+  failed, the `pit_id` if completed. The imprint id is the one the caller
+  chose, so it resolves through `GET /api/imprints/{id}`. While `ingest` runs,
+  `progress_ts` is the source time it has reached (the end of the last window
+  it closed, read from the subprocess's own `window <start>:` lines as they
+  arrive) and `progress_at` when it said so; both null before the first window.
+- `POST /api/discovery/runs/{id}/cancel` (token, `202`) — stop a queued or
+  running run: the current stage's process group is killed (SIGTERM, SIGKILL
+  after 5 s), the half-written bundle and the run's belief store are removed,
+  the record turns `cancelled` and the imprint id is free again. The response
+  carries `cancel_requested_at`; the status turns when the stage is dead
+  (poll). A finished run is `409` naming its status; unknown is `404`.
+- A run's belief store (`<store dir>/<imprint_id>.belief.duckdb`) is removed
+  before `ingest` if one is already there: it can only be what an earlier
+  failed or cancelled run under that id left, and ingesting on top of it would
+  merge two reads.
 - Refused at POST, nothing written: an unknown plugin (the known ones named), a
   config the plugin's schema rejects (every problem named), an unsafe imprint
   id, an id already in the catalog (`409`, never overwritten), an id another
@@ -237,6 +251,11 @@ state DB and the fake adapter, unless marked **(live)**.
   `tcpdump` node.
 - A6.2 (live) On dev45, two polls ten seconds apart show packets and bytes
   increasing (rate > 0) — the capture-flow gate.
+- A1.4 `progress_ts` advances from the ingest's own window lines while it runs;
+  `POST .../cancel` on a queued run turns it `cancelled` with the bundle and
+  belief store gone and the id free; a real child in its own session is killed
+  mid-stream and reported as cancelled, not failed; a stage past its budget is
+  killed and reported as a timeout. *(`engine/tests/test_api_discovery.py`.)*
 
 ## Notes
 

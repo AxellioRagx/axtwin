@@ -1,7 +1,8 @@
 import { Link } from "react-router";
 
 import { useApi } from "../../api/context";
-import { formatIso, formatTs } from "../../model/sources";
+import type { DiscoveryRun } from "../../api/types";
+import { formatIso, formatTs, runProgress } from "../../model/sources";
 import { ErrorLine, StatusBadge } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
@@ -26,6 +27,7 @@ export function RunsPage() {
               <th>Plugin</th>
               <th>Imprint</th>
               <th>Window</th>
+              <th>Progress</th>
               <th>Created</th>
             </tr>
           </thead>
@@ -49,6 +51,7 @@ export function RunsPage() {
                 <td className="muted">
                   {r.ts_from !== null && r.ts_to !== null ? `${formatTs(r.ts_from)} → ${formatTs(r.ts_to)}` : "—"}
                 </td>
+                <td className="muted">{progressCell(r)}</td>
                 <td className="muted">{formatIso(r.created_at)}</td>
               </tr>
             ))}
@@ -57,4 +60,13 @@ export function RunsPage() {
       ) : null}
     </>
   );
+}
+
+function progressCell(r: DiscoveryRun): string {
+  if (r.status === "completed") return "done";
+  const p = runProgress(r, Date.now());
+  if (!p) return "—";
+  if (p.ingestDone) return r.status === "running" || r.status === "queued" ? "ingest done" : `ingest done, ${r.status}`;
+  if (p.reached === null) return r.status === "running" ? "starting" : "—";
+  return `${Math.round(p.fraction * 100)}% (${formatTs(p.reached)})`;
 }

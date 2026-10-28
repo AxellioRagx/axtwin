@@ -82,7 +82,7 @@ describe("C1.2 -- test, run, poll, open", () => {
   it("a failed run shows its error", async () => {
     const { api } = fakeApi({
       sources: [tunnelSource()],
-      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", imprint_id: "x", stages_done: [], stages: ["ingest", "materialize", "cast", "install"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null }],
+      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", imprint_id: "x", stages_done: [], stages: ["ingest", "materialize", "cast", "install"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null }],
     });
     renderAt(api, "/discovery/runs/disc-9");
     const alert = await screen.findByRole("alert");

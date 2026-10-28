@@ -24,6 +24,7 @@ export interface Api {
   startRun(sourceId: string, body: SourceRunRequest): Promise<DiscoveryRun>;
   listRuns(signal?: AbortSignal): Promise<DiscoveryRunList>;
   getRun(id: string, signal?: AbortSignal): Promise<DiscoveryRun>;
+  cancelRun(id: string): Promise<DiscoveryRun>;
   getImprint(id: string, signal?: AbortSignal): Promise<ImprintSummary>;
 }
 
@@ -41,6 +42,7 @@ export function makeApi(request: Requester): Api {
     startRun: (sourceId, body) => request("POST", `/api/discovery/sources/${enc(sourceId)}/runs`, { body, auth: true }),
     listRuns: (signal) => request("GET", "/api/discovery/runs", { signal }),
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),
+    cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, { auth: true }),
     getImprint: (id, signal) => request("GET", `/api/imprints/${enc(id)}`, { signal }),
   };
 }
