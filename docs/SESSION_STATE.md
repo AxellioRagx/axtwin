@@ -60,6 +60,14 @@ because it will be believed. -->
   `curl :8080/api/discovery/runs/disc-0a6a9379`. If `axrange serve` is restarted the run
   record is lost (in-memory) and the subprocess is orphaned: check `pgrep -af "aximprint ingest"`
   first.
+- **Progress and cancel (2026-10-28, commit `7a58f1b`)** are in the code but NOT in the
+  serve process that holds `disc-0a6a9379` (it loaded the engine before the change). A
+  detached watcher, `~/.axrange/restart-after-run.sh` (log `~/.axrange/restart-after-run.log`),
+  polls that run every minute and, once it leaves running/queued, saves its final record
+  to `~/.axrange/discovery/disc-0a6a9379.json` and restarts `axrange serve` on
+  `0.0.0.0:8080` with the same env. Until then the console shows "Ingest has not closed a
+  window yet" for the live run and a cancel answers 404. If the watcher is gone
+  (`pgrep -af restart-after-run`), restart serve by hand after the run finishes.
 - **dev45 environment:** unverified since 2026-10-05 (`corp-twin-3dae3188` and its tap/tfc);
   do not destroy anything there without asking.
 
