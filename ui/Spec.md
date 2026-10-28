@@ -146,7 +146,8 @@ its listed tests pass. T0.x is the release gate for UI v0.
   edits the operator's assertions as the three JSON lists (the etag rides in
   the body), and casts it into a twin: twin id (defaulting to the name),
   sensors, replace. The cast's result names the twin and its caveats; a taken
-  id is refused until replace is ticked. *(`imprints.page.test.tsx`.)*
+  id is refused until replace is ticked. While a bake holds the IR store the
+  list is the last one read, and says so. *(`imprints.page.test.tsx`.)*
 - C1.15 (auto) Twins are the catalog: the page lists every deployable twin
   with as-of, hosts, segments, confidence (its source on hover), what it was
   cast from (a link to the imprint, or "authored") and whether apply is

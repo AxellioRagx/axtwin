@@ -828,7 +828,7 @@ def test_an_imprint_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(t
         {"pit_id": "pit-fake", "name": "pit-fake", "derived_from": None, "has_assertions": False,
          "twins": [], "as_of": 100.0, "observed_from": None, "observed_to": None,
          "source": None, "network": None, "vantage": None, "windows": None,
-         "entities": None, "segments": None, "merge_axis": None}]}
+         "entities": None, "segments": None, "merge_axis": None}], "stale": False, "warnings": []}
     assert c.get("/api/imprints/pit-fake").json()["name"] == "pit-fake"
     assert c.get("/api/imprints/nope").status_code == 404
 
@@ -930,3 +930,41 @@ def test_the_cast_action_lands_a_twin_with_its_lineage_and_refuses_a_taken_id(tm
         "  nodes:\n    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n")
     by_id = {t["id"]: t["cast_from"] for t in c.get("/api/twins").json()["imprints"]}
     assert by_id == {"t1": {"pit_id": "pit-fake", "pit_name": "pit-fake"}, "hand": None}
+
+def test_a_locked_store_serves_the_last_listing_and_says_so(tmp_path):
+    """DuckDB gives a writer the whole file: while a run's bake stage holds the IR store,
+    `aximprint pit list` fails with a lock error (seen live 2026-10-28, `test-run-2`).
+    The API serves the last listing it read, flagged stale, rather than an error page;
+    with nothing cached yet it is a 503 that says to retry; a write is a 503 too."""
+    settings = _settings(tmp_path)
+    settings.api_token = "s3cret"
+    auth = {"Authorization": "Bearer s3cret"}
+    be = _FakeDiscovery()
+    c = _client(settings, backend=be)
+    lock = disc.DiscoveryError(
+        'pit-list failed (exit 1): _duckdb.IOException: IO Error: Could not set lock on file '
+        '"ir.duckdb": Conflicting lock is held in /usr/bin/python3.12 (PID 1) by user rocky')
+    real = be.list_pits
+
+    def locked(store):
+        raise lock
+
+    be.list_pits = locked  # type: ignore[method-assign]
+    r = c.get("/api/imprints")
+    assert r.status_code == 503 and "retry shortly" in r.json()["error"]
+
+    be.list_pits = real  # type: ignore[method-assign]
+    fresh = c.get("/api/imprints").json()
+    assert fresh["stale"] is False and fresh["warnings"] == []
+    be.list_pits = locked  # type: ignore[method-assign]
+    r = c.get("/api/imprints")
+    assert r.status_code == 200, r.text
+    assert r.json()["pits"] == fresh["pits"] and r.json()["stale"] is True
+    assert "being written" in r.json()["warnings"][0]
+    assert c.get("/api/imprints/pit-fake").status_code == 200, "detail reads the cache too"
+    be.rename_pit = lambda store, pit, name: (_ for _ in ()).throw(lock)  # type: ignore[method-assign]
+    r = c.patch("/api/imprints/pit-fake", json={"name": "x"}, headers=auth)
+    assert r.status_code == 503 and "bake stage" in r.json()["error"]
+    # Any other failure is still the error it was.
+    be.list_pits = lambda store: (_ for _ in ()).throw(disc.DiscoveryError("pit-list failed (exit 1): boom"))  # type: ignore[method-assign]
+    assert c.get("/api/imprints").status_code == 502

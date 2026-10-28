@@ -95,6 +95,8 @@ export interface FakeState {
   assertions: Record<string, AssertionsDoc>;
   /** Catalog folders the listing reports as unreadable. */
   skippedTwins: Array<{ id: string; reason: string }>;
+  /** What the imprint listing warns about (a locked store). */
+  imprintWarnings: string[];
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
@@ -112,6 +114,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     imprints: [],
     assertions: {},
     skippedTwins: [],
+    imprintWarnings: [],
     writes: [],
     refuse: {},
     runSteps: [],
@@ -248,7 +251,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       return { ...r, stages_done: [...r.stages_done] };
     },
     async listImprints() {
-      return { pits: state.imprints.map((i) => ({ ...i, twins: twinsOf(i.pit_id) })) };
+      return { pits: state.imprints.map((i) => ({ ...i, twins: twinsOf(i.pit_id) })), stale: state.imprintWarnings.length > 0, warnings: [...state.imprintWarnings] };
     },
     async getImprint(pit) {
       const i = findImprint(pit);

@@ -573,6 +573,10 @@ class PitDTO(BaseModel):
 
 class PitListDTO(BaseModel):
     pits: list[PitDTO]
+    # True when the IR store was locked by a writer (a bake) and this is the last
+    # listing read from it; `warnings` says so in words.
+    stale: bool = False
+    warnings: list[str] = []
 
 
 class PitRenameRequest(BaseModel):

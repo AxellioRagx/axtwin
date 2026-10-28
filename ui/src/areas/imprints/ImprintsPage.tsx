@@ -18,6 +18,11 @@ export function ImprintsPage() {
     <>
       <h1>Imprints</h1>
       <ErrorLine error={imprints.error} prefix="could not list imprints" />
+      {imprints.data?.warnings?.length ? (
+        <div className="notice" role="status">
+          {imprints.data.warnings.join(" ")}
+        </div>
+      ) : null}
       {imprints.loading && !imprints.data ? <p className="muted">Loading…</p> : null}
       {imprints.data && rows.length === 0 ? <div className="empty">No imprint yet. A completed discovery run bakes one.</div> : null}
       {rows.length > 0 ? (

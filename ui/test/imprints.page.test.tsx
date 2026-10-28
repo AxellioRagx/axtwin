@@ -71,6 +71,13 @@ describe("the imprints page", () => {
     renderAt(api, "/imprints");
     await screen.findByText(/No imprint yet/);
   });
+
+  it("says when the listing is the last one read because a bake holds the store", async () => {
+    const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")], imprintWarnings: ["the IR store is being written (a run is baking into it); showing the last listing read from it"] });
+    renderAt(api, "/imprints");
+    await screen.findAllByTestId("imprint-row");
+    expect(screen.getByRole("status").textContent).toContain("being written");
+  });
 });
 
 describe("the imprint page", () => {

@@ -3458,11 +3458,8 @@ def _check_imprint_name(settings: ApiSettings, name: str, *, be: Any, runs: Any)
     if name in runs.active_imprint_ids():
         raise ApiError(409, f"a discovery run for imprint {name!r} is already in progress")
     if settings.aximprint_store:
-        try:
-            taken = {str(p.get("name")) for p in be.list_pits(settings.aximprint_store)} | {
-                str(p.get("pit_id")) for p in be.list_pits(settings.aximprint_store)}
-        except disc.DiscoveryError as e:
-            raise ApiError(502, str(e)) from e
+        rows, _stale = _list_pits_tolerant(settings, be)
+        taken = {str(p.get("name")) for p in rows} | {str(p.get("pit_id")) for p in rows}
         if name in taken:
             raise ApiError(409, f"an imprint named {name!r} already exists; a discovery run "
                                 "never replaces one -- choose another name, or delete it")
@@ -3504,28 +3501,58 @@ def _ir_backend(settings: ApiSettings, backend: Any):
     return _discovery_backend(settings, backend)
 
 
-def list_pits(settings: ApiSettings, *, backend: Any) -> dtos.PitListDTO:
-    """Every imprint: the PITs in the API's IR store, by id and name (`aximprint pit
-    list`), each with whether it has assertions and the twins cast from it."""
+#: The last listing read from each IR store, served while a bake holds the store's
+#: write lock (DuckDB: one writer excludes every other process; a 10-day bake can hold it
+#: for minutes). Never written from a failed read.
+_PITS_CACHE: dict[str, list[dict[str, Any]]] = {}
+_PITS_CACHE_LOCK = threading.Lock()
+STORE_BUSY = ("the IR store is being written (a run is baking into it); showing the last "
+              "listing read from it")
+
+
+def _store_is_locked(e: Exception) -> bool:
+    msg = str(e)
+    return "Conflicting lock" in msg or "Could not set lock" in msg
+
+
+def _list_pits_tolerant(settings: ApiSettings, be: Any) -> tuple[list[dict[str, Any]], bool]:
+    """`(rows, stale)`: a fresh read, or -- while the store is locked by a writer -- the
+    last good one with `stale=True`. A locked store with nothing cached, or any other
+    failure, is the error it was (502)."""
     from axrange.api import discovery as disc
 
-    be = _ir_backend(settings, backend)
+    store = str(settings.aximprint_store)
     try:
-        rows = be.list_pits(settings.aximprint_store)
+        rows = be.list_pits(store)
     except disc.DiscoveryError as e:
+        with _PITS_CACHE_LOCK:
+            cached = _PITS_CACHE.get(store)
+        if _store_is_locked(e) and cached is not None:
+            return list(cached), True
+        if _store_is_locked(e):
+            raise ApiError(503, "the IR store is being written (a run is baking into it) "
+                                "and nothing has been listed from it yet; retry shortly") from e
         raise ApiError(502, str(e)) from e
+    with _PITS_CACHE_LOCK:
+        _PITS_CACHE[store] = [dict(r) for r in rows]
+    return rows, False
+
+
+def list_pits(settings: ApiSettings, *, backend: Any) -> dtos.PitListDTO:
+    """Every imprint: the PITs in the API's IR store, by id and name (`aximprint pit
+    list`), each with whether it has assertions and the twins cast from it. While a bake
+    holds the store, the last listing is served with `stale: true`."""
+    be = _ir_backend(settings, backend)
+    rows, stale = _list_pits_tolerant(settings, be)
     twins = _twins_by_pit(settings)
-    return dtos.PitListDTO(pits=[_pit_dto(settings, r, twins) for r in rows])
+    return dtos.PitListDTO(pits=[_pit_dto(settings, r, twins) for r in rows], stale=stale,
+                           warnings=[STORE_BUSY] if stale else [])
 
 
 def _pit_row(settings: ApiSettings, be: Any, pit: str) -> dict[str, Any]:
-    """One PIT's row by id or name, 404 when neither matches."""
-    from axrange.api import discovery as disc
-
-    try:
-        rows = be.list_pits(settings.aximprint_store)
-    except disc.DiscoveryError as e:
-        raise ApiError(502, str(e)) from e
+    """One PIT's row by id or name, 404 when neither matches; the last listing while
+    the store is locked."""
+    rows, _stale = _list_pits_tolerant(settings, be)
     for r in rows:
         if str(r.get("pit_id")) == pit:
             return r
@@ -3559,6 +3586,9 @@ def copy_pit(settings: ApiSettings, pit: str, req: dtos.PitCopyRequest, *,
         row = be.copy_pit(settings.aximprint_store, str(src["pit_id"]), name)
     except disc.DiscoveryError as e:
         msg = str(e)
+        if _store_is_locked(e):
+            raise ApiError(503, "the IR store is being written (a run is baking into it); "
+                                "retry when the run's bake stage is over") from e
         raise ApiError(404 if msg.startswith("no PIT") else 409, msg) from e
     src_files = _pit_files_dir(settings, str(src["pit_id"]))
     if src_files.is_dir():
@@ -3709,6 +3739,9 @@ def rename_pit(settings: ApiSettings, pit: str, req: dtos.PitRenameRequest, *,
         row = be.rename_pit(settings.aximprint_store, pit, name)
     except disc.DiscoveryError as e:
         msg = str(e)
+        if _store_is_locked(e):
+            raise ApiError(503, "the IR store is being written (a run is baking into it); "
+                                "retry when the run's bake stage is over") from e
         raise ApiError(404 if msg.startswith("no PIT") else 409, msg) from e
     runs.rename_pit(str(row["pit_id"]), str(row["name"]))
     return _pit_dto(settings, row)
@@ -4029,8 +4062,8 @@ def _pit_names(settings: ApiSettings, backend: Any) -> dict[str, str]:
     if not settings.aximprint_store or disc.unset_settings(settings) is not None:
         return {}
     try:
-        return {str(r.get("pit_id")): str(r.get("name"))
-                for r in _discovery_backend(settings, backend).list_pits(settings.aximprint_store)}
+        rows, _stale = _list_pits_tolerant(settings, _discovery_backend(settings, backend))
+        return {str(r.get("pit_id")): str(r.get("name")) for r in rows}
     except (disc.DiscoveryError, ApiError, OSError):
         return {}
 

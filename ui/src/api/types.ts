@@ -199,6 +199,9 @@ export interface Imprint {
 
 export interface ImprintList {
   pits: Imprint[];
+  /** True when the IR store was locked by a bake and this is the last listing read. */
+  stale?: boolean;
+  warnings?: string[];
 }
 
 /** The operator's claims about the network (`axr-assertions/1`), as the API round-trips it. */

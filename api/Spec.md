@@ -79,7 +79,11 @@ order:
 the PITs in the API's IR store, each addressed by id or unique name.
 - `GET /api/imprints` (alias `GET /api/discovery/pits`) — every imprint:
   `pit_id`, `name`, `derived_from`, `has_assertions`, the `twins` cast from
-  it, `as_of`, bounds, source, network, vantage, sizes.
+  it, `as_of`, bounds, source, network, vantage, sizes. DuckDB gives a
+  writer the whole file, so while a run's bake holds the store the API
+  serves the last listing it read with `stale: true` and a warning; with
+  nothing read yet it is `503` (retry shortly), and a rename or copy during
+  a bake is `503` too.
 - `GET /api/imprints/{pit}` — one, by id or name (`404`; `409` an ambiguous name).
 - `PATCH /api/imprints/{pit}` `{name}` (token; alias `PATCH /api/discovery/pits/{pit}`)
   — rename; the id never changes, and every run record that produced it
