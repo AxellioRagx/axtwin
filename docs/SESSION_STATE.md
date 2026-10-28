@@ -30,7 +30,7 @@ because it will be believed. -->
   2026-10-20 layout moves (`test/fixtures/realBundles.ts` line 26 and
   `test/helpers/jsonschema.ts` open `twins/` and `axrange/api/schemas/`, now
   `catalog/twins/` and `engine/src/axrange/api/schemas/`); not fixed, it is frozen.
-- **Live:** `axrange serve` is running on `0.0.0.0:8080` (console reachable from other
+- **Bind:** `axrange serve` listens on `0.0.0.0:8080` (console reachable from other
   hosts at `http://10.80.72.52:8080/`; firewalld is inactive on this node) with `--spa-dir ui/dist`,
   `AXRANGE_IMPRINTS_DIR=catalog/twins`, `AXRANGE_AXIMPRINT_STORE=~/.axrange/discovery/ir.duckdb`,
   `AXRANGE_DISCOVERY_TIMEOUT_S=172800`, token from `~/.axrange/api-token` (0600, generated
@@ -42,40 +42,31 @@ because it will be believed. -->
   `axellio-hq/corp-apcn-rdr1` (12 streams), 2026-09-06 19:30 → 2026-10-06 19:30 UTC. It is
   **not** the two 20-hour-old test instances on `:26244`/`:26756` (a 2023 golden dataset),
   and nothing was started or written on the appliance.
-- **The ten-day run.** Two attempts failed in `ingest` at a one-second leaf that overflowed
-  the page: `disc-ef9ad362` (2026-10-27 16:03 UTC, 5,148 rows against a 5,000 cap at
-  `[1790496071, 1790496072)`) and `disc-4a1314cc` (2026-10-27 20:55 UTC, 7.5 days in after
-  3 h 9 min, 20,723 rows against a 20,000 cap at `[1791100881, 1791100882)`). Both were one
-  host's port sweep (`10.80.75.125`) starting in that second and the next; the server's
-  `before` is inclusive at second granularity. Fix in
-  `discovery/src/aximprint/ingest/axquery/sources.py`: `PAGE_ROWS` 5,000 → 20,000 sizes the
-  ordinary page, and a floor-width leaf that still fills a page is re-read with a doubled
-  `limit` (that leaf only) up to `LEAF_ROWS_MAX = 200_000` before it is refused; a full page
-  is never consumed. The third attempt **`disc-0a6a9379`** (imprint `corp-apcn-10d`, window
-  2026-09-26 19:30 → 2026-10-06 19:30 UTC, `network=corp-apcn`) started 2026-10-28 10:57 UTC;
-  measured throughput is ~25 min per day of index, so expect ~4–5 h. It lands in
-  `catalog/twins/corp-apcn-10d/` (inside the checkout, uncommitted) with the belief store at
-  `~/.axrange/discovery/corp-apcn-10d.belief.duckdb`. Watch it at
-  `http://10.80.72.52:8080/discovery/runs/disc-0a6a9379` or
-  `curl :8080/api/discovery/runs/disc-0a6a9379`. If `axrange serve` is restarted the run
-  record is lost (in-memory) and the subprocess is orphaned: check `pgrep -af "aximprint ingest"`
-  first.
-- **Progress and cancel (2026-10-28, commit `7a58f1b`)** are in the code but NOT in the
-  serve process that holds `disc-0a6a9379` (it loaded the engine before the change). A
-  detached watcher, `~/.axrange/restart-after-run.sh` (log `~/.axrange/restart-after-run.log`),
-  polls that run every minute and, once it leaves running/queued, saves its final record
-  to `~/.axrange/discovery/disc-0a6a9379.json` and restarts `axrange serve` on
-  `0.0.0.0:8080` with the same env. Until then the console shows "Ingest has not closed a
-  window yet" for the live run and a cancel answers 404. If the watcher is gone
-  (`pgrep -af restart-after-run`), restart serve by hand after the run finishes.
+- **The ten-day run: none in flight.** Three attempts under imprint `corp-apcn-10d` ended
+  without a bundle: `disc-ef9ad362` and `disc-4a1314cc` failed at a one-second leaf over
+  the page cap (fixed in `10edded` and `86cfe69`: `PAGE_ROWS` 20,000 and a floor leaf that
+  overflows is re-read wider up to `LEAF_ROWS_MAX`); `disc-0a6a9379` was stopped by hand on
+  2026-10-28 11:44 UTC at the user's request (the serve process of the day had no cancel
+  route yet; its record read `failed, exit -15`). Everything the runs wrote is gone:
+  `~/.axrange/discovery/` holds nothing now (belief stores, the IR store `ir.duckdb` and
+  the saved record were removed), `catalog/twins/` has no `corp-apcn-*` bundle, and the
+  API's run list is empty after the restart. The source `src-2ae78e66` in
+  `~/.axrange/discovery.db` is kept. Measured: ~25 min of ingest per day of index, so a
+  ten-day read is ~4–5 h.
+- **Live:** `axrange serve` was restarted 2026-10-28 11:44 UTC on the current code
+  (progress and cancel live) by `~/.axrange/restart-after-run.sh`, which has exited;
+  same bind `0.0.0.0:8080`, same env, SPA from `ui/dist` (built from `1dc0e76`).
+- **Known leak, test-only:** engine tests that capture a run's job without running it
+  (`background=jobs.append`, the "busy" 409 tests) leave an empty
+  `/tmp/axrange-discovery-<id>-*` scratch dir each; 33 were removed by hand on 2026-10-28.
 - **dev45 environment:** unverified since 2026-10-05 (`corp-twin-3dae3188` and its tap/tfc);
   do not destroy anything there without asking.
 
 ## Next steps (ordered)
 
-1. When `disc-0a6a9379` completes: open `/imprints/corp-apcn-10d`, review the bundle, decide
-   whether `catalog/twins/corp-apcn-10d/` is committed. If it failed, the record's `error`
-   has the stage and aximprint's stderr tail.
+1. Start the ten-day run again from the console (source `corp-apcn-reader`, last 10 days,
+   imprint `corp-apcn-10d`) and watch the progress bar; on completion decide whether
+   `catalog/twins/corp-apcn-10d/` is committed.
 2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three
    commits above; decide whether `wip/api-discovery-runs` merges to `master`.
 3. Critical path item 2 (root `Claude.md`): attack-inject plus confirm as one action on
