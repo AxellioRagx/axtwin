@@ -52,10 +52,10 @@ export function RunsPage() {
                 </td>
                 <td>{r.plugin}</td>
                 <td>
-                  {r.status === "completed" ? (
-                    <Link to={`/imprints/${encodeURIComponent(r.imprint_id)}`}>{r.imprint_id}</Link>
+                  {r.status === "completed" && r.pit_id ? (
+                    <Link to={`/imprints/${encodeURIComponent(r.pit_id)}`}>{r.pit_name ?? r.name}</Link>
                   ) : (
-                    r.imprint_id
+                    r.name
                   )}
                 </td>
                 <td className="muted">

@@ -70,7 +70,7 @@ export function RunPage() {
               <dt>Plugin</dt>
               <dd>{run.plugin}</dd>
               <dt>Imprint</dt>
-              <dd>{run.imprint_id}</dd>
+              <dd>{run.name}</dd>
               {run.source_id ? (
                 <>
                   <dt>Source</dt>
@@ -91,7 +91,7 @@ export function RunPage() {
               <dd>{run.via ?? (active ? "opening" : "—")}</dd>
               {run.pit_id ? (
                 <>
-                  <dt>PIT</dt>
+                  <dt>Baked</dt>
                   <dd>
                     <PitName run={run} onRenamed={(name) => setRun({ ...run, pit_name: name })} />
                   </dd>
@@ -166,26 +166,30 @@ function ProgressBar({ run, progress, active }: { run: DiscoveryRun; progress: R
   );
 }
 
-/** A completed run offers its imprint only after checking the bundle is still in the
- *  catalog: the run record outlives a bundle someone removed, and a link to nothing
- *  is worse than saying so. */
+/** A completed run offers the imprint it baked, after checking it is still in the IR
+ *  store: the run record outlives an imprint someone deleted, and a link to nothing is
+ *  worse than saying so. */
 function CompletedNotice({ run }: { run: DiscoveryRun }) {
   const api = useApi();
-  const imprint = useLoad((signal) => api.getImprint(run.imprint_id, signal), [run.imprint_id]);
+  const pit = run.pit_id ?? "";
+  const imprint = useLoad((signal) => api.getImprint(pit, signal), [pit]);
   const gone = imprint.error instanceof ApiError && imprint.error.kind === "not-found";
   return (
     <div className={gone ? "error" : "notice"} role={gone ? "alert" : undefined}>
-      Completed; PIT <code>{run.pit_name ?? run.pit_id}</code>.{" "}
+      Completed; imprint <code>{run.pit_name ?? run.pit_id}</code> is baked.{" "}
       {gone ? (
-        <>Imprint {run.imprint_id} is no longer in the catalog (the bundle was removed after this run).</>
+        <>Imprint {run.pit_name ?? run.pit_id} is no longer in the store (it was deleted after this run).</>
       ) : imprint.data ? (
-        <Link to={`/imprints/${encodeURIComponent(run.imprint_id)}`} data-testid="open-imprint">
-          Open imprint {run.imprint_id}
-        </Link>
+        <>
+          <Link to={`/imprints/${encodeURIComponent(pit)}`} data-testid="open-imprint">
+            Open imprint {imprint.data.name}
+          </Link>{" "}
+          to review it and cast it into a twin.
+        </>
       ) : imprint.error ? (
         <span className="muted">could not check the imprint: {String((imprint.error as Error).message ?? imprint.error)}</span>
       ) : (
-        <span className="muted">checking the catalog…</span>
+        <span className="muted">checking the store…</span>
       )}
     </div>
   );

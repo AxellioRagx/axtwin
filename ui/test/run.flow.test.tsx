@@ -23,26 +23,21 @@ describe("C1.2 -- test, run, poll, open", () => {
   it("starts a 10-day run, polls it to completion and opens the imprint", async () => {
     const { api, state } = fakeApi({
       sources: [tunnelSource()],
-      imprints: {
-        "corp-apcn-10d": {
-          id: "corp-apcn-10d", as_of: "2026-10-04T19:00:00Z", hosts: 2481, segments: 61, services: 0, personas: 0,
-          mean_confidence: 0.61, windows: 240, topology_segments: [{ cidr: "10.80.20.0/24", hosts: 120 }],
-        },
-      },
+      imprints: [{ pit_id: "pit-1", name: "corp-apcn-10d", derived_from: null, has_assertions: false, twins: [], as_of: 1791313200, entities: 2481, segments: 61, windows: 240 }],
       runSteps: [
         { status: "running", stages_done: ["ingest"], ts_from: SPAN.last_ts + 1 - 10 * 86400, ts_to: SPAN.last_ts + 1, via: "ssh fxadmin@x:22 -> 127.0.0.1:9090 via 127.0.0.1:1" },
-        { status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-27T17:03:18Z" },
+        { status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", pit_name: "corp-apcn-10d", finished_at: "2026-10-27T17:03:18Z" },
       ],
     });
     renderAt(api, "/discovery/sources/src-1");
     await screen.findByRole("button", { name: "Start discovery" });
-    fireEvent.change(screen.getByLabelText("Imprint id"), { target: { value: "corp-apcn-10d" } });
+    fireEvent.change(screen.getByLabelText("Imprint name"), { target: { value: "corp-apcn-10d" } });
     fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
     await screen.findByText(/^Run disc-/);
     expect(state.writes.at(-1)).toEqual({
       op: "run",
       id: "src-1",
-      body: { imprint_id: "corp-apcn-10d", days: 10, network: "corp-apcn", sensors: [] },
+      body: { name: "corp-apcn-10d", days: 10, network: "corp-apcn", sensors: [] },
     });
     // First poll: running, ingest done, window resolved.
     await waitFor(() => expect(screen.getByText("ingest").className).toBe("done"));
@@ -51,9 +46,9 @@ describe("C1.2 -- test, run, poll, open", () => {
     const open = await screen.findByTestId("open-imprint", {}, { timeout: 6000 });
     expect(open.textContent).toBe("Open imprint corp-apcn-10d");
     fireEvent.click(open);
-    await screen.findByText("Imprint corp-apcn-10d");
-    expect(screen.getByText("2,481")).toBeTruthy();
-    expect(screen.getByText("10.80.20.0/24")).toBeTruthy();
+    await screen.findByRole("heading", { name: "Imprint corp-apcn-10d" });
+    expect(screen.getByText(/2,481 \/ 61 \/ 240/)).toBeTruthy();
+    expect(screen.getByRole("form", { name: "Cast" })).toBeTruthy();
   }, 10000);
 
   it("the window can be given in hours, sent to the API as fractional days", async () => {
@@ -93,7 +88,7 @@ describe("C1.2 -- test, run, poll, open", () => {
   it("a failed run shows its error", async () => {
     const { api } = fakeApi({
       sources: [tunnelSource()],
-      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", imprint_id: "x", stages_done: [], stages: ["ingest", "bake", "cast", "install"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null }],
+      runs: [{ id: "disc-9", status: "failed", plugin: "axquery", name: "x", imprint_id: "x", stages_done: [], stages: ["ingest", "bake"], pit_id: null, error: "ssh tunnel to fxadmin@h:22 exited (255) before the forward came up: Permission denied (publickey).", created_at: "2026-10-27T16:00:00Z", finished_at: "2026-10-27T16:00:05Z", source_id: "src-1", started_at: "2026-10-27T16:00:00Z", ts_from: null, ts_to: null, via: null, progress_ts: null, progress_at: null, cancel_requested_at: null }],
     });
     renderAt(api, "/discovery/runs/disc-9");
     const alert = await screen.findByRole("alert");

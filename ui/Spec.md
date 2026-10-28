@@ -136,24 +136,28 @@ its listed tests pass. T0.x is the release gate for UI v0.
   runs table carries the same as an icon per row (× cancel, bin delete), the
   row leaving once the delete is accepted. Deleting forgets the record only;
   the imprint stays. *(`run.page.test.tsx`.)*
-- C1.13 (auto) The top bar has Discovery, with Sources and Runs as a
-  sub-menu shown while in that area, and Imprints. The Imprints page lists
-  every bundle in the catalog with as-of, hosts, segments, mean confidence
-  (its source on hover), the newest run this API process ran for that id
-  with its status and PIT, whether apply is possible, and the folders the
-  listing could not read with the reason. *(`imprints.page.test.tsx`.)*
-- C1.14 (auto) An imprint can be deleted behind a confirmation: a bin per
-  row on the Imprints page (the row leaves once accepted) and "Delete
-  imprint" on its page, which returns to the list. The API's refusal (an
-  active run, a live deploy, no token) is shown in place. Run records
-  persist across API restarts, so the Imprints page's Run column and the
-  runs list survive one; a run the old process left active shows `failed`
-  with the restart named. *(`imprints.page.test.tsx`.)*
-- C1.15 (auto) The second stage is `bake`. A completed run shows its PIT by
-  name, with the id beside it once the two differ, and a pencil renames it
-  (`PATCH /api/discovery/pits/{id}`); the Imprints page's PIT column shows the
-  name. A refused rename is shown in place and the old name stays.
-  *(`run.page.test.tsx`.)*
+- C1.13 (auto) The top bar has Discovery (Sources and Runs as a sub-menu
+  while in that area), Imprints and Twins. *(`imprints.page.test.tsx`.)*
+- C1.14 (auto) Imprints are what discovery produced: the page lists every
+  PIT in the IR store by name with as-of, sizes, what it was derived from,
+  whether it has assertions and the twins cast from it; a bin per row deletes
+  behind a confirmation. An imprint's page renames it (the id never changes),
+  saves it as a new imprint (a copy with `derived_from`, moving to the copy),
+  edits the operator's assertions as the three JSON lists (the etag rides in
+  the body), and casts it into a twin: twin id (defaulting to the name),
+  sensors, replace. The cast's result names the twin and its caveats; a taken
+  id is refused until replace is ticked. *(`imprints.page.test.tsx`.)*
+- C1.15 (auto) Twins are the catalog: the page lists every deployable twin
+  with as-of, hosts, segments, confidence (its source on hover), what it was
+  cast from (a link to the imprint, or "authored") and whether apply is
+  possible, plus the folders the listing could not read; a bin per row and
+  "Delete twin" on its page delete behind a confirmation, the API's refusal
+  (a live deploy) shown in place. *(`imprints.page.test.tsx`.)*
+- C1.16 (auto) A run's stages are ingest and bake. A completed run names the
+  imprint it baked, links to it once the store confirms it is still there
+  (a deleted one says so), and shows its name with a pencil to rename it.
+  The run form asks for an imprint name, not a catalog id.
+  *(`run.page.test.tsx`, `run.flow.test.tsx`.)*
 
 **C2 — view discovered twin:** covered by T0.1.
 

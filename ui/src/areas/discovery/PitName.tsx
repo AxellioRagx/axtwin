@@ -1,11 +1,13 @@
 import { useState } from "react";
 
+import { Link } from "react-router";
+
 import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
 import { ErrorLine } from "../shell/parts";
 
-/** The PIT a run baked: its name, with its id beside it, and a rename behind an
- *  edit button. The id is the identity and never changes; the name is the label. */
+/** The imprint a run baked: its name (a link to it), with the id beside it once they
+ *  differ, and a rename behind an edit button. The id is the identity and never changes. */
 export function PitName({ run, onRenamed }: { run: DiscoveryRun; onRenamed: (name: string) => void }) {
   const api = useApi();
   const [editing, setEditing] = useState(false);
@@ -19,7 +21,7 @@ export function PitName({ run, onRenamed }: { run: DiscoveryRun; onRenamed: (nam
     setBusy(true);
     setError(null);
     try {
-      const pit = await api.renamePit(run.pit_id, draft.trim());
+      const pit = await api.renameImprint(run.pit_id, draft.trim());
       onRenamed(pit.name);
       setEditing(false);
     } catch (e) {
@@ -48,7 +50,9 @@ export function PitName({ run, onRenamed }: { run: DiscoveryRun; onRenamed: (nam
         </form>
       ) : (
         <>
-          <strong>{name}</strong>
+          <Link to={`/imprints/${encodeURIComponent(run.pit_id)}`}>
+            <strong>{name}</strong>
+          </Link>
           {name !== run.pit_id ? (
             <>
               {" "}

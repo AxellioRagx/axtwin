@@ -86,7 +86,7 @@ function RunsOfSource({ runs }: { runs: DiscoveryRun[] }) {
             <td>
               <StatusBadge status={r.status} />
             </td>
-            <td>{r.imprint_id}</td>
+            <td>{r.name}</td>
             <td className="muted">
               {r.ts_from !== null && r.ts_to !== null ? `${formatTs(r.ts_from)} → ${formatTs(r.ts_to)}` : "resolving"}
             </td>
@@ -273,7 +273,7 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
   async function start(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    const body: SourceRunRequest = { imprint_id: imprintId.trim() };
+    const body: SourceRunRequest = { name: imprintId.trim() };
     if (mode === "days") body.days = days;
     else {
       body.ts_from = Number(tsFrom);
@@ -310,9 +310,9 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
       <h2 style={{ marginTop: 0 }}>Run discovery</h2>
       <div className="fields-2">
         <div className="field">
-          <label htmlFor="run-imprint">Imprint id</label>
+          <label htmlFor="run-imprint">Imprint name</label>
           <input id="run-imprint" type="text" value={imprintId} onChange={(e) => setImprintId(e.target.value)} />
-          <span className="hint">The catalog id the result is installed under. An existing id is refused, never overwritten.</span>
+          <span className="hint">What the baked imprint is called; rename it later if you like. An existing name is refused, never replaced.</span>
         </div>
         <div className="field">
           <label>Window</label>

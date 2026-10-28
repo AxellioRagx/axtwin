@@ -99,7 +99,8 @@ export interface ProbeResult extends Probe {
 export interface SourceRunRequest {
   /** Run options come from the plugin's own schema (C1.1), so the shape is open. */
   [k: string]: unknown;
-  imprint_id: string;
+  /** The imprint's name: what the bake labels the PIT. */
+  name: string;
   days?: number;
   ts_from?: number;
   ts_to?: number;
@@ -116,6 +117,8 @@ export interface DiscoveryRun {
   id: string;
   status: RunStatus;
   plugin: string;
+  /** The imprint's name as asked for; `imprint_id` carries the same value. */
+  name: string;
   imprint_id: string;
   stages_done: string[];
   stages: string[];
@@ -148,9 +151,14 @@ export interface ImprintSegment {
   [k: string]: unknown;
 }
 
-/** One row of `GET /api/imprints`: the bundle's structure and where its
- *  confidence came from. */
-export interface ImprintListItem {
+/** A twin's lineage: the imprint it was cast from, or null for an authored twin. */
+export interface CastFrom {
+  pit_id: string;
+  pit_name: string | null;
+}
+
+/** One row of `GET /api/twins`: a deployable twin in the catalog. */
+export interface TwinListItem {
   id: string;
   hosts: number;
   segments: number;
@@ -159,27 +167,77 @@ export interface ImprintListItem {
   has_provenance: boolean;
   confidence_source: string;
   has_topology_export: boolean;
+  cast_from: CastFrom | null;
   can_apply: boolean;
   apply_blocked_reason: string | null;
 }
 
-export interface ImprintList {
-  imprints: ImprintListItem[];
+export interface TwinList {
+  imprints: TwinListItem[];
   /** Catalog folders the listing could not read, with the reason. */
   skipped: Array<{ id: string; reason: string }>;
 }
 
-/** One PIT in the API's IR store. */
-export interface Pit {
+/** An imprint: what discovery produced, a PIT in the IR store with its operator state. */
+export interface Imprint {
   pit_id: string;
   name: string;
+  derived_from: string | null;
+  has_assertions: boolean;
+  twins: Array<{ id: string }>;
   as_of?: number | null;
-  [k: string]: unknown;
+  observed_from?: number | null;
+  observed_to?: number | null;
+  source?: string | null;
+  network?: string | null;
+  vantage?: string | null;
+  windows?: number | null;
+  entities?: number | null;
+  segments?: number | null;
+  merge_axis?: string | null;
 }
 
-export interface ImprintSummary {
+export interface ImprintList {
+  pits: Imprint[];
+}
+
+/** The operator's claims about the network (`axr-assertions/1`), as the API round-trips it. */
+export interface AssertionsDoc {
+  imprint_id: string;
+  path: string;
+  exists: boolean;
+  etag: string | null;
+  schema: string;
+  imprint: string;
+  as_of: string | null;
+  source: string | null;
+  add: Record<string, unknown>[];
+  override: Record<string, unknown>[];
+  suppress: Record<string, unknown>[];
+  warnings?: string[];
+}
+
+export interface CastRequest {
+  twin_id: string;
+  sensors?: string[];
+  replace?: boolean;
+  relocate?: string | null;
+  max_count?: number | null;
+  no_chatter?: boolean;
+}
+
+export interface CastResponse {
+  twin: TwinSummary;
+  pit_id: string;
+  replaced: boolean;
+  caveats: string[];
+  install_report: string;
+}
+
+export interface TwinSummary {
   id: string;
   as_of: string;
+  pit_id?: string | null;
   hosts: number;
   segments: number;
   services: number;
@@ -191,3 +249,6 @@ export interface ImprintSummary {
   warnings?: string[];
   [k: string]: unknown;
 }
+
+/** The old name of `TwinSummary`. */
+export type ImprintSummary = TwinSummary;

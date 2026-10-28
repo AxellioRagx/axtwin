@@ -3,8 +3,8 @@ import { NavLink, Outlet, useLocation } from "react-router";
 
 import { getWriteToken, onWriteTokenChange, setWriteToken } from "../../api/client";
 
-/** The header: the areas (Discovery with its Sources and Runs beneath it, Imprints),
- *  and the write token for this tab (never persisted). */
+/** The header: the areas (Discovery with its Sources and Runs beneath it, Imprints,
+ *  Twins), and the write token for this tab (never persisted). */
 export function AppFrame() {
   const [token, setToken] = useState(getWriteToken() ?? "");
   useEffect(() => onWriteTokenChange(() => setToken(getWriteToken() ?? "")), []);
@@ -19,6 +19,7 @@ export function AppFrame() {
             Discovery
           </NavLink>
           <NavLink to="/imprints">Imprints</NavLink>
+          <NavLink to="/twins">Twins</NavLink>
         </nav>
         <span className="spacer" />
         <label className="token">

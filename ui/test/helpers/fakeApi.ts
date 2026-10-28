@@ -8,8 +8,10 @@ import type {
   DiscoveryPlugin,
   DiscoveryRun,
   DiscoverySource,
-  ImprintSummary,
+  AssertionsDoc,
+  Imprint,
   ProbeResult,
+  TwinSummary,
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
@@ -85,13 +87,18 @@ export interface FakeState {
   plugins: DiscoveryPlugin[];
   sources: DiscoverySource[];
   runs: DiscoveryRun[];
-  imprints: Record<string, ImprintSummary>;
+  /** The twin catalog, by id. */
+  twins: Record<string, TwinSummary>;
+  /** The imprints (PITs) in the IR store. */
+  imprints: Imprint[];
+  /** Each imprint's assertions document, by pit id, once saved. */
+  assertions: Record<string, AssertionsDoc>;
   /** Catalog folders the listing reports as unreadable. */
-  skippedImprints: Array<{ id: string; reason: string }>;
+  skippedTwins: Array<{ id: string; reason: string }>;
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; rename?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -101,8 +108,10 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     plugins: [AXQUERY, ZEEK],
     sources: [],
     runs: [],
-    imprints: {},
-    skippedImprints: [],
+    twins: {},
+    imprints: [],
+    assertions: {},
+    skippedTwins: [],
     writes: [],
     refuse: {},
     runSteps: [],
@@ -111,6 +120,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
   let nextId = 100;
   const notFound = (what: string) => new ApiError({ kind: "not-found", status: 404, message: `no ${what}`, url: "" });
 
+  const findImprint = (pit: string) => state.imprints.find((x) => x.pit_id === pit) ?? state.imprints.find((x) => x.name === pit);
+  const twinsOf = (pit: string) => Object.values(state.twins).filter((t) => t.pit_id === pit).map((t) => ({ id: t.id }));
+  const emptyAssertions = (pit: string): AssertionsDoc => ({
+    imprint_id: pit, path: `/store/pits/${pit}/${pit}.assertions.yaml`, exists: false, etag: null,
+    schema: "axr-assertions/1", imprint: pit, as_of: null, source: null, add: [], override: [], suppress: [],
+  });
   const api: Api = {
     async listPlugins() {
       return { plugins: state.plugins };
@@ -186,9 +201,10 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         id: `disc-${nextId++}`,
         status: "running",
         plugin: s.plugin,
-        imprint_id: body.imprint_id,
+        name: body.name,
+        imprint_id: body.name,
         stages_done: [],
-        stages: ["ingest", "bake", "cast", "install"],
+        stages: ["ingest", "bake"],
         pit_id: null,
         error: null,
         created_at: "2026-10-27T16:03:18Z",
@@ -215,14 +231,6 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       state.runSteps.unshift({ status: "cancelled", finished_at: "2026-10-28T12:00:03Z", error: "ingest cancelled by the operator" });
       return { ...r, stages_done: [...r.stages_done] };
     },
-    async renamePit(pit, name) {
-      state.writes.push({ op: "rename-pit", id: pit, body: { name } });
-      if (state.refuse.rename) throw state.refuse.rename;
-      const hits = state.runs.filter((r) => r.pit_id === pit || r.pit_name === pit);
-      if (hits.length === 0) throw notFound(`PIT '${pit}'`);
-      for (const r of hits) r.pit_name = name;
-      return { pit_id: String(hits[0]?.pit_id), name };
-    },
     async deleteRun(id) {
       state.writes.push({ op: "delete-run", id });
       if (state.refuse.delete) throw state.refuse.delete;
@@ -240,32 +248,111 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       return { ...r, stages_done: [...r.stages_done] };
     },
     async listImprints() {
+      return { pits: state.imprints.map((i) => ({ ...i, twins: twinsOf(i.pit_id) })) };
+    },
+    async getImprint(pit) {
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      return { ...i, twins: twinsOf(i.pit_id) };
+    },
+    async renameImprint(pit, name) {
+      state.writes.push({ op: "rename-imprint", id: pit, body: { name } });
+      if (state.refuse.rename) throw state.refuse.rename;
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      i.name = name;
+      for (const r of state.runs) if (r.pit_id === i.pit_id) r.pit_name = name;
+      return { ...i, twins: twinsOf(i.pit_id) };
+    },
+    async copyImprint(pit, name) {
+      state.writes.push({ op: "copy-imprint", id: pit, body: { name } });
+      if (state.refuse.copy) throw state.refuse.copy;
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      const copy: Imprint = { ...i, pit_id: `pit-copy-${nextId++}`, name, derived_from: i.pit_id, twins: [] };
+      state.imprints.push(copy);
+      const src = state.assertions[i.pit_id];
+      if (src) state.assertions[copy.pit_id] = { ...src, imprint_id: copy.pit_id, path: src.path.replace(i.pit_id, copy.pit_id) };
+      return copy;
+    },
+    async deleteImprint(pit) {
+      state.writes.push({ op: "delete-imprint", id: pit });
+      if (state.refuse.deleteImprint) throw state.refuse.deleteImprint;
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      state.imprints = state.imprints.filter((x) => x.pit_id !== i.pit_id);
+    },
+    async getAssertions(pit) {
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      return state.assertions[i.pit_id] ?? emptyAssertions(i.pit_id);
+    },
+    async putAssertions(pit, doc) {
+      state.writes.push({ op: "put-assertions", id: pit, body: doc });
+      if (state.refuse.assertions) throw state.refuse.assertions;
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      const base = emptyAssertions(i.pit_id);
+      const d = doc as Partial<AssertionsDoc>;
+      const saved: AssertionsDoc = {
+        ...base,
+        as_of: d.as_of ?? null,
+        source: d.source ?? null,
+        add: d.add ?? [],
+        override: d.override ?? [],
+        suppress: d.suppress ?? [],
+        exists: true,
+        etag: `etag-${nextId++}`,
+      };
+      state.assertions[i.pit_id] = saved;
+      i.has_assertions = true;
+      return saved;
+    },
+    async castImprint(pit, body) {
+      state.writes.push({ op: "cast", id: pit, body });
+      if (state.refuse.cast) throw state.refuse.cast;
+      const i = findImprint(pit);
+      if (!i) throw notFound(`imprint '${pit}'`);
+      const replaced = Boolean(state.twins[body.twin_id]);
+      if (replaced && !body.replace) {
+        throw new ApiError({ kind: "conflict", status: 409, message: `twin '${body.twin_id}' already exists in the catalog; pass replace: true to overwrite it, or choose another id`, url: "" });
+      }
+      const twin: TwinSummary = {
+        id: body.twin_id, as_of: "2026-10-06T19:00:00Z", pit_id: i.pit_id,
+        hosts: i.entities ?? 0, segments: i.segments ?? 0, services: 0, personas: 0,
+        mean_confidence: 0.5, windows: i.windows ?? null, topology_segments: [],
+      };
+      state.twins[body.twin_id] = twin;
+      return { twin, pit_id: i.pit_id, replaced, caveats: ["fake cast"], install_report: "installed" };
+    },
+    async listTwins() {
       return {
-        imprints: Object.values(state.imprints).map((i) => ({
-          id: i.id,
-          hosts: i.hosts,
-          segments: i.segments,
-          as_of: i.as_of,
-          mean_confidence: i.mean_confidence,
+        imprints: Object.values(state.twins).map((t) => ({
+          id: t.id,
+          hosts: t.hosts,
+          segments: t.segments,
+          as_of: t.as_of,
+          mean_confidence: t.mean_confidence,
           has_provenance: true,
           confidence_source: "canonical sidecar (2/3 fields)",
           has_topology_export: true,
+          cast_from: t.pit_id ? { pit_id: t.pit_id, pit_name: findImprint(t.pit_id)?.name ?? null } : null,
           can_apply: true,
           apply_blocked_reason: null,
         })),
-        skipped: [...state.skippedImprints],
+        skipped: [...state.skippedTwins],
       };
     },
-    async deleteImprint(id) {
-      state.writes.push({ op: "delete-imprint", id });
-      if (state.refuse.deleteImprint) throw state.refuse.deleteImprint;
-      if (!state.imprints[id]) throw notFound(`imprint '${id}'`);
-      delete state.imprints[id];
+    async getTwin(id) {
+      const t = state.twins[id];
+      if (!t) throw notFound(`imprint '${id}'`);
+      return t;
     },
-    async getImprint(id) {
-      const i = state.imprints[id];
-      if (!i) throw notFound(`imprint '${id}'`);
-      return i;
+    async deleteTwin(id) {
+      state.writes.push({ op: "delete-twin", id });
+      if (state.refuse.deleteTwin) throw state.refuse.deleteTwin;
+      if (!state.twins[id]) throw notFound(`imprint '${id}'`);
+      delete state.twins[id];
     },
   };
   return { api, state };

@@ -15,9 +15,10 @@ function running(over: Partial<DiscoveryRun> = {}): DiscoveryRun {
     id: "disc-7",
     status: "running",
     plugin: "axquery",
+    name: "corp-apcn-10d",
     imprint_id: "corp-apcn-10d",
     stages_done: [],
-    stages: ["ingest", "bake", "cast", "install"],
+    stages: ["ingest", "bake"],
     pit_id: null,
     error: null,
     created_at: "2026-10-28T10:57:33Z",
@@ -81,27 +82,25 @@ describe("the run page", () => {
   }, 10000);
 
   it("marks the stage a failed run died in red, the unreached ones plain", async () => {
-    const { api } = fakeApi({ runs: [running({ status: "failed", stages_done: ["ingest", "bake"], error: "cast failed (exit 1): boom", finished_at: "2026-10-28T12:00:00Z" })] });
+    const { api } = fakeApi({ runs: [running({ status: "failed", stages_done: ["ingest"], error: "bake failed (exit 1): boom", finished_at: "2026-10-28T12:00:00Z" })] });
     renderAt(api, "/discovery/runs/disc-7");
     await screen.findByRole("alert");
     expect(screen.getByText("ingest").className).toBe("done");
-    expect(screen.getByText("bake").className).toBe("done");
-    expect(screen.getByText("cast").className).toBe("failed");
-    expect(screen.getByText("install").className).toBe("");
+    expect(screen.getByText("bake").className).toBe("failed");
   });
 
-  it("a completed run whose bundle is gone says so instead of linking to nothing", async () => {
-    const { api } = fakeApi({ runs: [running({ status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" })] });
+  it("a completed run whose imprint is gone says so instead of linking to nothing", async () => {
+    const { api } = fakeApi({ runs: [running({ status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", pit_name: "corp-apcn-10d", finished_at: "2026-10-28T15:00:00Z" })] });
     renderAt(api, "/discovery/runs/disc-7");
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("Imprint corp-apcn-10d is no longer in the catalog");
+    expect(alert.textContent).toContain("Imprint corp-apcn-10d is no longer in the store");
     expect(screen.queryByTestId("open-imprint")).toBeNull();
   });
 
   it("offers no cancel on a finished run", async () => {
     const { api } = fakeApi({
-      runs: [running({ status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
-      imprints: { "corp-apcn-10d": { id: "corp-apcn-10d", as_of: "2026-10-06T19:00:00Z", hosts: 1, segments: 1, services: 0, personas: 0, mean_confidence: 0.5, windows: 1, topology_segments: [] } },
+      runs: [running({ status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
+      imprints: [{ pit_id: "pit-1", name: "corp-apcn-10d", derived_from: null, has_assertions: false, twins: [] }],
     });
     renderAt(api, "/discovery/runs/disc-7");
     await screen.findByTestId("open-imprint");
@@ -111,7 +110,7 @@ describe("the run page", () => {
 });
 
 describe("the run's one write", () => {
-  const done = () => running({ id: "disc-9", status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" });
+  const done = () => running({ id: "disc-9", status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", finished_at: "2026-10-28T15:00:00Z" });
 
   it("a finished run offers Delete run on its page and goes back to the list once deleted", async () => {
     const { api, state } = fakeApi({ runs: [done()] });
@@ -158,7 +157,10 @@ describe("the run's one write", () => {
 
 describe("the PIT's name", () => {
   it("shows the name beside the id once renamed, and the rename reaches the API", async () => {
-    const { api, state } = fakeApi({ runs: [running({ status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", pit_name: "pit-1", finished_at: "2026-10-28T15:00:00Z" })] });
+    const { api, state } = fakeApi({
+      runs: [running({ status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", pit_name: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
+      imprints: [{ pit_id: "pit-1", name: "pit-1", derived_from: null, has_assertions: false, twins: [] }],
+    });
     renderAt(api, "/discovery/runs/disc-7");
     fireEvent.click(await screen.findByRole("button", { name: "Rename PIT" }));
     const box = screen.getByRole("textbox", { name: "PIT name" }) as HTMLInputElement;
@@ -166,15 +168,16 @@ describe("the PIT's name", () => {
     fireEvent.change(box, { target: { value: "day one" } });
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     await screen.findByRole("button", { name: "Rename PIT" });
-    expect(state.writes).toEqual([{ op: "rename-pit", id: "pit-1", body: { name: "day one" } }]);
+    expect(state.writes).toEqual([{ op: "rename-imprint", id: "pit-1", body: { name: "day one" } }]);
     expect(screen.getByText("day one", { selector: "strong" })).toBeTruthy();
     expect(screen.getByText("pit-1").tagName).toBe("CODE");
-    expect(screen.getByText(/^Completed; PIT/).textContent).toContain("day one");
+    expect(screen.getByText(/^Completed; imprint/).textContent).toContain("day one");
   });
 
   it("keeps the old name and shows the refusal when the API says no", async () => {
     const { api } = fakeApi({
-      runs: [running({ status: "completed", stages_done: ["ingest", "bake", "cast", "install"], pit_id: "pit-1", pit_name: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
+      runs: [running({ status: "completed", stages_done: ["ingest", "bake"], pit_id: "pit-1", pit_name: "pit-1", finished_at: "2026-10-28T15:00:00Z" })],
+      imprints: [{ pit_id: "pit-1", name: "pit-1", derived_from: null, has_assertions: false, twins: [] }],
       refuse: { rename: new ApiError({ kind: "conflict", status: 409, message: "'taken' is already the name or id of PIT 'pit-2'", url: "" }) },
     });
     renderAt(api, "/discovery/runs/disc-7");

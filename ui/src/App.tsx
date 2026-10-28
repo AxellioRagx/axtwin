@@ -9,6 +9,8 @@ import { SourcePage } from "./areas/discovery/SourcePage";
 import { SourcesPage } from "./areas/discovery/SourcesPage";
 import { ImprintPage } from "./areas/imprints/ImprintPage";
 import { ImprintsPage } from "./areas/imprints/ImprintsPage";
+import { TwinPage } from "./areas/twins/TwinPage";
+import { TwinsPage } from "./areas/twins/TwinsPage";
 import { AppFrame } from "./areas/shell/AppFrame";
 
 /** The routes. The router itself is supplied by the caller (`BrowserRouter` in
@@ -26,7 +28,9 @@ export function App({ api }: { api: Api }) {
           <Route path="/discovery/runs" element={<RunsPage />} />
           <Route path="/discovery/runs/:id" element={<RunPage />} />
           <Route path="/imprints" element={<ImprintsPage />} />
-          <Route path="/imprints/:id" element={<ImprintPage />} />
+          <Route path="/imprints/:pit" element={<ImprintPage />} />
+          <Route path="/twins" element={<TwinsPage />} />
+          <Route path="/twins/:id" element={<TwinPage />} />
           <Route path="*" element={<Navigate to="/discovery" replace />} />
         </Route>
       </Routes>
