@@ -4170,7 +4170,7 @@ def imprint_summary(settings: ApiSettings, imprint_id: str) -> dtos.ImprintSumma
         ],
         # R7 (GAP-082): what was parsed, where the confidence came from, and
         # every statement the reader publishes instead of refusing.
-        sidecar_shape=s.sidecar_shape,
+        provenance=s.provenance,
         pit_id=s.pit_id,
         confidence_source=s.confidence_source,
         warnings=list(s.warnings),
@@ -4178,15 +4178,15 @@ def imprint_summary(settings: ApiSettings, imprint_id: str) -> dtos.ImprintSumma
 
 
 def imprint_provenance(settings: ApiSettings, imprint_id: str) -> dtos.ImprintProvenanceDTO:
-    """S1.4: BOTH sidecar shapes, plus which one was read.
+    """S1.4: the provenance rows, plus what was parsed to get them.
 
-    `load_provenance` detects `canonical` / `normalized` / `unrecognized` /
-    `absent` and reads each with the reader that owns it (the canonical one
-    through `axrange.fidelity.reference`, never a third parser; an
-    unrecognized `schema` is present and NOT consumed). An ABSENT sidecar is
-    a 200 with zero rows and `sidecar_shape: "absent"`, not a 400 -- a real
-    cast bundle installed before the sidecar was copied legitimately has
-    none, and the Console must render it while saying so.
+    `load_provenance` detects `canonical` / `unrecognized` / `absent` and
+    reads the canonical file through `axrange.fidelity.reference`, never a
+    second parser; an unrecognized `schema` (or none) is present and NOT
+    consumed. An ABSENT file is a 200 with zero rows and `provenance:
+    "absent"`, not a 400 -- a real cast bundle installed before the file was
+    copied legitimately has none, and the Console must render it while
+    saying so.
     """
     from axrange.api.imprints import (
         ImprintDataError,
@@ -4204,7 +4204,7 @@ def imprint_provenance(settings: ApiSettings, imprint_id: str) -> dtos.ImprintPr
 
     return dtos.ImprintProvenanceDTO(
         imprint_id=doc.imprint_id,
-        sidecar_shape=doc.sidecar_shape,
+        provenance=doc.provenance,
         sidecar_schema=doc.sidecar_schema,
         evidence_source=doc.evidence_source,
         code_fingerprint=doc.code_fingerprint,
@@ -4531,7 +4531,7 @@ def _cast_summary_dto(
         has_topology_export=s.has_topology_export,
         has_assertions=s.has_assertions, has_layout=s.has_layout,
         provenance_schema=s.provenance_schema, provenance_path=s.provenance_path,
-        sidecar_shape=s.sidecar_shape, evidence_source=s.evidence_source,
+        provenance=s.provenance, evidence_source=s.evidence_source,
         warnings=s.warnings,
         # R5 (GAP-079): the roster behind the `conduits` count + every
         # router with its legs (per router, the GAP-082 review's S5), for

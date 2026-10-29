@@ -1332,24 +1332,25 @@ def suppressed_key_delta(
     that is what a consumer needs to mark an edit applied.
 
     `None` (never an empty section) when either side carries no
-    `population.suppressed` accounting -- a bundle with no sidecar, or one in
-    the normalized shape, cannot say "nothing is suppressed" (LES-240/LES-226:
-    `null` is an absence, `[]` is a claim).
+    `population.suppressed` accounting -- a bundle with no provenance file,
+    or one whose file carries no `population`, cannot say "nothing is
+    suppressed" (LES-240/LES-226: `null` is an absence, `[]` is a claim).
     """
     b = _suppressed_keys_of(before)
     a = _suppressed_keys_of(after)
     if b is None or a is None:
         which = "the recorded snapshot" if b is None else "the current bundle"
         # States WHAT WAS MEASURED and stops (LES-239). The earlier wording
-        # named a cause -- "its sidecar is absent or in the normalized
-        # shape" -- which this function cannot know: a producer that simply
-        # omits the key is a third possibility, and asserting one of three
-        # sends an operator to check the wrong thing.
+        # named a cause -- "its provenance file is absent" -- which this
+        # function cannot know: a producer that simply omits the key is
+        # another possibility, and asserting one sends an operator to check
+        # the wrong thing.
         return None, [
             f"{which} carries no `population.suppressed` list, so this diff "
             "cannot say which authored keys were suppressed -- omitted "
             "rather than reported as an empty set. Causes include an absent "
-            "or normalized sidecar and a producer that does not emit the key"
+            "or unrecognized provenance file and a producer that does not "
+            "emit the key"
         ]
     return (
         {"added": sorted(set(a) - set(b)), "removed": sorted(set(b) - set(a)),

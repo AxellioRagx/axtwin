@@ -3,8 +3,7 @@
 .../cast` publishes the twin config's conduit roster and each router's legs)
 and **R7** (GAP-082: ONE summary builder for all three sidecar shapes; only
 the ADDRESSING id refuses -- decision D3 "tolerate on read", Authority: user,
-2026-09-11 -- plus, since the review's S1, a normalized sidecar that names
-ANOTHER imprint).
+2026-09-11).
 
 The build's own tests prove the happy shape on real bundles. This module
 attacks the edges of the same surface over real HTTP -- a LENIENT TestClient,
@@ -64,7 +63,7 @@ CAST_FIXTURES = FIXT_ROOT / "cast-bundles"
 # the casts among them, read through `axrange.twinconfig.bundle`.
 REAL_CAST_ROOT = CATALOG / "twins"
 
-_SHAPES = ("normalized", "canonical", "absent")
+_SHAPES = ("canonical", "unrecognized", "absent")
 
 
 @pytest.fixture(autouse=True)
@@ -109,8 +108,15 @@ _CANONICAL = {
 }
 
 
-def _normalized(imprint_id: Any) -> dict:
-    """The Track-C fixture shape, self-consistent unless told otherwise."""
+#: A provenance file whose `schema` this reader does not consume.
+_UNRECOGNIZED = {"schema": "axr-cast-provenance/2", "fields": {}}
+
+
+def _schema_less(imprint_id: Any) -> dict:
+    """The RETIRED Track-C normalized shape (2026-10-29): no `schema` key, a
+    `summary` block, its own `imprint_id`. Unrecognized now -- present, not
+    consumed, never read for an id -- and kept in the matrix as exactly the
+    kind of document an old checkout can still leave behind."""
     return {
         "imprint_id": imprint_id, "as_of": "2026-01-01T00:00:00Z",
         "summary": {"services": 1, "personas": 1, "mean_confidence": 0.5,
@@ -195,7 +201,7 @@ def _cast(c: TestClient, name: str) -> dict:
 def _renamed_catalog(root: Path, shape: str) -> None:
     """`renamed/` whose twin config declares `another-twin` (a copied,
     renamed directory -- LES-195's case), beside a healthy neighbour."""
-    sidecar = {"normalized": _normalized("renamed"), "canonical": _CANONICAL,
+    sidecar = {"canonical": _CANONICAL, "unrecognized": _UNRECOGNIZED,
                "absent": None}[shape]
     _write_bundle(root, "renamed", tc_id="another-twin", sidecar=sidecar,
                   export=_export("renamed"))
@@ -315,7 +321,7 @@ _DAMAGE: dict[str, Callable[[Path], Any]] = {
     "export-not-json": _case(sidecar=_CANONICAL, export="{ torn"),
     "export-not-an-object": _case(sidecar=_CANONICAL, export="[]"),
     "export-invalid-utf8": _case(sidecar=_CANONICAL, export=_BAD_UTF8),
-    "export-invalid-utf8-normalized": _case(sidecar=_normalized(_X), export=_BAD_UTF8),
+    "export-invalid-utf8-schema-less": _case(sidecar=_schema_less(_X), export=_BAD_UTF8),
     "export-is-a-directory": _export_is_a_directory,
     "export-unreadable": _export_unreadable,
     "export-windows-huge-int": _case(sidecar=_CANONICAL, export=_HUGE_WINDOWS),
@@ -331,7 +337,7 @@ _DAMAGE: dict[str, Callable[[Path], Any]] = {
     "sidecar-json-array": _case(sidecar=[], export=_export(_X)),
     "sidecar-canonical-without-fields": _case(
         sidecar={"schema": "axr-cast-provenance/1"}, export=_export(_X)),
-    "sidecar-normalized-imprint-id-int": _case(sidecar=_normalized(42), export=_export(_X)),
+    "sidecar-schema-less-imprint-id-int": _case(sidecar=_schema_less(42), export=_export(_X)),
     # -- the twin config R5 reads the roster and the legs from ---------------
     "conduits-empty": _case(conduits="  conduits: []\n", export=_export(_X)),
     "conduits-null": _case(conduits="  conduits:\n", export=_export(_X)),
@@ -600,7 +606,7 @@ def test_the_listing_and_the_summary_partition_every_shipped_catalog_identically
             for key in ("id", "as_of", "hosts", "segments", "mean_confidence",
                         "confidence_source"):
                 assert s[key] == e[key], (name, key, s[key], e[key])
-            assert e["has_provenance"] is (s["sidecar_shape"] != "absent"), name
+            assert e["has_provenance"] is (s["provenance"] != "absent"), name
             cast = _cast(c, name)
             assert (cast["hosts"], cast["segments"]) == (s["hosts"], s["segments"]), name
             _assert_roster_is_the_raw_config(bundle_config_path(root / name, name), cast)
@@ -808,7 +814,7 @@ def test_an_unrecognized_sidecar_is_present_and_unconsumed_on_every_route(tmp_pa
     summary = c.get("/api/twins/b")
     assert summary.status_code == 200, summary.text[:300]
     s = summary.json()
-    assert (s["sidecar_shape"], s["mean_confidence"], s["confidence_source"]) == (
+    assert (s["provenance"], s["mean_confidence"], s["confidence_source"]) == (
         "unrecognized", 0.0, "unrecognized sidecar (not consumed)",
     )
     assert any("not one this reader consumes" in w for w in s["warnings"]), s["warnings"]
@@ -817,10 +823,10 @@ def test_an_unrecognized_sidecar_is_present_and_unconsumed_on_every_route(tmp_pa
         "b", True, s["confidence_source"],
     )
     cast = _cast(c, "b")
-    assert (cast["sidecar_shape"], cast["has_provenance"]) == ("unrecognized", True)
+    assert (cast["provenance"], cast["has_provenance"]) == ("unrecognized", True)
     prov = c.get("/api/twins/b/provenance")
     assert prov.status_code == 200, prov.text[:300]
-    assert (prov.json()["sidecar_shape"], prov.json()["rows"]) == ("unrecognized", [])
+    assert (prov.json()["provenance"], prov.json()["rows"]) == ("unrecognized", [])
     assert c.get("/api/twins/b/topology").status_code == 200
     r = c.post("/api/twins/b/plan", json={"target_node": "pxtest1"})
     assert r.status_code == 200, r.text[:300]
@@ -831,20 +837,17 @@ def test_an_unrecognized_sidecar_is_present_and_unconsumed_on_every_route(tmp_pa
     {"schema": "axr-cast-provenance/1", "fields": None},
     {"schema": "axr-cast-provenance/1", "fields": "every field"},
     {"schema": "axr-cast-provenance/1", "fields": []},
-    {"imprint_id": "b", "as_of": "2026-01-01T00:00:00Z", "summary": {
-        "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0}},
     # No `unrecognized-missing` case since the GAP-082 review's round 2 (SF3):
-    # the shape is detected FIRST, and only the two shapes that are READ owe a
-    # `fields` object. An unrecognized schema is present and unconsumed with
-    # or without one (test_imprints_reader.py::
-    # test_an_unrecognized_sidecar_is_held_to_no_precondition).
-], ids=["canonical-missing", "canonical-null", "canonical-string", "canonical-list",
-        "normalized-missing"])
+    # the shape is detected FIRST, and only the one shape that is READ owes a
+    # `fields` object. An unrecognized schema -- or none, the retired
+    # normalized shape -- is present and unconsumed with or without one
+    # (test_imprints_reader.py::test_an_unrecognized_sidecar_is_held_to_no_precondition).
+], ids=["canonical-missing", "canonical-null", "canonical-string", "canonical-list"])
 def test_a_sidecar_without_a_fields_object_is_refused_in_one_voice_by_every_reader(tmp_path, sidecar):
     """ONE precondition (`sidecar_fields_or_raise`), so every route that READS
     the sidecar refuses the same file in the same words -- the summary,
     `/cast`, `/provenance` and the listing's skip reason, word for word --
-    for both shapes that are read (canonical and normalized), while the
+    for the one shape that is read (canonical), while the
     routes that never read it (the topology export, the plan) are untouched,
     and a healthy neighbour stays listed."""
     root = tmp_path / "imprints"

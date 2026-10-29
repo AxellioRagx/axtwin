@@ -18,12 +18,12 @@ A `twins/<id>/` folder holds the same three: the manifest's te file
 **No import in either direction, ever** (`docs/design/aximprint-integration/
 WORK_ORDERS.md` §0): this module reads three FILES. It never imports the
 `aximprint` package, and it is deliberately NOT
-`axrange/api/imprints.py` — that reader consumes the Track-C *normalized*
-sidecar shape the Console's provenance table wants, while the canonical
-shape here is the one the real compiler emits (`{schema, pit_id,
-code_fingerprint, vantage, population, fields}` with `overrides:` records;
-§9.6, ruled 2026-09-04). Collapsing the two readers is a separate change
-(work order §5).
+`axrange/api/imprints.py` — that reader folds this module's view of the
+canonical provenance file (`{schema, pit_id, code_fingerprint, vantage,
+population, fields}` with `overrides:` records; §9.6, ruled 2026-09-04)
+into the Console's summary and provenance rows, and parses nothing of it
+itself. (The Track-C normalized shape it once read on its own was retired
+2026-10-29.)
 
 **A sidecar that is absent is REPORTED, not papered over** (§8.1). A bundle
 installed by a current `install_cast_as_twin.py` carries its sidecar and its
@@ -77,12 +77,11 @@ from axrange.paths import TWINS_DIR as _DEFAULT_REFERENCE_ROOT
 PRESENT = "present"
 ABSENT = "absent"
 
-# The canonical sidecar the real compiler emits (`aximprint synth/
-# compiler.py`). A sidecar carrying any other `schema` -- notably the Track-C
-# NORMALIZED fixture shape `axrange/api/imprints.py` reads -- is reported and
-# NOT consumed for evidence classes: two shapes disagree (work order §2/§9.1),
-# and reading one as the other is precisely the fabrication this file exists
-# to avoid.
+# The canonical provenance file the real compiler emits (`aximprint synth/
+# compiler.py`) -- the ONE shape read. A file carrying any other `schema`, or
+# none (the Track-C normalized shape, retired 2026-10-29), is reported and NOT
+# consumed for evidence classes: reading an unknown shape as this one is
+# precisely the fabrication this file exists to avoid.
 CAST_PROVENANCE_SCHEMA = "axr-cast-provenance/1"
 
 # What `reference.evidence_source` publishes. Not decoration: the day the
@@ -680,16 +679,15 @@ def _load_topology(bundle: ReferenceBundle, path: Path) -> None:
 
 
 def sidecar_fields_or_raise(raw: dict[str, Any], path: Path) -> dict[str, Any]:
-    """THE precondition a provenance sidecar of a shape that is READ -- the
-    canonical `axr-cast-provenance/1` or the schema-less normalized one --
-    must meet before anything reads it: a `fields` object. An unrecognized
-    schema is held to none: it is present and not consumed, so it is never
-    read (GAP-082 review round 2, SF3). ONE definition (LES-037), shared with
-    `axrange.api.imprints`'s summary/listing reader, so `GET .../cast` and
-    `GET /api/imprints[/{id}]` refuse the SAME sidecar in the SAME words --
-    rather than the listing publishing a bundle whose cast then refuses it
-    (GAP-082 review: a canonical sidecar with no `fields` listed and
-    summarized 200 while `/cast` answered 400)."""
+    """THE precondition a CANONICAL provenance file must meet before anything
+    reads it: a `fields` object. An unrecognized schema is held to none: it
+    is present and not consumed, so it is never read (GAP-082 review round
+    2, SF3). ONE definition (LES-037), shared with `axrange.api.imprints`'s
+    summary/listing reader, so `GET .../cast` and `GET /api/twins[/{id}]`
+    refuse the SAME file in the SAME words -- rather than the listing
+    publishing a bundle whose cast then refuses it (GAP-082 review: a
+    canonical file with no `fields` listed and summarized 200 while `/cast`
+    answered 400)."""
     fields = raw.get("fields")
     if not isinstance(fields, dict):
         raise ReferenceError(
@@ -700,10 +698,12 @@ def sidecar_fields_or_raise(raw: dict[str, Any], path: Path) -> dict[str, Any]:
 
 
 def _not_consumed_warning(path: Path, schema: Any) -> str:
+    declared = f"schema {schema!r} is" if schema is not None else "declares no `schema`, so it is"
     return (
-        f"{path.name}: provenance sidecar schema {schema!r} is not "
-        f"{CAST_PROVENANCE_SCHEMA!r} -- its `fields` are NOT consumed (two "
-        f"sidecar shapes exist and disagree, work order §2); {REDERIVED_WARNING}"
+        f"{path.name}: provenance file {declared} not "
+        f"{CAST_PROVENANCE_SCHEMA!r} -- its `fields` are NOT consumed (an "
+        f"unrecognized shape is never read as the canonical one, work order §2); "
+        f"{REDERIVED_WARNING}"
     )
 
 
@@ -719,12 +719,12 @@ def _load_provenance(bundle: ReferenceBundle, path: Path) -> None:
     rows, which have none by definition) and an optional `overrides:` record
     when a higher class won over a lower one.
 
-    A sidecar carrying some OTHER schema -- notably the Track-C normalized
-    fixture shape -- is reported `present` and deliberately NOT consumed:
-    two shapes exist and disagree (work order §2), and reading one as the
-    other is the imputed-as-observed fabrication the spec exists to prevent.
-    `evidence_source` stays `re-derived` and the re-derivation warning stays
-    with it, which is the whole point of publishing the field.
+    A file carrying some OTHER schema, or none (the retired Track-C
+    normalized shape), is reported `present` and deliberately NOT consumed:
+    reading an unknown shape as the canonical one is the imputed-as-observed
+    fabrication the spec exists to prevent. `evidence_source` stays
+    `re-derived` and the re-derivation warning stays with it, which is the
+    whole point of publishing the field.
     """
     raw = _read_json(path, f"cast bundle {bundle.bundle_dir}: provenance sidecar")
     bundle.provenance = raw
@@ -746,19 +746,15 @@ def _load_provenance(bundle: ReferenceBundle, path: Path) -> None:
     if isinstance(raw.get("population"), dict):
         bundle.population = dict(raw["population"])
     # Shape FIRST, then preconditions (GAP-082 review round 2, SF3): the
-    # `fields` object is required of the two shapes that are READ -- this
-    # one, the canonical, and the schema-less normalized one the Console
-    # reads rows from -- and of nothing else. An UNRECOGNIZED schema is
-    # present and NOT consumed, so it is held to no precondition: a future
-    # schema that renames the key must not make its bundle vanish.
-    if schema is not None and schema != CAST_PROVENANCE_SCHEMA:
+    # `fields` object is required of the one shape that is READ, the
+    # canonical, and of nothing else. An UNRECOGNIZED schema -- or no
+    # `schema` at all -- is present and NOT consumed, so it is held to no
+    # precondition: a future schema that renames the key must not make its
+    # bundle vanish.
+    if schema != CAST_PROVENANCE_SCHEMA:
         bundle.warnings.append(_not_consumed_warning(path, schema))
         return
     fields = sidecar_fields_or_raise(raw, path)
-
-    if schema != CAST_PROVENANCE_SCHEMA:  # the normalized shape: never consumed here
-        bundle.warnings.append(_not_consumed_warning(path, schema))
-        return
 
     classes: dict[str, str] = {}
     overridden: list[str] = []

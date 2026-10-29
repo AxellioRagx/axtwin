@@ -1185,8 +1185,8 @@ class ImprintListItemDTO(BaseModel):
     # "" for a bundle whose capture instant is only in its topology export
     # and that export is absent -- empty, never invented.
     as_of: str
-    # NON-NULL, and 0.0 with `confidence_source: "absent"` for a bundle that
-    # carries no normalized `summary` block to take it from (D3 (a), `docs/
+    # NON-NULL, and 0.0 with `confidence_source: "absent"` for a bundle whose
+    # provenance file carries no per-field confidence to mean (D3 (a), `docs/
     # WORK_ORDER_console_canvas.md` §8.1). **Read the pair, never the float.**
     # The non-null shape was originally owed to the Track C Grafana imprints
     # screen (`imp.mean_confidence * 100`); that screen was RETIRED at Console
@@ -1196,7 +1196,7 @@ class ImprintListItemDTO(BaseModel):
     # qualifier. Kept non-null for the wire contract; the rule is unchanged.
     mean_confidence: float
     has_provenance: bool = True
-    confidence_source: str = "sidecar"
+    confidence_source: str = "absent"
     # Unified Console: whether the bundle carries a topology export (with
     # `has_provenance`, capture-backed vs hand-authored in the outline).
     has_topology_export: bool = False
@@ -1249,25 +1249,21 @@ class ImprintSummaryDTO(BaseModel):
     services: int
     personas: int
     mean_confidence: float
-    # A measurement only from a normalized sidecar's `summary` block; null for
-    # a canonical, unrecognized or absent one (nothing at cast computes it).
+    # Nothing at cast computes it: always null (the normalized shape that
+    # carried it was retired 2026-10-29). Kept for the wire contract.
     out_of_vocab_pct: Optional[float] = None
     topology_segments: list[ImprintSegmentDTO] = []
     # R7 (GAP-082), all ADDITIVE. They were added beside a Grafana imprints
     # screen that read none of them and rendered the non-null numbers alone --
     # which is why that screen was retired at Console S7 (D5, 2026-09-11,
-    # `docs/PRODUCT_GAPS.md` GAP-083). This whole DTO now has no UI consumer;
-    # the Console SPA reads the qualifiers, and the plugin renders no
-    # measurement. `sidecar_shape` is what was parsed
-    # ("canonical" | "normalized" | "unrecognized" | "absent"), in the
-    # vocabulary `CastSummaryDTO`/`ImprintProvenanceDTO` already use:
-    # `out_of_vocab_pct` is a measurement ONLY when it reads "normalized" and
-    # null otherwise; `services` (declared listeners over host instances) and
-    # `personas` (persona documents in the bundle) are counted from the bundle
-    # for every other shape.
+    # `docs/PRODUCT_GAPS.md` GAP-083). `provenance` is what was parsed of the
+    # bundle's provenance file ("canonical" | "unrecognized" | "absent"), in
+    # the vocabulary `CastSummaryDTO`/`ImprintProvenanceDTO` already use;
+    # `services` (declared listeners over host instances) and `personas`
+    # (persona documents in the bundle) are counted from the bundle.
     # REQUIRED, as is `confidence_source` (GAP-082 review): the one builder
     # states both, so a default could only ever be a claim nobody made.
-    sidecar_shape: str
+    provenance: str
     # The PIT this twin was cast from (its topology export's baked id), or None.
     pit_id: Optional[str] = None
     # Where `mean_confidence` came from -- the listing entry's own field
@@ -1311,8 +1307,7 @@ class ImprintProvenanceRowDTO(BaseModel):
     confidence: float
     evidence: str
     has_confidence: bool = True
-    # Canonical-sidecar extras. Null on the normalized shape, which has no
-    # equivalent field -- absent, not empty.
+    # Null when the record carries none -- absent, not empty.
     source: Optional[str] = None
     note: Optional[str] = None
     overrides: Optional[ProvenanceOverrideDTO] = None
@@ -1321,28 +1316,27 @@ class ImprintProvenanceRowDTO(BaseModel):
 class ImprintProvenanceDTO(BaseModel):
     imprint_id: str
     rows: list[ImprintProvenanceRowDTO] = []
-    # "canonical" | "normalized" | "unrecognized" | "absent" -- WHICH sidecar
-    # shape was read (S1.4; "unrecognized" = a `schema` this reader does not
-    # consume: present, zero rows, GAP-082 review). Stated, so a consumer
-    # never infers it from the row contents.
-    sidecar_shape: str = "normalized"
+    # "canonical" | "unrecognized" | "absent" -- WHAT WAS PARSED of the
+    # provenance file (S1.4; "unrecognized" = a `schema` this reader does not
+    # consume, or none: present, zero rows, GAP-082 review). Stated, so a
+    # consumer never infers it from the row contents. REQUIRED: the one
+    # builder states it.
+    provenance: str
     sidecar_schema: Optional[str] = None
     # "sidecar fields" | "re-derived from topology export" -- whether the
     # producer supplied these classes (LES-219: bound to the derivation, not
     # to the artifact's absence).
     #
-    # **S2 -- read this beside `sidecar_shape`, and note the SAME field name
+    # **S2 -- read this beside `provenance`, and note the SAME field name
     # means something adjacent-but-different on `GET .../cast`.** Here it is
     # the source of THESE PUBLISHED ROWS. There it is the fidelity reader's
     # own consumption state for the scorecard -- "did the scorecard's
-    # evidence classes come from the producer" -- which can say
-    # "re-derived..." for a bundle whose sidecar this endpoint reads happily
-    # in some other shape. `sidecar_shape` is the unambiguous field for "what
-    # did the provenance endpoint actually parse".
+    # evidence classes come from the producer". `provenance` is the
+    # unambiguous field for "what did the provenance endpoint actually parse".
     evidence_source: str = "sidecar fields"
     code_fingerprint: Optional[str] = None
-    # The canonical sidecar's own population accounting (suppressed hosts,
-    # role-less entities, node groups). Empty on the normalized shape.
+    # The provenance file's own population accounting (suppressed hosts,
+    # role-less entities, node groups). Empty when it carries none.
     population: dict[str, Any] = {}
     warnings: list[str] = []
 
@@ -1556,14 +1550,16 @@ class CastSummaryDTO(BaseModel):
     has_layout: bool = False
     provenance_schema: Optional[str] = None
     provenance_path: Optional[str] = None
-    sidecar_shape: str = "absent"
+    # "canonical" | "unrecognized" | "absent" -- what was parsed of the
+    # bundle's provenance file, by the summary's own rule.
+    provenance: str = "absent"
     # S2: the FIDELITY reader's consumption state (`axrange.fidelity.
     # reference`), i.e. whether the SCORECARD's evidence classes come from
     # the producer -- NOT the same statement as
     # `ImprintProvenanceDTO.evidence_source`, which describes the rows that
     # endpoint publishes. Cross-referenced rather than renamed because both
-    # spellings are already consumed; `sidecar_shape` is the field to read
-    # for "what shape is this bundle's sidecar".
+    # spellings are already consumed; `provenance` is the field to read for
+    # "what was parsed of this bundle's provenance file".
     evidence_source: str = ""
     warnings: list[str] = []
     # R5 (GAP-079), ADDITIVE -- the count fields above stay. `conduit_roster`

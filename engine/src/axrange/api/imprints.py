@@ -20,11 +20,11 @@ each owned by its own reader: `topology_export.py`, `console_files.py`,
                                `axrange.twinconfig.schema.TwinConfigFile`
                                already validates; parsed with the SAME model,
                                not a hand-rolled dict walk).
-  * `<id>.provenance.json`  -- the per-field provenance SIDECAR (`twin_config`
+  * `<id>.provenance.json`  -- the per-field provenance FILE (`twin_config`
                                is `extra="forbid"`, so provenance cannot live
-                               inline in the YAML it describes -- matches the
-                               same provenance-sidecar reasoning aximprint's
-                               own compiled output uses).
+                               inline in the YAML it describes); the one
+                               shape aximprint's compiler writes,
+                               `axr-cast-provenance/1`.
 
 In a `twins/<id>/` folder (`AXRANGE_IMPRINTS_DIR=twins`; `docs/
 WORK_ORDER_twin_consolidation.md`) the same two files are the manifest's te
@@ -55,29 +55,25 @@ addressing id?*:
     deploys under and what the fidelity reader resolves by, so a
     disagreement would serve one twin's content under another's URL
     (LES-195).
-  * a NORMALIZED sidecar's `imprint_id` -- no: it names the imprint whose
-    rows it carries, and only a copy-paste writes it differently (LES-195's
-    own case) -> REFUSE a different value (`_sidecar_id_check`, restored by
-    the GAP-082 review, S1). A MISSING one contradicts nothing -> WARN.
-  * a CANONICAL sidecar -- declares no imprint id; nothing to compare.
+  * the provenance file -- declares no imprint id; nothing to compare.
   * the topology export's `imprint_id` -- YES: a cast bundle's export bakes
     the OBSERVED capture's id (`pit-395a61f04e-1780405200` is served while
     its export says `corpapcn-disco`), the argument `o2/console/src/model/
     graph.ts` `CastInput.imprintId` makes for the SPA (LES-263) -> WARN,
     never refuse (`_export_id_warnings`).
-  * `pit_id` (export or sidecar) -- YES, it changes every capture ->
-    published, never compared.
+  * `pit_id` (export or provenance file) -- YES, it changes every capture
+    -> published, never compared.
 
 **One addressing guard, on every route** (GAP-082 review S2/C, round 2 SF4).
 `_addressable_bundle` resolves the directory (the traversal guard: a 404),
 parses its `<id>.yaml` and compares `twin_config.id` with the directory name
-(a 400) -- and nothing else: no sidecar, no export. `check_imprint_addressable`
+(a 400) -- and nothing else: no provenance file, no export. `check_imprint_addressable`
 is its public face and every route runs it: the Console's operator routes
 (`service._imprint_bundle_dir`), `/topology`'s imprint branch, the "deploy as
 twin" pre-check, and `/cast` and `/provenance` through `load_reference`; the
 summary and the listing run the same two steps inside `_summary_from`. So a
 bundle one route refuses, every route refuses, and a deploy never depends on
-the health of a sidecar or an export it does not read. The parse behind it is
+the health of a provenance file or an export it does not read. The parse behind it is
 CACHED per file (`_load_twin_config`), so after the first request the guard
 costs a `stat`.
 
@@ -91,96 +87,71 @@ against the tempdir the twin config had been materialized into.
 and both API resolvers alike (GAP-082 review, M2); the plan preview of every
 real cast bundle is pinned by `tests/test_api_console.py`.
 
-**TWO sidecar shapes are read, and which one a bundle carries is DETECTED,
-never guessed** (`docs/WORK_ORDER_console_canvas.md` S1.4; the adapter this
-docstring used to call "future work" landed 2026-09-05):
+**ONE provenance shape is read, and what a bundle carries is DETECTED,
+never guessed** (`_detect_provenance`; `docs/WORK_ORDER_console_canvas.md`
+S1.4). The shape is `axr-cast-provenance/1`, the one the real compiler
+emits (`{schema, pit_id, code_fingerprint, vantage, population, fields}`,
+`fields` keyed by twin-config PATH, per-record `evidence_class`/
+`confidence`/`signal`/`source`/`note` and an `overrides:` record where a
+higher class won). Ruled canonical 2026-09-04 (`docs/
+WORK_ORDER_fidelity_scorecard.md` §9.6). `load_provenance` reads it through
+`axrange.fidelity.reference.load_reference_bundle` -- the ONE reader of
+that shape (LES-025/LES-037: no third copy of a cross-repo file parser)
+-- and folds it to the published row shape.
 
-  * `axr-cast-provenance/1` -- the CANONICAL shape the real compiler emits
-    (`{schema, pit_id, code_fingerprint, vantage, population, fields}`,
-    `fields` keyed by twin-config PATH, per-record `confidence`/`signal`/
-    `source`/`note` and an `overrides:` record where a higher class won).
-    Ruled canonical 2026-09-04 (`docs/WORK_ORDER_fidelity_scorecard.md`
-    §9.6). `load_provenance` reads it through
-    `axrange.fidelity.reference.load_reference_bundle` -- the ONE reader of
-    that shape (LES-025/LES-037: no third copy of a cross-repo file parser)
-    -- and folds it to the published row shape.
-  * the Track-C NORMALIZED shape below, which the checked-in fixture uses,
-    kept working unchanged so the shipped Grafana screen and its tests stay
-    green.
+The Track-C NORMALIZED shape (a schema-less document carrying a `summary`
+block of pre-computed headline stats and a `segment_confidence` map, read by
+a second, strict reader) was RETIRED 2026-10-29: its one instance, the
+packaged `corp-enterprise` fixture, now carries a canonical file, and a
+schema-less document is UNRECOGNIZED like any other schema this reader does
+not consume. Nothing in the cast pipeline ever produced it.
 
-`GET /api/imprints/{id}/provenance` reports which one it read
-(`sidecar_shape: canonical | normalized | unrecognized | absent`; an
-UNRECOGNIZED `schema` is present but not consumed) plus `evidence_source`,
-so a consumer never has to infer "did these classes come from the producer"
+Every summary and listing entry publishes `provenance` -- WHAT WAS PARSED:
+`canonical` | `unrecognized` | `absent` (an UNRECOGNIZED `schema`, or no
+`schema` at all, is present but not consumed) -- and `confidence_source`,
+so a consumer never has to infer "did these numbers come from the producer"
 from the presence of a warning (LES-219).
-
-The NORMALIZED shape (chosen to match the Console's provenance table columns
-directly -- field / signal / confidence / evidence):
-
-    {
-      "imprint_id": "...", "as_of": "...", "store": "...",
-      "days_observed": <int>, "windows": <int>,
-      "summary": {"services": <int>, "personas": <int>,
-                  "mean_confidence": <float>, "out_of_vocab_pct": <float>},
-      "segment_confidence": {"<segment name>": <float>, ...},
-      "fields": {
-        "<field path/label>": {"evidence_class": <str>, "confidence": <float>,
-                                "signal": <str>, "evidence": <str>},
-        ...
-      }
-    }
-
-It carries no `schema` key -- which is how it is DETECTED
-(`_detect_sidecar_shape`). Its `imprint_id` is READ and compared with the
-canonical id: a DIFFERENT value refuses, a missing one is a published
-warning (see above).
 
 `hosts`/`segments` (+ each segment's `cidr`/`host_count`) are DERIVED from
 the twin_config's real structural content (nodes/segments) -- they are
-facts the twin_config actually carries. For a NORMALIZED sidecar,
-`services`/`personas`/`mean_confidence`/`out_of_vocab_pct`/per-segment
-`confidence` are read straight from its `summary`/`segment_confidence`
-blocks, never fabricated or averaged from the small illustrative `fields`
-sample. For every other shape (every real cast bundle), `services` and
-`personas` are COUNTED from the bundle itself (2026-10-28, CorpAPCN `test2`
-read 0/0 beside 17 persona files): `services` is the declared `listen:`
-entries summed over host INSTANCES (a `count: 3` group serving two ports is
-six), the same per-instance notion `hosts` uses; `personas` is the persona
+facts the twin_config actually carries. `services` and `personas` are
+COUNTED from the bundle itself (2026-10-28, CorpAPCN `test2` read 0/0
+beside 17 persona files): `services` is the declared `listen:` entries
+summed over host INSTANCES (a `count: 3` group serving two ports is six),
+the same per-instance notion `hosts` uses; `personas` is the persona
 documents in the bundle's `personas/` folder, which is what `install-cast`
 ships and `AXRANGE_PERSONAS_DIR` loads. Persona intent has no home in the
 twin-config vocabulary (removed from `TwinConfigNode` by the role/persona
 split, docs/WORK_ORDER_role_persona_tier.md), so the folder is the only
-place to count it. `out_of_vocab_pct` alone has no source there: it is
-published as `null`, never as a placeholder number (2026-10-29; the 0 +
-warning it used to publish served a Grafana render retired at Console S7).
+place to count it. `mean_confidence` is the canonical mean over the
+per-field records that CARRY a finite confidence, its coverage stated in
+`confidence_source`. `out_of_vocab_pct` has no source anywhere: published
+as `null`, never as a placeholder number (the 0 + warning it used to
+publish served a Grafana render retired at Console S7). Per-segment
+`confidence` is `None` for the same reason.
 
 **A cast bundle SUMMARIZES too** (R7 -- superseding the S1 implementation
 call D3 (a)'s "`GET /{id}` stays strict" half, `docs/
-WORK_ORDER_console_canvas.md` §8.1). A present sidecar's shape is DETECTED
-FIRST (`_detect_sidecar_shape`), and only a shape this reader consumes --
-normalized or canonical -- must then meet the one precondition
-`axrange.fidelity.reference` enforces too (a `fields` object,
-`sidecar_fields_or_raise`), refused in the SAME words, so the listing, the
-summary and `GET .../cast` agree on which bundles open. An UNRECOGNIZED
-`schema` is held to no precondition: it is present and not consumed, and a
-future schema that renames `fields` must not make its bundle vanish (round
-2, SF3). A NORMALIZED sidecar keeps its strict reader; a CANONICAL,
-UNRECOGNIZED or ABSENT one yields the numbers the listing publishes for it --
-hosts/
-segments from the twin config, `as_of`/`windows` from the topology export,
-`mean_confidence` the canonical mean over FINITE confidences (or 0.0) with
-`confidence_source` saying which -- `services`/`personas` counted from the
-bundle, and `out_of_vocab_pct`, the one stat only a normalized `summary`
-block carries, published as `null`, with `sidecar_shape` stating what was
-parsed. The listing's entries are PROJECTED
-from that same summary, so "lists" implies "summarizes" by construction.
+WORK_ORDER_console_canvas.md` §8.1). A present provenance file's shape is
+DETECTED FIRST (`_detect_provenance`), and a canonical one must then meet
+the one precondition `axrange.fidelity.reference` enforces too (a `fields`
+object, `sidecar_fields_or_raise`), refused in the SAME words, so the
+listing, the summary and `GET .../cast` agree on which bundles open. An
+UNRECOGNIZED document is held to no precondition: it is present and not
+consumed, and a future schema that renames `fields` must not make its
+bundle vanish (round 2, SF3). Every bundle yields the same numbers --
+hosts/segments from the twin config, `as_of`/`windows` from the topology
+export, `mean_confidence` the canonical mean (or 0.0) with
+`confidence_source` saying which, `services`/`personas` counted from the
+bundle, `out_of_vocab_pct` null -- with `provenance` stating what was
+parsed. The listing's entries are PROJECTED from that same summary, so
+"lists" implies "summarizes" by construction.
 
 **Fail-loud on author-supplied scalars** (2026-08-25 review fix M1): every
-sidecar value this module publishes as a number goes through
-`_coerce_int`/`_coerce_finite_float` (and their optional forms) -- the ONE
-bounded rule in `axrange.jsonnum` (a whole number is a JSON number in
-0 .. 2**53 - 1, a float is finite; GAP-082 review round 2, SF2) -- and every
-string through `_coerce_optional_str`; each turns a bad value into a named
+provenance value this module publishes as a number goes through
+`_coerce_finite_float` (or its optional form) -- the ONE bounded rule in
+`axrange.jsonnum` (a float is finite; GAP-082 review round 2, SF2) -- and
+every string through `_coerce_optional_str`; each turns a bad value into a named
 `ImprintDataError` (-> HTTP 400) instead
 of letting a bare `ValueError`/`TypeError` (or, worse, a `pydantic.
 ValidationError` once the value reaches a DTO downstream) surface as an
@@ -193,10 +164,10 @@ construction. A value published as a MEASUREMENT must also be FINITE
 non-finite float serializes as `null`, and `int(inf)` raises OverflowError
 (GAP-082 review).
 
-ONE deliberate CARVE-OUT (GAP-082 review round 2, 9a): a CANONICAL row's
+ONE deliberate CARVE-OUT (GAP-082 review round 2, 9a): a row's
 `confidence` is not refused. A present value that is not a finite number is
 IGNORED, COUNTED and reported -- in `warnings` and in the summary's
-`confidence_source` -- by the one rule both readers share
+`confidence_source` -- by the one rule the summary and the rows share
 (`_canonical_confidence`), so a value is on a provenance row exactly when it
 is in the summary's mean. Refusing it would 400 the whole provenance route
 over one unreadable cell while the summary silently skipped the same cell,
@@ -222,7 +193,6 @@ from axrange.jsonnum import (
     finite_number,
     is_finite_number,
     optional_whole_number,
-    whole_number,
 )
 from axrange.twinconfig.schema import TwinConfig, TwinConfigFile, TwinConfigNode
 
@@ -230,8 +200,6 @@ from axrange.twinconfig.schema import TwinConfig, TwinConfigFile, TwinConfigNode
 # [0]=api [1]=axrange [2]=repo root (mirrors `twinconfig.registry`'s
 # `_LEGACY_CATALOG_DIR` computation).
 _DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures" / "imprints"
-
-_REQUIRED_SUMMARY_KEYS = ("services", "personas", "mean_confidence", "out_of_vocab_pct")
 
 # The SIX evidence classes, in precedence order (`docs/design/
 # 14-operator-assertions.md` §2). Published for the Console's legend and used
@@ -242,34 +210,34 @@ EVIDENCE_CLASSES = (
     "asserted", "imported", "observed", "referenced", "imputed", "compiler",
 )
 
-# What `ProvenanceDoc.sidecar_shape` publishes.
-SIDECAR_CANONICAL = "canonical"
-SIDECAR_NORMALIZED = "normalized"
-SIDECAR_ABSENT = "absent"
-#: A sidecar whose `schema` names a shape this reader does not know. PRESENT
-#: but NOT consumed -- exactly as `axrange.fidelity.reference` treats any
-#: non-canonical schema -- and never handed to the strict normalized reader,
-#: which refused it and so hid the bundle from the listing while
-#: `GET .../cast` opened it (GAP-082 review).
-SIDECAR_UNRECOGNIZED = "unrecognized"
+# What `provenance` publishes on a summary, a cast and a provenance doc:
+# WHAT WAS PARSED of the bundle's `<id>.provenance.json`.
+PROVENANCE_CANONICAL = "canonical"
+PROVENANCE_ABSENT = "absent"
+#: A provenance file whose `schema` names a shape this reader does not know
+#: -- or that declares no `schema` at all (the retired Track-C normalized
+#: shape, 2026-10-29). PRESENT but NOT consumed -- exactly as
+#: `axrange.fidelity.reference` treats any non-canonical schema -- and held
+#: to no precondition, so it lists and summarizes while `GET .../cast` opens
+#: it (GAP-082 review).
+PROVENANCE_UNRECOGNIZED = "unrecognized"
 
 # What a catalog entry's `confidence_source` publishes. `mean_confidence`
-# stays a NON-NULL float even when there is no sidecar to take it from
-# (0.0 + `confidence_source: "absent"`), because the shipped Grafana screen
-# calls `summary.mean_confidence.toFixed(2)` and a null would break it at
+# stays a NON-NULL float even when there is no provenance file to take it
+# from (0.0 + `confidence_source: "absent"`), because the shipped Grafana
+# screen called `summary.mean_confidence.toFixed(2)` and a null broke it at
 # runtime -- decision D3 (a), `docs/WORK_ORDER_console_canvas.md` §8.1. The
 # companion field is what keeps that 0.0 from reading as evidence.
-CONFIDENCE_FROM_SIDECAR = "sidecar"
 CONFIDENCE_ABSENT = "absent"
-#: S1: a CANONICAL sidecar has no `summary.mean_confidence`, but it does have
-#: per-field confidences -- so publishing 0.0 for the one bundle that ships
-#: full provenance made the Console's confidence bar read "nothing is known"
-#: about the best-evidenced bundle in the catalog. The mean is taken over the
-#: fields that CARRY one, and the coverage travels with it in
-#: `confidence_source` ("canonical sidecar (151/687 fields)") so the number
-#: is never mistaken for a mean over everything.
+#: S1: a canonical provenance file has no headline `mean_confidence`, but it
+#: does have per-field confidences -- so publishing 0.0 for the one bundle
+#: that ships full provenance made the Console's confidence bar read
+#: "nothing is known" about the best-evidenced bundle in the catalog. The
+#: mean is taken over the fields that CARRY one, and the coverage travels
+#: with it in `confidence_source` ("canonical sidecar (151/687 fields)") so
+#: the number is never mistaken for a mean over everything.
 CONFIDENCE_FROM_CANONICAL = "canonical sidecar"
-#: What an unrecognized sidecar contributes to `mean_confidence`: nothing.
+#: What an unrecognized provenance file contributes to `mean_confidence`: nothing.
 CONFIDENCE_UNRECOGNIZED = "unrecognized sidecar (not consumed)"
 
 #: The scorecard's own citation, rewritten out of Console-facing warnings
@@ -283,8 +251,8 @@ def console_warning(text: str) -> str:
     return str(text).replace(_SCORECARD_CITATION, _CONSOLE_CITATION)
 
 
-def is_canonical_sidecar(raw: Any) -> bool:
-    """ONE predicate for "is this the compiler's canonical sidecar shape"
+def is_canonical_provenance(raw: Any) -> bool:
+    """ONE predicate for "is this the compiler's canonical provenance shape"
     (nit: it was spelled three different ways in this module, and three
     spellings of one question is three places for it to drift)."""
     from axrange.fidelity.reference import CAST_PROVENANCE_SCHEMA
@@ -307,9 +275,9 @@ class ImprintNotFoundError(ImprintError):
 class ImprintDataError(ImprintError):
     """An imprint's on-disk fixture is missing a required file, is
     malformed (bad YAML/JSON, doesn't match the twin_config schema, a
-    required provenance field is missing or not numeric), or its directory
-    name and `twin_config.id` disagree (the ADDRESSING guard -- a baked
-    sidecar/export id that disagrees is a warning, never this error)."""
+    provenance field has an unusable value), or its directory name and
+    `twin_config.id` disagree (the ADDRESSING guard -- a baked export id
+    that disagrees is a warning, never this error)."""
 
 
 @dataclass(frozen=True)
@@ -317,10 +285,10 @@ class ImprintSegment:
     name: str
     cidr: str
     host_count: int
-    # None, not 0.0, when the sidecar carries no confidence for this
-    # segment -- a fabricated zero would read as "learned, low confidence"
-    # rather than "unknown" (the project's own don't-invent-evidence
-    # posture, matching aximprint's own compiled-output documentation).
+    # None, not 0.0: no shape this reader consumes carries a per-segment
+    # confidence, and a fabricated zero would read as "learned, low
+    # confidence" rather than "unknown" (the project's own
+    # don't-invent-evidence posture).
     confidence: Optional[float]
 
 
@@ -328,6 +296,8 @@ class ImprintSegment:
 class ImprintSummary:
     id: str
     as_of: str
+    #: `store` and `days_observed` have NO producer since the normalized shape
+    #: was retired (2026-10-29): always None, kept for the wire contract.
     store: Optional[str]
     days_observed: Optional[int]
     windows: Optional[int]
@@ -336,18 +306,14 @@ class ImprintSummary:
     services: int
     personas: int
     mean_confidence: float
-    #: A measurement only from a NORMALIZED sidecar's `summary` block; None
-    #: for every other shape, because nothing in the cast pipeline computes it.
+    #: Nothing in the cast pipeline computes it: always None.
     out_of_vocab_pct: Optional[float]
     topology_segments: list[ImprintSegment]
-    #: R7: WHAT WAS PARSED (`canonical` | `normalized` | `unrecognized` |
-    #: `absent`), in the vocabulary `CastSummary`/`ProvenanceDoc` already
-    #: publish. `services`/`personas` are read from a `normalized` sidecar's
-    #: summary block and COUNTED from the bundle for every other shape;
-    #: `out_of_vocab_pct` is None outside `normalized`. REQUIRED (no default):
-    #: every construction site states it, so none can inherit a `normalized`
-    #: it never parsed.
-    sidecar_shape: str
+    #: R7: WHAT WAS PARSED of the provenance file (`canonical` |
+    #: `unrecognized` | `absent`), in the vocabulary `CastSummary`/
+    #: `ProvenanceDoc` already publish. REQUIRED (no default): every
+    #: construction site states it.
+    provenance: str
     #: Where `mean_confidence` came from -- the listing entry's own field, so
     #: a list entry and its summary make the same statement (both are built
     #: by `_summary_from`). Required for the same reason.
@@ -366,12 +332,12 @@ class ImprintCatalogEntry:
     hosts: int
     segments: int
     mean_confidence: float
-    # D3 (a): a bundle with NO provenance sidecar still lists -- the Console
+    # D3 (a): a bundle with NO provenance file still lists -- the Console
     # is otherwise empty the moment `AXRANGE_IMPRINTS_DIR` points at the real
     # cast bundles. `mean_confidence` stays non-null (see CONFIDENCE_* above);
     # these two fields are what stop that 0.0 from being read as evidence.
     has_provenance: bool = True
-    confidence_source: str = CONFIDENCE_FROM_SIDECAR
+    confidence_source: str = CONFIDENCE_ABSENT
     #: The PIT this bundle was cast from (the topology export's baked id when
     #: it is a string), or None: lineage for the twin listing.
     pit_id: Optional[str] = None
@@ -415,15 +381,15 @@ class ProvenanceRow:
 
 @dataclass(frozen=True)
 class ProvenanceDoc:
-    """What `GET /api/imprints/{id}/provenance` publishes: the rows PLUS
-    which sidecar shape they came from and whether the producer supplied the
+    """What `GET /api/twins/{id}/provenance` publishes: the rows PLUS what
+    was parsed of the provenance file and whether the producer supplied the
     classes at all. Both are stated fields, never inferred from the presence
     of a warning (LES-219)."""
 
     imprint_id: str
-    #: `canonical` | `normalized` | `absent` -- WHAT WAS PARSED. The
+    #: `canonical` | `unrecognized` | `absent` -- WHAT WAS PARSED. The
     #: unambiguous field; read this one.
-    sidecar_shape: str
+    provenance: str
     sidecar_schema: Optional[str]
     #: Where THESE PUBLISHED ROWS came from. **S2: the same field NAME means
     #: something adjacent-but-different on `CastSummary`** (there it is the
@@ -433,9 +399,9 @@ class ProvenanceDoc:
     evidence_source: str
     rows: list[ProvenanceRow] = dc_field(default_factory=list)
     warnings: list[str] = dc_field(default_factory=list)
-    # The canonical sidecar's own accounting of what the cast dropped/kept
-    # (`population.suppressed[]`, `role_less`, `node_groups`, ...). Empty for
-    # the normalized shape, which has no such block.
+    # The provenance file's own accounting of what the cast dropped/kept
+    # (`population.suppressed[]`, `role_less`, `node_groups`, ...). Empty
+    # when the file carries no such block.
     population: dict[str, Any] = dc_field(default_factory=dict)
     code_fingerprint: Optional[str] = None
 
@@ -531,11 +497,11 @@ class CastSummary:
     has_layout: bool
     provenance_schema: Optional[str]
     provenance_path: Optional[str]
-    sidecar_shape: str
+    provenance: str
     #: S2: the FIDELITY reader's consumption state, NOT the same statement as
     #: `ProvenanceDoc.evidence_source` (which describes the rows THAT endpoint
-    #: publishes). `sidecar_shape` is the field to read for "what shape is
-    #: this bundle's sidecar".
+    #: publishes). `provenance` is the field to read for "what was parsed of
+    #: this bundle's provenance file".
     evidence_source: str
     warnings: list[str] = dc_field(default_factory=list)
     #: R5 (GAP-079): the ROSTER behind the `conduits` count -- its length IS
@@ -564,21 +530,11 @@ class CastSummary:
 
 
 # ---------------------------------------------------------------------------
-# Author-supplied scalar coercion (M1) -- every sidecar value that becomes an
-# int/float on a DTO downstream is validated HERE, never left for pydantic to
+# Author-supplied scalar coercion (M1) -- every provenance value that becomes
+# a float on a DTO downstream is validated HERE, never left for pydantic to
 # reject at DTO-construction time (which `service.py`'s try/except doesn't
 # reach -> would surface as an HTTP 500, not a 400).
 # ---------------------------------------------------------------------------
-def _coerce_int(value: Any, *, imprint_id: str, field: str) -> int:
-    """A whole number a strict reader publishes -- the ONE bounded rule
-    (`axrange.jsonnum.whole_number`: a JSON number in 0 .. 2**53 - 1, never a
-    string, never clamped) -- refused as this module's typed error."""
-    try:
-        return whole_number(value, field)
-    except NumberFieldError as e:
-        raise ImprintDataError(f"imprint {imprint_id!r}: {e}") from e
-
-
 def _coerce_finite_float(value: Any, *, imprint_id: str, field: str) -> float:
     """A measurement a strict reader publishes: a FINITE JSON number
     (`axrange.jsonnum.finite_number`). JSON `NaN`, `Infinity` and `1e400` all
@@ -596,12 +552,6 @@ def _coerce_optional_finite_float(
     if value is None:
         return None
     return _coerce_finite_float(value, imprint_id=imprint_id, field=field)
-
-
-def _coerce_optional_int(value: Any, *, imprint_id: str, field: str) -> Optional[int]:
-    if value is None:
-        return None
-    return _coerce_int(value, imprint_id=imprint_id, field=field)
 
 
 def _coerce_param_float(value: Any, *, imprint_id: str, field: str) -> float:
@@ -779,26 +729,11 @@ def _parse_twin_config(path: Path, imprint_id: str) -> TwinConfig:
     return wrapped.twin_config
 
 
-def _load_provenance_raw(dir_: Path, imprint_id: str) -> dict[str, Any]:
-    path = _artifact_path(dir_, f"{imprint_id}.provenance.json")
-    if not path.is_file():
-        raise ImprintDataError(f"imprint {imprint_id!r}: missing {path.name}")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        # ValueError: a JSONDecodeError AND a UnicodeDecodeError (invalid
-        # UTF-8) -- the latter is not a JSONDecodeError (GAP-082 review).
-        raise ImprintDataError(f"imprint {imprint_id!r}: bad {path.name}: {e}") from e
-    if not isinstance(data, dict):
-        raise ImprintDataError(f"imprint {imprint_id!r}: {path.name} must be a JSON object")
-    return data
-
-
-def _read_sidecar(dir_: Path, imprint_id: str) -> Optional[Any]:
-    """The sidecar document as parsed, or `None` when there is no sidecar
-    FILE -- an absent sidecar is a publishable state (D3 (a)); an unreadable
-    one is broken content. ONE read (S4): a caller that needs the sidecar for
-    a summary reads it here and hands it on, never re-reading it."""
+def _read_provenance_file(dir_: Path, imprint_id: str) -> Optional[Any]:
+    """The provenance document as parsed, or `None` when there is no FILE --
+    an absent file is a publishable state (D3 (a)); an unreadable one is
+    broken content. ONE read (S4): a caller that needs the document for a
+    summary reads it here and hands it on, never re-reading it."""
     path = _artifact_path(dir_, f"{imprint_id}.provenance.json")
     if not path.exists():
         return None
@@ -824,7 +759,7 @@ def _check_addressing_id(imprint_id: str, tc: TwinConfig) -> None:
     resolves the bundle by. A copy-pasted, renamed directory whose content
     still names another id would otherwise serve one twin's content under
     another's URL. Every other id-shaped field is classified in the module
-    docstring's table (`_sidecar_id_check`, `_export_id_warnings`)."""
+    docstring's table (`_export_id_warnings`)."""
     if tc.id != imprint_id:
         raise ImprintDataError(
             f"imprint {imprint_id!r}: directory name (canonical) disagrees with "
@@ -840,7 +775,7 @@ def _addressable_bundle(
     """THE addressing guard, returning what it read: the directory (the
     traversal guard; `ImprintNotFoundError` -> 404) and its twin config,
     parsed (cached, `_load_twin_config`) and compared with the directory name
-    (`ImprintDataError` -> 400). Nothing else: no sidecar, no export."""
+    (`ImprintDataError` -> 400). Nothing else: no provenance file, no export."""
     dir_ = resolve_imprint_dir(fixtures_dir, imprint_id)
     tc = _load_twin_config(dir_, imprint_id)
     _check_addressing_id(imprint_id, tc)
@@ -860,37 +795,9 @@ def check_imprint_addressable(
     `/provenance` (`load_reference`). So the routes agree on what an
     addressable bundle is -- a renamed one, or a directory with no `<id>.yaml`
     beside a stray compiler file, is refused everywhere -- and a deploy never
-    depends on the health of a sidecar or an export it does not read. Free
-    after the first request: the parse is cached per file."""
+    depends on the health of a provenance file or an export it does not read.
+    Free after the first request: the parse is cached per file."""
     return _addressable_bundle(imprint_id, fixtures_dir)[0]
-
-
-def _sidecar_id_check(imprint_id: str, prov: dict[str, Any]) -> list[str]:
-    """A NORMALIZED sidecar's own `imprint_id` (the module docstring's
-    table). Nothing legitimately writes a value different from the
-    addressing id -- it names the imprint whose rows the sidecar carries --
-    so a DIFFERENT one, a string that is not the canonical id or any
-    non-string, REFUSES: a copied or stale sidecar is LES-195's own case
-    (restored by the GAP-082 review, S1, after R7 had relaxed it). A MISSING
-    one contradicts nothing, so it is published as a warning. A canonical
-    sidecar declares no imprint id and is never passed here."""
-    declared = prov.get("imprint_id")
-    if declared == imprint_id:
-        return []
-    if declared is None or declared == "":
-        return [
-            f"imprint {imprint_id!r}: the provenance sidecar declares no "
-            f"imprint_id -- its rows are served under the canonical id "
-            f"{imprint_id!r} (the directory name = twin_config.id), which "
-            "nothing in the sidecar confirms"
-        ]
-    raise ImprintDataError(
-        f"imprint {imprint_id!r}: the provenance sidecar declares "
-        f"imprint_id={declared!r}, not this bundle's canonical id "
-        f"{imprint_id!r} (the directory name = twin_config.id) -- a copied or "
-        "stale sidecar, whose rows would be served under the wrong imprint "
-        "(LES-195)"
-    )
 
 
 @dataclass(frozen=True)
@@ -957,20 +864,19 @@ def _export_scalars(dir_: Path, imprint_id: str) -> _ExportScalars:
     )
 
 
-def _detect_sidecar_shape(sidecar: Optional[dict[str, Any]]) -> str:
-    """ONE rule for "what shape is this sidecar" -- DETECTED, never guessed:
-    no document -> absent; no `schema` key -> the Track-C normalized shape
-    (which carries none); `axr-cast-provenance/1` -> canonical; any other
-    `schema` -> unrecognized: PRESENT, NOT consumed, exactly as the fidelity
-    reader treats it (GAP-082 review). `_sidecar_shape` applies the same rule
-    to the fidelity reader's view of the file, for `GET .../cast`."""
-    if sidecar is None:
-        return SIDECAR_ABSENT
-    if sidecar.get("schema") is None:
-        return SIDECAR_NORMALIZED
-    if is_canonical_sidecar(sidecar):
-        return SIDECAR_CANONICAL
-    return SIDECAR_UNRECOGNIZED
+def _detect_provenance(doc: Optional[dict[str, Any]]) -> str:
+    """ONE rule for "what was parsed of the provenance file" -- DETECTED,
+    never guessed: no document -> absent; `schema: axr-cast-provenance/1`
+    -> canonical; anything else, a missing `schema` included (the retired
+    Track-C normalized shape) -> unrecognized: PRESENT, NOT consumed, exactly
+    as the fidelity reader treats it (GAP-082 review). `_cast_provenance`
+    applies the same rule to the fidelity reader's view of the file, for
+    `GET .../cast`."""
+    if doc is None:
+        return PROVENANCE_ABSENT
+    if is_canonical_provenance(doc):
+        return PROVENANCE_CANONICAL
+    return PROVENANCE_UNRECOGNIZED
 
 
 def _export_id_warnings(imprint_id: str, export: _ExportScalars) -> list[str]:
@@ -1114,49 +1020,39 @@ def _host_counts_by_segment(
 def load_imprint_summary(
     imprint_id: str, *, fixtures_dir: Optional[str | Path] = None,
 ) -> ImprintSummary:
-    """`<imprint_id>`'s summary, for ANY sidecar shape (R7).
-
-    A NORMALIZED sidecar is read strictly: a missing or malformed headline
-    stat fails loudly (`ImprintDataError`) rather than defaulting to zero,
-    since that shape exists to carry them -- a silent `mean_confidence: 0.0`
-    there would read as "learned, zero confidence" instead of "not
-    recorded". A CANONICAL, UNRECOGNIZED or ABSENT sidecar (every real cast
-    bundle is canonical or absent) yields the cast summary, its unmeasured
-    stats named in `warnings`. On ids, only `twin_config.id` and a
-    normalized sidecar's contradicting `imprint_id` refuse (module
-    docstring)."""
+    """`<imprint_id>`'s summary, whatever its provenance file holds (R7):
+    canonical, unrecognized or absent, every bundle yields the cast summary.
+    On ids, only `twin_config.id` refuses (module docstring)."""
     dir_ = _imprint_dir(fixtures_dir, imprint_id)
-    return _summary_from(dir_, imprint_id, sidecar=_read_sidecar(dir_, imprint_id))
+    return _summary_from(dir_, imprint_id, doc=_read_provenance_file(dir_, imprint_id))
 
 
-def _summary_from(dir_: Path, imprint_id: str, *, sidecar: Optional[Any]) -> ImprintSummary:
-    """THE summary builder: `GET /api/imprints/{id}` and every listing entry
+def _summary_from(dir_: Path, imprint_id: str, *, doc: Optional[Any]) -> ImprintSummary:
+    """THE summary builder: `GET /api/twins/{id}` and every listing entry
     come out of this one function (R7), so a bundle that lists also
     summarizes, with the same numbers.
 
-    `sidecar` is the ALREADY-PARSED document, or `None` for no sidecar file
-    (S4: the caller read it once). Its shape is DETECTED FIRST
-    (`_detect_sidecar_shape`), and a shape this reader consumes -- normalized
-    or canonical -- must then meet the precondition the fidelity reader
-    enforces (`sidecar_fields_or_raise`: a `fields` object), refused with
-    the SAME words `GET .../cast` answers with, so the listing, the summary
-    and the cast agree on which bundles open (GAP-082 review). An
-    UNRECOGNIZED schema is held to no precondition -- present, not consumed
-    (round 2, SF3). A normalized sidecar then gets the strict reader; a
-    canonical, unrecognized or absent one the cast reader."""
+    `doc` is the ALREADY-PARSED provenance document, or `None` for no file
+    (S4: the caller read it once). What it is is DETECTED FIRST
+    (`_detect_provenance`), and a canonical one must then meet the
+    precondition the fidelity reader enforces (`sidecar_fields_or_raise`: a
+    `fields` object), refused with the SAME words `GET .../cast` answers
+    with, so the listing, the summary and the cast agree on which bundles
+    open (GAP-082 review). An UNRECOGNIZED document is held to no
+    precondition -- present, not consumed (round 2, SF3)."""
     from axrange.fidelity.reference import ReferenceError, sidecar_fields_or_raise
 
     tc = _load_twin_config(dir_, imprint_id)
     _check_addressing_id(imprint_id, tc)
-    if sidecar is not None and not isinstance(sidecar, dict):
+    if doc is not None and not isinstance(doc, dict):
         raise ImprintDataError(
             f"imprint {imprint_id!r}: {imprint_id}.provenance.json must be a JSON object"
         )
-    shape = _detect_sidecar_shape(sidecar)
-    if shape in (SIDECAR_NORMALIZED, SIDECAR_CANONICAL):
+    provenance = _detect_provenance(doc)
+    if provenance == PROVENANCE_CANONICAL:
         try:
             sidecar_fields_or_raise(
-                sidecar, _artifact_path(dir_, f"{imprint_id}.provenance.json"),
+                doc, _artifact_path(dir_, f"{imprint_id}.provenance.json"),
             )
         except ReferenceError as e:
             # The SAME wrapping `load_reference` applies, so the reason is
@@ -1168,36 +1064,34 @@ def _summary_from(dir_: Path, imprint_id: str, *, sidecar: Optional[Any]) -> Imp
         "value is published empty, never invented"
         for problem in export.problems
     ]
-    if shape == SIDECAR_NORMALIZED:
-        return _normalized_summary(imprint_id, tc, sidecar, warnings=warnings)
     return _cast_summary_of(
-        imprint_id, tc, sidecar, export, dir_=dir_, shape=shape, warnings=warnings,
+        imprint_id, tc, doc, export, dir_=dir_, provenance=provenance, warnings=warnings,
     )
 
 
 def _cast_summary_of(
     imprint_id: str,
     tc: TwinConfig,
-    sidecar: Optional[dict[str, Any]],
+    doc: Optional[dict[str, Any]],
     export: _ExportScalars,
     *,
     dir_: Path,
-    shape: str,
+    provenance: str,
     warnings: list[str],
 ) -> ImprintSummary:
-    """A cast bundle's summary -- a CANONICAL, UNRECOGNIZED or ABSENT sidecar
-    (R7).
+    """A bundle's summary -- a CANONICAL, UNRECOGNIZED or ABSENT provenance
+    file (R7).
 
     Structure from the twin config, time from the export, confidence from
-    the canonical sidecar's own per-field records (S1's mean over FINITE
+    the canonical file's own per-field records (S1's mean over FINITE
     confidences, its coverage in `confidence_source`), services from the
     declared listeners and personas from the bundle's persona folder (module
-    docstring). `out_of_vocab_pct` has no source in any of these shapes and
-    is published as None -- an absent measurement, not a warning."""
+    docstring). `out_of_vocab_pct` has no source and is published as None --
+    an absent measurement, not a warning."""
     by_segment, total_hosts = _host_counts_by_segment(tc, imprint_id=imprint_id)
     out = list(warnings)
-    if shape == SIDECAR_CANONICAL:
-        mean_confidence, confidence_source, ignored = _canonical_confidence_stats(sidecar)
+    if provenance == PROVENANCE_CANONICAL:
+        mean_confidence, confidence_source, ignored = _canonical_confidence_stats(doc)
         if ignored:
             out.append(
                 f"imprint {imprint_id!r}: {ignored} canonical confidence "
@@ -1206,20 +1100,24 @@ def _cast_summary_of(
                 "averaged; the provenance rows say `has_confidence: false` for "
                 "exactly the same values"
             )
-    elif shape == SIDECAR_UNRECOGNIZED:
+    elif provenance == PROVENANCE_UNRECOGNIZED:
         mean_confidence, confidence_source = 0.0, CONFIDENCE_UNRECOGNIZED
+        schema = doc.get("schema") if isinstance(doc, dict) else None
+        declared = (
+            f"schema {schema!r}" if schema is not None
+            else "a document with no `schema` key"
+        )
         out.append(
-            f"imprint {imprint_id!r}: the provenance sidecar's schema "
-            f"{sidecar.get('schema')!r} is not one this reader consumes "
-            "(`axr-cast-provenance/1`, or the schema-less normalized shape) -- "
-            "PRESENT, NOT consumed, exactly as `GET .../cast` treats it"
+            f"imprint {imprint_id!r}: the provenance file declares {declared}, "
+            "which is not one this reader consumes (`axr-cast-provenance/1`) "
+            "-- PRESENT, NOT consumed, exactly as `GET .../cast` treats it"
         )
     else:
         mean_confidence, confidence_source = 0.0, CONFIDENCE_ABSENT
     return ImprintSummary(
         id=imprint_id,
         as_of=export.as_of,
-        # Neither a canonical sidecar nor the export carries these: absent.
+        # Neither the provenance file nor the export carries these: absent.
         store=None,
         days_observed=None,
         windows=export.windows,
@@ -1230,150 +1128,18 @@ def _cast_summary_of(
         mean_confidence=mean_confidence,
         out_of_vocab_pct=None,
         topology_segments=[
-            # No per-segment confidence in either shape: `None`, never 0.0.
+            # No per-segment confidence anywhere: `None`, never 0.0.
             ImprintSegment(
                 name=seg.name, cidr=seg.cidr,
                 host_count=by_segment.get(seg.name, 0), confidence=None,
             )
             for seg in tc.segments
         ],
-        sidecar_shape=shape,
+        provenance=provenance,
         confidence_source=confidence_source,
         pit_id=export.pit_id if isinstance(export.pit_id, str) and export.pit_id else None,
         warnings=out,
     )
-
-
-def _normalized_summary(
-    imprint_id: str, tc: TwinConfig, prov: dict[str, Any], *, warnings: list[str],
-) -> ImprintSummary:
-    """The Track-C NORMALIZED sidecar's strict reader. Its own `imprint_id`
-    is checked FIRST (`_sidecar_id_check`: a different one refuses, a missing
-    one is a warning). A normalized sidecar missing a headline stat, or
-    carrying a non-finite one, is BROKEN content (a 400), not a degraded
-    state: that shape exists to carry them."""
-    id_warnings = _sidecar_id_check(imprint_id, prov)
-    as_of = prov.get("as_of")
-    if not isinstance(as_of, str) or not as_of:
-        raise ImprintDataError(f"imprint {imprint_id!r}: provenance sidecar missing 'as_of'")
-
-    summary_block = prov.get("summary")
-    if not isinstance(summary_block, dict):
-        raise ImprintDataError(f"imprint {imprint_id!r}: provenance sidecar missing 'summary'")
-    missing = [k for k in _REQUIRED_SUMMARY_KEYS if k not in summary_block]
-    if missing:
-        raise ImprintDataError(
-            f"imprint {imprint_id!r}: provenance 'summary' missing {missing}"
-        )
-
-    seg_confidence = prov.get("segment_confidence")
-    if not isinstance(seg_confidence, dict):
-        seg_confidence = {}
-
-    by_segment, total_hosts = _host_counts_by_segment(tc, imprint_id=imprint_id)
-    topology_segments = [
-        ImprintSegment(
-            name=seg.name,
-            cidr=seg.cidr,
-            host_count=by_segment.get(seg.name, 0),
-            confidence=_coerce_optional_finite_float(
-                seg_confidence.get(seg.name),
-                imprint_id=imprint_id,
-                field=f"segment_confidence[{seg.name!r}]",
-            ),
-        )
-        for seg in tc.segments
-    ]
-
-    return ImprintSummary(
-        # Canonical id is the DIRECTORY NAME (M2), not `tc.id` -- the two
-        # are guaranteed equal past `_summary_from`'s addressing guard, but publishing
-        # `imprint_id` directly (what the caller asked for / what
-        # `list_imprints` iterates by) rather than a re-derived `tc.id`
-        # keeps this the single source of truth for "what did we resolve".
-        id=imprint_id,
-        as_of=as_of,
-        store=_coerce_optional_str(prov.get("store"), imprint_id=imprint_id, field="store"),
-        days_observed=_coerce_optional_int(
-            prov.get("days_observed"), imprint_id=imprint_id, field="days_observed",
-        ),
-        windows=_coerce_optional_int(
-            prov.get("windows"), imprint_id=imprint_id, field="windows",
-        ),
-        hosts=total_hosts,
-        segments=len(tc.segments),
-        services=_coerce_int(summary_block["services"], imprint_id=imprint_id, field="summary.services"),
-        personas=_coerce_int(summary_block["personas"], imprint_id=imprint_id, field="summary.personas"),
-        mean_confidence=_coerce_finite_float(
-            summary_block["mean_confidence"], imprint_id=imprint_id, field="summary.mean_confidence",
-        ),
-        out_of_vocab_pct=_coerce_finite_float(
-            summary_block["out_of_vocab_pct"], imprint_id=imprint_id, field="summary.out_of_vocab_pct",
-        ),
-        topology_segments=topology_segments,
-        sidecar_shape=SIDECAR_NORMALIZED,
-        confidence_source=CONFIDENCE_FROM_SIDECAR,
-        warnings=id_warnings + list(warnings),
-    )
-
-
-
-
-def load_imprint_provenance(
-    imprint_id: str, *, fixtures_dir: Optional[str | Path] = None,
-) -> list[ProvenanceRow]:
-    """The per-field provenance rows for a NORMALIZED sidecar, sorted by
-    field label. Kept as its own entry point because the shipped Grafana
-    screen's contract is this list; `load_provenance` is what the Console
-    endpoint calls and it reads both shapes.
-
-    The same id rule as every other reader (module docstring): a sidecar
-    whose own `imprint_id` is DIFFERENT refuses; a MISSING one is served,
-    and since a bare list has no channel to say so, that warning is
-    published by `load_provenance(...).warnings` and the summary instead."""
-    dir_ = resolve_imprint_dir(fixtures_dir, imprint_id)
-    # Confirm the imprint itself is well-formed (consistent 404 vs 400
-    # split with `load_imprint_summary` even if only `/provenance` is hit).
-    tc = _load_twin_config(dir_, imprint_id)
-    prov = _load_provenance_raw(dir_, imprint_id)
-    _check_addressing_id(imprint_id, tc)
-    _sidecar_id_check(imprint_id, prov)
-    return _rows_from_normalized(prov, imprint_id=imprint_id)
-
-
-def _rows_from_normalized(prov: dict[str, Any], *, imprint_id: str) -> list[ProvenanceRow]:
-    """Fold an ALREADY-PARSED normalized sidecar into rows (S4: the document
-    is parsed once per request and handed here, never re-read)."""
-    fields = prov.get("fields")
-    if not isinstance(fields, dict):
-        raise ImprintDataError(f"imprint {imprint_id!r}: provenance sidecar missing 'fields'")
-
-    rows: list[ProvenanceRow] = []
-    for field_path, rec in sorted(fields.items()):
-        if not isinstance(rec, dict):
-            raise ImprintDataError(
-                f"imprint {imprint_id!r}: provenance field {field_path!r} is not an object"
-            )
-        try:
-            signal = str(rec["signal"])
-            evidence_class = str(rec["evidence_class"])
-            raw_confidence = rec["confidence"]
-            evidence = str(rec["evidence"])
-        except KeyError as e:
-            raise ImprintDataError(
-                f"imprint {imprint_id!r}: provenance field {field_path!r} missing {e}"
-            ) from e
-        confidence = _coerce_finite_float(
-            raw_confidence, imprint_id=imprint_id,
-            field=f"fields[{field_path!r}].confidence",
-        )
-        rows.append(
-            ProvenanceRow(
-                field=field_path, signal=signal, evidence_class=evidence_class,
-                confidence=confidence, evidence=evidence,
-            )
-        )
-    return rows
 
 
 def list_imprints(fixtures_dir: Optional[str | Path] = None) -> list[ImprintCatalogEntry]:
@@ -1393,28 +1159,27 @@ def list_imprints_with_skips(
 ) -> tuple[list[ImprintCatalogEntry], list[tuple[str, str]]]:
     """`(entries, [(id, reason), ...])`.
 
-    Every entry is a PROJECTION of the summary `GET /api/imprints/{id}`
+    Every entry is a PROJECTION of the summary `GET /api/twins/{id}`
     serves for it (`_summary_from`, R7), so "lists" implies "summarizes",
     with the same numbers, by construction rather than by two readers
-    happening to agree. Four publishable states, all honest states of a real
-    bundle:
+    happening to agree. Three publishable states, all honest states of a
+    real bundle:
 
-      * a NORMALIZED sidecar with its `summary` block (the packaged fixture);
-      * a CANONICAL sidecar (`has_provenance: true`), whose per-field finite
-        confidences are meaned for the headline number (S1) -- without this
-        branch the one bundle that ships full provenance would be the one
-        bundle the Console cannot see;
-      * an UNRECOGNIZED sidecar (`has_provenance: true`, nothing consumed),
-        as `GET .../cast` opens it too;
-      * NO sidecar at all (`has_provenance: false`, `mean_confidence: 0.0`
+      * a CANONICAL provenance file (`has_provenance: true`), whose per-field
+        finite confidences are meaned for the headline number (S1) --
+        without this branch the one bundle that ships full provenance would
+        be the one bundle the Console cannot see;
+      * an UNRECOGNIZED one (`has_provenance: true`, nothing consumed), as
+        `GET .../cast` opens it too;
+      * NO file at all (`has_provenance: false`, `mean_confidence: 0.0`
         with `confidence_source: "absent"`), the case D3 was written for.
 
     Everything else is SKIPPED with the same reason the summary route answers
-    with (S5): an unreadable sidecar, one with no `fields` object (the same
-    words `GET .../cast` refuses it in), a normalized one missing a required
-    stat or declaring ANOTHER imprint's id (S1), a directory whose twin
-    config declares another id. A topology export's baked id that disagrees
-    is NOT a skip (R7, D3): it is a warning on the summary route.
+    with (S5): an unreadable provenance file, a canonical one with no
+    `fields` object (the same words `GET .../cast` refuses it in), a
+    directory whose twin config declares another id. A topology export's
+    baked id that disagrees is NOT a skip (R7, D3): it is a warning on the
+    summary route.
     """
     root = Path(fixtures_dir) if fixtures_dir else _DEFAULT_FIXTURES_DIR
     if not root.is_dir():
@@ -1437,10 +1202,10 @@ def list_imprints_with_skips(
         if not config.is_file():
             skipped.append((d.name, f"no {config.name} -- not an imprint bundle"))
             continue
-        # ONE read of each artifact per bundle (S4): the sidecar is read here
-        # and handed to the builder, which never re-reads it.
+        # ONE read of each artifact per bundle (S4): the provenance file is
+        # read here and handed to the builder, which never re-reads it.
         try:
-            s = _summary_from(d, d.name, sidecar=_read_sidecar(d, d.name))
+            s = _summary_from(d, d.name, doc=_read_provenance_file(d, d.name))
         except ImprintError as e:
             skipped.append((d.name, str(e)))
             continue
@@ -1451,7 +1216,7 @@ def list_imprints_with_skips(
             ImprintCatalogEntry(
                 id=d.name, as_of=s.as_of, hosts=s.hosts, segments=s.segments,
                 mean_confidence=s.mean_confidence,
-                has_provenance=s.sidecar_shape != SIDECAR_ABSENT,
+                has_provenance=s.provenance != PROVENANCE_ABSENT,
                 confidence_source=s.confidence_source,
                 pit_id=s.pit_id,
                 has_topology_export=_artifact_path(d, f"{d.name}.topology.json").is_file(),
@@ -1639,7 +1404,7 @@ def cast_summary_from_bundle(bundle: Any, imprint_id: str) -> CastSummary:
         has_layout=layout_path(bundle.bundle_dir).is_file(),
         provenance_schema=bundle.provenance_schema,
         provenance_path=str(prov_path) if has_provenance else None,
-        sidecar_shape=_sidecar_shape(bundle.provenance_sidecar, bundle.provenance),
+        provenance=_cast_provenance(bundle.provenance_sidecar, bundle.provenance),
         evidence_source=bundle.evidence_source,
         warnings=warnings,
         # R5 (GAP-079): the roster behind the `conduits` count, and the
@@ -1688,48 +1453,44 @@ def _routers(groups: Any) -> list[CastRouter]:
     return out
 
 
-def _sidecar_shape(sidecar_state: str, raw: Optional[dict[str, Any]]) -> str:
-    """`GET .../cast`'s statement of the sidecar's shape: `_detect_sidecar_
-    shape` itself -- the summary's rule -- applied to the DOCUMENT the
-    fidelity reader read, never to a stringified `schema` (GAP-082 review
-    round 2: a non-string `schema` is unrecognized, and `str(5)` is a schema
-    name the producer never wrote)."""
+def _cast_provenance(file_state: str, raw: Optional[dict[str, Any]]) -> str:
+    """`GET .../cast`'s statement of what was parsed of the provenance file:
+    `_detect_provenance` itself -- the summary's rule -- applied to the
+    DOCUMENT the fidelity reader read, never to a stringified `schema`
+    (GAP-082 review round 2: a non-string `schema` is unrecognized, and
+    `str(5)` is a schema name the producer never wrote)."""
     from axrange.fidelity.reference import PRESENT
 
-    if sidecar_state != PRESENT:
-        return SIDECAR_ABSENT
-    return _detect_sidecar_shape(raw if isinstance(raw, dict) else {})
+    if file_state != PRESENT:
+        return PROVENANCE_ABSENT
+    return _detect_provenance(raw if isinstance(raw, dict) else {})
 
 
 def load_provenance(
     imprint_id: str, *, fixtures_dir: Optional[str | Path] = None,
 ) -> ProvenanceDoc:
-    """The provenance endpoint's reader: DETECT the sidecar shape, then read
-    it with the reader that owns it (`docs/WORK_ORDER_console_canvas.md`
-    S1.4). Four outcomes, each stated in `sidecar_shape`:
+    """The provenance endpoint's reader: DETECT what the file is, then read
+    it (`docs/WORK_ORDER_console_canvas.md` S1.4). Three outcomes, each
+    stated in `provenance`:
 
       * `canonical`  -- `axr-cast-provenance/1`, read via
                         `axrange.fidelity.reference` and folded to rows here.
-      * `normalized` -- the Track-C fixture shape (no `schema` key).
-      * `unrecognized` -- any other `schema`: present, NOT consumed (zero
-                        rows, the fidelity reader's own warning), never fed
-                        to the strict normalized reader (GAP-082 review).
-      * `absent`     -- no sidecar at all. Zero rows and a 200, not a 400:
-                        a real cast bundle installed before the sidecar was
+      * `unrecognized` -- any other `schema`, or none: present, NOT consumed
+                        (zero rows, the fidelity reader's own warning).
+      * `absent`     -- no file at all. Zero rows and a 200, not a 400:
+                        a real cast bundle installed before the file was
                         copied legitimately has none, and the Console must be
                         able to render it while SAYING so.
 
     ONE load per request (S4): the bundle is read once and every branch reads
-    the sidecar out of it, where this used to parse the sidecar itself and
-    then hand the whole bundle -- 732 KB of topology export included -- to a
-    second parser for the same file.
+    the provenance document out of it.
     """
-    from axrange.fidelity.reference import PRESENT, SIDECAR_ABSENT_WARNING, SOURCE_SIDECAR
+    from axrange.fidelity.reference import PRESENT, SIDECAR_ABSENT_WARNING
 
     bundle = load_reference(imprint_id, fixtures_dir)
     if bundle.provenance_sidecar != PRESENT:
         return ProvenanceDoc(
-            imprint_id=imprint_id, sidecar_shape=SIDECAR_ABSENT,
+            imprint_id=imprint_id, provenance=PROVENANCE_ABSENT,
             sidecar_schema=None,
             # The ONE definition of this string lives in
             # `fidelity/reference.py` -- a second literal here would drift
@@ -1740,50 +1501,29 @@ def load_provenance(
         )
 
     raw = dict(bundle.provenance)
-    shape = _detect_sidecar_shape(raw)
-    if shape == SIDECAR_UNRECOGNIZED:
+    if _detect_provenance(raw) == PROVENANCE_UNRECOGNIZED:
         return ProvenanceDoc(
-            imprint_id=imprint_id, sidecar_shape=SIDECAR_UNRECOGNIZED,
+            imprint_id=imprint_id, provenance=PROVENANCE_UNRECOGNIZED,
             sidecar_schema=bundle.provenance_schema,
             evidence_source=bundle.evidence_source,
             rows=[],
             # The fidelity reader's own "not consumed" statement.
             warnings=[console_warning(w) for w in bundle.warnings],
         )
-    if shape == SIDECAR_CANONICAL:
-        rows, warnings = _rows_from_canonical(bundle, imprint_id=imprint_id)
-        return ProvenanceDoc(
-            imprint_id=imprint_id, sidecar_shape=SIDECAR_CANONICAL,
-            sidecar_schema=bundle.provenance_schema,
-            evidence_source=bundle.evidence_source,
-            rows=rows,
-            warnings=[console_warning(w) for w in bundle.warnings] + warnings,
-            population=dict(bundle.population),
-            code_fingerprint=bundle.code_fingerprint,
-        )
-
-    # The normalized shape carries its own `imprint_id`: the ADDRESSING guard
-    # and the sidecar-id check run through the SAME helpers the summary uses
-    # (nit: one spelling of each message) -- a different id refuses, a
-    # missing one is a warning (S1).
-    _check_addressing_id(imprint_id, bundle.twin_config)
-    id_warnings = _sidecar_id_check(imprint_id, raw)
-    rows = _rows_from_normalized(raw, imprint_id=imprint_id)
+    rows, warnings = _rows_from_canonical(bundle, imprint_id=imprint_id)
     return ProvenanceDoc(
-        imprint_id=imprint_id, sidecar_shape=SIDECAR_NORMALIZED,
-        # The normalized shape carries no `schema` key -- that is how it is
-        # detected -- so there is nothing to publish here.
-        sidecar_schema=None,
-        # The classes ARE the producer's here (a hand-written fixture stands
-        # in for the producer) -- nothing is re-derived, so no LES-219 caveat.
-        evidence_source=SOURCE_SIDECAR,
+        imprint_id=imprint_id, provenance=PROVENANCE_CANONICAL,
+        sidecar_schema=bundle.provenance_schema,
+        evidence_source=bundle.evidence_source,
         rows=rows,
-        warnings=id_warnings + _class_warnings(rows, imprint_id=imprint_id),
+        warnings=[console_warning(w) for w in bundle.warnings] + warnings,
+        population=dict(bundle.population),
+        code_fingerprint=bundle.code_fingerprint,
     )
 
 
 def _rows_from_canonical(bundle: Any, *, imprint_id: str) -> tuple[list[ProvenanceRow], list[str]]:
-    """Fold a canonical sidecar's `fields` records into published rows.
+    """Fold a canonical provenance file's `fields` records into published rows.
 
     The canonical record has no single `evidence` column; `source` (where the
     value came from: `catalog/roles.yaml`, `role census`, `operator: name`)
@@ -1792,7 +1532,7 @@ def _rows_from_canonical(bundle: Any, *, imprint_id: str) -> tuple[list[Provenan
     compatibility column."""
     fields = (bundle.provenance or {}).get("fields")
     if not isinstance(fields, dict):  # pragma: no cover -- reference.py raises first
-        raise ImprintDataError(f"imprint {imprint_id!r}: provenance sidecar has no 'fields'")
+        raise ImprintDataError(f"imprint {imprint_id!r}: provenance file has no 'fields'")
 
     rows: list[ProvenanceRow] = []
     ignored = 0

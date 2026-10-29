@@ -2434,22 +2434,29 @@ def test_imprints_list(tmp_path):
     e = by_id["corp-enterprise"]
     assert e["hosts"] == 42
     assert e["segments"] == 4
-    assert e["as_of"] == "2026-08-14T09:00:00Z"
-    assert e["mean_confidence"] == pytest.approx(0.86)
+    assert e["as_of"] == ""  # the fixture ships no topology export
+    assert e["mean_confidence"] == pytest.approx(0.8825)
+    assert e["confidence_source"] == "canonical sidecar (4/4 fields)"
 
 
-def test_imprint_detail_matches_console_sample(tmp_path):
+def test_imprint_detail_of_the_packaged_fixture(tmp_path):
+    """The packaged fixture carries a canonical provenance file (its
+    normalized shape retired 2026-10-29): services and personas are counted
+    from the bundle (none declared, none shipped), the mean is over the
+    records that carry a confidence, and the vocabulary stat is null."""
     c = _client(_settings(tmp_path))
     r = c.get("/api/twins/corp-enterprise")
     assert r.status_code == 200
     j = r.json()
     assert j["id"] == "corp-enterprise"
+    assert j["provenance"] == "canonical"
     assert j["hosts"] == 42
     assert j["segments"] == 4
-    assert j["services"] == 128
-    assert j["personas"] == 9
-    assert j["mean_confidence"] == pytest.approx(0.86)
-    assert j["out_of_vocab_pct"] == pytest.approx(3.0)
+    assert j["services"] == 0
+    assert j["personas"] == 0
+    assert j["mean_confidence"] == pytest.approx(0.8825)
+    assert j["confidence_source"] == "canonical sidecar (4/4 fields)"
+    assert j["out_of_vocab_pct"] is None
 
     # NOTE (2026-08-25 review S1): no `sum(host_count) == hosts` assertion --
     # that's not a general invariant (a multi-homed non-router host counts
@@ -2461,7 +2468,7 @@ def test_imprint_detail_matches_console_sample(tmp_path):
     segs = {s["name"]: s for s in j["topology_segments"]}
     assert segs["corp-lan"]["host_count"] == 26
     assert segs["corp-lan"]["cidr"]
-    assert segs["corp-lan"]["confidence"] == pytest.approx(0.91)
+    assert segs["corp-lan"]["confidence"] is None  # no shape carries one
     assert segs["dmz"]["host_count"] == 3
     assert segs["db"]["host_count"] == 5
     assert segs["mgmt"]["host_count"] == 8
@@ -2479,15 +2486,17 @@ def test_imprint_provenance_rows(tmp_path):
     assert r.status_code == 200
     j = r.json()
     assert j["imprint_id"] == "corp-enterprise"
+    assert j["provenance"] == "canonical"
     by_field = {row["field"]: row for row in j["rows"]}
-    assert "segment corp-lan" in by_field
-    row = by_field["segment corp-lan"]
+    assert "twin_config.segments[0].cidr" in by_field
+    row = by_field["twin_config.segments[0].cidr"]
     assert row["evidence_class"] == "observed"
     assert row["confidence"] == pytest.approx(0.91)
     assert row["signal"]
     assert row["evidence"]
-    assert any("sql01" in f for f in by_field)
-    assert any("perimeter:wan" in f for f in by_field)
+    signals = [row["signal"] for row in j["rows"]]
+    assert any("sql01" in sig for sig in signals)
+    assert any("perimeter:wan" in sig for sig in signals)
 
 
 def test_imprint_provenance_unknown_404(tmp_path):
@@ -2509,94 +2518,37 @@ def _imprint_settings(tmp_path: Path, imprints_dir: Path) -> "ApiSettings":
     return s
 
 
-def _write_broken_imprint(root: Path, dirname: str, **overrides) -> Path:
-    """A minimal, otherwise-valid, internally-consistent (dir name == tc.id
-    == sidecar imprint_id) imprint fixture -- `overrides` merges into (and
-    can override, e.g. `tc_id=`/`sidecar_id=` for an M2 mismatch) the
-    sidecar body, so each test corrupts exactly one thing."""
+#: A minimal canonical provenance file.
+_CANONICAL_PROVENANCE = {
+    "schema": "axr-cast-provenance/1", "pit_id": "pit-1", "code_fingerprint": "f00",
+    "fields": {"twin_config.nodes[0].net": {"evidence_class": "observed", "confidence": 0.5}},
+}
+
+
+def _write_broken_imprint(root: Path, dirname: str, *, tc_id: str = "") -> Path:
+    """A minimal, otherwise-valid, internally-consistent (dir name == tc.id)
+    imprint fixture with a canonical provenance file -- `tc_id` breaks the
+    M2 cross-check, so each test corrupts exactly one thing."""
     d = root / dirname
     d.mkdir(parents=True, exist_ok=True)
-    tc_id = overrides.pop("tc_id", dirname)
     (d / f"{dirname}.yaml").write_text(
         "twin_config:\n"
-        f"  id: {tc_id}\n"
+        f"  id: {tc_id or dirname}\n"
         "  segments: [{ name: lan, cidr: 10.5.0.0/24 }]\n"
         "  nodes:\n"
         "    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan }\n"
     )
-    body = {
-        "imprint_id": overrides.pop("sidecar_id", dirname),
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {
-            "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-        },
-        "fields": {},
-    }
-    body.update(overrides)
-    (d / f"{dirname}.provenance.json").write_text(json.dumps(body))
+    (d / f"{dirname}.provenance.json").write_text(json.dumps(_CANONICAL_PROVENANCE))
     return d
-
-
-def test_imprint_detail_non_numeric_summary_scalar_is_400_not_500(tmp_path):
-    fixtures = tmp_path / "imprints"
-    _write_broken_imprint(fixtures, "broken", summary={
-        "services": "a-lot", "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-    })
-    c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/twins/broken")
-    assert r.status_code == 400
-    assert "services" in r.json()["error"]
-
-
-def test_imprint_detail_non_numeric_days_observed_is_400_not_500(tmp_path):
-    """The specific escape hatch M1 closed: `days_observed` used to reach
-    the `Optional[int]` DTO field UNCOERCED, outside `imprint_summary`'s
-    try/except, so a bad value 500'd instead of 400ing."""
-    fixtures = tmp_path / "imprints"
-    _write_broken_imprint(fixtures, "broken", days_observed="ten")
-    c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/twins/broken")
-    assert r.status_code == 400
-    assert "days_observed" in r.json()["error"]
-
-
-def test_imprint_provenance_non_numeric_confidence_is_400_not_500(tmp_path):
-    fixtures = tmp_path / "imprints"
-    _write_broken_imprint(fixtures, "broken", fields={
-        "host h1": {
-            "evidence_class": "observed", "confidence": "high",
-            "signal": "s", "evidence": "e",
-        },
-    })
-    c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/twins/broken/provenance")
-    assert r.status_code == 400
-    assert "confidence" in r.json()["error"]
 
 
 def test_imprint_detail_id_mismatch_is_400_not_404_or_500(tmp_path):
     fixtures = tmp_path / "imprints"
-    _write_broken_imprint(fixtures, "dirname-a", tc_id="content-id-b", sidecar_id="sidecar-id-c")
+    _write_broken_imprint(fixtures, "dirname-a", tc_id="content-id-b")
     c = _client(_imprint_settings(tmp_path, fixtures))
     r = c.get("/api/twins/dirname-a")
     assert r.status_code == 400
     assert "dirname-a" in r.json()["error"]
-
-
-def test_imprint_detail_sidecar_naming_another_imprint_is_400_again(tmp_path):
-    """S1 (GAP-082 review): nothing legitimately writes a normalized
-    sidecar's `imprint_id` differently from the addressing id, so a
-    different one refuses -- the summary answers 400 and the listing skips
-    the bundle with the SAME reason. (R7 had served it 200 with a warning.)"""
-    fixtures = tmp_path / "imprints"
-    _write_broken_imprint(fixtures, "dirname-a", sidecar_id="sidecar-id-c")
-    c = _client(_imprint_settings(tmp_path, fixtures))
-    r = c.get("/api/twins/dirname-a")
-    assert r.status_code == 400, r.text
-    assert "sidecar-id-c" in r.json()["error"]
-    listing = c.get("/api/twins").json()
-    assert listing["imprints"] == []
-    assert listing["skipped"] == [{"id": "dirname-a", "reason": r.json()["error"]}]
 
 
 def test_imprints_list_skips_an_id_mismatched_entry(tmp_path):
@@ -2810,14 +2762,7 @@ def _write_unresolvable_image_imprint(root: Path, dirname: str) -> Path:
         "  nodes:\n"
         "    - { name: h1, image: totally-bogus-image@v1, requires: [linux], net: lan }\n"
     )
-    (d / f"{dirname}.provenance.json").write_text(json.dumps({
-        "imprint_id": dirname,
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {
-            "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-        },
-        "fields": {},
-    }))
+    (d / f"{dirname}.provenance.json").write_text(json.dumps(_CANONICAL_PROVENANCE))
     return d
 
 
@@ -3382,14 +3327,7 @@ def _write_gated_imprint(root: Path, dirname: str) -> Path:
         "    - { name: h-thin, image: debian-12-cloud@v1, requires: [linux], net: lan,\n"
         "        observation: { windows_seen: 1, windows_total: 11, occupancy: 0.090909 } }\n"
     )
-    (d / f"{dirname}.provenance.json").write_text(json.dumps({
-        "imprint_id": dirname,
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {
-            "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-        },
-        "fields": {},
-    }))
+    (d / f"{dirname}.provenance.json").write_text(json.dumps(_CANONICAL_PROVENANCE))
     return d
 
 

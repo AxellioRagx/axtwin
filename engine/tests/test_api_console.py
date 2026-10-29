@@ -8,7 +8,7 @@ Covers, over a Starlette TestClient:
     the only way "no second reader" is actually a test rather than a claim.
   - S1.2 `GET .../cast`             -- nulls, not zeros, on an older bundle.
   - S1.3 `GET`/`PUT .../assertions` -- round-trip, etag guard, closed sets.
-  - S1.4 `GET .../provenance`       -- canonical / normalized / absent.
+  - S1.4 `GET .../provenance`       -- canonical / unrecognized / absent.
   - S1.5 `POST .../apply`           -- save + recompile behind a FAKE backend.
   - S1.6 `GET`/`PUT .../layout`     -- pins; a host key is refused.
   - S1.7 `GET .../diff?since=`      -- apply-produced fingerprints only.
@@ -230,7 +230,7 @@ def test_cast_summary_canonical_fixture(tmp_path):
     assert j["deploy_min_occupancy"] == 0.8
     assert j["deploy_min_occupancy_source"] == "declared"
     assert j["has_provenance"] is True
-    assert j["sidecar_shape"] == "canonical"
+    assert j["provenance"] == "canonical"
     assert j["provenance_path"].endswith("mini-cast-prov.provenance.json")
     assert j["has_assertions"] is False and j["has_layout"] is False
     assert j["segments"] > 0 and j["node_specs"] > 0 and j["vms"] >= j["node_specs"]
@@ -247,7 +247,7 @@ def test_cast_summary_reports_absent_as_null_never_zero(tmp_path):
     assert j["has_provenance"] is False
     assert j["provenance_schema"] is None
     assert j["provenance_path"] is None
-    assert j["sidecar_shape"] == "absent"
+    assert j["provenance"] == "absent"
     assert j["evidence_source"] == "re-derived from topology export"
 
 
@@ -605,16 +605,20 @@ def test_assertions_put_unknown_imprint_404(tmp_path):
 # ===========================================================================
 # S1.4 -- GET /api/twins/{id}/provenance (the two shapes + absent)
 # ===========================================================================
-def test_provenance_normalized_fixture_keeps_its_shipped_shape(tmp_path):
-    """The packaged Track-C fixture and the Grafana screen that reads it are
-    untouched by the adapter."""
+def test_provenance_of_the_packaged_fixture_is_canonical(tmp_path):
+    """The packaged fixture carries a canonical provenance file (the Track-C
+    normalized shape it used to carry was retired 2026-10-29), read by the
+    same adapter as every cast bundle."""
     c = _client(ApiSettings(db_path=str(tmp_path / "s.db"), adapter_config="/nonexistent.conf"))
     j = c.get("/api/twins/corp-enterprise/provenance").json()
-    assert j["sidecar_shape"] == "normalized"
+    assert j["provenance"] == "canonical"
+    assert j["sidecar_schema"] == "axr-cast-provenance/1"
     assert j["evidence_source"] == "sidecar fields"
-    assert j["warnings"] == []
-    assert j["population"] == {}
-    row = next(r for r in j["rows"] if r["field"] == "segment corp-lan")
+    # The fixture ships no topology export; the fidelity reader says so.
+    assert len(j["warnings"]) == 1 and "no corp-enterprise.topology.json" in j["warnings"][0]
+    assert j["population"]["placed_hosts"] == 42
+    assert j["code_fingerprint"] is None  # a hand-written fixture: no build
+    row = next(r for r in j["rows"] if r["field"] == "twin_config.segments[0].cidr")
     assert row["evidence_class"] == "observed"
     assert row["confidence"] == pytest.approx(0.91)
     assert row["has_confidence"] is True
@@ -625,7 +629,7 @@ def test_provenance_normalized_fixture_keeps_its_shipped_shape(tmp_path):
 def test_provenance_canonical_sidecar_folds_to_rows_with_the_six_classes(tmp_path):
     c = _client(_settings(CAST_FIXTURES, tmp_path))
     j = c.get("/api/twins/mini-cast-prov/provenance").json()
-    assert j["sidecar_shape"] == "canonical"
+    assert j["provenance"] == "canonical"
     assert j["sidecar_schema"] == "axr-cast-provenance/1"
     assert j["evidence_source"] == "sidecar fields"
     assert j["code_fingerprint"] == "fixture-0000000000"
@@ -657,7 +661,7 @@ def test_provenance_absent_sidecar_is_a_200_that_says_so(tmp_path):
     r = c.get("/api/twins/mini-cast/provenance")
     assert r.status_code == 200
     j = r.json()
-    assert j["sidecar_shape"] == "absent"
+    assert j["provenance"] == "absent"
     assert j["rows"] == []
     assert j["evidence_source"] == "re-derived from topology export"
     assert any("provenance sidecar absent" in w for w in j["warnings"])
@@ -667,7 +671,7 @@ def test_provenance_absent_sidecar_is_a_200_that_says_so(tmp_path):
 def test_provenance_real_golden_bundle_reads_every_field(tmp_path):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
     j = c.get("/api/twins/corpapcn-golden/provenance").json()
-    assert j["sidecar_shape"] == "canonical"
+    assert j["provenance"] == "canonical"
     assert len(j["rows"]) > 500          # 687 fields on the 2026-09-05 cast
     six = {"asserted", "imported", "observed", "referenced", "imputed", "compiler"}
     assert {r["evidence_class"] for r in j["rows"]} <= six
@@ -679,7 +683,7 @@ def test_provenance_real_golden_bundle_reads_every_field(tmp_path):
 def test_provenance_real_sidecarless_bundle_reports_absent(tmp_path):
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
     j = c.get("/api/twins/corpapcn-twin/provenance").json()
-    assert j["sidecar_shape"] == "absent"
+    assert j["provenance"] == "absent"
     assert j["rows"] == []
 
 
@@ -1752,7 +1756,7 @@ def test_imprint_detail_summarizes_the_real_sidecarless_bundle(tmp_path):
     §8.1) under the user's D3 ruling "tolerate on read" (`docs/
     WORK_ORDER_console_level0_rendering.md` §5). The non-null plugin contract
     D3 (a) protected still holds: every number is non-null, and what was not
-    measured is SAID (`sidecar_shape`, `confidence_source`, `warnings`)
+    measured is SAID (`provenance`, `confidence_source`, `warnings`)
     rather than defaulted into a finding."""
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
     r = c.get("/api/twins/corpapcn-twin")
@@ -1763,7 +1767,7 @@ def test_imprint_detail_summarizes_the_real_sidecarless_bundle(tmp_path):
     assert (j["hosts"], j["segments"]) == (137, 27) == (listed["hosts"], listed["segments"])
     assert j["as_of"] == listed["as_of"] != ""
     assert j["windows"] == 11
-    assert j["sidecar_shape"] == "absent" and j["confidence_source"] == "absent"
+    assert j["provenance"] == "absent" and j["confidence_source"] == "absent"
     # The migrated bundle declares no `listen:` and ships 24 persona documents.
     assert (j["services"], j["personas"], j["mean_confidence"], j["out_of_vocab_pct"]) == (
         0, 24, 0.0, None,
@@ -2728,7 +2732,7 @@ _SIX = ("asserted", "imported", "observed", "referenced", "imputed", "compiler")
 @pytest.mark.parametrize(
     "catalog,imprint,shape,source",
     [
-        ("fixtures", "corp-enterprise", "normalized", "sidecar fields"),
+        ("fixtures", "corp-enterprise", "canonical", "sidecar fields"),
         ("cast", "mini-cast-prov", "canonical", "sidecar fields"),
         ("cast", "mini-cast", "absent", "re-derived from topology export"),
     ],
@@ -2748,7 +2752,7 @@ def test_provenance_states_its_shape_and_evidence_source_for_all_three(
     r = c.get(f"/api/twins/{imprint}/provenance")
     assert r.status_code == 200, r.text
     j = r.json()
-    assert j["sidecar_shape"] == shape
+    assert j["provenance"] == shape
     assert j["evidence_source"] == source
     assert {row["evidence_class"] for row in j["rows"]} <= set(_SIX)
     # Every row carries the pair, so a consumer never reads a bare float.
@@ -2784,31 +2788,6 @@ def test_an_unknown_evidence_class_in_a_CANONICAL_sidecar_warns_and_is_published
     assert "never rewritten" in warn
     for cls in _SIX:
         assert cls in warn, "the warning must publish the accepted vocabulary"
-
-
-def test_an_unknown_evidence_class_in_a_NORMALIZED_sidecar_warns_too(tmp_path):
-    """The normalized shape goes through a different reader; the same
-    guarantee has to hold on both or the Console's legend silently disagrees
-    with one of them."""
-    import shutil as _shutil
-
-    src = Path(__file__).resolve().parent.parent / "src" / "axrange" / "api" / "fixtures" / "imprints"
-    root = tmp_path / "imprints"
-    root.mkdir()
-    _shutil.copytree(src / "corp-enterprise", root / "corp-enterprise")
-    p = root / "corp-enterprise" / "corp-enterprise.provenance.json"
-    doc = json.loads(p.read_text())
-    first = sorted(doc["fields"])[0]
-    doc["fields"][first]["evidence_class"] = "vibes"
-    p.write_text(json.dumps(doc))
-
-    c = _client(_settings(root, tmp_path))
-    r = c.get("/api/twins/corp-enterprise/provenance")
-    assert r.status_code == 200, r.text
-    j = r.json()
-    assert j["sidecar_shape"] == "normalized"
-    assert "vibes" in " ".join(j["warnings"])
-    assert "vibes" in {row["evidence_class"] for row in j["rows"]}
 
 
 def test_a_canonical_row_with_a_non_object_overrides_is_a_400_not_a_500(tmp_path):
@@ -2891,7 +2870,7 @@ def test_cast_summary_on_the_real_golden_bundle_reports_the_whole_sheet(tmp_path
     assert j["bundle_schema"] == "axr-topology/1.5"
     assert j["topology_schema_version"] == "1.3"
     assert j["code_fingerprint"]
-    assert j["sidecar_shape"] == "canonical"
+    assert j["provenance"] == "canonical"
     assert j["provenance_schema"] == "axr-cast-provenance/1"
     assert j["has_provenance"] is True and j["has_topology_export"] is True
     assert j["has_assertions"] is False and j["has_layout"] is False
@@ -2911,7 +2890,7 @@ def test_the_two_real_bundles_are_the_two_sidecar_states(tmp_path, imprint, shap
     c = _client(_settings(REAL_CAST_ROOT, tmp_path))
     cast = c.get(f"/api/twins/{imprint}/cast").json()
     prov = c.get(f"/api/twins/{imprint}/provenance").json()
-    assert cast["sidecar_shape"] == prov["sidecar_shape"] == shape
+    assert cast["provenance"] == prov["provenance"] == shape
     assert cast["has_provenance"] is has_prov
     assert cast["evidence_source"] == prov["evidence_source"]
     if has_prov:
@@ -4344,17 +4323,17 @@ def test_a_console_endpoint_does_not_cite_the_scorecard_work_order(tmp_path):
 
 
 def test_the_canonical_sidecar_predicate_has_exactly_one_spelling():
-    """The nit, pinned: `is_canonical_sidecar` was spelled three different
+    """The nit, pinned: `is_canonical_provenance` was spelled three different
     ways in `imprints.py`, and three spellings of one question are three
     places for it to drift."""
-    from axrange.api.imprints import is_canonical_sidecar
+    from axrange.api.imprints import is_canonical_provenance
     from axrange.fidelity.reference import CAST_PROVENANCE_SCHEMA
 
-    assert is_canonical_sidecar({"schema": CAST_PROVENANCE_SCHEMA}) is True
-    assert is_canonical_sidecar({"schema": "something/else"}) is False
-    assert is_canonical_sidecar({}) is False
-    assert is_canonical_sidecar(None) is False
-    assert is_canonical_sidecar("a string") is False
+    assert is_canonical_provenance({"schema": CAST_PROVENANCE_SCHEMA}) is True
+    assert is_canonical_provenance({"schema": "something/else"}) is False
+    assert is_canonical_provenance({}) is False
+    assert is_canonical_provenance(None) is False
+    assert is_canonical_provenance("a string") is False
 
     src = Path(__import__("axrange.api.imprints", fromlist=["x"]).__file__).read_text()
     assert src.count(f'== {CAST_PROVENANCE_SCHEMA!r}') == 0, (
@@ -5842,7 +5821,7 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
         "has_topology_export", "hosts", "id", "node_specs",
         "node_roster", "observed_edges", "observed_nodes", "observed_segments", "params",
         "pit_id", "provenance_path", "provenance_schema", "routers",
-        "segment_roster", "segments", "sidecar_shape",
+        "segment_roster", "segments", "provenance",
         "topology_schema_version", "twin_config_id", "vms", "warnings",
     },
     # R5 (GAP-079): one roster entry, under its WIRE name `from`.
@@ -5859,7 +5838,7 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
         "apply_blocked_reason", "as_of", "can_apply",
         "confidence_source", "days_observed", "hosts", "id",
         "mean_confidence", "out_of_vocab_pct", "personas", "pit_id", "segments",
-        "services", "sidecar_shape", "store", "topology_segments",
+        "services", "provenance", "store", "topology_segments",
         "warnings", "windows",
     },
     "ImprintSegmentDTO": {"cidr", "confidence", "host_count", "name"},
@@ -5892,7 +5871,7 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     },
     "ImprintProvenanceDTO": {
         "code_fingerprint", "evidence_source", "imprint_id", "population",
-        "rows", "sidecar_schema", "sidecar_shape", "warnings",
+        "provenance", "rows", "sidecar_schema", "warnings",
     },
 }
 
@@ -5947,7 +5926,7 @@ def _lenient_client(settings: ApiSettings) -> TestClient:
 
 def _catalogs() -> list[Path]:
     """Every catalog that ships: the two test cast bundles, the packaged
-    normalized fixture, and the real cast bundles when present."""
+    fixture, and the real cast bundles when present."""
     roots = [CAST_FIXTURES, _packaged_imprints()]
     if REAL_CAST_ROOT.is_dir():
         roots.append(REAL_CAST_ROOT)
@@ -5984,7 +5963,7 @@ def test_the_disco_bundle_lists_summarizes_and_serves_every_route(tmp_path):
     `pit-395a61f04e-1780405200`. Its summary answered 400 before R7."""
     c = _lenient_client(_settings(REAL_CAST_ROOT, tmp_path))
     summary = _assert_served_consistently(c, REAL_DISCO.name, "corpapcn-disco")
-    assert summary["sidecar_shape"] == "canonical"
+    assert summary["provenance"] == "canonical"
     assert summary["confidence_source"].startswith("canonical sidecar (")
     assert summary["windows"] == 9
 
@@ -6000,7 +5979,7 @@ def test_a_cast_bundle_whose_export_bakes_another_imprint_id_is_served_consisten
     export.write_text(json.dumps(raw))
     c = _lenient_client(_settings(root, tmp_path))
     summary = _assert_served_consistently(c, "mini-cast-prov", "mini-disco")
-    assert summary["sidecar_shape"] == "canonical"
+    assert summary["provenance"] == "canonical"
 
 
 @pytest.mark.parametrize("root", _catalogs(), ids=lambda p: p.name)
@@ -6017,7 +5996,7 @@ def test_every_listed_bundle_summarizes_with_its_listing_numbers(tmp_path, root)
         j = r.json()
         for key in ("id", "hosts", "segments", "as_of", "mean_confidence", "confidence_source"):
             assert j[key] == e[key], (e["id"], key, j[key], e[key])
-        assert e["has_provenance"] is (j["sidecar_shape"] != "absent")
+        assert e["has_provenance"] is (j["provenance"] != "absent")
 
 
 @pytest.mark.parametrize("shape", ["canonical", "absent"])

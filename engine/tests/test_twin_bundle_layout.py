@@ -151,7 +151,7 @@ def test_every_read_route_answers_the_same_for_both_layouts(tmp_path):
     assert all(not ok for ok, _w in why_a + why_b)
     assert all("twins/ folder" in w for _ok, w in why_b)
     assert got_a == got_b
-    assert got_b["/provenance"]["sidecar_shape"] == "canonical"  # the sidecar WAS found
+    assert got_b["/provenance"]["provenance"] == "canonical"  # the file WAS found
     assert got_b["/cast"]["has_topology_export"] is True
     assert got_b["/cast"]["has_provenance"] is True
 

@@ -96,25 +96,51 @@ def test_mini_cast_bundle_shape():
     assert b.expanded_nodes == 7 and b.expanded_hosts == 6
 
 
-def test_imprint_fixture_has_a_sidecar_that_is_reported_but_not_consumed():
-    """S1's second accept, plus M4: the Track-C imprint fixture yields 42
+def test_imprint_fixture_has_a_canonical_sidecar_that_is_consumed():
+    """S1's second accept, plus M4: the packaged imprint fixture yields 42
     hosts / 4 segments and reports its topology export absent. Its sidecar
-    is the NORMALIZED Track-C shape, not the canonical compiler one, so it
-    is reported `present` and deliberately NOT consumed -- two shapes exist
-    and disagree, and reading one as the other is the fabrication the whole
-    evidence model exists to prevent."""
+    is the canonical compiler shape (the Track-C normalized one it carried
+    until 2026-10-29 was retired), so its four evidence classes are READ
+    from the producer and nothing is re-derived."""
     b = load_reference_bundle(FIXTURE_IMPRINT)
     assert b.expanded_hosts == 42
     assert b.expanded_nodes == 43        # + the `gw` router
     assert len(b.twin_segments) == 4
     assert b.topology_export == ABSENT
     assert b.provenance_sidecar == PRESENT
-    assert b.provenance_schema is None   # the canonical shape carries one
+    assert b.provenance_schema == CAST_PROVENANCE_SCHEMA
+    assert b.evidence_source == SOURCE_SIDECAR
+    assert b.field_classes == {
+        "twin_config.segments[0].cidr": "observed",
+        "twin_config.nodes[6].install[0].role": "imputed",
+        "twin_config.nodes[5].role": "imputed",
+        "twin_config.nodes[0].nets": "referenced",
+    }
+    assert b.population["placed_hosts"] == 42
+    assert not any(REDERIVED_WARNING in w for w in b.warnings)
+    assert any("no corp-enterprise.topology.json" in w for w in b.warnings)
+
+
+def test_a_schema_less_sidecar_is_present_not_consumed_and_held_to_no_precondition(tmp_path):
+    """The retired Track-C normalized shape, should an old checkout still
+    carry one: no `schema` key, so it is an unrecognized sidecar -- reported
+    `present`, deliberately NOT consumed, and owed no `fields` object (an
+    unrecognized shape is never read, so it is never refused for what it
+    lacks)."""
+    import shutil
+
+    d = tmp_path / "corp-enterprise"
+    shutil.copytree(FIXTURE_IMPRINT, d)
+    (d / "corp-enterprise.provenance.json").write_text(
+        '{"imprint_id": "corp-enterprise", "summary": {"services": 1}}'
+    )
+    b = load_reference_bundle(d)
+    assert b.provenance_sidecar == PRESENT
+    assert b.provenance_schema is None
     assert b.evidence_source == SOURCE_REDERIVED
     assert b.field_classes == {}
-    assert any(CAST_PROVENANCE_SCHEMA in w for w in b.warnings)
+    assert any("declares no `schema`" in w and "NOT consumed" in w for w in b.warnings)
     assert any(REDERIVED_WARNING in w for w in b.warnings)
-    assert any("no corp-enterprise.topology.json" in w for w in b.warnings)
 
 
 def test_canonical_sidecar_is_consumed_and_says_so():

@@ -29,17 +29,17 @@ from axrange.api.imprints import (
     default_fixtures_dir,
     list_imprints,
     list_imprints_with_skips,
-    load_imprint_provenance,
     load_imprint_summary,
     load_provenance,
 )
 
-_SAMPLE_SEGMENTS = {
-    "corp-lan": (26, 0.91),
-    "dmz": (3, 0.88),
-    "db": (5, 0.79),
-    "mgmt": (8, 0.83),
-}
+#: Per-segment host counts, derived from the fixture's twin config.
+_SAMPLE_SEGMENTS = {"corp-lan": 26, "dmz": 3, "db": 5, "mgmt": 8}
+
+#: The fixture's four provenance records, keyed by twin-config path, each
+#: carrying a confidence: the mean is over all four (0.91, 0.88, 0.79, 0.95).
+_FIXTURE_MEAN = 0.8825
+_FIXTURE_SOURCE = "canonical sidecar (4/4 fields)"
 
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,10 @@ def test_list_imprints_returns_corp_enterprise_with_console_sample_counts():
     e = by_id["corp-enterprise"]
     assert e.hosts == 42
     assert e.segments == 4
-    assert e.mean_confidence == pytest.approx(0.86)
-    assert e.as_of == "2026-08-14T09:00:00Z"
+    assert e.mean_confidence == pytest.approx(_FIXTURE_MEAN)
+    assert e.confidence_source == _FIXTURE_SOURCE
+    assert e.has_provenance is True
+    assert e.as_of == ""  # no topology export -> empty, never invented
 
 
 def test_list_imprints_sorted_by_id():
@@ -72,19 +74,27 @@ def test_list_imprints_missing_dir_returns_empty(tmp_path):
     assert list_imprints(tmp_path / "does-not-exist") == []
 
 
-def test_load_imprint_summary_matches_console_sample_headline_stats():
+def test_load_imprint_summary_of_the_packaged_fixture_is_the_cast_summary():
+    """The packaged fixture carries a CANONICAL provenance file (the
+    normalized shape with its pre-computed `summary` block was retired
+    2026-10-29), so its numbers are the ones every cast bundle gets:
+    structure from the twin config, confidence meaned over the records that
+    carry one, services/personas counted from the bundle (it declares no
+    `listen:` and ships no personas/), and nothing for what no artifact
+    carries -- no topology export, so `as_of` is empty and `windows` None."""
     s = load_imprint_summary("corp-enterprise")
     assert s.id == "corp-enterprise"
-    assert s.as_of == "2026-08-14T09:00:00Z"
-    assert s.store == "imprint.duckdb"
-    assert s.days_observed == 10
-    assert s.windows == 240
+    assert s.provenance == "canonical"
+    assert s.as_of == ""
+    assert s.store is None and s.days_observed is None and s.windows is None
     assert s.hosts == 42
     assert s.segments == 4
-    assert s.services == 128
-    assert s.personas == 9
-    assert s.mean_confidence == pytest.approx(0.86)
-    assert s.out_of_vocab_pct == pytest.approx(3.0)
+    assert (s.services, s.personas) == (0, 0)
+    assert s.mean_confidence == pytest.approx(_FIXTURE_MEAN)
+    assert s.confidence_source == _FIXTURE_SOURCE
+    assert s.out_of_vocab_pct is None
+    assert s.pit_id is None
+    assert s.warnings == []
 
 
 def test_load_imprint_summary_hosts_and_segments_are_derived_not_copied():
@@ -110,10 +120,10 @@ def test_load_imprint_summary_topology_segments_match_console_sample():
     s = load_imprint_summary("corp-enterprise")
     by_name = {seg.name: seg for seg in s.topology_segments}
     assert set(by_name) == set(_SAMPLE_SEGMENTS)
-    for name, (host_count, confidence) in _SAMPLE_SEGMENTS.items():
+    for name, host_count in _SAMPLE_SEGMENTS.items():
         seg = by_name[name]
         assert seg.host_count == host_count
-        assert seg.confidence == pytest.approx(confidence)
+        assert seg.confidence is None  # no shape carries one: never a fabricated 0.0
         assert seg.cidr  # a real CIDR string, not blank
 
 
@@ -130,51 +140,60 @@ def test_load_imprint_summary_rejects_path_traversal():
 # ---------------------------------------------------------------------------
 # Provenance rows
 # ---------------------------------------------------------------------------
-def test_load_imprint_provenance_matches_console_sample_rows():
-    rows = load_imprint_provenance("corp-enterprise")
-    by_field = {r.field: r for r in rows}
-    assert "segment corp-lan" in by_field
-    r = by_field["segment corp-lan"]
+def test_load_provenance_of_the_packaged_fixture_folds_its_canonical_records():
+    doc = load_provenance("corp-enterprise")
+    assert doc.provenance == "canonical"
+    assert doc.sidecar_schema == "axr-cast-provenance/1"
+    assert doc.evidence_source == "sidecar fields"
+    assert doc.population["placed_hosts"] == 42
+    by_field = {r.field: r for r in doc.rows}
+    assert set(by_field) == {
+        "twin_config.segments[0].cidr", "twin_config.nodes[6].install[0].role",
+        "twin_config.nodes[5].role", "twin_config.nodes[0].nets",
+    }
+    r = by_field["twin_config.segments[0].cidr"]
     assert r.evidence_class == "observed"
-    assert r.confidence == pytest.approx(0.91)
+    assert (r.has_confidence, r.confidence) == (True, pytest.approx(0.91))
     assert "Zeek" in r.signal
-    assert "observed" in r.evidence
+    assert "observed" in r.evidence  # the record's `note`, the evidence column's analogue
+    signals = " ".join(r.signal for r in doc.rows)
+    assert "sql01" in signals and "dc01" in signals and "perimeter:wan" in signals
+    # The only warning is the fidelity reader's: the fixture ships no export.
+    assert len(doc.warnings) == 1 and "no corp-enterprise.topology.json" in doc.warnings[0]
 
-    assert any("db-replica" in f and "sql01" in f for f in by_field)
-    assert any("perimeter:wan" in f for f in by_field)
-    assert any("dc01" in f for f in by_field)
 
-
-def test_load_imprint_provenance_rows_sorted_by_field():
-    rows = load_imprint_provenance("corp-enterprise")
-    fields = [r.field for r in rows]
+def test_load_provenance_rows_sorted_by_field():
+    fields = [r.field for r in load_provenance("corp-enterprise").rows]
     assert fields == sorted(fields)
 
 
-def test_load_imprint_provenance_unknown_id_raises_not_found():
+def test_load_provenance_unknown_id_raises_not_found():
     with pytest.raises(ImprintNotFoundError):
-        load_imprint_provenance("does-not-exist")
+        load_provenance("does-not-exist")
 
 
 # ---------------------------------------------------------------------------
 # Hand-built fixtures (under tmp_path — never mutate the shipped fixture).
 # `_write_fixture` builds a minimal, otherwise-valid, INTERNALLY CONSISTENT
-# `<dirname>/{dirname}.yaml` + `.provenance.json` pair (dir name == tc.id ==
-# sidecar imprint_id, satisfying the M2 cross-check) that individual tests
-# then deliberately corrupt via `sidecar_extra`/`sidecar_pop`/`tc_id`/
-# `sidecar_id` to exercise ONE specific failure path at a time.
+# `<dirname>/{dirname}.yaml` + canonical `.provenance.json` pair (dir name ==
+# tc.id, satisfying the M2 cross-check) that individual tests then
+# deliberately corrupt via `tc_id` to exercise ONE failure path at a time.
 # ---------------------------------------------------------------------------
+#: One host, one segment, one confidence -- `confidence_source` reads
+#: "canonical sidecar (1/1 fields)".
+_ONE_FIELD_CANONICAL = {
+    "schema": "axr-cast-provenance/1", "pit_id": "pit-1", "code_fingerprint": "f00",
+    "fields": {"twin_config.nodes[1].net": {"evidence_class": "observed", "confidence": 0.5}},
+}
+
+
 def _write_fixture(
     root: Path, dirname: str, *,
     tc_id: Optional[str] = None,
-    sidecar_id: Optional[str] = None,
-    sidecar_extra: Optional[dict] = None,
-    sidecar_pop: Optional[list[str]] = None,
-    node_count: Optional[str] = None,
+    sidecar: Optional[dict] = _ONE_FIELD_CANONICAL,
 ) -> Path:
     d = root / dirname
     d.mkdir(parents=True, exist_ok=True)
-    count_line = f"\n      count: {node_count}" if node_count is not None else ""
     (d / f"{dirname}.yaml").write_text(
         "twin_config:\n"
         f"  id: {tc_id if tc_id is not None else dirname}\n"
@@ -186,21 +205,10 @@ def _write_fixture(
         "    - name: h1\n"
         "      image: debian-12-cloud@v1\n"
         "      requires: [linux]\n"
-        f"      net: lan{count_line}\n"
+        "      net: lan\n"
     )
-    body = {
-        "imprint_id": sidecar_id if sidecar_id is not None else dirname,
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {
-            "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-        },
-        "fields": {},
-    }
-    if sidecar_extra:
-        body.update(sidecar_extra)
-    for key in sidecar_pop or []:
-        body.pop(key, None)
-    (d / f"{dirname}.provenance.json").write_text(json.dumps(body))
+    if sidecar is not None:
+        (d / f"{dirname}.provenance.json").write_text(json.dumps(sidecar))
     return d
 
 
@@ -219,57 +227,16 @@ def test_load_imprint_summary_without_a_sidecar_summarizes_and_says_so(tmp_path)
     )
     s = load_imprint_summary("bare", fixtures_dir=tmp_path)
     assert s.id == "bare"
-    assert s.sidecar_shape == "absent"
+    assert s.provenance == "absent"
     assert s.confidence_source == "absent"
     # Services and personas are COUNTS here (no `listen:`, no personas/
-    # folder); the vocabulary stat has no source outside a normalized sidecar.
+    # folder); the vocabulary stat has no source anywhere.
     assert (s.services, s.personas, s.mean_confidence, s.out_of_vocab_pct) == (0, 0, 0.0, None)
     assert not any("NOT a measurement" in w for w in s.warnings), s.warnings
     assert s.hosts == 1 and s.segments == 1
     assert s.as_of == "" and s.windows is None  # no export -> empty, never invented
     assert s.store is None and s.days_observed is None
     assert [seg.confidence for seg in s.topology_segments] == [None]
-
-
-def test_load_imprint_summary_sidecar_missing_summary_block_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_pop=["summary"])
-    with pytest.raises(ImprintDataError, match="summary"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_sidecar_missing_a_required_summary_key_raises(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={
-        "summary": {"services": 1, "personas": 1, "mean_confidence": 0.5},
-        # 'out_of_vocab_pct' deliberately missing
-    })
-    with pytest.raises(ImprintDataError, match="out_of_vocab_pct"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_sidecar_missing_as_of_raises(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_pop=["as_of"])
-    with pytest.raises(ImprintDataError, match="as_of"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_segment_with_no_confidence_entry_is_none_not_zero(tmp_path):
-    """A segment the sidecar's `segment_confidence` map doesn't mention gets
-    `confidence=None` — never a fabricated `0.0` (would misread as "learned,
-    zero confidence" instead of "not recorded")."""
-    _write_fixture(tmp_path, "partial", sidecar_extra={"segment_confidence": {}})
-    s = load_imprint_summary("partial", fixtures_dir=tmp_path)
-    assert len(s.topology_segments) == 1
-    assert s.topology_segments[0].name == "lan"
-    assert s.topology_segments[0].host_count == 1
-    assert s.topology_segments[0].confidence is None
-
-
-def test_load_imprint_provenance_malformed_field_record_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={
-        "fields": {"host h1": {"evidence_class": "observed"}},  # missing confidence/signal/evidence
-    })
-    with pytest.raises(ImprintDataError, match="missing"):
-        load_imprint_provenance("broken", fixtures_dir=tmp_path)
 
 
 def test_list_imprints_skips_a_broken_subdirectory_rather_than_raising(tmp_path):
@@ -321,13 +288,12 @@ def test_list_imprints_lists_a_sidecarless_bundle_with_has_provenance_false(tmp_
     assert e.hosts == 1 and e.segments == 1
     assert e.as_of == ""  # no topology export -> empty, never invented
     assert by_id["good"].has_provenance is True
-    assert by_id["good"].confidence_source == "sidecar"
+    assert by_id["good"].confidence_source == "canonical sidecar (1/1 fields)"
 
 
 def test_list_imprints_lists_a_canonical_sidecar_bundle_with_has_provenance_true(tmp_path):
-    """A CANONICAL sidecar carries per-field provenance but none of the
-    normalized shape's headline stats -- without this branch the one bundle
-    that ships full provenance would be the one the Console cannot see."""
+    """A CANONICAL provenance file with no confidences to mean still lists,
+    with `confidence_source: absent` saying why the 0.0 is not evidence."""
     d = tmp_path / "canon"
     d.mkdir()
     (d / "canon.yaml").write_text(
@@ -360,98 +326,11 @@ def test_list_imprints_skips_a_sidecarless_bundle_whose_id_disagrees(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# M1 (2026-08-25 review) — a present-but-non-numeric sidecar scalar must
-# raise `ImprintDataError`, never a bare `ValueError`/`TypeError` (which
-# `service.py` doesn't catch -> HTTP 500) and never escape uncoerced all the
-# way to a pydantic DTO field (which would ALSO 500, just later and less
-# clearly, since `service.py`'s try/except doesn't wrap DTO construction).
-# ---------------------------------------------------------------------------
-def test_load_imprint_summary_non_numeric_summary_scalar_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={
-        "summary": {
-            "services": "a-lot", "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-        },
-    })
-    with pytest.raises(ImprintDataError, match="services"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_non_numeric_mean_confidence_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={
-        "summary": {
-            "services": 1, "personas": 1, "mean_confidence": "high", "out_of_vocab_pct": 0.0,
-        },
-    })
-    with pytest.raises(ImprintDataError, match="mean_confidence"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_non_numeric_days_observed_raises_data_error(tmp_path):
-    """The specific escape hatch M1 closed: `days_observed`/`windows` used to
-    pass UNTYPED straight into `ImprintSummary`, and `service.imprint_
-    summary` built the `Optional[int]` DTO field OUTSIDE its try/except —
-    a non-int value here used to reach pydantic as a 500, not this
-    module's `ImprintDataError` (-> a clean 400)."""
-    _write_fixture(tmp_path, "broken", sidecar_extra={"days_observed": "ten"})
-    with pytest.raises(ImprintDataError, match="days_observed"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_non_numeric_windows_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={"windows": "many"})
-    with pytest.raises(ImprintDataError, match="windows"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_non_string_store_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={"store": 12345})
-    with pytest.raises(ImprintDataError, match="store"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_summary_none_days_observed_is_accepted_as_absent(tmp_path):
-    """`None`/absent is legitimately "not recorded", not a coercion error —
-    only a PRESENT-but-wrong-type value should raise."""
-    _write_fixture(tmp_path, "ok", sidecar_extra={"days_observed": None, "windows": None})
-    s = load_imprint_summary("ok", fixtures_dir=tmp_path)
-    assert s.days_observed is None
-    assert s.windows is None
-
-
-def test_load_imprint_summary_non_numeric_segment_confidence_raises_data_error(tmp_path):
-    """Same class of bug as the four `summary` scalars — found and fixed for
-    consistency while implementing M1, alongside the three explicitly
-    reviewed sites (not itself one of the reviewer's named line numbers)."""
-    _write_fixture(tmp_path, "broken", sidecar_extra={"segment_confidence": {"lan": "high"}})
-    with pytest.raises(ImprintDataError, match="segment_confidence"):
-        load_imprint_summary("broken", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_provenance_non_numeric_confidence_raises_data_error(tmp_path):
-    _write_fixture(tmp_path, "broken", sidecar_extra={
-        "fields": {
-            "host h1": {
-                "evidence_class": "observed", "confidence": "high",
-                "signal": "s", "evidence": "e",
-            },
-        },
-    })
-    with pytest.raises(ImprintDataError, match="confidence"):
-        load_imprint_provenance("broken", fixtures_dir=tmp_path)
-
-
-# ---------------------------------------------------------------------------
 # M2 (2026-08-25 review), as the GAP-082 review classifies it (S1) --
 # directory name (canonical) vs. `twin_config.id` is the ADDRESSING guard and
-# refuses; a NORMALIZED sidecar's own `imprint_id` refuses when it names
-# ANOTHER imprint (nothing legitimately writes it differently) and is a
-# published warning when it is missing. (R7 had briefly made a different one
-# a warning; the review restored the refusal.)
+# refuses. (The normalized shape's own `imprint_id` check retired with the
+# shape, 2026-10-29: a canonical provenance file declares no imprint id.)
 # ---------------------------------------------------------------------------
-def test_load_imprint_summary_id_mismatch_across_dir_tc_and_sidecar_raises(tmp_path):
-    _write_fixture(tmp_path, "dirname-a", tc_id="content-id-b", sidecar_id="sidecar-id-c")
-    with pytest.raises(ImprintDataError, match="dirname-a"):
-        load_imprint_summary("dirname-a", fixtures_dir=tmp_path)
 
 
 def test_load_imprint_summary_tc_id_mismatch_alone_raises(tmp_path):
@@ -460,52 +339,9 @@ def test_load_imprint_summary_tc_id_mismatch_alone_raises(tmp_path):
         load_imprint_summary("dirname-a", fixtures_dir=tmp_path)
 
 
-def test_a_normalized_sidecar_naming_another_imprint_is_refused(tmp_path):
-    """S1 (GAP-082 review): nothing legitimately writes a normalized
-    sidecar's `imprint_id` differently from the addressing id -- a different
-    one is a copied or stale sidecar (LES-195) -- so it is refused on the
-    summary, skipped by the listing with the SAME reason, and refused by both
-    provenance readers. (R7 had made it a warning; the review restored this.)"""
-    _write_fixture(tmp_path, "dirname-a", sidecar_id="sidecar-id-c")
-    with pytest.raises(ImprintDataError, match="sidecar-id-c") as exc:
-        load_imprint_summary("dirname-a", fixtures_dir=tmp_path)
-    assert "'dirname-a'" in str(exc.value)
-    assert list_imprints_with_skips(tmp_path) == ([], [("dirname-a", str(exc.value))])
-    with pytest.raises(ImprintDataError, match="sidecar-id-c"):
-        load_provenance("dirname-a", fixtures_dir=tmp_path)
-    with pytest.raises(ImprintDataError, match="sidecar-id-c"):
-        load_imprint_provenance("dirname-a", fixtures_dir=tmp_path)
-
-
-def test_a_normalized_sidecar_that_declares_no_imprint_id_is_named_not_refused(tmp_path):
-    _write_fixture(tmp_path, "quiet", sidecar_pop=["imprint_id"])
-    s = load_imprint_summary("quiet", fixtures_dir=tmp_path)
-    assert s.id == "quiet"
-    assert any("declares no imprint_id" in w for w in s.warnings), s.warnings
-
-
-def test_a_self_consistent_normalized_fixture_carries_no_warning(tmp_path):
+def test_a_self_consistent_canonical_fixture_carries_no_warning(tmp_path):
     _write_fixture(tmp_path, "aligned")
     assert load_imprint_summary("aligned", fixtures_dir=tmp_path).warnings == []
-
-
-def test_a_non_string_normalized_imprint_id_is_refused_never_read_as_missing(tmp_path):
-    """S1: a sidecar that declares an id of the wrong type declares one --
-    it is refused like any other id that is not this bundle's, never waved
-    through as "declares no imprint_id"."""
-    _write_fixture(tmp_path, "b", sidecar_id=42)  # type: ignore[arg-type]
-    with pytest.raises(ImprintDataError, match="imprint_id=42"):
-        load_imprint_summary("b", fixtures_dir=tmp_path)
-
-
-def test_load_imprint_provenance_id_mismatch_raises(tmp_path):
-    """The cross-check is enforced by BOTH accessors, not just the summary
-    one -- reading provenance for a fixture whose content disagrees with
-    its own directory must refuse just as loudly (never silently serve
-    field-level evidence under the wrong id)."""
-    _write_fixture(tmp_path, "dirname-a", tc_id="content-id-b", sidecar_id="sidecar-id-c")
-    with pytest.raises(ImprintDataError, match="dirname-a"):
-        load_imprint_provenance("dirname-a", fixtures_dir=tmp_path)
 
 
 def test_load_imprint_summary_well_formed_fixture_publishes_directory_name(tmp_path):
@@ -535,9 +371,9 @@ def _write_cast_bundle(
     sidecar: Optional[dict] = None,
     export: Optional[dict] = None,
 ) -> Path:
-    """A minimal CAST bundle: a twin config plus, optionally, a canonical
-    sidecar and a topology export -- the two artifacts the normalized
-    `_write_fixture` never carries."""
+    """A minimal CAST bundle: a two-segment twin config with a router and a
+    counted host group, plus, optionally, a provenance file and a topology
+    export."""
     d = root / dirname
     d.mkdir(parents=True, exist_ok=True)
     (d / f"{dirname}.yaml").write_text(
@@ -570,22 +406,23 @@ _CANONICAL = {
     },
 }
 
+#: A provenance file whose `schema` this reader does not consume.
+_UNRECOGNIZED = {"schema": "axr-cast-provenance/2", "fields": {}}
+
+#: What a bundle's provenance file can be, by name, for a parametrized test.
+_PROVENANCE = {"canonical": _CANONICAL, "unrecognized": _UNRECOGNIZED, "absent": None}
+
 #: 2026-01-01T00:00:00Z as the export's epoch float.
 _NEW_YEAR = 1767225600.0
 
 
-@pytest.mark.parametrize("shape", ["normalized", "canonical", "absent"])
-def test_the_addressing_guard_refuses_for_every_sidecar_shape(tmp_path, shape):
+@pytest.mark.parametrize("shape", sorted(_PROVENANCE))
+def test_the_addressing_guard_refuses_for_every_provenance_state(tmp_path, shape):
     """The one id check R7 KEEPS (LES-195): a directory whose twin config
-    declares another id is not served, whatever sidecar sits beside it -- and
-    the listing skips it with the SAME reason the summary answers with."""
-    if shape == "normalized":
-        _write_fixture(tmp_path, "dirname-a", tc_id="content-id-b")
-    else:
-        _write_cast_bundle(
-            tmp_path, "dirname-a", tc_id="content-id-b",
-            sidecar=_CANONICAL if shape == "canonical" else None,
-        )
+    declares another id is not served, whatever provenance file sits beside
+    it -- and the listing skips it with the SAME reason the summary answers
+    with."""
+    _write_cast_bundle(tmp_path, "dirname-a", tc_id="content-id-b", sidecar=_PROVENANCE[shape])
     with pytest.raises(ImprintDataError, match=r"twin_config\.id='content-id-b'") as exc:
         load_imprint_summary("dirname-a", fixtures_dir=tmp_path)
     entries, skipped = list_imprints_with_skips(tmp_path)
@@ -596,7 +433,7 @@ def test_the_addressing_guard_refuses_for_every_sidecar_shape(tmp_path, shape):
 def test_a_canonical_sidecar_bundle_summarizes_with_its_own_confidence_mean(tmp_path):
     _write_cast_bundle(tmp_path, "canon", sidecar=_CANONICAL)
     s = load_imprint_summary("canon", fixtures_dir=tmp_path)
-    assert s.sidecar_shape == "canonical"
+    assert s.provenance == "canonical"
     # The mean over the fields that CARRY a confidence, coverage stated (S1).
     assert s.mean_confidence == pytest.approx(0.7)
     assert s.confidence_source == "canonical sidecar (2/3 fields)"
@@ -669,18 +506,15 @@ def test_an_unreadable_export_is_reported_and_the_bundle_still_summarizes(tmp_pa
 _BAD_UTF8 = b"\xff\xfe{}"  # also how a UTF-16 (BOM) JSON file starts
 
 
-@pytest.mark.parametrize("shape", ["normalized", "canonical"])
-def test_an_undecodable_export_degrades_to_a_warning_for_every_sidecar_shape(tmp_path, shape):
+@pytest.mark.parametrize("shape", sorted(_PROVENANCE))
+def test_an_undecodable_export_degrades_to_a_warning_for_every_provenance_state(tmp_path, shape):
     """A (MUST-FIX): a UnicodeDecodeError is a ValueError, not a
     JSONDecodeError, so `except (OSError, json.JSONDecodeError)` let it 500
     the summary, the listing and the plan pre-check."""
-    if shape == "normalized":
-        d = _write_fixture(tmp_path, "b")
-    else:
-        d = _write_cast_bundle(tmp_path, "b", sidecar=_CANONICAL)
+    d = _write_cast_bundle(tmp_path, "b", sidecar=_PROVENANCE[shape])
     (d / "b.topology.json").write_bytes(_BAD_UTF8)
     s = load_imprint_summary("b", fixtures_dir=tmp_path)
-    assert s.sidecar_shape == shape
+    assert s.provenance == shape
     assert any("unreadable" in w for w in s.warnings), s.warnings
     assert [e.id for e in list_imprints(tmp_path)] == ["b"]
 
@@ -731,9 +565,7 @@ def test_an_undecodable_sidecar_is_a_data_error_and_the_listing_skips_it(tmp_pat
 def test_an_unrecognized_sidecar_schema_is_present_but_never_consumed(tmp_path):
     """I: a `schema` this reader does not consume is PRESENT and NOT consumed
     -- on the summary, the listing, the provenance route and the cast alike,
-    exactly as the fidelity reader treats it -- and never handed to the
-    strict normalized reader (this one has no `summary` block, which that
-    reader would refuse)."""
+    exactly as the fidelity reader treats it."""
     from axrange.api.imprints import load_cast_summary
 
     _write_cast_bundle(tmp_path, "b", sidecar={
@@ -741,7 +573,7 @@ def test_an_unrecognized_sidecar_schema_is_present_but_never_consumed(tmp_path):
         "fields": {"twin_config.nodes[1].role": {"class": "observed", "confidence": 0.9}},
     })
     s = load_imprint_summary("b", fixtures_dir=tmp_path)
-    assert s.sidecar_shape == "unrecognized"
+    assert s.provenance == "unrecognized"
     assert (s.mean_confidence, s.confidence_source) == (0.0, "unrecognized sidecar (not consumed)")
     assert any(
         "'axr-cast-provenance/2'" in w and "not one this reader consumes" in w for w in s.warnings
@@ -750,23 +582,50 @@ def test_an_unrecognized_sidecar_schema_is_present_but_never_consumed(tmp_path):
     assert entry.has_provenance is True
     assert entry.confidence_source == s.confidence_source
     doc = load_provenance("b", fixtures_dir=tmp_path)
-    assert (doc.sidecar_shape, doc.rows) == ("unrecognized", [])
+    assert (doc.provenance, doc.rows) == ("unrecognized", [])
     assert any("NOT consumed" in w for w in doc.warnings), doc.warnings
-    assert load_cast_summary("b", fixtures_dir=tmp_path).sidecar_shape == "unrecognized"
+    assert load_cast_summary("b", fixtures_dir=tmp_path).provenance == "unrecognized"
+
+
+def test_the_retired_normalized_shape_is_unrecognized_and_its_summary_block_is_never_read(tmp_path):
+    """The Track-C normalized shape -- a schema-less document carrying
+    pre-computed headline stats -- was retired 2026-10-29. One that still
+    turns up is PRESENT and NOT consumed like any other unknown shape: its
+    `summary` numbers never reach the summary (services/personas stay the
+    bundle's own counts, the mean stays 0.0 with its source stated), its
+    `imprint_id` is never read as an address, and every route says so in
+    the same words."""
+    from axrange.api.imprints import load_cast_summary
+
+    _write_cast_bundle(tmp_path, "b", sidecar={
+        "imprint_id": "some-other-imprint", "as_of": "2026-01-01T00:00:00Z",
+        "summary": {"services": 99, "personas": 9, "mean_confidence": 0.9, "out_of_vocab_pct": 3.0},
+        "segment_confidence": {"lan": 0.9},
+        "fields": {"segment lan": {"evidence_class": "observed", "confidence": 0.9,
+                                   "signal": "s", "evidence": "e"}},
+    })
+    s = load_imprint_summary("b", fixtures_dir=tmp_path)
+    assert (s.provenance, s.confidence_source) == ("unrecognized", "unrecognized sidecar (not consumed)")
+    assert (s.services, s.personas, s.mean_confidence, s.out_of_vocab_pct) == (0, 0, 0.0, None)
+    assert [seg.confidence for seg in s.topology_segments] == [None, None]
+    assert any("no `schema` key" in w and "NOT consumed" in w for w in s.warnings), s.warnings
+    [entry] = list_imprints(tmp_path)
+    assert (entry.id, entry.has_provenance, entry.confidence_source) == ("b", True, s.confidence_source)
+    doc = load_provenance("b", fixtures_dir=tmp_path)
+    assert (doc.provenance, doc.sidecar_schema, doc.rows) == ("unrecognized", None, [])
+    assert any("declares no `schema`" in w for w in doc.warnings), doc.warnings
+    assert load_cast_summary("b", fixtures_dir=tmp_path).provenance == "unrecognized"
 
 
 @pytest.mark.parametrize("sidecar", [
     {"schema": "axr-cast-provenance/1"},
     {"schema": "axr-cast-provenance/1", "fields": []},
-    {"imprint_id": "b", "as_of": "2026-01-01T00:00:00Z", "summary": {
-        "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0,
-    }},
-], ids=["canonical-without-fields", "canonical-fields-not-an-object", "normalized-without-fields"])
+], ids=["canonical-without-fields", "canonical-fields-not-an-object"])
 def test_a_sidecar_without_a_fields_object_is_refused_in_the_cast_routes_own_words(tmp_path, sidecar):
     """I: ONE precondition (`fidelity.reference.sidecar_fields_or_raise`), so
     the listing, the summary and `GET .../cast` agree on which bundles open --
-    a canonical sidecar with no `fields` listed and summarized 200 while the
-    cast refused it."""
+    a canonical provenance file with no `fields` listed and summarized 200
+    while the cast refused it."""
     from axrange.api.imprints import load_cast_summary
 
     _write_cast_bundle(tmp_path, "b", sidecar=sidecar)
@@ -804,20 +663,6 @@ def test_a_non_finite_canonical_confidence_is_treated_as_absent_and_said_so(tmp_
     assert any("not a finite number" in w for w in doc.warnings), doc.warnings
 
 
-@pytest.mark.parametrize(("stat", "literal"), [
-    ("services", "1e400"), ("services", "NaN"),
-    ("mean_confidence", "NaN"), ("out_of_vocab_pct", "Infinity"),
-])
-def test_a_normalized_summary_stat_that_is_not_finite_is_refused(tmp_path, stat, literal):
-    """I: the strict reader's measurements are finite or refused -- `int(inf)`
-    raised OverflowError (a 500), and a NaN mean serialized as `null`."""
-    d = _write_fixture(tmp_path, "b")
-    raw = json.loads((d / "b.provenance.json").read_text())
-    raw["summary"][stat] = "__X__"
-    (d / "b.provenance.json").write_text(json.dumps(raw).replace('"__X__"', literal))
-    with pytest.raises(ImprintDataError, match=f"summary.{stat}") as exc:
-        load_imprint_summary("b", fixtures_dir=tmp_path)
-    assert list_imprints_with_skips(tmp_path) == ([], [("b", str(exc.value))])
 
 
 def test_a_readable_export_with_one_bad_scalar_still_has_its_baked_id_compared(tmp_path):
@@ -890,19 +735,19 @@ def test_the_cast_publishes_every_router_with_its_own_legs(tmp_path):
 
 def test_every_listed_entry_is_a_projection_of_its_summary(tmp_path):
     """"Lists" implies "summarizes", with the same numbers (R7): one builder
-    serves both. Over all three sidecar shapes, iterating the LISTING's own
-    output (LES-223) rather than a hardcoded id list."""
-    _write_fixture(tmp_path, "norm")
+    serves both. Over all three provenance states, iterating the LISTING's
+    own output (LES-223) rather than a hardcoded id list."""
+    _write_cast_bundle(tmp_path, "odd", sidecar=_UNRECOGNIZED)
     _write_cast_bundle(tmp_path, "canon", sidecar=_CANONICAL)
     _write_cast_bundle(tmp_path, "bare")
     entries = list_imprints(tmp_path)
-    assert {e.id for e in entries} == {"norm", "canon", "bare"}
+    assert {e.id for e in entries} == {"odd", "canon", "bare"}
     for e in entries:
         s = load_imprint_summary(e.id, fixtures_dir=tmp_path)
         assert (s.id, s.as_of, s.hosts, s.segments, s.mean_confidence, s.confidence_source) == (
             e.id, e.as_of, e.hosts, e.segments, e.mean_confidence, e.confidence_source,
         )
-        assert e.has_provenance is (s.sidecar_shape != "absent")
+        assert e.has_provenance is (s.provenance != "absent")
 
 
 # ---------------------------------------------------------------------------
@@ -926,12 +771,6 @@ def test_host_counts_by_segment_membership_can_exceed_total_for_a_multihomed_hos
         "    - { name: dual, image: debian-12-cloud@v1, requires: [linux],\n"
         "        nets: [{ segment: a }, { segment: b }] }\n"
     )
-    (d / "multihomed.provenance.json").write_text(json.dumps({
-        "imprint_id": "multihomed",
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {"services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0},
-        "fields": {},
-    }))
     s = load_imprint_summary("multihomed", fixtures_dir=tmp_path)
     assert s.hosts == 1  # the dual-homed host counts once in the total
     by_name = {seg.name: seg for seg in s.topology_segments}
@@ -957,12 +796,6 @@ def test_load_imprint_summary_non_numeric_node_count_raises_data_error(tmp_path)
         "    - { name: h1, image: debian-12-cloud@v1, requires: [linux], net: lan,\n"
         "        count: not-a-number }\n"
     )
-    (d / "badcount.provenance.json").write_text(json.dumps({
-        "imprint_id": "badcount",
-        "as_of": "2026-01-01T00:00:00Z",
-        "summary": {"services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0},
-        "fields": {},
-    }))
     with pytest.raises(ImprintDataError, match="h1"):
         load_imprint_summary("badcount", fixtures_dir=tmp_path)
 
@@ -1032,7 +865,7 @@ def test_load_provenance_canonical_reports_an_unknown_class_without_rewriting_it
         "twin_config.nodes[0].role": {"evidence_class": "guessed", "confidence": 0.5},
     })
     doc = load_provenance("canon", fixtures_dir=tmp_path)
-    assert doc.sidecar_shape == "canonical"
+    assert doc.provenance == "canonical"
     # Published as written -- a reader that normalized this would hide exactly
     # the producer/consumer drift the warning exists to surface.
     assert doc.rows[0].evidence_class == "guessed"
@@ -1138,25 +971,27 @@ def test_cast_and_provenance_run_the_same_addressing_guard_as_the_summary(tmp_pa
     {"schema": "axr-cast-provenance/2"},
     {"schema": "axr-cast-provenance/2", "records": {"twin_config.nodes[1].role": {"class": "observed"}}},
     {"schema": "axr-cast-provenance/2", "fields": ["renamed"]},
-], ids=["no-fields", "fields-renamed", "fields-not-an-object"])
+    {"imprint_id": "b", "as_of": "2026-01-01T00:00:00Z", "summary": {
+        "services": 1, "personas": 1, "mean_confidence": 0.5, "out_of_vocab_pct": 0.0}},
+], ids=["no-fields", "fields-renamed", "fields-not-an-object", "schema-less-without-fields"])
 def test_an_unrecognized_sidecar_is_held_to_no_precondition(tmp_path, sidecar):
-    """SF3: shape FIRST, then preconditions. Only the two shapes that are
-    READ -- canonical and normalized -- owe a `fields` object; an
-    unrecognized schema is present and NOT consumed with or without one, so
-    a future schema that renames the key does not make its bundle vanish."""
+    """SF3: shape FIRST, then preconditions. Only the one shape that is READ
+    -- canonical -- owes a `fields` object; an unrecognized schema, or none
+    at all, is present and NOT consumed with or without one, so a future
+    schema that renames the key does not make its bundle vanish."""
     from axrange.api.imprints import load_cast_summary
 
     _write_cast_bundle(tmp_path, "b", sidecar=sidecar)
     s = load_imprint_summary("b", fixtures_dir=tmp_path)
-    assert (s.sidecar_shape, s.confidence_source) == (
+    assert (s.provenance, s.confidence_source) == (
         "unrecognized", "unrecognized sidecar (not consumed)",
     )
     [entry] = list_imprints(tmp_path)
     assert (entry.id, entry.has_provenance) == ("b", True)
     cast = load_cast_summary("b", fixtures_dir=tmp_path)
-    assert (cast.sidecar_shape, cast.has_provenance) == ("unrecognized", True)
+    assert (cast.provenance, cast.has_provenance) == ("unrecognized", True)
     doc = load_provenance("b", fixtures_dir=tmp_path)
-    assert (doc.sidecar_shape, doc.rows) == ("unrecognized", [])
+    assert (doc.provenance, doc.rows) == ("unrecognized", [])
 
 
 @pytest.mark.parametrize("schema", [5, True, ["axr-cast-provenance/1"], {"version": 1}],
@@ -1169,12 +1004,12 @@ def test_a_non_string_schema_is_unrecognized_and_never_published_as_a_schema_nam
     from axrange.api.imprints import load_cast_summary
 
     _write_cast_bundle(tmp_path, "b", sidecar={"schema": schema, "fields": {}})
-    assert load_imprint_summary("b", fixtures_dir=tmp_path).sidecar_shape == "unrecognized"
+    assert load_imprint_summary("b", fixtures_dir=tmp_path).provenance == "unrecognized"
     cast = load_cast_summary("b", fixtures_dir=tmp_path)
-    assert (cast.sidecar_shape, cast.provenance_schema) == ("unrecognized", None)
+    assert (cast.provenance, cast.provenance_schema) == ("unrecognized", None)
     assert any("`schema` is not a string" in w for w in cast.warnings), cast.warnings
     doc = load_provenance("b", fixtures_dir=tmp_path)
-    assert (doc.sidecar_shape, doc.sidecar_schema, doc.rows) == ("unrecognized", None, [])
+    assert (doc.provenance, doc.sidecar_schema, doc.rows) == ("unrecognized", None, [])
 
 
 def test_a_counted_router_spec_publishes_one_router_per_instance_named_as_deployed(tmp_path):

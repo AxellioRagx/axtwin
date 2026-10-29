@@ -1,48 +1,121 @@
 {
-  "imprint_id": "corp-enterprise",
-  "as_of": "2026-08-14T09:00:00Z",
-  "store": "imprint.duckdb",
-  "days_observed": 10,
-  "windows": 240,
-
-  "summary": {
-    "services": 128,
-    "personas": 9,
-    "mean_confidence": 0.86,
-    "out_of_vocab_pct": 3.0
+  "schema": "axr-cast-provenance/1",
+  "pit_id": null,
+  "schema_version": null,
+  "code_fingerprint": null,
+  "vantage": null,
+  "vantages": null,
+  "network": "corp-enterprise",
+  "population": {
+    "pit_entities": 42,
+    "placed_hosts": 42,
+    "emitted_hosts": 42,
+    "node_groups": [
+      {
+        "node": "corp-workstation",
+        "role": "corp-workstation",
+        "segment": "10.91.10.0/24",
+        "rung": "core",
+        "observed": 26,
+        "emitted": 26,
+        "capped_by": null
+      },
+      {
+        "node": "mail-server",
+        "role": "mail-server",
+        "segment": "10.91.20.0/28",
+        "rung": "core",
+        "observed": 1,
+        "emitted": 1,
+        "capped_by": null
+      },
+      {
+        "node": "egress-proxy",
+        "role": "egress-proxy",
+        "segment": "10.91.20.0/28",
+        "rung": "core",
+        "observed": 1,
+        "emitted": 1,
+        "capped_by": null
+      },
+      {
+        "node": "dmz-web",
+        "role": "dmz-web",
+        "segment": "10.91.20.0/28",
+        "rung": "core",
+        "observed": 1,
+        "emitted": 1,
+        "capped_by": null
+      },
+      {
+        "node": "sql",
+        "role": "db-replica",
+        "segment": "10.91.30.0/28",
+        "rung": "core",
+        "observed": 5,
+        "emitted": 5,
+        "capped_by": null
+      },
+      {
+        "node": "dc01",
+        "role": "domain-controller",
+        "segment": "10.91.40.0/28",
+        "rung": "core",
+        "observed": 1,
+        "emitted": 1,
+        "capped_by": null
+      },
+      {
+        "node": "log-collector",
+        "role": "log-collector",
+        "segment": "10.91.40.0/28",
+        "rung": "core",
+        "observed": 4,
+        "emitted": 4,
+        "capped_by": null
+      },
+      {
+        "node": "monitoring-collector",
+        "role": "monitoring-collector",
+        "segment": "10.91.40.0/28",
+        "rung": "core",
+        "observed": 3,
+        "emitted": 3,
+        "capped_by": null
+      }
+    ],
+    "role_less": [],
+    "deploy_gate": {
+      "min_occupancy": 0.8,
+      "excluded": []
+    },
+    "segments_pruned": [],
+    "suppressed": []
   },
-
-  "segment_confidence": {
-    "corp-lan": 0.91,
-    "dmz": 0.88,
-    "db": 0.79,
-    "mgmt": 0.83
-  },
-
   "fields": {
-    "segment corp-lan": {
+    "twin_config.segments[0].cidr": {
       "evidence_class": "observed",
       "confidence": 0.91,
       "signal": "Zeek conn.log - /24 co-occurrence clustering",
-      "evidence": "10d - observed"
+      "note": "10d - observed"
     },
-    "host dc01 - role adds": {
+    "twin_config.nodes[6].install[0].role": {
       "evidence_class": "imputed",
       "confidence": 0.88,
-      "signal": "Kerberos 88 + LDAP 389 + DNS SOA",
-      "evidence": "10d - observed"
+      "signal": "Kerberos 88 + LDAP 389 + DNS SOA on dc01",
+      "note": "10d - observed"
     },
-    "persona db-replica -> sql01": {
+    "twin_config.nodes[5].role": {
       "evidence_class": "imputed",
       "confidence": 0.79,
-      "signal": "periodic 3306 flows, fixed peer & cadence",
-      "evidence": "8d - observed"
+      "signal": "periodic 3306 flows to sql01, fixed peer & cadence (persona db-replica)",
+      "note": "8d - observed"
     },
-    "tap perimeter:wan": {
+    "twin_config.nodes[0].nets": {
       "evidence_class": "referenced",
       "confidence": 0.95,
-      "signal": "gateway egress vantage - EW/NS visibility",
-      "evidence": "structural"
+      "signal": "gateway egress vantage perimeter:wan - EW/NS visibility",
+      "note": "structural"
     }
   }
 }

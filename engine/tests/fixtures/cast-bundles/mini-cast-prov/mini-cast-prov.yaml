@@ -6,10 +6,9 @@
 # "sidecar fields"`) or re-derived by axRange from the topology export.
 #
 # The sidecar is written in the REAL compiler shape (`schema:
-# "axr-cast-provenance/1"`, `fields` keyed by twin-config path), not the
-# Track-C normalized shape `axrange/api/imprints.py` reads -- the two
-# disagree, and the whole point of `evidence_source` is that reading one as
-# the other must never happen silently.
+# "axr-cast-provenance/1"`, `fields` keyed by twin-config path) -- the one
+# shape the readers consume; the whole point of `evidence_source` is that
+# an unrecognized shape is never read as this one silently.
 twin_config:
   id: mini-cast-prov
   description: Miniature cast bundle fixture for the fidelity scorecard.

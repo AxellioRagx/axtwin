@@ -9,8 +9,12 @@
 # never aximprint code (docs/design/aximprint-integration/WORK_ORDERS.md
 # §0's coupling rule).
 #
-# Shape note: every field here traces to a provenance entry in the sidecar
-# (evidence_class/confidence/signal/evidence) -- nothing here is invented.
+# Shape note: the learned fields here trace to a record in the provenance
+# file, keyed by twin-config path in the compiler's own canonical shape
+# (`axr-cast-provenance/1`: evidence_class/confidence/signal/note) --
+# nothing here is invented. The file bakes no PIT, build or vantage (null,
+# never invented), and the bundle carries no topology export, so its
+# summary's `as_of` is empty and `windows` null.
 # One deliberate deviation from the console mock's literal text: `mgmt` is
 # sized `/28` here, not the mock's `/29` -- a /29 (6 usable, 1 taken by the
 # router's gateway leg) cannot actually hold `mgmt`'s 8 hosts, and the
@@ -79,8 +83,8 @@ twin_config:
       install: [{ pkg: nginx }]
 
     # count: 5 fans out to sql01..sql05 (`TwinConfigNode`'s count>1 naming
-    # convention) -- sql01 is the host the provenance sidecar's
-    # `persona db-replica -> sql01` row names.
+    # convention) -- sql01 is the host the provenance file's
+    # `twin_config.nodes[5].role` record names.
     - name: sql
       role: db-replica
       image: ubuntu-server-22@v5
