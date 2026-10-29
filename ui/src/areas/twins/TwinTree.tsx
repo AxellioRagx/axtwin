@@ -55,7 +55,6 @@ export function TwinTree({ id }: { id: string }) {
 
 function SegmentRow({ segment }: { segment: TreeSegment }) {
   const [open, setOpen] = useState(false);
-  const mix = segment.roles.map((r) => `${r.role ?? "no role"} ×${r.hosts}`).join(", ");
   return (
     <li data-testid="tree-segment">
       <button type="button" className="tree-row" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -63,7 +62,6 @@ function SegmentRow({ segment }: { segment: TreeSegment }) {
         <span className="mono" title={segment.name}>{segment.cidr}</span>
         <span className="badge">seg</span>
         <span className="badge">{formatCount(segment.hosts)} hosts</span>
-        <span className="muted tree-mix">{mix}</span>
         {segment.taps.map((t, i) => (
           <span key={i} className="badge" title={`tap ${t.mode}`}>tap {t.sensors.join(", ")}</span>
         ))}
@@ -86,7 +84,6 @@ function SegmentRow({ segment }: { segment: TreeSegment }) {
 
 function NodeRow({ node }: { node: TreeNode }) {
   const [open, setOpen] = useState(false);
-  const listen = node.listen.map((l) => `${l.proto}/${l.port}`).join(" ");
   const conf = node.observation?.role_confidence;
   return (
     <li data-testid="tree-node">
@@ -96,8 +93,6 @@ function NodeRow({ node }: { node: TreeNode }) {
         <span className="badge">{node.role ?? "no role"}</span>
         {node.count > 1 ? <span className="badge">×{node.count}</span> : null}
         {node.kind === "router" ? <span className="badge">router · {node.segments.length} segments</span> : null}
-        {listen ? <span className="muted mono">{listen}</span> : null}
-        {node.personas.length ? <span className="muted">{node.personas.map((p) => p.id).join(", ")}</span> : <span className="muted">no persona</span>}
         {typeof conf === "number" ? <span className={`badge ${conf < 0.5 ? "low" : ""}`}>role conf {conf.toFixed(2)}</span> : null}
       </button>
       {open ? <NodeDetail node={node} /> : null}

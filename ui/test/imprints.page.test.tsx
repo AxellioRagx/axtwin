@@ -201,9 +201,8 @@ describe("the twins page", () => {
       expect.stringContaining("10.5.0.0/24"), expect.stringContaining("10.5.1.0/24"),
     ]);
     expect(segments[0]!.textContent).toContain("3 hosts");
-    expect(segments[0]!.textContent).toContain("corp-workstation ×3");
+    expect(segments[0]!.textContent).not.toContain("corp-workstation"); // the mix waits inside
     expect(segments[0]!.textContent).toContain("tap sensor-a");
-    expect(segments[1]!.textContent).toContain("no role ×1");
     expect(screen.queryAllByTestId("tree-node")).toHaveLength(1); // the router, listed once
     expect(screen.getByText("Routers")).toBeTruthy();
 
@@ -213,8 +212,9 @@ describe("the twins page", () => {
     const wsRow = ws.querySelector("button")!;
     expect(wsRow.getAttribute("aria-expanded")).toBe("false");
     expect(wsRow.textContent).toContain("×3");
-    expect(wsRow.textContent).toContain("tcp/3389");
-    expect(wsRow.textContent).toContain("cast-ws, cast-ws-chatter");
+    expect(wsRow.textContent).toContain("corp-workstation");
+    expect(wsRow.textContent).not.toContain("tcp/3389"); // listeners and personas wait inside
+    expect(wsRow.textContent).not.toContain("cast-ws");
     expect(wsRow.textContent).toContain("role conf 0.35");
     expect(screen.queryByTestId("tree-detail")).toBeNull();
 

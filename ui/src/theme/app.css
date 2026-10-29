@@ -140,7 +140,6 @@ table.list th { color: var(--muted); font-weight: 600; }
 .tree-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
 .tree-row:hover { background: var(--bg); }
 .tree-caret { width: 1em; color: var(--muted); }
-.tree-mix { flex: 1; min-width: 12em; }
 .tree-empty { margin: 4px 0 4px 30px; }
 .tree-detail { padding: 6px 8px 10px 30px; border-bottom: 1px solid var(--line); }
 .tree-persona { margin-top: 8px; }
