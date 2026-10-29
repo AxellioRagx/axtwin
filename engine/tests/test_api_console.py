@@ -1766,9 +1766,9 @@ def test_imprint_detail_summarizes_the_real_sidecarless_bundle(tmp_path):
     assert j["sidecar_shape"] == "absent" and j["confidence_source"] == "absent"
     # The migrated bundle declares no `listen:` and ships 24 persona documents.
     assert (j["services"], j["personas"], j["mean_confidence"], j["out_of_vocab_pct"]) == (
-        0, 24, 0.0, 0.0,
+        0, 24, 0.0, None,
     )
-    assert any("NOT a measurement" in w for w in j["warnings"]), j["warnings"]
+    assert not any("NOT a measurement" in w for w in j["warnings"]), j["warnings"]
     # The export bakes its PIT id; it is NAMED, never refused (LES-222).
     assert any("'pit-63994c9543-1787823960'" in w for w in j["warnings"]), j["warnings"]
 

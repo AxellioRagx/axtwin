@@ -150,7 +150,9 @@ documents in the bundle's `personas/` folder, which is what `install-cast`
 ships and `AXRANGE_PERSONAS_DIR` loads. Persona intent has no home in the
 twin-config vocabulary (removed from `TwinConfigNode` by the role/persona
 split, docs/WORK_ORDER_role_persona_tier.md), so the folder is the only
-place to count it. `out_of_vocab_pct` alone stays unmeasured there.
+place to count it. `out_of_vocab_pct` alone has no source there: it is
+published as `null`, never as a placeholder number (2026-10-29; the 0 +
+warning it used to publish served a Grafana render retired at Console S7).
 
 **A cast bundle SUMMARIZES too** (R7 -- superseding the S1 implementation
 call D3 (a)'s "`GET /{id}` stays strict" half, `docs/
@@ -167,11 +169,10 @@ UNRECOGNIZED or ABSENT one yields the numbers the listing publishes for it --
 hosts/
 segments from the twin config, `as_of`/`windows` from the topology export,
 `mean_confidence` the canonical mean over FINITE confidences (or 0.0) with
-`confidence_source` saying which -- and the three stats only a normalized
-`summary` block carries (`services`, `personas`, `out_of_vocab_pct`) are
-published as 0 for the shipped plugin's unguarded render AND named
-unmeasured in `warnings` (D3 (a)'s own `mean_confidence` precedent), with
-`sidecar_shape` stating what was parsed. The listing's entries are PROJECTED
+`confidence_source` saying which -- `services`/`personas` counted from the
+bundle, and `out_of_vocab_pct`, the one stat only a normalized `summary`
+block carries, published as `null`, with `sidecar_shape` stating what was
+parsed. The listing's entries are PROJECTED
 from that same summary, so "lists" implies "summarizes" by construction.
 
 **Fail-loud on author-supplied scalars** (2026-08-25 review fix M1): every
@@ -335,13 +336,15 @@ class ImprintSummary:
     services: int
     personas: int
     mean_confidence: float
-    out_of_vocab_pct: float
+    #: A measurement only from a NORMALIZED sidecar's `summary` block; None
+    #: for every other shape, because nothing in the cast pipeline computes it.
+    out_of_vocab_pct: Optional[float]
     topology_segments: list[ImprintSegment]
     #: R7: WHAT WAS PARSED (`canonical` | `normalized` | `unrecognized` |
     #: `absent`), in the vocabulary `CastSummary`/`ProvenanceDoc` already
-    #: publish. `services`/`personas`/`out_of_vocab_pct` are measurements only
-    #: when this reads `normalized`; otherwise they are the plugin's non-null
-    #: placeholders and `warnings` says so in words. REQUIRED (no default):
+    #: publish. `services`/`personas` are read from a `normalized` sidecar's
+    #: summary block and COUNTED from the bundle for every other shape;
+    #: `out_of_vocab_pct` is None outside `normalized`. REQUIRED (no default):
     #: every construction site states it, so none can inherit a `normalized`
     #: it never parsed.
     sidecar_shape: str
@@ -1009,23 +1012,6 @@ def _export_id_warnings(imprint_id: str, export: _ExportScalars) -> list[str]:
     ]
 
 
-def _unmeasured_stats_warning(imprint_id: str, shape: str) -> str:
-    what = {
-        SIDECAR_ABSENT: "no provenance sidecar",
-        SIDECAR_CANONICAL: "a canonical provenance sidecar",
-        SIDECAR_UNRECOGNIZED: "an unrecognized provenance sidecar (not consumed)",
-    }.get(shape, f"a {shape} provenance sidecar")
-    return (
-        f"imprint {imprint_id!r}: out_of_vocab_pct comes only from a NORMALIZED "
-        f"sidecar's `summary` block, and this bundle has {what} -- it reads 0, "
-        "which is NOT a measurement (sidecar_shape says what was parsed; "
-        "confidence_source says where mean_confidence came from). services is "
-        "the declared `listen:` entries summed over host instances and personas "
-        "the persona documents in the bundle's personas/ folder, both counted "
-        "from the bundle"
-    )
-
-
 def _declared_service_count(tc: TwinConfig, *, imprint_id: str) -> int:
     """Declared `listen:` entries summed over host INSTANCES, routers excluded --
     the per-instance notion `_host_counts_by_segment` uses, so "262 hosts, 424
@@ -1206,9 +1192,8 @@ def _cast_summary_of(
     the canonical sidecar's own per-field records (S1's mean over FINITE
     confidences, its coverage in `confidence_source`), services from the
     declared listeners and personas from the bundle's persona folder (module
-    docstring). `out_of_vocab_pct` has no source in any of these shapes:
-    published as 0 so the shipped plugin's unguarded render keeps working
-    (D3 (a)'s `mean_confidence` precedent), and named unmeasured."""
+    docstring). `out_of_vocab_pct` has no source in any of these shapes and
+    is published as None -- an absent measurement, not a warning."""
     by_segment, total_hosts = _host_counts_by_segment(tc, imprint_id=imprint_id)
     out = list(warnings)
     if shape == SIDECAR_CANONICAL:
@@ -1231,7 +1216,6 @@ def _cast_summary_of(
         )
     else:
         mean_confidence, confidence_source = 0.0, CONFIDENCE_ABSENT
-    out.append(_unmeasured_stats_warning(imprint_id, shape))
     return ImprintSummary(
         id=imprint_id,
         as_of=export.as_of,
@@ -1244,7 +1228,7 @@ def _cast_summary_of(
         services=_declared_service_count(tc, imprint_id=imprint_id),
         personas=_persona_document_count(dir_),
         mean_confidence=mean_confidence,
-        out_of_vocab_pct=0.0,
+        out_of_vocab_pct=None,
         topology_segments=[
             # No per-segment confidence in either shape: `None`, never 0.0.
             ImprintSegment(

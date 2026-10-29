@@ -1249,7 +1249,9 @@ class ImprintSummaryDTO(BaseModel):
     services: int
     personas: int
     mean_confidence: float
-    out_of_vocab_pct: float
+    # A measurement only from a normalized sidecar's `summary` block; null for
+    # a canonical, unrecognized or absent one (nothing at cast computes it).
+    out_of_vocab_pct: Optional[float] = None
     topology_segments: list[ImprintSegmentDTO] = []
     # R7 (GAP-082), all ADDITIVE. They were added beside a Grafana imprints
     # screen that read none of them and rendered the non-null numbers alone --
@@ -1259,10 +1261,10 @@ class ImprintSummaryDTO(BaseModel):
     # measurement. `sidecar_shape` is what was parsed
     # ("canonical" | "normalized" | "unrecognized" | "absent"), in the
     # vocabulary `CastSummaryDTO`/`ImprintProvenanceDTO` already use:
-    # `out_of_vocab_pct` is a measurement ONLY when it reads "normalized", and
-    # `warnings` says so in words when it is not; `services` (declared
-    # listeners over host instances) and `personas` (persona documents in the
-    # bundle) are counted from the bundle for every other shape.
+    # `out_of_vocab_pct` is a measurement ONLY when it reads "normalized" and
+    # null otherwise; `services` (declared listeners over host instances) and
+    # `personas` (persona documents in the bundle) are counted from the bundle
+    # for every other shape.
     # REQUIRED, as is `confidence_source` (GAP-082 review): the one builder
     # states both, so a default could only ever be a claim nobody made.
     sidecar_shape: str

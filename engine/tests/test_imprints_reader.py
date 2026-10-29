@@ -208,8 +208,9 @@ def test_load_imprint_summary_without_a_sidecar_summarizes_and_says_so(tmp_path)
     """R7 (GAP-082): a bundle with NO sidecar summarizes -- the listing has
     published it since D3 (a), and a bundle that lists must summarize. What
     it lacks is STATED, never defaulted into a finding: the shape and the
-    confidence source both read `absent`, and the three normalized-only
-    stats are named unmeasured. (Superseded: this used to raise.)"""
+    confidence source both read `absent`, services and personas are counts,
+    and the normalized-only vocabulary stat is None. (Superseded: this used
+    to raise, then published 0 + a warning.)"""
     d = tmp_path / "bare"
     d.mkdir()
     (d / "bare.yaml").write_text(
@@ -220,10 +221,10 @@ def test_load_imprint_summary_without_a_sidecar_summarizes_and_says_so(tmp_path)
     assert s.id == "bare"
     assert s.sidecar_shape == "absent"
     assert s.confidence_source == "absent"
-    # 0 / 0.0, NOT None: the shipped plugin renders these unguarded. Services
-    # and personas are COUNTS here (no `listen:`, no personas/ folder).
-    assert (s.services, s.personas, s.mean_confidence, s.out_of_vocab_pct) == (0, 0, 0.0, 0.0)
-    assert any("NOT a measurement" in w for w in s.warnings), s.warnings
+    # Services and personas are COUNTS here (no `listen:`, no personas/
+    # folder); the vocabulary stat has no source outside a normalized sidecar.
+    assert (s.services, s.personas, s.mean_confidence, s.out_of_vocab_pct) == (0, 0, 0.0, None)
+    assert not any("NOT a measurement" in w for w in s.warnings), s.warnings
     assert s.hosts == 1 and s.segments == 1
     assert s.as_of == "" and s.windows is None  # no export -> empty, never invented
     assert s.store is None and s.days_observed is None
@@ -599,8 +600,8 @@ def test_a_canonical_sidecar_bundle_summarizes_with_its_own_confidence_mean(tmp_
     # The mean over the fields that CARRY a confidence, coverage stated (S1).
     assert s.mean_confidence == pytest.approx(0.7)
     assert s.confidence_source == "canonical sidecar (2/3 fields)"
-    assert (s.services, s.personas, s.out_of_vocab_pct) == (0, 0, 0.0)
-    assert any("NOT a measurement" in w for w in s.warnings), s.warnings
+    assert (s.services, s.personas, s.out_of_vocab_pct) == (0, 0, None)
+    assert not any("NOT a measurement" in w for w in s.warnings), s.warnings
     # The canonical shape declares no imprint id -- nothing of ITS to warn on.
     assert not any("provenance sidecar declares" in w for w in s.warnings), s.warnings
     # Membership excludes the router: 3 fanned-out hosts on `lan`, none on `dmz`.
@@ -1327,7 +1328,7 @@ def test_a_cast_bundle_counts_its_services_and_personas_from_what_it_ships(tmp_p
     those two were taken only from a normalized sidecar's `summary` block. A cast bundle
     carries both: `listen:` on its nodes, persona files in `personas/`. Counted per host
     INSTANCE for services (the notion `hosts` uses), per document for personas; only
-    `out_of_vocab_pct` is still named unmeasured."""
+    `out_of_vocab_pct` has no source, and reads None rather than a warning."""
     d = _write_cast_bundle(tmp_path, "served", sidecar=_CANONICAL)
     (d / "served.yaml").write_text(
         "twin_config:\n"
@@ -1351,7 +1352,5 @@ def test_a_cast_bundle_counts_its_services_and_personas_from_what_it_ships(tmp_p
     assert s.hosts == 5
     assert s.services == 3 * 2 + 1, "per instance, router excluded, no claim counts nothing"
     assert s.personas == 3
-    assert s.out_of_vocab_pct == 0.0
-    (w,) = [w for w in s.warnings if "NOT a measurement" in w]
-    assert "out_of_vocab_pct" in w and "services" in w and "personas" in w
-    assert "all three" not in w
+    assert s.out_of_vocab_pct is None
+    assert not any("out_of_vocab_pct" in w for w in s.warnings), s.warnings
