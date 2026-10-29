@@ -60,8 +60,8 @@ function SegmentRow({ segment }: { segment: TreeSegment }) {
     <li data-testid="tree-segment">
       <button type="button" className="tree-row" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span className="tree-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
-        <span className="mono">{segment.cidr}</span>
-        <span className="muted">{segment.name}</span>
+        <span className="mono" title={segment.name}>{segment.cidr}</span>
+        <span className="badge">seg</span>
         <span className="badge">{formatCount(segment.hosts)} hosts</span>
         <span className="muted tree-mix">{mix}</span>
         {segment.taps.map((t, i) => (
