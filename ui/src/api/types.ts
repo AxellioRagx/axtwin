@@ -144,10 +144,12 @@ export interface DiscoveryRunList {
   runs: DiscoveryRun[];
 }
 
+/** One learned-topology segment of a twin, as `ImprintSegmentDTO` sends it. */
 export interface ImprintSegment {
-  cidr?: string;
-  name?: string;
-  hosts?: number;
+  name: string;
+  cidr: string;
+  host_count: number;
+  confidence?: number | null;
   [k: string]: unknown;
 }
 

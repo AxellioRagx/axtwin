@@ -168,11 +168,20 @@ describe("the twins page", () => {
     expect(screen.getAllByTestId("twin-row").length).toBe(1);
   });
 
-  it("the twin page shows what it was cast from and deletes back to the list", async () => {
-    const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")], twins: { test2: twin("test2", { pit_id: "pit-1" }) } });
+  it("the twin page shows what it was cast from, each segment's host count, and deletes back to the list", async () => {
+    const segments = [
+      { name: "seg-10-1-10-0", cidr: "10.1.10.0/24", host_count: 6, confidence: null },
+      { name: "seg-10-20-193-0", cidr: "10.20.193.0/24", host_count: 30, confidence: 0.7 },
+    ];
+    const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")], twins: { test2: twin("test2", { pit_id: "pit-1", topology_segments: segments }) } });
     renderAt(api, "/twins/test2");
     await screen.findByTestId("twin-summary");
     expect(screen.getByRole("link", { name: "pit-1" }).getAttribute("href")).toBe("/imprints/pit-1");
+    const rows = screen.getAllByRole("row").slice(1).map((r) => Array.from(r.querySelectorAll("td")).map((c) => c.textContent));
+    expect(rows).toEqual([
+      ["10.1.10.0/24", "6"],
+      ["10.20.193.0/24", "30"],
+    ]);
     fireEvent.click(screen.getByRole("button", { name: "Delete twin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
     await screen.findByText(/No twin in the catalog/);

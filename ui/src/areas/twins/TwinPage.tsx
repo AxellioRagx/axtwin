@@ -78,8 +78,8 @@ export function TwinPage() {
                 <tbody>
                   {data.topology_segments.map((s, i) => (
                     <tr key={i}>
-                      <td className="mono">{String(s.cidr ?? s.name ?? JSON.stringify(s))}</td>
-                      <td>{formatCount(s.hosts)}</td>
+                      <td className="mono">{s.cidr || s.name}</td>
+                      <td>{formatCount(s.host_count)}</td>
                     </tr>
                   ))}
                 </tbody>
