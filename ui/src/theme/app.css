@@ -133,3 +133,16 @@ textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; padding: 8p
 table.list { width: 100%; border-collapse: collapse; }
 table.list th, table.list td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.list th { color: var(--muted); font-weight: 600; }
+
+/* The twin tree: segment > node group > detail. Rows are buttons so the keyboard opens them. */
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree .tree { margin-left: 22px; border-left: 1px solid var(--line); }
+.tree-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.tree-row:hover { background: var(--bg); }
+.tree-caret { width: 1em; color: var(--muted); }
+.tree-mix { flex: 1; min-width: 12em; }
+.tree-empty { margin: 4px 0 4px 30px; }
+.tree-detail { padding: 6px 8px 10px 30px; border-bottom: 1px solid var(--line); }
+.tree-persona { margin-top: 8px; }
+.tree-persona p { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.badge.low { color: var(--warn); border-color: var(--warn); }

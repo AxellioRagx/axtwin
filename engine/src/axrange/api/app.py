@@ -311,6 +311,11 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def imprint_detail(imprint_id: str) -> dtos.ImprintSummaryDTO:
         return service.imprint_summary(settings, imprint_id)
 
+    @app.get("/api/twins/{imprint_id}/tree", response_model=dtos.TwinTreeDTO)
+    @_ro
+    def twin_tree(imprint_id: str) -> dtos.TwinTreeDTO:
+        return service.twin_tree(settings, imprint_id)
+
     @app.get(
         "/api/twins/{imprint_id}/provenance",
         response_model=dtos.ImprintProvenanceDTO,

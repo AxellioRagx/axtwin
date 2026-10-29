@@ -5,6 +5,7 @@ import { formatCount } from "../../model/sources";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { ErrorLine } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { TwinTree } from "./TwinTree";
 
 /** One twin in the catalog: the summary the deploy tiers read. */
 export function TwinPage() {
@@ -65,27 +66,8 @@ export function TwinPage() {
               ))}
             </ul>
           ) : null}
-          {Array.isArray(data.topology_segments) && data.topology_segments.length ? (
-            <>
-              <h2>Segments</h2>
-              <table className="list">
-                <thead>
-                  <tr>
-                    <th>Segment</th>
-                    <th>Hosts</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.topology_segments.map((s, i) => (
-                    <tr key={i}>
-                      <td className="mono">{s.cidr || s.name}</td>
-                      <td>{formatCount(s.host_count)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          ) : null}
+          <h2>Segments</h2>
+          <TwinTree id={id} />
           <p className="muted">
             The twin is in the catalog; the deploy tiers read it from there. <Link to="/twins">All twins</Link>
           </p>

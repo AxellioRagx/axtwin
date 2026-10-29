@@ -4177,6 +4177,20 @@ def imprint_summary(settings: ApiSettings, imprint_id: str) -> dtos.ImprintSumma
     )
 
 
+def twin_tree(settings: ApiSettings, imprint_id: str) -> dtos.TwinTreeDTO:
+    """`GET /api/twins/{id}/tree`: the bundle as segment -> node group ->
+    intent and personas (`axrange.api.twin_tree`)."""
+    from axrange.api.imprints import ImprintDataError, ImprintNotFoundError
+    from axrange.api.twin_tree import load_twin_tree
+
+    try:
+        return load_twin_tree(imprint_id, fixtures_dir=settings.imprints_dir or None)
+    except ImprintNotFoundError as e:
+        raise ApiError(404, str(e)) from e
+    except ImprintDataError as e:
+        raise ApiError(400, str(e)) from e
+
+
 def imprint_provenance(settings: ApiSettings, imprint_id: str) -> dtos.ImprintProvenanceDTO:
     """S1.4: the provenance rows, plus what was parsed to get them.
 

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../src/api/client";
-import type { DiscoveryRun, Imprint, TwinSummary } from "../src/api/types";
+import type { DiscoveryRun, Imprint, TwinSummary, TwinTree } from "../src/api/types";
 import { fakeApi } from "./helpers/fakeApi";
 import { renderAt } from "./helpers/render";
 
@@ -168,20 +168,77 @@ describe("the twins page", () => {
     expect(screen.getAllByTestId("twin-row").length).toBe(1);
   });
 
-  it("the twin page shows what it was cast from, each segment's host count, and deletes back to the list", async () => {
-    const segments = [
-      { name: "seg-10-1-10-0", cidr: "10.1.10.0/24", host_count: 6, confidence: null },
-      { name: "seg-10-20-193-0", cidr: "10.20.193.0/24", host_count: 30, confidence: 0.7 },
-    ];
-    const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")], twins: { test2: twin("test2", { pit_id: "pit-1", topology_segments: segments }) } });
+  it("the twin page shows what it was cast from, the tree of segments, groups and personas, and deletes back to the list", async () => {
+    const tree: TwinTree = {
+      id: "test2", hosts: 4, traffic_profile: "tfc-cast.yaml", tap_plan: "tap-cast.yaml", warnings: ["traffic profile assigns 'cast-ws' to node 'ghost', which the twin config does not declare"],
+      routers: [{ name: "gw", kind: "router", role: "gw", image: "debian-12-cloud@v1", count: 1, instances: ["gw"], segments: ["lan", "dmz"], requires: ["linux"], resources: null, listen: [], install: [], joins: null, observation: null, personas: [] }],
+      segments: [
+        {
+          name: "lan", cidr: "10.5.0.0/24", zone_type: "simple", hosts: 3, roles: [{ role: "corp-workstation", hosts: 3 }], observation: { windows_seen: 2, windows_total: 2, occupancy: 1.0 },
+          taps: [{ sensors: ["sensor-a"], mode: "exclusive" }],
+          nodes: [{
+            name: "ws", kind: "host", role: "corp-workstation", image: "win11@v1", count: 3, instances: ["ws01", "ws02", "ws03"], segments: ["lan"], requires: ["windows"], resources: { cpu: 2, ram: "4Gi" },
+            listen: [{ port: 3389, proto: "tcp" }], install: [], joins: "corp.example", observation: { windows_seen: 2, windows_total: 2, occupancy: 1.0, role_confidence: 0.35 },
+            personas: [
+              { id: "cast-ws", bound_by: "role", instances: 3, schedule: null, seed: 7, os_family: "windows", drive: "scripted", missing: false, emits: [{ proto: "https", ports: [443], peer_role: "web-tier", transport: "tcp", cadence: "cyclic:300s", volume: "low", optional: false, peer_scope: "one" }] },
+              { id: "cast-ws-chatter", bound_by: "node", instances: 2, schedule: "24x7", seed: null, os_family: null, drive: null, missing: true, emits: [] },
+            ],
+          }],
+        },
+        { name: "dmz", cidr: "10.5.1.0/24", zone_type: "simple", hosts: 1, roles: [{ role: null, hosts: 1 }], observation: null, taps: [], nodes: [{ name: "lonely", kind: "host", role: null, image: "debian-12-cloud@v1", count: 1, instances: ["lonely"], segments: ["dmz"], requires: [], resources: null, listen: [], install: [], joins: null, observation: null, personas: [] }] },
+      ],
+    };
+    const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")], twins: { test2: twin("test2", { pit_id: "pit-1" }) }, trees: { test2: tree } });
     renderAt(api, "/twins/test2");
     await screen.findByTestId("twin-summary");
     expect(screen.getByRole("link", { name: "pit-1" }).getAttribute("href")).toBe("/imprints/pit-1");
-    const rows = screen.getAllByRole("row").slice(1).map((r) => Array.from(r.querySelectorAll("td")).map((c) => c.textContent));
-    expect(rows).toEqual([
-      ["10.1.10.0/24", "6"],
-      ["10.20.193.0/24", "30"],
+
+    // Collapsed: every segment is a row with its size and role mix; nothing below it yet.
+    await screen.findByTestId("twin-tree");
+    expect(screen.getByRole("status").textContent).toContain("node 'ghost'");
+    const segments = screen.getAllByTestId("tree-segment");
+    expect(segments.map((s) => s.querySelector("button")?.textContent)).toEqual([
+      expect.stringContaining("10.5.0.0/24"), expect.stringContaining("10.5.1.0/24"),
     ]);
+    expect(segments[0]!.textContent).toContain("3 hosts");
+    expect(segments[0]!.textContent).toContain("corp-workstation ×3");
+    expect(segments[0]!.textContent).toContain("tap sensor-a");
+    expect(segments[1]!.textContent).toContain("no role ×1");
+    expect(screen.queryAllByTestId("tree-node")).toHaveLength(1); // the router, listed once
+    expect(screen.getByText("Routers")).toBeTruthy();
+
+    // Open the segment: its groups appear with role, count, listeners and personas on the row.
+    fireEvent.click(screen.getByRole("button", { name: /10\.5\.0\.0\/24/ }));
+    const ws = screen.getAllByTestId("tree-node").find((n) => n.textContent?.includes("ws"))!;
+    const wsRow = ws.querySelector("button")!;
+    expect(wsRow.getAttribute("aria-expanded")).toBe("false");
+    expect(wsRow.textContent).toContain("×3");
+    expect(wsRow.textContent).toContain("tcp/3389");
+    expect(wsRow.textContent).toContain("cast-ws, cast-ws-chatter");
+    expect(wsRow.textContent).toContain("role conf 0.35");
+    expect(screen.queryByTestId("tree-detail")).toBeNull();
+
+    // Open the group: its facts and each persona's traffic.
+    fireEvent.click(wsRow);
+    const detail = await screen.findByTestId("tree-detail");
+    expect(detail.textContent).toContain("ws01, ws02, ws03");
+    expect(detail.textContent).toContain("cpu 2 · ram 4Gi");
+    expect(detail.textContent).toContain("corp.example");
+    expect(detail.textContent).toContain("2 of 2 windows, occupancy 1.00, role confidence 0.35");
+    const personas = screen.getAllByTestId("tree-persona");
+    expect(personas).toHaveLength(2);
+    expect(personas[0]!.textContent).toContain("cast-ws");
+    expect(personas[0]!.textContent).toContain("by role");
+    expect(personas[0]!.querySelectorAll("tbody tr")).toHaveLength(1);
+    expect(personas[0]!.textContent).toContain("https/tcp");
+    expect(personas[0]!.textContent).toContain("web-tier");
+    expect(personas[1]!.textContent).toContain("2 of 3 instances");
+    expect(personas[1]!.textContent).toContain("no document");
+
+    // Close it again.
+    fireEvent.click(wsRow);
+    expect(screen.queryByTestId("tree-detail")).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "Delete twin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
     await screen.findByText(/No twin in the catalog/);

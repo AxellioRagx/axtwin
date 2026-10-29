@@ -12,6 +12,7 @@ import type {
   Imprint,
   ProbeResult,
   TwinSummary,
+  TwinTree,
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
@@ -89,6 +90,8 @@ export interface FakeState {
   runs: DiscoveryRun[];
   /** The twin catalog, by id. */
   twins: Record<string, TwinSummary>;
+  /** Trees by twin id; a twin without one answers an empty tree. */
+  trees: Record<string, TwinTree>;
   /** The imprints (PITs) in the IR store. */
   imprints: Imprint[];
   /** Each imprint's assertions document, by pit id, once saved. */
@@ -111,6 +114,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     sources: [],
     runs: [],
     twins: {},
+    trees: {},
     imprints: [],
     assertions: {},
     skippedTwins: [],
@@ -350,6 +354,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const t = state.twins[id];
       if (!t) throw notFound(`imprint '${id}'`);
       return t;
+    },
+    async getTwinTree(id) {
+      const t = state.twins[id];
+      if (!t) throw notFound(`imprint '${id}'`);
+      return state.trees[id] ?? { id, hosts: t.hosts, segments: [], routers: [], traffic_profile: null, tap_plan: null, warnings: [] };
     },
     async deleteTwin(id) {
       state.writes.push({ op: "delete-twin", id });

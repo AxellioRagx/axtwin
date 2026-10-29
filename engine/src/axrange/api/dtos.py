@@ -2103,3 +2103,101 @@ class TfcProfileDTO(BaseModel):
     host_edits: list[str] = []
     yaml: str
     notes: list[str] = []
+
+
+# --------------------------------------------------------------------------
+# Twin tree -- `GET /api/twins/{id}/tree` (2026-10-29): the cast's intent
+# read as a hierarchy, segment -> node group -> what the group is given.
+# A NODE GROUP, not a host: the twin config names groups (`count:` fans
+# a group out to `name01..nameNN` at deploy, `expand.instance_ids`), and
+# tier intent -- persona, count, listen -- is authored on the group. This
+# is the surface twin-tier editing will address, so every row carries the
+# group's name as its handle.
+# --------------------------------------------------------------------------
+class TreeObservationDTO(BaseModel):
+    """What the compiler saw of a segment or group: the twin config's own
+    `observation:` block, passed through (None where the config has none)."""
+
+    windows_seen: Optional[int] = None
+    windows_total: Optional[int] = None
+    occupancy: Optional[float] = None
+    role_confidence: Optional[float] = None
+
+
+class TreeListenDTO(BaseModel):
+    port: Any
+    proto: str
+
+
+class TreePersonaDTO(BaseModel):
+    """One persona bound to a node group by the bundle's traffic profile.
+    `bound_by` says how the assignment addressed it: `node` (by instance id,
+    `instances` of the group's members) or `role` (every member). `emits`
+    is the persona document's traffic: from the bundle's `personas/` folder
+    first, the catalog second; `missing` when neither has it."""
+
+    id: str
+    bound_by: str  # "node" | "role"
+    instances: int
+    schedule: Optional[str] = None
+    seed: Optional[Any] = None
+    intensity: Optional[float] = None
+    os_family: Optional[str] = None
+    drive: Optional[str] = None
+    missing: bool = False
+    emits: list[PersonaEmitDTO] = []
+
+
+class TreeNodeDTO(BaseModel):
+    name: str
+    kind: str  # "host" | "router"
+    role: Optional[str] = None
+    image: str
+    count: int
+    instances: list[str]
+    segments: list[str]
+    requires: list[str] = []
+    resources: Optional[dict[str, Any]] = None
+    listen: list[TreeListenDTO] = []
+    install: list[str] = []
+    joins: Optional[str] = None
+    observation: Optional[TreeObservationDTO] = None
+    personas: list[TreePersonaDTO] = []
+
+
+class TreeRoleCountDTO(BaseModel):
+    role: Optional[str]
+    hosts: int
+
+
+class TreeTapDTO(BaseModel):
+    sensors: list[str]
+    mode: str
+
+
+class TreeSegmentDTO(BaseModel):
+    name: str
+    cidr: str
+    zone_type: Optional[str] = None
+    # Host instances on this segment, routers excluded -- the summary's
+    # `host_count` notion (`imprints._host_counts_by_segment`).
+    hosts: int
+    roles: list[TreeRoleCountDTO] = []
+    observation: Optional[TreeObservationDTO] = None
+    taps: list[TreeTapDTO] = []
+    nodes: list[TreeNodeDTO] = []
+
+
+class TwinTreeDTO(BaseModel):
+    id: str
+    hosts: int
+    # Largest first: the segments worth opening come before the one-host tail.
+    segments: list[TreeSegmentDTO]
+    # Multi-homed `kind: router` groups, listed ONCE rather than under every
+    # segment they join.
+    routers: list[TreeNodeDTO] = []
+    # The bundle files the personas were joined from, relative to the bundle;
+    # None when the bundle ships none.
+    traffic_profile: Optional[str] = None
+    tap_plan: Optional[str] = None
+    warnings: list[str] = []

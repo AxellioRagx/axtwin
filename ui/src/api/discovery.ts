@@ -16,6 +16,7 @@ import type {
   SourceWrite,
   TwinList,
   TwinSummary,
+  TwinTree,
 } from "./types";
 
 /** The typed calls this console makes. Writes carry the token; reads do not. */
@@ -50,6 +51,8 @@ export interface Api {
   // Twins: the catalog of deployable twin definitions.
   listTwins(signal?: AbortSignal): Promise<TwinList>;
   getTwin(id: string, signal?: AbortSignal): Promise<TwinSummary>;
+  /** The bundle as segment -> node group -> intent and personas. */
+  getTwinTree(id: string, signal?: AbortSignal): Promise<TwinTree>;
   /** Remove the twin from the catalog; refused under a live deploy. */
   deleteTwin(id: string): Promise<void>;
 }
@@ -80,6 +83,7 @@ export function makeApi(request: Requester): Api {
     castImprint: (pit, body) => request("POST", `/api/imprints/${enc(pit)}/cast`, { body, auth: true }),
     listTwins: (signal) => request("GET", "/api/twins", { signal }),
     getTwin: (id, signal) => request("GET", `/api/twins/${enc(id)}`, { signal }),
+    getTwinTree: (id, signal) => request("GET", `/api/twins/${enc(id)}/tree`, { signal }),
     deleteTwin: (id) => request("DELETE", `/api/twins/${enc(id)}`, { auth: true }),
   };
 }

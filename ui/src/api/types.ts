@@ -257,3 +257,91 @@ export interface TwinSummary {
 
 /** The old name of `TwinSummary`. */
 export type ImprintSummary = TwinSummary;
+
+// --- GET /api/twins/{id}/tree: the bundle as segment -> node group -> intent ---
+
+export interface TreeObservation {
+  windows_seen?: number | null;
+  windows_total?: number | null;
+  occupancy?: number | null;
+  role_confidence?: number | null;
+}
+
+export interface TreeListen {
+  port: number | string;
+  proto: string;
+}
+
+export interface PersonaEmit {
+  proto: string;
+  ports: number[];
+  peer_role: string;
+  transport: string;
+  cadence: string;
+  volume: string;
+  optional: boolean;
+  peer_scope: string;
+}
+
+/** A persona the traffic profile binds to a node group, with the document's traffic. */
+export interface TreePersona {
+  id: string;
+  bound_by: "node" | "role";
+  instances: number;
+  schedule?: string | null;
+  seed?: unknown;
+  intensity?: number | null;
+  os_family?: string | null;
+  drive?: string | null;
+  missing: boolean;
+  emits: PersonaEmit[];
+}
+
+/** A twin-config node GROUP: `count` instances fanned out at deploy. */
+export interface TreeNode {
+  name: string;
+  kind: "host" | "router";
+  role?: string | null;
+  image: string;
+  count: number;
+  instances: string[];
+  segments: string[];
+  requires: string[];
+  resources?: Record<string, unknown> | null;
+  listen: TreeListen[];
+  install: string[];
+  joins?: string | null;
+  observation?: TreeObservation | null;
+  personas: TreePersona[];
+}
+
+export interface TreeRoleCount {
+  role: string | null;
+  hosts: number;
+}
+
+export interface TreeTap {
+  sensors: string[];
+  mode: string;
+}
+
+export interface TreeSegment {
+  name: string;
+  cidr: string;
+  zone_type?: string | null;
+  hosts: number;
+  roles: TreeRoleCount[];
+  observation?: TreeObservation | null;
+  taps: TreeTap[];
+  nodes: TreeNode[];
+}
+
+export interface TwinTree {
+  id: string;
+  hosts: number;
+  segments: TreeSegment[];
+  routers: TreeNode[];
+  traffic_profile?: string | null;
+  tap_plan?: string | null;
+  warnings: string[];
+}

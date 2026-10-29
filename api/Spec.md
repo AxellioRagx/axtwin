@@ -116,6 +116,18 @@ null for an authored twin) and the summary `pit_id`. The twin-level
 `/assertions` and `/apply` are deprecated (an imprint's assertions plus a
 cast replace them) and will go in a later step; `/layout` stays, it is the
 twin's canvas.
+- `GET /api/twins/{id}/tree` — the bundle as a hierarchy: `segments[]`
+  (largest first; `hosts`, `roles[]` role mix, the config's `observation`,
+  `taps[]` from the tap plan) each holding `nodes[]`, the twin config's node
+  GROUPS (`count`, `instances[]` as `expand.instance_ids` fans them out,
+  `listen[]`, `install[]`, `observation`) with `personas[]` joined from the
+  bundle's traffic profile (`bound_by: node|role`, `instances` of the group
+  given it, the persona document's `emits[]` from `personas/` then the
+  catalog, `missing` when neither defines it). Multi-homed routers once,
+  in `routers[]`. `traffic_profile` / `tap_plan` name the files read (null
+  when the bundle ships none); an unreadable one is a warning, the config
+  alone is the tree. This is the surface twin-tier editing will address:
+  every row carries the group name as its handle.
 - `DELETE /api/twins/{id}` (token, `204`) — remove a twin from the catalog
   and the belief store a run of that name left. `409` while a live deploy
   stands on it (destroy it first); `404` unknown; `400` misaddressed.
