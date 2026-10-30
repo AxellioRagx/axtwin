@@ -1165,9 +1165,12 @@ class TwinConfigDetailDTO(BaseModel):
     data_count: int = 0
     # The bundle's own files (`api/Spec.md` A3): what the editor edits and
     # what `POST`/`PUT /api/twin-configs` write back; a read after a write
-    # returns it byte-for-byte. `TwinConfigDocumentDTO` is declared with the
-    # edit-model DTOs at the end of this module. None only when the bundle
-    # folder cannot be read (`warnings` says why).
+    # returns it byte-for-byte. Present ONLY on a read that carries the
+    # bearer token (a bundle holds lab passwords; the same rule as the
+    # `?secrets=true` reads) and on a write's response; None otherwise, or
+    # when the bundle folder cannot be read (`warnings` says why).
+    # `TwinConfigDocumentDTO` is declared with the edit-model DTOs at the
+    # end of this module.
     document: Optional["TwinConfigDocumentDTO"] = None
     warnings: list[str] = []
 
@@ -2263,7 +2266,9 @@ class PendingChangeDTO(BaseModel):
 
 class DeployConfigAppliedDTO(BaseModel):
     at: str
-    tiers: list[str] = []
+    # tier -> `attempted` (its playout was started) | `done` (it returned).
+    # Reset reverts every recorded tier, attempted or done.
+    tiers: dict[str, str] = {}
     roles: dict[str, str] = {}
 
 
@@ -2276,6 +2281,10 @@ class DeployConfigDTO(BaseModel):
     dirty: bool
     # False until the first PUT: the document shown is the baseline's.
     has_working_copy: bool = False
+    # True when the catalog baseline is no longer the one the copy was taken
+    # from (someone persisted or saved meanwhile): Apply refuses until the
+    # copy is PUT again against the current baseline.
+    baseline_drift: bool = False
     document: TwinConfigDocumentDTO
     changes: list[PendingChangeDTO] = []
     # True when every pending change is attribute or inert.
@@ -2315,8 +2324,10 @@ class DeployConfigResetDTO(BaseModel):
     deploy_id: str
     twin_id: str
     discarded: bool
-    # The tiers re-applied from the baseline to revert what Apply pushed.
+    # The tiers re-applied from the baseline to revert what Apply pushed,
+    # and the tiers torn down because the baseline never had them.
     reverted: list[str] = []
+    torn_down: list[str] = []
     tfc: Optional[TrafficPlanStatusDTO] = None
     tap: Optional[TapPlanStatusDTO] = None
     warnings: list[str] = []

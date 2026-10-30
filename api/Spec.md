@@ -170,7 +170,9 @@ document is the bundle's text files keyed by bundle-relative path.
 **A3 — twin-config write** (root `CLAUDE.md` critical path 3). **Built 2026-10-30**
 (`twin_config_create` / `twin_config_write` in `api/service.py` over
 `engine/src/axrange/api/edits.py`; tests `engine/tests/test_api_edit_model.py`).
-`GET /api/twin-configs/{id}` now carries the `document` the two writers take.
+`GET /api/twin-configs/{id}` carries the `document` the two writers take, but
+only on a read that sends the bearer token (a bundle holds lab passwords; the
+`?secrets=true` rule); the open read stays the summary.
 - `POST /api/twin-configs` — create a new twin-config under a chosen id from a
   body (Save-As). An id that already exists is refused, never overwritten.
 - `PUT /api/twin-configs/{id}` — overwrite the baseline (Persist from a working

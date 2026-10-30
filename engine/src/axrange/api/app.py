@@ -293,8 +293,14 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         "/api/twin-configs/{config_id}", response_model=dtos.TwinConfigDetailDTO,
     )
     @_ro
-    def twin_config_detail(config_id: str) -> dtos.TwinConfigDetailDTO:
-        return service.twin_config_detail(settings, config_id)
+    def twin_config_detail(
+        config_id: str, authorization: Optional[str] = Header(default=None),
+    ) -> dtos.TwinConfigDetailDTO:
+        # The bundle `document` (lab passwords inside) only with the bearer
+        # token -- the `?secrets=true` rule; the summary stays open.
+        return service.twin_config_detail(
+            settings, config_id, include_document=_is_authorized(settings, authorization),
+        )
 
     # ---- twin-config write (`api/Spec.md` A3): Save-As and Persist/Save.
     # The baseline is written here and nowhere else. ----
@@ -1357,6 +1363,8 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             persona_backend=app.state.tfc_persona_backend,
             tap_adapter=app.state.tap_adapter,
             tap_config_backend=app.state.tap_config_backend,
+            tap_teardown_backend=app.state.tap_teardown_backend,
+            tfc_teardown_backend=app.state.tfc_teardown_backend,
         )
 
     # ---- pcaps (deferred) ----
