@@ -327,11 +327,14 @@ _CANONICAL_RECORD_ORDER = (
 
 _KEY_SHAPES = ("address:<ip>", "hostname:<name>", "mac:<addr>", "<cidr>", "<cidr>|<cidr>")
 
-# `site:<prefix>` / `segment:<cidr>` only. A HOST key is refused by name --
-# hosts are never pinnable (`15` §4), and a pin that silently did nothing
-# would be worse than a refusal.
-_PIN_PREFIXES = ("site:", "segment:")
-_REFUSED_PIN_PREFIXES = ("host:", "address:", "hostname:", "mac:")
+# `site:<prefix>` / `segment:<cidr>` / `host:<name>`. The `host:` kind is the
+# twin design canvas's (`ui/src/features/edit-canvas/SPEC.md`): a host chip
+# dragged inside its segment. An ENTITY-KEY shaped pin (`address:` /
+# `hostname:` / `mac:` -- the assertions file's addressing) is still refused
+# by name, so a key that was never a pin cannot be saved as one; a pin that
+# silently did nothing would be worse than a refusal.
+_PIN_PREFIXES = ("site:", "segment:", "host:")
+_REFUSED_PIN_PREFIXES = ("address:", "hostname:", "mac:")
 
 # The optional PLANE STAMP (`o2/console/src/layout/plane.ts`, R2): the frame of
 # reference a pin's ABSOLUTE `{x, y}` was authored against.
@@ -1411,15 +1414,20 @@ def _canonical_plane(value: Any, *, where: str) -> str:
 
 
 _SITE_KEY_RE = re.compile(r"^site:[0-9A-Za-z._:-]+$")
+# A host pin names the node by its graph id (an entity key such as
+# `address:10.80.20.4`, or a twin-config node name): anything printable but
+# whitespace, bounded so a pasted document cannot carry an unbounded key.
+_HOST_KEY_RE = re.compile(r"^host:\S{1,200}$")
 
 
 def _validate_pin_key(key: str, *, where: str) -> None:
     for bad in _REFUSED_PIN_PREFIXES:
         if key.startswith(bad):
             raise ConsoleFileShapeError(
-                f"{where}: pin key {key!r} names a host -- hosts are NEVER "
-                "pinnable (docs/design/15-console-canvas.md §4); accepted "
-                f"prefixes: {list(_PIN_PREFIXES)}"
+                f"{where}: pin key {key!r} names a host by its entity key -- "
+                "hosts are NEVER pinnable by entity key "
+                "(docs/design/15-console-canvas.md §4); a host chip is pinned "
+                f"as `host:<name>`; accepted prefixes: {list(_PIN_PREFIXES)}"
             )
     if key.startswith("segment:"):
         cidr = key.split(":", 1)[1]
@@ -1429,9 +1437,17 @@ def _validate_pin_key(key: str, *, where: str) -> None:
                 f"{cidr!r} is not a CIDR"
             )
         return
+    if key.startswith("host:"):
+        if not _HOST_KEY_RE.match(key):
+            raise ConsoleFileShapeError(
+                f"{where}: pin key {key!r} must be `host:<name>` -- a "
+                "non-empty name with no whitespace, at most 200 characters"
+            )
+        return
     if _SITE_KEY_RE.match(key):
         return
     raise ConsoleFileShapeError(
         f"{where}: pin key {key!r} matches no accepted shape; accepted "
-        f"prefixes: {list(_PIN_PREFIXES)} (`site:<prefix>`, `segment:<cidr>`)"
+        f"prefixes: {list(_PIN_PREFIXES)} (`site:<prefix>`, `segment:<cidr>`, "
+        "`host:<name>`)"
     )

@@ -345,3 +345,146 @@ export interface TwinTree {
   tap_plan?: string | null;
   warnings: string[];
 }
+
+// --- GET /api/scenarios/{id}/topology: the AUTHORED twin as a bipartite host <-> network graph ---
+
+export interface TopologyNode {
+  id: string;
+  /** `host` | `router` | `switch` | `network`. */
+  type: string;
+  image?: string | null;
+  requires?: string[] | null;
+  /** Network nodes only. */
+  cidr?: string | null;
+  vlan?: number | null;
+  /** The live op status overlay when a deploy annotates the graph. */
+  status?: string | null;
+}
+
+/** A node's attachment to a network, with the address it holds there. */
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  ip?: string | null;
+}
+
+export interface Topology {
+  scenario_id: string;
+  deploy_id?: string | null;
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+// --- GET /api/twins/{id}/topology: the CAST twin with its observed evidence (the topology export) ---
+
+export interface TopologyExportSegment {
+  cidr: string;
+  name: string;
+  entities: number;
+  coverage_source: string | null;
+}
+
+export interface TopologyExportNode {
+  id: string;
+  address: string | null;
+  locality: string | null;
+  segment: string | null;
+  segment_evidence_class: string | null;
+  /** `null` = the role was never discovered -- rendered distinctly, never hidden. */
+  role: string | null;
+  role_confidence: number | null;
+  role_evidence_class: string | null;
+  windows_seen: number | null;
+  listen_ports: string[];
+  dial_ports: string[];
+}
+
+export interface TopologyExportEdge {
+  src: string;
+  dst: string;
+  proto: string | null;
+  bytes: number;
+  flows: number;
+  evidence_class: string | null;
+}
+
+export interface TopologyExportCensus {
+  entities_total: number;
+  with_role: number;
+  placed: number;
+  local: number;
+}
+
+export interface TopologyExport {
+  imprint_id: string;
+  pit_id: string | null;
+  as_of: number | null;
+  network: string | null;
+  vantage: string | null;
+  windows: number | null;
+  schema_version: string | null;
+  segments: TopologyExportSegment[];
+  nodes: TopologyExportNode[];
+  edges: TopologyExportEdge[];
+  census: TopologyExportCensus;
+}
+
+// --- GET|PUT /api/twins/{id}/layout: the canvas's positions side-car (`axr-layout/1`), ETag-guarded ---
+
+/** `site:<prefix>` / `segment:<cidr>` / `host:<name>` -> an absolute top-left on the plane. */
+export type LayoutPins = Record<string, { x: number; y: number }>;
+
+export interface LayoutDoc {
+  imprint_id: string;
+  path: string;
+  exists: boolean;
+  /** The precondition for the next PUT; rides in the body as well as the header. */
+  etag: string | null;
+  schema: string;
+  imprint: string;
+  pins: LayoutPins;
+  /** The drawing plane the pins were authored on -- an opaque stamp the server round-trips. */
+  plane: string | null;
+  warnings?: string[];
+}
+
+/** The PUT body: the document as read, edited, with its etag as the precondition. */
+export interface LayoutWrite {
+  schema: string;
+  imprint: string;
+  pins: LayoutPins;
+  plane: string;
+  etag: string | null;
+}
+
+// --- GET /api/twin-configs and GET /api/personas: the palette's sources (Phase 2 of the canvas) ---
+
+export interface TwinConfigSummary {
+  id: string;
+  description: string | null;
+  cluster: string | null;
+  parameterized: boolean;
+  param_names: string[];
+  error: string | null;
+}
+
+export interface TwinConfigList {
+  twin_configs: TwinConfigSummary[];
+}
+
+export interface Persona {
+  id: string;
+  os_family: string;
+  drive: string;
+  /** `catalog` | `twin`. */
+  source: string;
+  requires: string[];
+  summary: string;
+  emits: PersonaEmit[];
+}
+
+export interface PersonaList {
+  twin: string | null;
+  personas: Persona[];
+  warnings: string[];
+}

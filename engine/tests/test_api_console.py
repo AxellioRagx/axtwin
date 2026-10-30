@@ -742,8 +742,10 @@ def test_layout_put_stale_etag_is_412(tmp_path):
 @pytest.mark.parametrize(
     "pins,expect",
     [
-        ({"host:dc01": {"x": 1, "y": 2}}, "hosts are NEVER"),
+        ({"hostname:dc01": {"x": 1, "y": 2}}, "hosts are NEVER"),
         ({"address:10.0.0.1": {"x": 1, "y": 2}}, "hosts are NEVER"),
+        ({"host:": {"x": 1, "y": 2}}, "host:<name>"),
+        ({"host:a b": {"x": 1, "y": 2}}, "host:<name>"),
         ({"segment:not-a-cidr": {"x": 1, "y": 2}}, "CIDR"),
         ({"cluster:a": {"x": 1, "y": 2}}, "accepted"),
         ({"site:10.80": {"x": "left", "y": 2}}, "number"),
@@ -2020,11 +2022,12 @@ def test_every_assertions_refusal_names_what_would_have_been_accepted(
     ).exists(), f"{label}: a refused document must write nothing"
 
 
-@pytest.mark.parametrize("bad_key", ["hostname:dc01", "host:dc01", "address:10.0.0.1"])
-def test_layout_refuses_every_host_shaped_pin_key(tmp_path, bad_key):
-    """`hostname:` is in `_REFUSED_PIN_PREFIXES` beside `host:`/`address:`
-    and was the one of the three with no test -- a pin that silently did
-    nothing is worse than a refusal (`15` §4)."""
+@pytest.mark.parametrize("bad_key", ["hostname:dc01", "mac:00:11:22:33:44:55", "address:10.0.0.1"])
+def test_layout_refuses_every_entity_key_shaped_pin_key(tmp_path, bad_key):
+    """The three entity-key shapes stay in `_REFUSED_PIN_PREFIXES` -- a pin
+    that silently did nothing is worse than a refusal (`15` §4). `host:` left
+    that set for the design canvas (`ui/src/features/edit-canvas/SPEC.md`),
+    which `test_twin_bundle_layout.py` covers."""
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
@@ -2109,7 +2112,7 @@ def test_a_refused_save_leaves_an_EXISTING_layout_file_byte_identical(tmp_path):
 
     r = c.put(
         "/api/twins/mini-cast-prov/layout",
-        json=dict(_LAYOUT, etag=good["etag"], pins={"host:x": {"x": 1, "y": 1}}),
+        json=dict(_LAYOUT, etag=good["etag"], pins={"hostname:x": {"x": 1, "y": 1}}),
     )
     assert r.status_code == 400
     assert lpath.read_bytes() == before

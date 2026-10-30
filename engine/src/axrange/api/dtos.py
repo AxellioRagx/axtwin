@@ -1685,7 +1685,8 @@ class LayoutDocDTO(BaseModel):
     etag: Optional[str] = None
     schema_: str = Field(default="axr-layout/1", alias="schema")
     imprint: str
-    # `site:<prefix>` / `segment:<cidr>` -> {x, y}. A host key is refused.
+    # `site:<prefix>` / `segment:<cidr>` / `host:<name>` -> {x, y}. An
+    # entity-key shaped key (`address:` / `hostname:` / `mac:`) is refused.
     pins: dict[str, dict[str, float]] = {}
     # The layout PLANE the pins were authored against -- an opaque token the
     # Console mints and this API round-trips (`o2/console/src/layout/plane.ts`).

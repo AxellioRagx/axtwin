@@ -10,10 +10,16 @@ import type {
   DiscoverySourceList,
   Imprint,
   ImprintList,
+  LayoutDoc,
+  LayoutWrite,
+  PersonaList,
   ProbeResult,
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
+  Topology,
+  TopologyExport,
+  TwinConfigList,
   TwinList,
   TwinSummary,
   TwinTree,
@@ -55,6 +61,17 @@ export interface Api {
   getTwinTree(id: string, signal?: AbortSignal): Promise<TwinTree>;
   /** Remove the twin from the catalog; refused under a live deploy. */
   deleteTwin(id: string): Promise<void>;
+  // The design canvas (`features/edit-canvas/SPEC.md`): graphs, positions, the palette's sources.
+  /** The AUTHORED graph: nodes typed host|router|switch|network, edges host -> network with the address. */
+  getScenarioTopology(id: string, signal?: AbortSignal): Promise<Topology>;
+  /** The CAST graph with observed evidence; 404 when the twin has no topology export. */
+  getTwinTopology(id: string, signal?: AbortSignal): Promise<TopologyExport>;
+  /** The positions side-car; `exists: false` with empty pins when none was saved yet. */
+  getLayout(id: string, signal?: AbortSignal): Promise<LayoutDoc>;
+  /** Replace the side-car; `etag` in the body is the precondition (412 when it moved). */
+  putLayout(id: string, doc: LayoutWrite): Promise<LayoutDoc>;
+  listTwinConfigs(signal?: AbortSignal): Promise<TwinConfigList>;
+  listPersonas(signal?: AbortSignal): Promise<PersonaList>;
 }
 
 const enc = encodeURIComponent;
@@ -85,5 +102,11 @@ export function makeApi(request: Requester): Api {
     getTwin: (id, signal) => request("GET", `/api/twins/${enc(id)}`, { signal }),
     getTwinTree: (id, signal) => request("GET", `/api/twins/${enc(id)}/tree`, { signal }),
     deleteTwin: (id) => request("DELETE", `/api/twins/${enc(id)}`, { auth: true }),
+    getScenarioTopology: (id, signal) => request("GET", `/api/scenarios/${enc(id)}/topology`, { signal }),
+    getTwinTopology: (id, signal) => request("GET", `/api/twins/${enc(id)}/topology`, { signal }),
+    getLayout: (id, signal) => request("GET", `/api/twins/${enc(id)}/layout`, { signal }),
+    putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc, auth: true }),
+    listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
+    listPersonas: (signal) => request("GET", "/api/personas", { signal }),
   };
 }

@@ -194,6 +194,38 @@ def test_a_layout_pin_lands_in_generated_and_reads_back(tmp_path):
     assert got["exists"] is True and got["pins"] == body["pins"]
 
 
+@pytest.mark.parametrize("pins", [
+    {"host:address:10.80.20.4": {"x": 12, "y": 8}},
+    {"host:dc01": {"x": 0, "y": 0}, "segment:10.80.20.0/24": {"x": 1, "y": 2}, "site:10.80": {"x": 3, "y": 4}},
+])
+def test_a_host_pin_is_accepted_beside_site_and_segment_pins(tmp_path, pins):
+    """The design canvas (`ui/src/features/edit-canvas/SPEC.md`) pins a host
+    chip as `host:<name>`; the three kinds round-trip together."""
+    root = tmp_path / "twins"
+    _twin_folder(root)
+    c = _client(root, tmp_path)
+    body = {"schema": "axr-layout/1", "imprint": ID, "pins": pins}
+    put = c.put(f"/api/twins/{ID}/layout", json=body)
+    assert put.status_code == 200, put.text[:300]
+    assert c.get(f"/api/twins/{ID}/layout").json()["pins"] == pins
+
+
+@pytest.mark.parametrize("bad_key,expect", [
+    ("cluster:a", "accepted"),            # an unknown pin kind
+    ("hostname:dc01", "hosts are NEVER"),  # an entity key is not a pin
+    ("host:", "host:<name>"),              # the kind without a name
+])
+def test_an_unknown_or_entity_key_pin_kind_is_still_refused(tmp_path, bad_key, expect):
+    root = tmp_path / "twins"
+    d = _twin_folder(root)
+    c = _client(root, tmp_path)
+    body = {"schema": "axr-layout/1", "imprint": ID, "pins": {bad_key: {"x": 1, "y": 2}}}
+    r = c.put(f"/api/twins/{ID}/layout", json=body)
+    assert r.status_code == 400, r.text[:300]
+    assert expect in r.json()["error"]
+    assert not (d / "generated" / "layout.json").exists()
+
+
 def test_the_assertions_document_stays_at_the_twin_root(tmp_path):
     """Operator content, not machine output: beside `te.yaml`."""
     root = tmp_path / "twins"

@@ -12,6 +12,7 @@ import { ImprintsPage } from "./areas/imprints/ImprintsPage";
 import { TwinPage } from "./areas/twins/TwinPage";
 import { TwinsPage } from "./areas/twins/TwinsPage";
 import { AppFrame } from "./areas/shell/AppFrame";
+import { CanvasPage } from "./features/edit-canvas/CanvasPage";
 
 /** The routes. The router itself is supplied by the caller (`BrowserRouter` in
  *  `main.tsx`, `MemoryRouter` in tests). */
@@ -31,6 +32,7 @@ export function App({ api }: { api: Api }) {
           <Route path="/imprints/:pit" element={<ImprintPage />} />
           <Route path="/twins" element={<TwinsPage />} />
           <Route path="/twins/:id" element={<TwinPage />} />
+          <Route path="/twins/:id/canvas" element={<CanvasPage />} />
           <Route path="*" element={<Navigate to="/discovery" replace />} />
         </Route>
       </Routes>

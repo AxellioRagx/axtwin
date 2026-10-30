@@ -4650,8 +4650,9 @@ def put_imprint_layout(
     settings: ApiSettings, imprint_id: str, body: dict[str, Any], *,
     if_match: Optional[str] = None,
 ) -> dtos.LayoutDocDTO:
-    """S1.6 PUT. Same etag discipline as the assertions file; a `host:` pin
-    key is refused (hosts are never pinnable)."""
+    """S1.6 PUT. Same etag discipline as the assertions file; the pin kinds
+    are `site:` / `segment:` / `host:` (the canvas's host chip), and an
+    entity-key shaped key (`address:` / `hostname:` / `mac:`) is refused."""
     from axrange.api.console_files import ConsoleFileError, write_layout
 
     d = _imprint_bundle_dir(settings, imprint_id)

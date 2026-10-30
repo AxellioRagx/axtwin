@@ -10,12 +10,17 @@ import type {
   DiscoverySource,
   AssertionsDoc,
   Imprint,
+  LayoutDoc,
+  Persona,
   ProbeResult,
   TwinSummary,
   TwinTree,
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
+  Topology,
+  TopologyExport,
+  TwinConfigSummary,
 } from "../../src/api/types";
 
 export const AXQUERY: DiscoveryPlugin = {
@@ -96,6 +101,14 @@ export interface FakeState {
   imprints: Imprint[];
   /** Each imprint's assertions document, by pit id, once saved. */
   assertions: Record<string, AssertionsDoc>;
+  /** Authored graphs by scenario/twin id (`GET /api/scenarios/{id}/topology`). */
+  topologies: Record<string, Topology>;
+  /** Cast graphs with evidence by twin id; a twin without one answers 404 (no export yet). */
+  exports: Record<string, TopologyExport>;
+  /** Layout side-cars by twin id, once saved. */
+  layouts: Record<string, LayoutDoc>;
+  twinConfigs: TwinConfigSummary[];
+  personas: Persona[];
   /** Catalog folders the listing reports as unreadable. */
   skippedTwins: Array<{ id: string; reason: string }>;
   /** What the imprint listing warns about (a locked store). */
@@ -103,7 +116,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -117,6 +130,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     trees: {},
     imprints: [],
     assertions: {},
+    topologies: {},
+    exports: {},
+    layouts: {},
+    twinConfigs: [],
+    personas: [],
     skippedTwins: [],
     imprintWarnings: [],
     writes: [],
@@ -365,6 +383,40 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       if (state.refuse.deleteTwin) throw state.refuse.deleteTwin;
       if (!state.twins[id]) throw notFound(`imprint '${id}'`);
       delete state.twins[id];
+    },
+    async getScenarioTopology(id) {
+      const t = state.topologies[id];
+      if (!t) throw notFound(`scenario '${id}'`);
+      return t;
+    },
+    async getTwinTopology(id) {
+      const e = state.exports[id];
+      // The API's own rule: 404 doubles as "unknown id" and "known id, no export yet".
+      if (!e) throw notFound(`topology export for '${id}'`);
+      return e;
+    },
+    async getLayout(id) {
+      if (!state.twins[id]) throw notFound(`imprint '${id}'`);
+      return state.layouts[id] ?? { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: false, etag: null, schema: "axr-layout/1", imprint: id, pins: {}, plane: null };
+    },
+    async putLayout(id, doc) {
+      state.writes.push({ op: "put-layout", id, body: doc });
+      if (state.refuse.layout) throw state.refuse.layout;
+      if (!state.twins[id]) throw notFound(`imprint '${id}'`);
+      const current = state.layouts[id];
+      if (current && current.etag !== doc.etag) {
+        throw new ApiError({ kind: "http", status: 412, message: `layout for '${id}' changed since it was read; reload and retry`, detail: { etag: current.etag }, url: "" });
+      }
+      if (doc.imprint !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `request body: document declares imprint '${doc.imprint}' but is being written for '${id}'`, url: "" });
+      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane };
+      state.layouts[id] = saved;
+      return saved;
+    },
+    async listTwinConfigs() {
+      return { twin_configs: state.twinConfigs };
+    },
+    async listPersonas() {
+      return { twin: null, personas: state.personas, warnings: [] };
     },
   };
   return { api, state };
