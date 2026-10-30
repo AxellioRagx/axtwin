@@ -19,14 +19,18 @@ Two hard-won constraints from `docs/WORK_ORDER_axquery_ingest.md`, both measured
 """
 from __future__ import annotations
 
-import base64
-import json
-import os
-import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Iterator, Optional
+
+from aximprint.ingest.siem import http as _http
+from aximprint.ingest.siem.http import (  # noqa: F401  (re-exported: the setting names are axquery's API too)
+    ENV_API_KEY,
+    ENV_PASSWORD,
+    ENV_USER,
+    auth_headers,
+)
 
 #: Rows per request. **Sized against CONCURRENCY, not against rate**, and the difference is what
 #: a first value of 500 got wrong.
@@ -92,40 +96,15 @@ LEAF_ROWS_MAX = 200_000
 MAX_PAGES = 10_000
 
 
-class AxQueryError(RuntimeError):
+class AxQueryError(_http.HttpSourceError):
     """The server was unreachable, or answered with something this build cannot read."""
 
 
 #: How a credential reaches this transport: the ENVIRONMENT, never `argv` and never the
-#: source locator (`acquire/auth.py`'s rule -- a value in `argv` is in `ps` and shell history
-#: for every user on the box, and a locator is written into every run's provenance).
-#: `axrange serve` sets these for the one `aximprint` subprocess a stored discovery source
-#: runs (`api/Spec.md` A7) from the source's access record; an operator running the CLI by
-#: hand exports them. Basic wins over bearer when both are set, and both are optional: an
-#: `--auth-disabled` axquery on a loopback tunnel needs neither.
-ENV_USER = "AXIMPRINT_SOURCE_USER"
-ENV_PASSWORD = "AXIMPRINT_SOURCE_PASSWORD"
-ENV_API_KEY = "AXIMPRINT_SOURCE_API_KEY"
-
-
-def auth_headers(env: Optional[dict] = None) -> dict[str, str]:
-    """`Authorization` for every request, from the environment (see above); `{}` when unset.
-
-    axquery's own gate (`--auth-token-file`) takes `Authorization: Bearer <token>`; a
-    deployment that fronts it with HTTP basic auth takes the RFC 7617 header. Nothing here
-    decides which the server wants -- the operator chose an access mode when the source was
-    saved, and the control plane set exactly one pair.
-    """
-    env = os.environ if env is None else env
-    user = env.get(ENV_USER)
-    password = env.get(ENV_PASSWORD)
-    if user:
-        raw = f"{user}:{password or ''}".encode("utf-8")
-        return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
-    key = env.get(ENV_API_KEY)
-    if key:
-        return {"Authorization": f"Bearer {key}"}
-    return {}
+#: source locator. `ENV_USER`/`ENV_PASSWORD`/`ENV_API_KEY` and `auth_headers` are LIFTED to
+#: `ingest/siem/http.py` (the whole `http` family shares them) and re-exported above so
+#: `aximprint.ingest.axquery.sources` keeps spelling them; axquery's token gate takes
+#: `Authorization: Bearer <token>`, which is `auth_headers`' default key scheme.
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,20 +150,13 @@ class AxQuerySource:
     def _parse_locator(locator: str) -> str:
         """`axquery:http://host:port` -> `http://host:port`. Fail loud on anything else.
 
-        A bare host is REFUSED rather than defaulted to http:// — guessing a scheme is the
-        silent default this project rejects, and a wrong guess here is a connection to the
-        wrong service, not a readable error.
+        The parser is `siem/http.py::parse_locator` (lifted from here): a bare host is REFUSED
+        rather than defaulted to http:// — guessing a scheme is the silent default this
+        project rejects, and a wrong guess here is a connection to the wrong service, not a
+        readable error. axquery admits no locator option, so any `?` is refused too.
         """
-        if not locator.startswith("axquery:"):
-            raise AxQueryError(
-                f"not an axquery locator: {locator!r} — expected 'axquery:<base-url>'")
-        base = locator[len("axquery:"):].strip().rstrip("/")
-        parsed = urllib.parse.urlparse(base)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
-            raise AxQueryError(
-                f"axquery locator needs an absolute http(s) base URL, got {base!r} "
-                f"(e.g. 'axquery:http://127.0.0.1:19090')")
-        return base
+        return _http.parse_locator(locator, "axquery:", options=(), error=AxQueryError,
+                                   example="axquery:http://127.0.0.1:19090").base
 
     def get(self, path: str, **params: Any) -> dict:
         """One GET returning parsed JSON. Empty parameters are DROPPED, not sent.
@@ -198,35 +170,11 @@ class AxQuerySource:
         url = f"{self.base}{path}"
         if query:
             url = f"{url}?{urllib.parse.urlencode(query)}"
-        try:
-            req = urllib.request.Request(url, headers=auth_headers())
-            with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
-                body = resp.read()
-        except urllib.error.HTTPError as exc:
-            hint = ""
-            if exc.code in (401, 403):
-                hint = (" -- the server refused the credential (or wants one): "
-                        f"set {ENV_USER}/{ENV_PASSWORD} or {ENV_API_KEY}")
-            raise AxQueryError(f"axquery {path} -> HTTP {exc.code}: {url}{hint}") from exc
-        except TimeoutError as exc:
-            raise AxQueryError(
-                f"axquery {path} timed out after {TIMEOUT_SECONDS}s — a --lazy-cold server "
-                f"faulting cold chunks can be slow; narrow the time window") from exc
-        # `OSError`, not `URLError`: `URLError` subclasses it, but a socket-level failure can
-        # surface as a bare `OSError` and escaping here would give a caller an errno instead of
-        # a named cause. `probe_vantage` in particular converts this to `None`, and it can only
-        # do that for an exception type it can name.
-        except OSError as exc:
-            raise AxQueryError(f"axquery unreachable at {self.base}: {exc}") from exc
-        if not body.strip():
-            # Measured: an over-large request can return an empty body rather than an error.
-            raise AxQueryError(
-                f"axquery {path} returned an EMPTY body ({url}) — this is what an over-large "
-                f"or over-wide request looks like on this server; narrow it rather than retrying")
-        try:
-            blob = json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise AxQueryError(f"axquery {path} returned non-JSON: {body[:200]!r}") from exc
+        req = urllib.request.Request(url, headers=auth_headers())
+        # The transport (`urlopen`, the 401 hint naming the env settings, the timeout and
+        # unreachable causes, the empty-body and non-JSON refusals) is `siem/http.py`'s.
+        blob = _http.fetch_json(req, label=f"axquery {path}", base=self.base,
+                                error=AxQueryError, timeout=TIMEOUT_SECONDS)
         if not isinstance(blob, dict):
             raise AxQueryError(f"axquery {path} returned {type(blob).__name__}, expected an object")
         self.last_coverage = Coverage.from_json(blob.get("coverage"))
@@ -290,35 +238,15 @@ class AxQuerySource:
         leaf is raised, not truncated: returning a prefix would be the invisible truncation
         this project treats as a lie (`LES-006`).
         """
-        stack = [(float(after), float(before), PAGE_ROWS)]
-        while stack:
-            lo, hi, limit = stack.pop()
+        def leaf(lo: float, hi: float, limit: int) -> list[dict]:
             blob = self.get(path, limit=limit, after=int(lo), before=int(hi), **params)
-            rows = blob.get(key) or []
-            if len(rows) < limit:
-                for r in rows:
-                    ts = start_ts(r)
-                    if ts is not None and lo <= ts < hi:
-                        yield r
-                continue
-            if hi - lo <= MIN_BISECT_SECONDS:
-                if limit >= LEAF_ROWS_MAX:
-                    raise AxQueryError(
-                        f"axquery {path}: {len(rows)} rows in [{int(lo)}, {int(hi)}) still "
-                        f"fills a page at the {MIN_BISECT_SECONDS}s floor and the "
-                        f"{LEAF_ROWS_MAX}-row leaf ceiling. **Narrowing the time range will "
-                        f"NOT help** — `after`/`before` match conns that OVERLAP the interval, "
-                        f"so this count converges to the number of CONCURRENT connections "
-                        f"plus one second of starts, not to zero. Raise LEAF_ROWS_MAX above "
-                        f"that peak instead. Refusing rather than returning a silent prefix.")
-                # The same second, asked wider. Only a floor leaf ever escalates.
-                stack.append((lo, hi, min(limit * 2, LEAF_ROWS_MAX)))
-                continue
-            mid = lo + (hi - lo) / 2.0
-            # Later half first so the LIFO stack yields in ascending time; the merge downstream
-            # tolerates bounded disorder but there is no reason to manufacture any.
-            stack.append((mid, hi, PAGE_ROWS))
-            stack.append((lo, mid, PAGE_ROWS))
+            return blob.get(key) or []
+
+        # The discipline is `siem/http.py::bisected_rows` (lifted from here); the NUMBERS stay
+        # this module's, read at call time so a test can shrink them here.
+        yield from _http.bisected_rows(
+            leaf, after, before, start_ts, page_rows=PAGE_ROWS, leaf_rows_max=LEAF_ROWS_MAX,
+            min_bisect_seconds=MIN_BISECT_SECONDS, label=f"axquery {path}", error=AxQueryError)
 
     def limited_rows(self, path: str, key: str, **params: Any) -> tuple[list[dict], bool]:
         """One bounded read of a non-pageable, non-time-filterable endpoint.
