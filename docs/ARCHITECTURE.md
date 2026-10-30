@@ -363,10 +363,12 @@ platform through five surfaces, and a platform plugin implements all five:
 | naming | `ResourceNamer` | tier-tagged names and the platform's stable per-op identity (Proxmox VMID, libvirt UUID) |
 | teardown | `Teardown` | sweep by tier-tag shape under the protect guard |
 
-Today the Proxmox modules are imported directly for the last four; the
-protocols are extracted from them before a second platform is built, after
-which each adapter's code lives under `adapters/<platform>/` as its own
-package and the engine imports only the protocols. Selection is a closed
+The protocols live in `axrange.platform.protocols` (built 2026-10-30), the
+Proxmox modules satisfy them structurally, and an AST layering test holds
+that the engine imports `adapter_proxmox` only from the factory and the
+Proxmox-only image build. The adapter's code still lives under
+`engine/src/axrange/adapter_proxmox/`; moving it under `adapters/<platform>/`
+as its own package is a packaging decision not yet taken. Selection is a closed
 factory keyed by the target's `platform` (`api/Spec.md` A4) — `proxmox`,
 `libvirt`, VMware when built — that fails by name on anything else; it is not
 a registry and does not become one until the set is open. Each platform's

@@ -23,7 +23,7 @@ live beside them at the root, not inside a package:
 
 | Dir | What |
 |---|---|
-| `adapters/` | deploy-platform plugins, one folder and `SPEC.md` per platform (`proxmox/`, `libvirt/`); the Proxmox code stays in `engine/` until the platform seams are protocols |
+| `adapters/` | deploy-platform plugins, one folder and `SPEC.md` per platform (`proxmox/`, `libvirt/`); the adapter code stays in `engine/` (`adapter_proxmox/`, `adapter_libvirt/`) behind `axrange.platform` until its packaging is decided |
 | `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` — and `personas/`, the persona library (see its README) |
 | `config/` | operator config: `adapter.conf` (gitignored) and the tracked examples (see its README) |
 | `o2/` | the observability stack as deployed assets (compose, Grafana, Loki, Prometheus, Alloy, Caldera, tcpdump sensor) and the old Grafana-era console (`o2/console`, superseded by `ui/`) |

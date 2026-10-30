@@ -20,7 +20,9 @@ Proxmox API exposes) or an SSH backend (OVS/`tc` work the API does not expose).
 
 Beyond `Adapter`, the engine reaches the platform through four further
 surfaces that the platform seams in `docs/ARCHITECTURE.md` §13 name as
-protocols. Today they are concrete Proxmox modules imported directly:
+protocols (`axrange.platform.protocols`, built 2026-10-30); the engine
+reaches them through `axrange.platform.adapter_for("proxmox", cfg)` and
+these modules satisfy them:
 
 | Seam | Proxmox module | Used by |
 |---|---|---|
@@ -29,10 +31,10 @@ protocols. Today they are concrete Proxmox modules imported directly:
 | resource naming (tier-tagged names, VMID) | `naming.py` | planner inventory/state/teardown, image build |
 | teardown (sweep by tier tag, protect guard) | `teardown.ProxmoxTeardown` | planner, API, `o2control` |
 
-Code: `engine/src/axrange/adapter_proxmox/`. It moves under this folder as its
-own package once those four seams are protocols the engine imports instead of
-these modules; until then the engine and the adapter import each other and a
-relocation would only formalize that cycle.
+Code: `engine/src/axrange/adapter_proxmox/`. The engine imports it only from
+the factory and the Proxmox-only image build (`engine/tests/test_platform_layering.py`);
+moving it under this folder as its own package is a packaging decision still
+open (a second installable package versus a path inside `axrange`).
 
 Selected by a target's `platform: proxmox` (the default when a target names no
 platform), see `api/Spec.md` A4.
