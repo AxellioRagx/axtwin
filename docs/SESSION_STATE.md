@@ -4,118 +4,95 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-28 · **Branch:** `wip/api-discovery-runs`, five commits past
-`master` (`614d0ed`); no remote configured, nothing to push (never push).
+**Last updated:** 2026-10-30 · **Branch:** `wip/design-platforms-canvas` (ten commits past
+`wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
+the user pushes.
 
 ## What this session did
 
-1. Retired the stale per-package handoffs and docs trees into `archive/`, wrote this root
-   `docs/` set, re-pointed references (commit `a60f496`).
-2. Committed seam **A1, discovery runs** (`008d3be`).
-3. Built seam **A7, discovery sources** (`39f8349`): a saved sensor endpoint + access
-   (direct / SSH tunnel × none / basic / API key) in `~/.axrange/discovery.db`, probe,
-   source-driven runs, `GET /api/discovery/runs`. `aximprint` plugins publish `source_kind`
-   and `probe()`; `aximprint probe` verb; the axquery transport sends the environment
-   credential. 43 engine + 14 discovery tests.
-4. Started the operator console in **`ui/`** (React 18 + Vite 8 + TS + Vitest; stack
-   recorded in `ui/Spec.md`): Discovery sources (list, editor with the access choice,
-   detail with Test connection + Run form drawn from the plugin schema), Runs (list, polled
-   detail), Imprint summary. 30 Vitest tests (C1.1–C1.4). Built to `ui/dist`.
-5. Ran the loop for real against **corp-apcn-reader** (see below).
+Built the design commits of 2026-10-30 (platform seams, libvirt, pcap, SIEM, edit canvas) as
+code, each track by a subagent, committed per track:
+
+1. `8527ad0` **pcap ingest plugin** (`discovery/.../ingest/pcap/`), Zeek runner hoisted to
+   `aximprint/zeekrun.py`. Live-verified on podman + zeek:8.0 against a 10-min APCN capture.
+2. `f286837` + `d3774ca` **A3 twin-config write, A2 working copy** (`api/edits.py`, service tail
+   block, 38 tests). Hardened after review: per-tier applied record, baseline-drift hash, lease,
+   atomic Save-As/Persist with history, role-conflict refusal, sidecar read-only on GET.
+3. `a41456a` + `508fba9` **canvas phase 1** (React Flow, read-only, traffic overlay, `host:` pin).
+4. `ce610c3` + `cc3ddeb` **platform seams as protocols** (`axrange.platform`), closed factory, A4
+   `platform` on targets, AST layering test.
+5. `2fb3e27` **Splunk + Elastic SIEM plugins** over `ingest/siem/http.py` (lifted from axquery);
+   fixtures AUTHORED from vendor docs, not recorded.
+6. `69bab7a` **libvirt adapter** (`engine/src/axrange/adapter_libvirt/`, 70 tests on a fake
+   connection; libvirt not installed here).
+7. `03503fc` **canvas phase 2** (editing: palette, attach, command stack, side panel, A2/A3
+   exits, promote-to-assertion). 117 console tests.
 
 ## Current state
 
-- **Tests:** engine 3959 passed / 18 skipped; discovery 2251 passed / 1 skipped; `ui`
-  typecheck clean, 30 passed. The frozen `o2/console` suite has 6 files broken by the
-  2026-10-20 layout moves (`test/fixtures/realBundles.ts` line 26 and
-  `test/helpers/jsonschema.ts` open `twins/` and `axrange/api/schemas/`, now
-  `catalog/twins/` and `engine/src/axrange/api/schemas/`); not fixed, it is frozen.
-- **Bind:** `axrange serve` listens on `0.0.0.0:8080` (console reachable from other
-  hosts at `http://10.80.72.52:8080/`; firewalld is inactive on this node) with `--spa-dir ui/dist`,
-  `AXRANGE_IMPRINTS_DIR=catalog/twins`, `AXRANGE_AXIMPRINT_STORE=~/.axrange/discovery/ir.duckdb`,
-  `AXRANGE_DISCOVERY_TIMEOUT_S=172800`, token from `~/.axrange/api-token` (0600, generated
-  this session; the user's own `AXRANGE_API_TOKEN` was not used). Log: `~/.axrange/serve-8080.log`.
-- **The corp-apcn-reader source** is `src-2ae78e66` in `~/.axrange/discovery.db`: axquery at
-  `http://127.0.0.1:9090` on the appliance's loopback, reached by SSH tunnel as
-  `fxadmin@corp-apcn-reader.swlab.axellio.dom` (10.80.65.8) with `~/.ssh/id_ed25519`, no API
-  auth (`--auth-disabled`). The appliance's axquery holds 30 days / 69 chunks of
-  `axellio-hq/corp-apcn-rdr1` (12 streams), 2026-09-06 19:30 → 2026-10-06 19:30 UTC. It is
-  **not** the two 20-hour-old test instances on `:26244`/`:26756` (a 2023 golden dataset),
-  and nothing was started or written on the appliance.
-- **The ten-day run: none in flight.** Three attempts under imprint `corp-apcn-10d` ended
-  without a bundle: `disc-ef9ad362` and `disc-4a1314cc` failed at a one-second leaf over
-  the page cap (fixed in `10edded` and `86cfe69`: `PAGE_ROWS` 20,000 and a floor leaf that
-  overflows is re-read wider up to `LEAF_ROWS_MAX`); `disc-0a6a9379` was stopped by hand on
-  2026-10-28 11:44 UTC at the user's request (the serve process of the day had no cancel
-  route yet; its record read `failed, exit -15`). Everything the runs wrote is gone:
-  `~/.axrange/discovery/` holds nothing now (belief stores, the IR store `ir.duckdb` and
-  the saved record were removed), `catalog/twins/` has no `corp-apcn-*` bundle, and the
-  API's run list is empty after the restart. The source `src-2ae78e66` in
-  `~/.axrange/discovery.db` is kept. Measured: ~25 min of ingest per day of index, so a
-  ten-day read is ~4–5 h.
-- **Live:** `axrange serve` was restarted 2026-10-28 11:44 UTC on the current code
-  (progress and cancel live) by `~/.axrange/restart-after-run.sh`, which has exited;
-  same bind `0.0.0.0:8080`, same env, SPA from `ui/dist` (built from `1dc0e76`).
-- **Known leak, test-only:** engine tests that capture a run's job without running it
-  (`background=jobs.append`, the "busy" 409 tests) leave an empty
-  `/tmp/axrange-discovery-<id>-*` scratch dir each; 33 were removed by hand on 2026-10-28.
-- **dev45 environment:** unverified since 2026-10-05 (`corp-twin-3dae3188` and its tap/tfc);
-  do not destroy anything there without asking.
+- **Tests at HEAD:** engine 4097 passed / 18 skipped / 2 failed (both from the untracked
+  `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest —
+  pre-existing, decide commit-or-remove); discovery 2392 passed / 1 skipped; ui 117 passed,
+  typecheck + build clean.
+- **UNCOMMITTED, PARTIAL, NOT GREEN — the user stopped two agents mid-task on 2026-10-30:**
+  `git status` shows ~20 modified files. Two interleaved half-done changes:
+  (a) *platform threading* (seams review D1): `PlatformConfig.platform` set by the loader from a
+  neutral `PLATFORM=` conf key, `adapter_for_config(cfg)` replacing `adapter_for(DEFAULT_PLATFORM,
+  cfg)` across service/cli/o2control/config_exec/planner, `settings_for_target` carrying platform,
+  neutral target facts (`endpoint`, `verify_tls`, `has_token`, `has_ssh_key`), plus seam-review
+  should-fixes (positional-only protocol params + signature test, per-import layering allowlist,
+  `check_platform("")` refused, `Target.__post_init__`). The agent reported its batch rewrite had
+  NOT yet applied when stopped; verify with `git diff` before trusting any of it.
+  (b) *canvas seams*: `POST /api/validate` accepting `{document: {id, files}}`, and an optional
+  `annotations` list in the `axr-layout` document (`console_files.py`, sanitised SVG). That agent
+  had only started reading when stopped; its edits, if any, are minimal.
+  Either finish both from this description, or `git checkout -- .` and re-brief.
+- **Not wired yet (the canvas reported):** the console validates through PUT because validate
+  takes no document; annotations live in `localStorage` until the layout schema has a key.
+- Nothing deployed, destroyed or restarted on dev45, pxtwin1 or the running `axrange serve`
+  (still the 2026-10-28 process on `0.0.0.0:8080`, SPA built from `1dc0e76` — rebuild `ui/dist`
+  and restart to see the canvas).
 
 ## Next steps (ordered)
 
-1. Start the ten-day run again from the console (source `corp-apcn-reader`, last 10 days,
-   imprint `corp-apcn-10d`) and watch the progress bar; on completion decide whether
-   `catalog/twins/corp-apcn-10d/` is committed. A one-hour run (`disc-f6aa0f01`,
-   2026-10-28 13:42, six minutes) installed `catalog/twins/corp-apcn-reader-20261028/`,
-   untracked: commit or remove it. Run records now persist in `~/.axrange/discovery.db`
-   (table `runs`); the three from before persistence landed are saved as
-   `~/.axrange/discovery/disc-*.json`. The Imprints page has a bin per bundle and the
-   runs table a bin/× per run.
-2. Review the uncommitted UI + docs commit (this handoff is part of it) and the three
-   commits above; decide whether `wip/api-discovery-runs` merges to `master`.
-3. Critical path item 2 (root `Claude.md`): attack-inject plus confirm as one action on
-   `POST /api/exr` (api seam A3's neighbour); then UI T0 (the v0 loop tracer) now that a stack
-   and shell exist.
-4. Fate of the dead per-package pipeline config and doc tooling (`engine/.claude/`,
-   `discovery/.claude/`, `scripts/doc-*.py`, `hooks.py`, `claude-export/import.sh`).
+1. Resolve the uncommitted tree (finish or discard), run all three gates, commit.
+2. Wire the console to the document-validate route and the `annotations` key once they exist.
+3. Libvirt end to end: the `int(vmid)` readers (`planner/teardown.py:400`, `planner/inventory.py`,
+   `planner/access.py`, `o2control/containment.py`, ~15 sites in `config_exec/backend.py`) and
+   `pass1_emit._binding_for_node` (Proxmox-hard-coded binding) block a libvirt deploy; they are
+   the confirm-first `vmid` contract bump in `adapters/proxmox/SPEC.md` Notes.
+4. Then the live libvirt two-host slice (needs `libvirt-daemon`, `qemu-kvm`, `python3-libvirt`,
+   an ISO tool, a template volume; recipe in the `69bab7a` report / `config/adapter.conf.libvirt.example`).
+5. Eyes on the canvas against the largest cast twin; the element budgets are measured, not assumed.
+6. Review the libvirt adapter (not reviewed) and the SIEM plugins (not reviewed).
 
-## Open questions / decisions pending the user
+## Decisions pending the user
 
-- Commit `catalog/twins/corp-apcn-10d/` once it lands, or keep discovery output out of the
-  catalog (point `AXRANGE_IMPRINTS_DIR` elsewhere)?
-- The standing dev45 twin: keep as the live-verify bed, or destroy?
-- Fix the six fixture paths in the frozen `o2/console` tests, or leave frozen as is?
+- **Confirm-first contract bumps** (each blocks a libvirt deploy or a CONVENTIONS §4 leak):
+  neutral op ids and resource categories in `OP_CATALOG.md`; `vmid`/`pve_node` → opaque guest
+  handle + `host` in DTOs and the state store (`PLANNER.md`); `zone_type: simple|vlan` → an L2
+  mode in the twinconfig schema; `ADAPTER.md` relocating beside the Proxmox adapter with a neutral
+  `PLATFORM.md`; `template_vmid` becoming the Proxmox binding's own key.
+- **Adapter code placement:** `adapter_proxmox/` and `adapter_libvirt/` stay in `engine/`; moving
+  under `adapters/<platform>/` needs a packaging choice (second installable package vs path).
+- **Edit model:** should Persist of a never-applied working copy mark the deploy clean while the
+  live twin still runs the old document (today: yes, per spec)? Keep the `inert` edit kind for
+  `exr/` and top-level prose? Twin-config document on reads only with the token (implemented)?
+- **Promote segment-merge** asserts `hostname:<group>` keys; whether the cast compiler resolves
+  group-name keys is unverified.
+- Merge of this branch and `wip/api-discovery-runs` to `master`; fate of the untracked catalog folders.
 
 ## Gotchas
 
-- The imprint/twin split landed 2026-10-28 (`docs/design/imprint-twin-split.md`): a run
-  ends at bake and produces an imprint (a PIT); `POST /api/imprints/{pit}/cast` lands a
-  twin; the bundle routes moved from `/api/imprints` to `/api/twins`. The frozen
-  `o2/console` still reads the old paths. Twin-tier editing and delta redeploy are §7.
-- The second discovery stage is `bake` (2026-10-28; `aximprint materialize` is kept as an
-  alias). IR schema `1.5` adds `ir_pit.name`, a renamable label beside the unchanging id;
-  a `1.4` store gains the column on open. `aximprint pit list|rename`,
-  `GET/PATCH /api/discovery/pits`. The id was NOT made numeric: it is the identity every
-  cast sidecar, drift report and the recompile seam key on, and it must mean the same thing
-  outside the store it came from.
-- A short capture can leave a role with no synthesized persona (its hosts dialled nothing);
-  the cast now DROPS that role's traffic assignment with a caveat instead of leaving it
-  naming the catalog persona, which `install-cast` refused after the whole ingest had run
-  (`disc-7b100b4e`, one hour of CorpAPCN, `monitoring-collector`). `cli._drop_unsynthesized_roles`.
-- The host-global hooks activate on `docs/WORKFLOW.md` or `.claude-workflow.env` at the repo
-  root. Neither exists; do not add them.
-- The two Python `tests/` trees must be run separately (conftest name clash). `ui` tests are
-  `cd ui && npm run test`.
-- `npm install` in `ui/` hit an npm arborist bug (`edgesOut` of null); `ui/package-lock.json`
-  is the console's resolved set and `npm ci` works. Use `npm ci`.
-- Killing `axrange serve` with `pkill -f "axrange serve"` from a wrapper shell whose own
-  command line contains that string kills the wrapper too; match the python process.
-- Everything operational that still bites is in `docs/OPERATIONS.md` §6, including the three
-  new ones (long runs, BatchMode ssh, imprints dir inside the checkout).
+- Shared API files (`api/app.py`, `dtos.py`, `service.py`) were edited by three tracks; per-track
+  commits were split by hunk (`scratchpad/tools/stage_hunks.py`, session-local).
+- `_HOST_KEY_RE` in `console_files.py` is the schema's entity-key pattern; the host PIN regex is
+  `_HOST_PIN_RE` (a collision broke a test once).
+- Run the two Python `tests/` trees separately; engine with `-n auto -p no:cacheprovider`.
+- `ui/`: `npm ci` only; `@xyflow/react` is pinned 12.12.0.
+- The working-copy sidecar is `<state>.edits.db` beside the planner DB, not a table in it.
 
 ## Environment
 
-One venv at `.venv/` with both packages editable; node 22.23 / npm 10.9 for `ui/`.
-Live state is `~/.axrange/` (`state.db`, `discovery.db`, `discovery/`, `api-token`,
-`serve-8080.log`). `config/adapter.conf` is gitignored and operator-local.
+Unchanged from 2026-10-28: one venv at `.venv/`, node 22 for `ui/`, live state in `~/.axrange/`.
+Podman + `docker.io/zeek/zeek:8.0` on this box; no libvirt, no docker.
