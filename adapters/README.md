@@ -14,5 +14,5 @@ The contract every adapter satisfies is the `Adapter` protocol
 `docs/ARCHITECTURE.md` §13. The version-locked op semantics are in
 `docs/contracts/OP_CATALOG.md`; the Proxmox op→backend contract is
 `docs/contracts/ADAPTER.md`. A new platform is a new folder here with a
-`SPEC.md`, a `bindings/<platform>/` image-binding set, and a target that names
+`SPEC.md` owning its config and image-binding schemas, and a target that names
 it (`platform:` in the targets file, `api/Spec.md` A4).

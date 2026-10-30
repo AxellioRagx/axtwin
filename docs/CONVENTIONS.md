@@ -26,9 +26,11 @@ bundle), an **imprint id** (the stable catalog name of an installed cast).
 
 ## 2. Resource tier tags
 
-Every Proxmox resource the engine creates carries a tier tag in its
-deterministic name (`axrange.adapter_proxmox.naming`); the tag is the blast
-radius, and the teardown guard refuses any foreign tier's shape.
+Every platform resource the engine creates carries a tier tag in its
+deterministic name (the adapter's `ResourceNamer`; `axrange.adapter_proxmox.naming`
+today); the tag is the blast radius, and the teardown guard refuses any
+foreign tier's shape. The shapes below are the engine's; a platform's own
+identity (a VMID, a domain UUID) is the adapter's and never leaves it.
 
 | Tag | Name shapes | Notes |
 |---|---|---|
@@ -96,6 +98,18 @@ test where one exists; add the test when you add the rule.
 - **Idempotent on retry.** Every engine op, every playout apply, every driver
   `start()`. Re-apply converges and de-scopes; it never errors on what already
   exists or leaves a stale instance running.
+- **Platform-specific is adapter-only.** Anything that names a deploy
+  platform — its API, resource kinds and identities (a VMID), its CLI tools,
+  its zone/vnet/bridge vocabulary, its guest-control channel, its config keys
+  — lives only under that platform's adapter (`adapters/<platform>/`, code,
+  config example and binding schema alike). Everything else speaks the
+  engine's neutral vocabulary: segment, node, attachment, image (manifest
+  id), guest handle, host (placement), tap, mirror, first-boot init, guest
+  control. That covers the IR, twin configs and the cast, the op catalog,
+  planner, validator, state store, API DTOs, UI, catalog content and the
+  tracked examples under `config/`. The test: delete an adapter folder and
+  nothing left in the repository names that platform except the orientation
+  prose that says it exists.
 - **Content is data, not code.** Twins, scenarios, personas, image manifests
   and role catalogs are YAML files in `catalog/` or package data, read through
   registries; adding one is adding a file.

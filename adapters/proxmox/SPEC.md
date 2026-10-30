@@ -73,6 +73,37 @@ the minimal form of the same gate.
 
 ## Notes
 
+**What still names this platform outside this folder** (`CONVENTIONS.md` §4
+says nothing may; each line is a pending move or a confirm-first contract
+bump, and this list shrinks to nothing):
+
+- `docs/contracts/OP_CATALOG.md`: op ids (`create-sdn-zone`,
+  `create-ovs-bridge`, `create-vnet`, `apply-sdn-config`, `clone-vm`,
+  `configure-cloud-init`, `attach-vm-to-vnet`, `wait-guest-agent`,
+  `attach-gre-tunnel`, `install-ovs-mirror`) and resource categories
+  (`proxmox-cluster`, `proxmox-node`, `ovs`, `vm:<vmid>`) — neutral ids and
+  categories, with this adapter's mapping table carrying the old names.
+- `docs/contracts/ADAPTER.md` is this adapter's contract and moves here; a
+  neutral `contracts/PLATFORM.md` takes the five protocols.
+- `docs/contracts/PLANNER.md`, `VALIDATOR.md`, `IR_SCHEMA.md`,
+  `IMAGE_MANIFEST.md`, `IMAGE_BUILD.md`: Proxmox, VMID, guest-agent and
+  cloud-init wording; the binding schema (`template_vmid`) becomes this
+  adapter's.
+- `twinconfig` schema and the cast compiler: `zone_type: simple|vlan` —
+  `simple` is PVE SDN's word; the neutral form is an L2 mode
+  (bridged vs 802.1Q-tagged) and a schema bump, including the vendored
+  assertions vocabulary.
+- `api/dtos.py` and the state store: `vmid`, `pve_node`, resource kinds
+  `vnet|zone|sdn-apply|ovs-bridge` — an opaque guest handle, `host`, and
+  neutral kinds.
+- The engine modules that import this adapter's modules directly — the seam
+  extraction in `docs/ARCHITECTURE.md` §13.
+- `config/adapter.conf.example` (this adapter's keys) moves beside this
+  file; the targets example keeps `platform`, the config path and `hosts`.
+- Catalog comments and tap files that name a VMID or a bindings path, and
+  the external-sensor identity (`EXTERNAL_SENSORS` by VMID) — sensors are
+  identified through the adapter's inventory.
+
 - Capture mirrors at the VM's tap interface, not the bridge, so it is the same
   in Simple and VLAN zones; do not reintroduce a per-VM OVS mirror
   (`docs/contracts/ADAPTER.md` §8 records why).

@@ -355,6 +355,14 @@ factory keyed by the target's `platform` (`api/Spec.md` A4) — `proxmox`,
 a registry and does not become one until the set is open. Each platform's
 `SPEC.md` under `adapters/` carries its op mapping, config and acceptance.
 
+Platform-specific is adapter-only (`CONVENTIONS.md` §4): the op catalog, the
+IR and cast, the planner's resource categories, the state store, the API's
+DTOs and the tracked config examples use the engine's neutral vocabulary, and
+a platform's config schema and image-binding schema live with its adapter.
+Where the version-locked contracts still carry one platform's words, the
+Proxmox adapter's `SPEC.md` lists them; each is a confirm-first contract
+bump, sequenced with the seam extraction above.
+
 Kept in tree, not maintained, not on the critical path: the golden-twin and
 fidelity-scorecard direction (`axrange.fidelity`, `aximprint drift`), the
 AI-scenario-research pipeline (`ai-crafted/`), the CorpAPCN fidelity loop, and
