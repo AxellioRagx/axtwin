@@ -3324,10 +3324,22 @@ def twin_config_detail(settings: ApiSettings, config_id: str) -> dtos.TwinConfig
             {"name": k, "default": v, "description": None, "declared": True}
             for k, v in (tc.params or {}).items()
         ]
+    # The bundle's own files (`api/Spec.md` A3) -- the editable object; a
+    # folder that cannot be read as a document is a warning, not a 500.
+    document: Optional[dtos.TwinConfigDocumentDTO] = None
+    doc_warnings: list[str] = []
+    try:
+        document = _read_twin_document(settings, config_id)
+    except ApiError as e:
+        doc_warnings.append(f"document unavailable: {e.message}")
+    except OSError as e:
+        doc_warnings.append(f"document unavailable: {e}")
     return dtos.TwinConfigDetailDTO(
         id=tc.id,
         description=tc.description,
         cluster=loaded.manifest.cluster if loaded is not None else None,
+        document=document,
+        warnings=doc_warnings,
         params=[dtos.TwinConfigParamDTO(**p) for p in described],
         segments=[
             dtos.TwinConfigSegmentSummaryDTO(
@@ -5976,4 +5988,546 @@ def tfc_profile(settings: ApiSettings, deploy_id: str) -> dtos.TfcProfileDTO:
     return dtos.TfcProfileDTO(
         deploy_id=te.deploy_id, tfc_deploy_id=tfc.deploy_id, twin_id=te.scenario_id,
         **doc,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The edit model (`api/Spec.md`, "The edit model: baseline + working copy";
+# seams A3 twin-config write and A2 per-deploy working copy). Storage,
+# document I/O and the classifier live in `axrange.api.edits`; this block
+# is the seam over them and over the tier playouts -- an attribute Apply
+# reaches `apply_traffic_profile` / `apply_tap_plan` exactly as `tfc_apply`
+# / `o2_tap_apply` above do (same entry points, same seams, same persona
+# overlay rule), with the working copy's own tier files as the plan. The
+# baseline is written by `twin_config_create` (Save-As) and
+# `twin_config_write` (Persist / Save) and by nothing else here.
+# ---------------------------------------------------------------------------
+def _catalog_roots(settings: ApiSettings) -> list[Path]:
+    from axrange.twinconfig.registry import search_dirs
+
+    return search_dirs(settings.twin_configs_dir or None)
+
+
+def _effective_images_root(settings: ApiSettings) -> Path:
+    """What `_resolve_config_scenario_path` resolves for the real catalog --
+    a document validated from a tempdir must see the SAME manifests."""
+    if settings.images_root:
+        return Path(settings.images_root)
+    if settings.twin_configs_dir:
+        return _catalog_roots(settings)[-1].resolve().parent
+    return Path.cwd()
+
+
+def _bundle_location(settings: ApiSettings, twin_id: str) -> tuple[Path, Optional[Path]]:
+    """`(bundle dir, flat file)`: the folder `twins/<id>/` the twin's te file
+    lives in, or -- for the legacy flat `<root>/<id>.yaml` layout -- the
+    root and that one file. 404 when the catalog has no such twin."""
+    from axrange.twinconfig import TwinConfigError, TwinConfigNotFoundError
+    from axrange.twinconfig.registry import resolve_twin_config_path
+
+    if not _is_safe_catalog_ref(twin_id):
+        raise ApiError(404, f"twin-config not found: {twin_id}")
+    try:
+        te_path = resolve_twin_config_path(
+            twin_id, catalog_dir=settings.twin_configs_dir or None, warnings=[],
+        )
+    except TwinConfigNotFoundError as e:
+        raise ApiError(404, str(e)) from e
+    except TwinConfigError as e:
+        raise ApiError(400, f"twin-config {twin_id!r}: {e}") from e
+    folder = te_path.parent
+    if folder.name == twin_id:
+        return folder, None
+    return folder, te_path
+
+
+def _read_twin_document(settings: ApiSettings, twin_id: str) -> dtos.TwinConfigDocumentDTO:
+    from axrange.api import edits
+
+    folder, flat = _bundle_location(settings, twin_id)
+    if flat is not None:
+        files, skipped = edits.read_single_file_document(flat), []
+    else:
+        files, skipped = edits.read_document(folder)
+    try:
+        te_file = edits.te_file_of(twin_id, files)
+    except edits.DocumentError as e:
+        raise ApiError(400, str(e)) from e
+    return dtos.TwinConfigDocumentDTO(id=twin_id, te_file=te_file, files=files, skipped=skipped)
+
+
+def _validate_twin_document(
+    settings: ApiSettings, twin_id: str, files: dict[str, str],
+) -> dtos.ValidateResultDTO:
+    """The document, validated through the SAME path as `POST /api/validate`
+    (`validate(config=...)`: expand, then `validate_full` with the real
+    manifests) from a throwaway catalog, then each tier default parsed by the
+    loader its playout uses (`load_traffic_profile`, `load_tap_plan`). Any
+    refusal is an `ApiError` carrying the validator's or parser's reason;
+    nothing is written anywhere."""
+    import dataclasses
+    import shutil
+    import tempfile
+
+    from axrange.api import edits
+
+    try:
+        edits.check_document_identity(twin_id, files)
+    except edits.DocumentError as e:
+        raise ApiError(400, str(e)) from e
+    td = Path(tempfile.mkdtemp(prefix="axrange-edit-"))
+    try:
+        try:
+            edits.write_document(td / twin_id, files, replace=False)
+        except edits.DocumentError as e:
+            raise ApiError(400, str(e)) from e
+        scratch = dataclasses.replace(
+            settings, twin_configs_dir=str(td),
+            images_root=str(_effective_images_root(settings)),
+        )
+        result = validate(scratch, config=twin_id)
+        if result.disposition == "FAIL":
+            raise ApiError(
+                422, f"twin-config {twin_id!r} fails validation "
+                f"({result.errors} error(s))",
+                detail={
+                    "code": "invalid",
+                    "findings": [f.model_dump() for f in result.findings if f.severity == "error"],
+                },
+            )
+        _check_tier_files(td / twin_id, files)
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+    return result
+
+
+def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> None:
+    """Every `tfc/*.yaml` and `tap/*.yaml` of the document must parse as the
+    plan its playout will load (one validation implementation, LES-037)."""
+    from axrange.o2control.taps import TapPlanError, load_tap_plan
+    from axrange.o2control.traffic import TrafficPlanError, load_traffic_profile
+
+    for rel in sorted(files):
+        top = rel.split("/", 1)[0]
+        if not rel.endswith((".yaml", ".yml")) or top not in ("tfc", "tap"):
+            continue
+        try:
+            if top == "tfc":
+                raw = _load_yaml_text(files[rel])
+                if not isinstance(raw, dict) or "traffic-profile" not in raw:
+                    continue  # a `roles_from:` fragment (tfc/roles.yaml), not a profile
+                load_traffic_profile(bundle_dir / rel)
+            else:
+                load_tap_plan(bundle_dir / rel)
+        except (TrafficPlanError, TapPlanError) as e:
+            raise ApiError(400, f"{rel}: {e.message}") from e
+
+
+def _load_yaml_text(text: str) -> Any:
+    from axrange.api import edits
+
+    return edits.parse_yaml(text)
+
+
+def _write_root(settings: ApiSettings) -> Path:
+    """Where a Save-As lands: the LAST catalog root (the one that wins an
+    id collision, so the new twin is the one `--config <id>` resolves)."""
+    return _catalog_roots(settings)[-1]
+
+
+def twin_config_create(
+    settings: ApiSettings, req: dtos.TwinConfigWriteRequest,
+) -> dtos.TwinConfigDetailDTO:
+    """A3 `POST /api/twin-configs` (Save-As): a NEW twin under `req.id`.
+    An id the catalog already resolves is refused (409), never overwritten;
+    the document is validated before the first byte lands."""
+    from axrange.api import edits
+    from axrange.twinconfig import TwinConfigNotFoundError
+    from axrange.twinconfig.registry import resolve_twin_config_path
+
+    twin_id = (req.id or "").strip()
+    if not twin_id or not _is_safe_catalog_ref(twin_id):
+        raise ApiError(400, f"'id' {req.id!r} is not a usable twin-config id")
+    if edits.MANIFEST not in req.files and "te.yaml" not in req.files and f"{twin_id}.yaml" not in req.files:
+        raise ApiError(400, f"document for {twin_id!r} has no twin config file")
+    try:
+        resolve_twin_config_path(twin_id, catalog_dir=settings.twin_configs_dir or None, warnings=[])
+    except TwinConfigNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001 -- a broken existing entry still EXISTS
+        raise ApiError(409, f"twin-config {twin_id!r} already exists (and does not load); not overwritten")
+    else:
+        raise ApiError(409, f"twin-config {twin_id!r} already exists; Save-As never overwrites")
+    root = _write_root(settings)
+    folder = root / twin_id
+    if folder.exists():
+        raise ApiError(409, f"{folder} already exists; Save-As never overwrites")
+    _validate_twin_document(settings, twin_id, req.files)
+    try:
+        edits.write_document(folder, req.files, replace=False)
+    except edits.DocumentError as e:
+        raise ApiError(400, str(e)) from e
+    return twin_config_detail(settings, twin_id)
+
+
+def twin_config_write(
+    settings: ApiSettings, config_id: str, req: dtos.TwinConfigWriteRequest,
+) -> dtos.TwinConfigDetailDTO:
+    """A3 `PUT /api/twin-configs/{id}` (Persist from a working copy, or Save
+    on an undeployed config): baseline := document, after validation. Every
+    deploy whose working copy now equals the baseline is clean again (its
+    row goes; what Apply pushed from it IS the baseline now)."""
+    from axrange.api import edits
+
+    if req.id is not None and req.id != config_id:
+        raise ApiError(400, f"body id {req.id!r} does not match the path id {config_id!r}")
+    folder, flat = _bundle_location(settings, config_id)
+    if flat is not None:
+        extra = sorted(set(req.files) - {flat.name})
+        if extra:
+            raise ApiError(
+                400, f"twin-config {config_id!r} is a single file ({flat.name}); "
+                f"the document may not add {extra}",
+            )
+    _validate_twin_document(settings, config_id, req.files)
+    try:
+        edits.write_document(folder, req.files, replace=flat is None)
+    except edits.DocumentError as e:
+        raise ApiError(400, str(e)) from e
+    copies = edits.WorkingCopyStore.beside(settings.db_path)
+    for wc in copies.for_twin(config_id):
+        if wc.files == req.files:
+            copies.delete(wc.deploy_id)
+    return twin_config_detail(settings, config_id)
+
+
+def _te_for_config(settings: ApiSettings, deploy_id: str) -> Any:
+    store = _open_existing_store(settings.db_path)
+    try:
+        return _resolve_te_row(store, deploy_id)
+    finally:
+        store.close()
+
+
+def _require_live(te: Any) -> None:
+    from axrange.planner.state import DeployStatus
+
+    if te.status == DeployStatus.DESTROYED:
+        raise ApiError(409, f"deploy {te.deploy_id} is destroyed; its working copy is read-only")
+
+
+def _deploy_config_dto(
+    settings: ApiSettings, te: Any, *, warnings: Optional[list[str]] = None,
+) -> dtos.DeployConfigDTO:
+    """The working copy as the console sees it: the row's document, or the
+    baseline's until the first PUT; `dirty` and the per-change classification
+    are computed against the baseline AS IT IS NOW."""
+    from axrange.api import edits
+
+    twin_id = te.scenario_id
+    baseline = _read_twin_document(settings, twin_id)
+    wc = edits.WorkingCopyStore.beside(settings.db_path).get(te.deploy_id)
+    files = wc.files if wc is not None else baseline.files
+    changes = edits.classify(baseline.files, files, te_file=baseline.te_file) if wc else []
+    try:
+        te_file = edits.te_file_of(twin_id, files)
+    except edits.DocumentError:
+        te_file = baseline.te_file
+    applied = None
+    if wc is not None and wc.applied:
+        applied = dtos.DeployConfigAppliedDTO(
+            at=_iso(wc.applied.get("at")) or "", tiers=list(wc.applied.get("tiers") or []),
+            roles=dict(wc.applied.get("roles") or {}),
+        )
+    return dtos.DeployConfigDTO(
+        deploy_id=te.deploy_id, twin_id=twin_id,
+        dirty=wc is not None and files != baseline.files,
+        has_working_copy=wc is not None,
+        document=dtos.TwinConfigDocumentDTO(
+            id=twin_id, te_file=te_file, files=files, skipped=baseline.skipped,
+        ),
+        changes=[
+            dtos.PendingChangeDTO(
+                path=c.path, op=c.op, kind=c.kind, via=c.via, paths=c.paths,
+                reason=c.reason, roles=c.roles,
+            )
+            for c in changes
+        ],
+        apply_allowed=all(c.kind != edits.KIND_TOPOLOGY for c in changes),
+        applied=applied,
+        updated_at=_iso(wc.updated_at) if wc is not None else None,
+        warnings=list(warnings or []),
+    )
+
+
+def deploy_config(settings: ApiSettings, deploy_id: str) -> dtos.DeployConfigDTO:
+    """A2 `GET /api/deploys/{id}/config`."""
+    return _deploy_config_dto(settings, _te_for_config(settings, deploy_id))
+
+
+def deploy_config_put(
+    settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigWriteRequest,
+) -> dtos.DeployConfigDTO:
+    """A2 `PUT /api/deploys/{id}/config`: replace the working copy after the
+    same validation `POST /api/validate` runs; the baseline is never
+    touched and a refused body leaves the stored copy as it was."""
+    from axrange.api import edits
+
+    te = _te_for_config(settings, deploy_id)
+    _require_live(te)
+    _validate_twin_document(settings, te.scenario_id, req.files)
+    edits.WorkingCopyStore.beside(settings.db_path).put(te.deploy_id, te.scenario_id, req.files)
+    return _deploy_config_dto(settings, te)
+
+
+def _twin_host_ids(settings: ApiSettings, te_id: str) -> list[str]:
+    """The hosts the running twin publishes (its `clone-vm` rows)."""
+    store = _open_existing_store(settings.db_path)
+    try:
+        return sorted({
+            json.loads(op.scope_json or "{}").get("host")
+            for op in store.ops_for_deploy(te_id) if op.op_name == "clone-vm"
+        } - {None})
+    finally:
+        store.close()
+
+
+def _instances_of(group: str, host_ids: list[str]) -> list[str]:
+    """`expand.instance_ids` read back from the running roster: the group
+    alone at count 1, `<group>NN` otherwise."""
+    import re
+
+    pat = re.compile(rf"^{re.escape(group)}(\d{{2}})?$")
+    return [h for h in host_ids if pat.match(h)]
+
+
+def _replay_tiers(
+    settings: ApiSettings, te: Any, bundle_dir: Path, files: dict[str, str], *,
+    tiers: list[str], roles: dict[str, str], target_node: Optional[str],
+    allow_revert_host_edits: bool, persona_backend: Any, tap_adapter: Any,
+    tap_config_backend: Any, warnings: list[str],
+) -> tuple[list[str], Optional[dtos.TrafficPlanStatusDTO], Optional[dtos.TapPlanStatusDTO]]:
+    """Re-apply the document's tier defaults onto the running twin through
+    the tiers' OWN playouts (`apply_traffic_profile`, `apply_tap_plan`: each
+    converges and de-scopes; neither touches a VM). `bundle_dir` holds the
+    document on disk (the catalog folder for a baseline, a tempdir for a
+    working copy) so `roles_from:` and `personas/` resolve from it. `roles`
+    are node-group role re-assignments folded into the traffic profile's
+    `roles:` block as per-instance entries."""
+    from axrange.api import edits
+
+    applied: list[str] = []
+    tfc_dto: Optional[dtos.TrafficPlanStatusDTO] = None
+    tap_dto: Optional[dtos.TapPlanStatusDTO] = None
+    if "tfc" in tiers:
+        rel = edits.tier_file_of(files, "tfc")
+        if rel is None:
+            warnings.append(
+                "tfc: the document has no traffic profile default; nothing to re-apply "
+                "(a standing tfc deploy, if any, was left as is)"
+            )
+        else:
+            tfc_dto = _replay_tfc(
+                settings, te, bundle_dir / rel, roots=bundle_dir.parent, roles=roles,
+                target_node=target_node, allow_revert_host_edits=allow_revert_host_edits,
+                persona_backend=persona_backend,
+            )
+            applied.append("tfc")
+    elif roles:
+        warnings.append(f"roles {sorted(roles)} changed but no tfc tier was re-applied")
+    if "tap" in tiers:
+        rel = edits.tier_file_of(files, "tap")
+        if rel is None:
+            warnings.append(
+                "tap: the document has no tap plan default; nothing to re-apply "
+                "(a standing tap deploy, if any, was left as is)"
+            )
+        else:
+            tap_dto = _replay_tap(
+                settings, te, bundle_dir / rel, target_node=target_node,
+                adapter=tap_adapter, config_backend=tap_config_backend,
+            )
+            applied.append("tap")
+    return applied, tfc_dto, tap_dto
+
+
+def _replay_tfc(
+    settings: ApiSettings, te: Any, profile_path: Path, *, roots: Path,
+    roles: dict[str, str], target_node: Optional[str], allow_revert_host_edits: bool,
+    persona_backend: Any,
+) -> dtos.TrafficPlanStatusDTO:
+    import dataclasses
+
+    from axrange.o2control.traffic import (
+        RoleAssignmentSpec, TrafficPlanError, apply_traffic_profile, load_traffic_profile,
+        twin_persona_overlay,
+    )
+    from axrange.personas import registry as persona_registry
+
+    try:
+        spec = load_traffic_profile(profile_path)
+    except TrafficPlanError as e:
+        raise ApiError(e.status, e.message) from e
+    if roles:
+        host_ids = _twin_host_ids(settings, te.deploy_id)
+        overridden: dict[str, str] = {}
+        for group, role in roles.items():
+            for inst in _instances_of(group, host_ids):
+                overridden[inst] = role
+        kept = [r for r in spec.roles if r.node not in overridden]
+        kept.extend(
+            RoleAssignmentSpec(node=inst, selector=None, role=role)
+            for inst, role in sorted(overridden.items()) if role
+        )
+        spec = dataclasses.replace(spec, roles=kept)
+    overlay, _w, _found = twin_persona_overlay(te.scenario_id, str(roots))
+    try:
+        with persona_registry.overlay(overlay):
+            status = apply_traffic_profile(
+                spec=spec, db_path=settings.db_path, adapter_config=settings.adapter_config,
+                target_node=target_node, target=te.deploy_id,
+                persona_backend=persona_backend,
+                allow_revert_host_edits=allow_revert_host_edits,
+            )
+    except TrafficPlanError as e:
+        raise ApiError(e.status, e.message, detail=e.detail) from e
+    return _traffic_status_dto(status)
+
+
+def _replay_tap(
+    settings: ApiSettings, te: Any, plan_path: Path, *, target_node: Optional[str],
+    adapter: Any, config_backend: Any,
+) -> dtos.TapPlanStatusDTO:
+    from axrange.o2control.taps import TapPlanError, apply_tap_plan, load_tap_plan
+
+    try:
+        spec = load_tap_plan(plan_path)
+        status = apply_tap_plan(
+            spec=spec, db_path=settings.db_path, adapter_config=settings.adapter_config,
+            target_node=target_node, target=te.deploy_id, adapter=adapter,
+            config_backend=config_backend,
+        )
+    except TapPlanError as e:
+        raise ApiError(e.status, e.message) from e
+    return _tap_status_dto(status)
+
+
+def deploy_config_apply(
+    settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigApplyRequest, *,
+    persona_backend: Any = None, tap_adapter: Any = None, tap_config_backend: Any = None,
+) -> dtos.DeployConfigApplyDTO:
+    """A2 `POST /api/deploys/{id}/config/apply`: the working copy's delta
+    onto the running twin, no redeploy. Attribute changes go through the
+    tiers' playouts; ANY topology change refuses the whole apply as
+    `requires-replan` naming the offending files and paths, and nothing is
+    applied."""
+    import shutil
+    import tempfile
+    import time
+
+    from axrange.api import edits
+
+    te = _te_for_config(settings, deploy_id)
+    _require_live(te)
+    copies = edits.WorkingCopyStore.beside(settings.db_path)
+    wc = copies.get(te.deploy_id)
+    if wc is None:
+        raise ApiError(409, f"deploy {te.deploy_id} has no working copy; nothing to apply")
+    baseline = _read_twin_document(settings, te.scenario_id)
+    changes = edits.classify(baseline.files, wc.files, te_file=baseline.te_file)
+    topology = [c for c in changes if c.kind == edits.KIND_TOPOLOGY]
+    if topology:
+        raise ApiError(
+            409,
+            f"{edits.REQUIRES_REPLAN}: {len(topology)} change(s) to "
+            f"{', '.join(c.path for c in topology)} need a re-plan; nothing applied",
+            detail={
+                "code": edits.REQUIRES_REPLAN,
+                "files": [c.path for c in topology],
+                "paths": [p for c in topology for p in c.paths],
+                "changes": [
+                    dtos.PendingChangeDTO(
+                        path=c.path, op=c.op, kind=c.kind, via=c.via, paths=c.paths,
+                        reason=c.reason, roles=c.roles,
+                    ).model_dump()
+                    for c in changes
+                ],
+            },
+        )
+    tiers = edits.tiers_to_apply(changes)
+    roles = edits.role_overrides(changes)
+    warnings: list[str] = []
+    if not changes:
+        warnings.append("the working copy equals the baseline; nothing to apply")
+    td = Path(tempfile.mkdtemp(prefix="axrange-apply-"))
+    try:
+        edits.write_document(td / te.scenario_id, wc.files, replace=False)
+        applied, tfc_dto, tap_dto = _replay_tiers(
+            settings, te, td / te.scenario_id, wc.files, tiers=tiers, roles=roles,
+            target_node=req.target_node, allow_revert_host_edits=req.allow_revert_host_edits,
+            persona_backend=persona_backend, tap_adapter=tap_adapter,
+            tap_config_backend=tap_config_backend, warnings=warnings,
+        )
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+    if applied:
+        prev = wc.applied or {}
+        record = {
+            "at": time.time(),
+            "tiers": [t for t in ("tfc", "tap") if t in set(prev.get("tiers") or []) | set(applied)],
+            "roles": {**(prev.get("roles") or {}), **roles},
+        }
+        copies.mark_applied(te.deploy_id, record)
+    return dtos.DeployConfigApplyDTO(
+        deploy_id=te.deploy_id, twin_id=te.scenario_id, applied=applied,
+        tfc=tfc_dto, tap=tap_dto, roles=roles, warnings=warnings,
+        config=_deploy_config_dto(settings, te),
+    )
+
+
+def deploy_config_reset(
+    settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigResetRequest, *,
+    persona_backend: Any = None, tap_adapter: Any = None, tap_config_backend: Any = None,
+) -> dtos.DeployConfigResetDTO:
+    """A2 `POST /api/deploys/{id}/config/reset`: discard the working copy
+    and revert what Apply pushed from it -- the baseline's own tfc/tap
+    defaults re-applied through the same playouts (converge + de-scope),
+    with the baseline's roles re-asserted for every group an apply
+    re-assigned. The running twin then matches the baseline again."""
+    from axrange.api import edits
+    from axrange.planner.state import DeployStatus
+
+    te = _te_for_config(settings, deploy_id)
+    copies = edits.WorkingCopyStore.beside(settings.db_path)
+    wc = copies.get(te.deploy_id)
+    warnings: list[str] = []
+    reverted: list[str] = []
+    tfc_dto = tap_dto = None
+    if wc is not None and wc.applied and te.status == DeployStatus.DESTROYED:
+        warnings.append(
+            f"deploy {te.deploy_id} is destroyed: nothing to revert; the copy is discarded"
+        )
+    elif wc is not None and wc.applied:
+        baseline = _read_twin_document(settings, te.scenario_id)
+        folder, _flat = _bundle_location(settings, te.scenario_id)
+        tiers = [t for t in ("tfc", "tap") if t in (wc.applied.get("tiers") or [])]
+        # The baseline's role for every group the apply re-assigned (an
+        # absent baseline role de-scopes through the playout's own drop-diff).
+        baseline_roles: dict[str, str] = {}
+        if wc.applied.get("roles"):
+            te_doc = edits.parse_yaml(baseline.files[baseline.te_file])
+            nodes = edits._node_by_name(te_doc)
+            for group in wc.applied["roles"]:
+                baseline_roles[group] = str((nodes.get(group) or {}).get("role") or "")
+        reverted, tfc_dto, tap_dto = _replay_tiers(
+            settings, te, folder, baseline.files, tiers=tiers,
+            roles=baseline_roles, target_node=req.target_node, allow_revert_host_edits=True,
+            persona_backend=persona_backend, tap_adapter=tap_adapter,
+            tap_config_backend=tap_config_backend, warnings=warnings,
+        )
+    discarded = copies.delete(te.deploy_id)
+    return dtos.DeployConfigResetDTO(
+        deploy_id=te.deploy_id, twin_id=te.scenario_id, discarded=discarded,
+        reverted=reverted, tfc=tfc_dto, tap=tap_dto, warnings=warnings,
+        config=_deploy_config_dto(settings, te),
     )

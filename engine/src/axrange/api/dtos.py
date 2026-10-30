@@ -1159,6 +1159,13 @@ class TwinConfigDetailDTO(BaseModel):
     identity_domain: Optional[str] = None
     identity_user_count: int = 0
     data_count: int = 0
+    # The bundle's own files (`api/Spec.md` A3): what the editor edits and
+    # what `POST`/`PUT /api/twin-configs` write back; a read after a write
+    # returns it byte-for-byte. `TwinConfigDocumentDTO` is declared with the
+    # edit-model DTOs at the end of this module. None only when the bundle
+    # folder cannot be read (`warnings` says why).
+    document: Optional["TwinConfigDocumentDTO"] = None
+    warnings: list[str] = []
 
 
 # --------------------------------------------------------------------------
@@ -2201,3 +2208,116 @@ class TwinTreeDTO(BaseModel):
     traffic_profile: Optional[str] = None
     tap_plan: Optional[str] = None
     warnings: list[str] = []
+
+
+# --------------------------------------------------------------------------
+# The edit model (`api/Spec.md`, "The edit model: baseline + working copy";
+# seams A2 + A3). The twin-config DOCUMENT is the one payload that crosses
+# the boundary as the bundle's own files: every text file of
+# `catalog/twins/<id>/` keyed by its bundle-relative path (`te.yaml`,
+# `twin.yaml`, `tfc/default.yaml`, `tap/default.yaml`, `personas/*.yaml`,
+# ...). It is what `GET /api/twin-configs/{id}` now carries as `document`,
+# what A3's `POST`/`PUT /api/twin-configs` write, and what a deploy's working
+# copy (`GET|PUT /api/deploys/{id}/config`) holds.
+# --------------------------------------------------------------------------
+class TwinConfigDocumentDTO(BaseModel):
+    id: str
+    # The file that is the twin config (`twin.yaml`'s `tiers.te.default`,
+    # normally `te.yaml`).
+    te_file: str
+    files: dict[str, str]
+    # Bundle files that are NOT text and so not part of the document (a
+    # write leaves them in place). Empty for every shipped twin.
+    skipped: list[str] = []
+
+
+class TwinConfigWriteRequest(BaseModel):
+    """`POST /api/twin-configs` (Save-As: `id` required, must be new) and
+    `PUT /api/twin-configs/{id}` (Persist / Save: `id`, if given, must match
+    the path). The document's own `twin_config.id` must equal the id."""
+
+    id: Optional[str] = None
+    files: dict[str, str]
+
+
+class PendingChangeDTO(BaseModel):
+    """One file that differs between the baseline and the working copy, and
+    what Apply may do about it: `attribute` (the named tiers' playouts
+    re-apply, VMs untouched), `topology` (refused as `requires-replan`) or
+    `inert` (nothing on the running twin reads it; Persist carries it)."""
+
+    path: str
+    op: str  # added | removed | modified
+    kind: str  # attribute | topology | inert
+    via: list[str] = []  # tfc | tap -- the playouts an attribute change re-applies through
+    paths: list[str] = []  # the differing paths inside the file (dotted YAML paths)
+    reason: str = ""
+    # A te `role` change classified attribute: node group -> new role.
+    roles: dict[str, str] = {}
+
+
+class DeployConfigAppliedDTO(BaseModel):
+    at: str
+    tiers: list[str] = []
+    roles: dict[str, str] = {}
+
+
+class DeployConfigDTO(BaseModel):
+    """`GET|PUT /api/deploys/{id}/config` -- the working copy (the baseline's
+    content until first edited) and its classification."""
+
+    deploy_id: str
+    twin_id: str
+    dirty: bool
+    # False until the first PUT: the document shown is the baseline's.
+    has_working_copy: bool = False
+    document: TwinConfigDocumentDTO
+    changes: list[PendingChangeDTO] = []
+    # True when every pending change is attribute or inert.
+    apply_allowed: bool = True
+    applied: Optional[DeployConfigAppliedDTO] = None
+    updated_at: Optional[str] = None
+    warnings: list[str] = []
+
+
+class DeployConfigWriteRequest(BaseModel):
+    files: dict[str, str]
+
+
+class DeployConfigApplyRequest(BaseModel):
+    # The tier requests' own knobs, forwarded verbatim to the playouts.
+    target_node: Optional[str] = None
+    allow_revert_host_edits: bool = False
+
+
+class DeployConfigResetRequest(BaseModel):
+    target_node: Optional[str] = None
+
+
+class DeployConfigApplyDTO(BaseModel):
+    deploy_id: str
+    twin_id: str
+    # The tiers whose playout re-applied (`tfc`, `tap`), in that order.
+    applied: list[str] = []
+    tfc: Optional[TrafficPlanStatusDTO] = None
+    tap: Optional[TapPlanStatusDTO] = None
+    roles: dict[str, str] = {}
+    warnings: list[str] = []
+    config: DeployConfigDTO
+
+
+class DeployConfigResetDTO(BaseModel):
+    deploy_id: str
+    twin_id: str
+    discarded: bool
+    # The tiers re-applied from the baseline to revert what Apply pushed.
+    reverted: list[str] = []
+    tfc: Optional[TrafficPlanStatusDTO] = None
+    tap: Optional[TapPlanStatusDTO] = None
+    warnings: list[str] = []
+    config: DeployConfigDTO
+
+
+# `TwinConfigDetailDTO.document` names `TwinConfigDocumentDTO` before it is
+# declared; resolve the forward reference now that it is.
+TwinConfigDetailDTO.model_rebuild()

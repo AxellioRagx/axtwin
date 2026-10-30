@@ -147,7 +147,12 @@ twin's canvas.
 - Run records are in-memory for the life of `axrange serve`; nothing reads
   them after a restart today.
 
-**A2 — per-deploy working copy** (the edit model, below).
+**A2 — per-deploy working copy** (the edit model, below). **Built 2026-10-30**
+(`engine/src/axrange/api/edits.py` -- the document, the working-copy store
+and the classifier -- with the `deploy_config*` block of `api/service.py`;
+tests `engine/tests/test_api_edit_model.py`). The copy is one SQLite file
+beside the planner state DB (`<state>.edits.db`), one row per deploy; the
+document is the bundle's text files keyed by bundle-relative path.
 - `GET /api/deploys/{id}/config` — the working copy (the baseline's content
   until first edited) plus `dirty: bool`.
 - `PUT /api/deploys/{id}/config` — replace the working copy. Validated through
@@ -162,7 +167,10 @@ twin's canvas.
 - The working copy is **server-side state beside the deploy record**, so a
   console on any host sees the same copy (pairs with A5).
 
-**A3 — twin-config write** (root `CLAUDE.md` critical path 3).
+**A3 — twin-config write** (root `CLAUDE.md` critical path 3). **Built 2026-10-30**
+(`twin_config_create` / `twin_config_write` in `api/service.py` over
+`engine/src/axrange/api/edits.py`; tests `engine/tests/test_api_edit_model.py`).
+`GET /api/twin-configs/{id}` now carries the `document` the two writers take.
 - `POST /api/twin-configs` — create a new twin-config under a chosen id from a
   body (Save-As). An id that already exists is refused, never overwritten.
 - `PUT /api/twin-configs/{id}` — overwrite the baseline (Persist from a working

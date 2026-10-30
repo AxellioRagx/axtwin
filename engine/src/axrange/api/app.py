@@ -296,6 +296,27 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def twin_config_detail(config_id: str) -> dtos.TwinConfigDetailDTO:
         return service.twin_config_detail(settings, config_id)
 
+    # ---- twin-config write (`api/Spec.md` A3): Save-As and Persist/Save.
+    # The baseline is written here and nowhere else. ----
+    @app.post(
+        "/api/twin-configs",
+        response_model=dtos.TwinConfigDetailDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def twin_config_create(req: dtos.TwinConfigWriteRequest) -> dtos.TwinConfigDetailDTO:
+        return service.twin_config_create(settings, req)
+
+    @app.put(
+        "/api/twin-configs/{config_id}",
+        response_model=dtos.TwinConfigDetailDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def twin_config_write(
+        config_id: str, req: dtos.TwinConfigWriteRequest,
+    ) -> dtos.TwinConfigDetailDTO:
+        return service.twin_config_write(settings, config_id, req)
+
     # ---- twins (`docs/design/imprint-twin-split.md`): the catalog of
     # deployable twin definitions -- cast from an imprint, or authored. These
     # routes lived under `/api/imprints` until 2026-10-28; the handler and
@@ -1272,6 +1293,71 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         if format != "json":
             raise ApiError(400, f"unknown format {format!r}; expected json or yaml")
         return doc
+
+    # ---- the per-deploy working copy (`api/Spec.md` A2): the edit model's
+    # Apply and Reset exits. Attribute changes reach the running twin through
+    # the SAME tier playouts `POST /api/tfc` / `POST /api/taps` use, with the
+    # same test seams; a topology change is refused as `requires-replan`. ----
+    @app.get("/api/deploys/{deploy_id}/config", response_model=dtos.DeployConfigDTO)
+    @_ro
+    def deploy_config(
+        deploy_id: str, target: Optional[str] = _TARGET_QUERY,
+    ) -> dtos.DeployConfigDTO:
+        return service.deploy_config(_for_deploy(target, deploy_id), deploy_id)
+
+    @app.put(
+        "/api/deploys/{deploy_id}/config",
+        response_model=dtos.DeployConfigDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def deploy_config_put(
+        deploy_id: str, req: dtos.DeployConfigWriteRequest,
+        target: Optional[str] = _TARGET_QUERY,
+        override_protection: Optional[str] = _OVERRIDE_QUERY,
+    ) -> dtos.DeployConfigDTO:
+        in_store = _for_deploy(target, deploy_id)
+        service.guard_protected(in_store, deploy_id=deploy_id, override=override_protection)
+        return service.deploy_config_put(in_store, deploy_id, req)
+
+    @app.post(
+        "/api/deploys/{deploy_id}/config/apply",
+        response_model=dtos.DeployConfigApplyDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def deploy_config_apply(
+        deploy_id: str,
+        req: Optional[dtos.DeployConfigApplyRequest] = Body(default=None),
+        target: Optional[str] = _TARGET_QUERY,
+        override_protection: Optional[str] = _OVERRIDE_QUERY,
+    ) -> dtos.DeployConfigApplyDTO:
+        in_store = _for_deploy(target, deploy_id)
+        service.guard_protected(in_store, deploy_id=deploy_id, override=override_protection)
+        return service.deploy_config_apply(
+            in_store, deploy_id, req or dtos.DeployConfigApplyRequest(),
+            persona_backend=app.state.tfc_persona_backend,
+            tap_adapter=app.state.tap_adapter,
+            tap_config_backend=app.state.tap_config_backend,
+        )
+
+    @app.post(
+        "/api/deploys/{deploy_id}/config/reset",
+        response_model=dtos.DeployConfigResetDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def deploy_config_reset(
+        deploy_id: str,
+        req: Optional[dtos.DeployConfigResetRequest] = Body(default=None),
+        target: Optional[str] = _TARGET_QUERY,
+        override_protection: Optional[str] = _OVERRIDE_QUERY,
+    ) -> dtos.DeployConfigResetDTO:
+        in_store = _for_deploy(target, deploy_id)
+        service.guard_protected(in_store, deploy_id=deploy_id, override=override_protection)
+        return service.deploy_config_reset(
+            in_store, deploy_id, req or dtos.DeployConfigResetRequest(),
+            persona_backend=app.state.tfc_persona_backend,
+            tap_adapter=app.state.tap_adapter,
+            tap_config_backend=app.state.tap_config_backend,
+        )
 
     # ---- pcaps (deferred) ----
     @app.get("/api/pcaps", response_model=dtos.PcapListDTO)
