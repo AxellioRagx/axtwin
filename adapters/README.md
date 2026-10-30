@@ -7,7 +7,7 @@ op→platform mapping, its config keys, and its acceptance.
 | Folder | Platform | Code |
 |---|---|---|
 | `proxmox/` | Proxmox VE (REST + SSH) | `engine/src/axrange/adapter_proxmox/`, behind the `axrange.platform` protocols and factory; relocation here is a packaging decision still open |
-| `libvirt/` | native QEMU/KVM on a Linux host, driven through libvirt | spec only |
+| `libvirt/` | native QEMU/KVM on a Linux host, driven through libvirt | `engine/src/axrange/adapter_libvirt/`, same placement rule; on a fake connection only, no live slice yet |
 
 The contract every adapter satisfies is the `Adapter` protocol
 (`axrange.planner.executor.Adapter`) plus the platform seams named in

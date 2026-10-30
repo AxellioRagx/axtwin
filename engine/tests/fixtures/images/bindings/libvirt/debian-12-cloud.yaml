@@ -1,0 +1,21 @@
+binding_schema_version: 1
+binding:
+  image: debian-12-cloud
+  platform: libvirt
+  versions:
+    - id: v1
+      # The imported img-* qcow2 in LIBVIRT_STORAGE_POOL (adapter_libvirt/bindings.py).
+      storage: { type: volume, volume: img-debian-12-cloud.qcow2 }
+      clone_mode: linked
+      cloud_init: { supported: true, user: debian, sysprep_required: false }
+      hardware:
+        machine: pc
+        bios: seabios
+        nic_model: virtio
+        disk_bus: virtio
+        agent: true
+        vcpu: 2
+        memory: 2Gi
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 30

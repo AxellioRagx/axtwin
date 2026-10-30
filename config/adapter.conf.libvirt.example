@@ -1,0 +1,46 @@
+# axRange libvirt adapter configuration (adapters/libvirt/SPEC.md)
+# Copy to the path your target's `adapter_config:` names and fill in the values.
+# Same file shape as the Proxmox adapter.conf; UNKNOWN KEYS ARE REFUSED, so do
+# not point a libvirt target at a Proxmox file. Env vars of the same names
+# override this file.
+
+# --- libvirt backend ---
+# Local host: qemu:///system. Remote host: qemu+ssh://user@host/system
+# (then HOST_SSH_* below are required for the host backend).
+LIBVIRT_URI=qemu:///system
+# Storage pool holding the img-* template volumes; per-deploy qcow2 overlays
+# and NoCloud seed ISOs are created in the same pool.
+LIBVIRT_STORAGE_POOL=default
+# linux (default): isolated libvirt networks on Linux bridges, one per segment.
+# ovs: Open vSwitch bridges; REQUIRED for a VLAN zone (libvirt only applies
+# <vlan> tags to OVS ports).
+# LIBVIRT_NETWORK_BACKEND=linux
+
+# --- host backend (seed ISO build, gretap + tc mirror) ---
+# Local URI: commands run as this process (needs sudo-less `ip`/`tc`/
+# `xorriso` rights, e.g. run axrange as root or via a sudo-capable user).
+# Remote URI: SSH with this key PATH (never key material).
+# HOST_SSH_HOST=kvm1.lab
+# HOST_SSH_USER=root
+# HOST_SSH_KEY=~/.ssh/kvm1_ed25519
+
+# --- guest cloud-init ---
+# Public key injected into every Linux guest's cloud-init user (required).
+GUEST_SSH_PUBKEY_FILE=~/.ssh/kvm1_ed25519.pub
+
+# --- placement ---
+# The host's name as the planner records placement (one host in v1).
+DEFAULT_NODE=kvm1
+
+# --- image bindings ---
+# Directory of images/bindings/libvirt/<image>.yaml (template volume name,
+# hardware defaults, optional domain XML template). Needed by clone-vm when
+# the plan does not carry `template_volume` itself.
+# LIBVIRT_BINDINGS_DIR=/path/to/images/bindings/libvirt
+
+# --- optional, unchanged from the Proxmox file ---
+# DEFAULT_PASSWORD=Axr4nge-Lab!
+# MIRROR_GRETAP_TXQUEUELEN=20000
+# PROTECTED_EXTERNAL_NAMES=XPress-SW
+# PROTECTED_EXTERNAL_VMIDS=250
+# EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20"}]

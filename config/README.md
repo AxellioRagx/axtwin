@@ -5,6 +5,7 @@ Operator-side configuration for the instrument, out of the package trees.
 | File | Tracked | What |
 |---|---|---|
 | `adapter.conf.example` | yes | template for the Proxmox adapter: API URL/token, SSH, SDN, O2 endpoints |
+| `adapter.conf.libvirt.example` | yes | template for the libvirt adapter (a target with `platform: libvirt`): URI, storage pool, host SSH, bindings dir |
 | `adapter.conf` | **no** (gitignored) | your filled-in copy; holds the Proxmox API token |
 | `adapter.targets.example.yaml` | yes | template for the named deploy targets (`AXRANGE_TARGETS`) |
 

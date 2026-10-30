@@ -19,7 +19,7 @@ import urllib.parse
 
 from axrange.adapter_proxmox.config import AdapterConfig
 from axrange.adapter_proxmox.rest import RestClient
-from axrange.adapter_proxmox.ssh import run_ssh
+from axrange.adapter_proxmox.ssh import gretap_del_cmd, gretap_show_cmd, run_ssh
 from axrange.planner.executor import AdapterError, AdapterTimeout
 
 
@@ -87,14 +87,10 @@ class ProxmoxTeardown:
     def delete_gretap(self, dev: str) -> str:
         """`ip link del <dev>` the keyed gretap netdev. Absent → no-op. The
         netdev isn't persistent across a node reboot anyway (§8 step 3)."""
-        show = run_ssh(
-            self.cfg,
-            f"ip -o link show {shlex.quote(dev)} 2>/dev/null || true",
-            timeout_s=15,
-        )
+        show = run_ssh(self.cfg, gretap_show_cmd(dev), timeout_s=15)
         if dev not in show:
             return "absent"
-        run_ssh(self.cfg, f"ip link del {shlex.quote(dev)}", timeout_s=30)
+        run_ssh(self.cfg, gretap_del_cmd(dev), timeout_s=30)
         return "removed"
 
     # ---- SDN (staged; committed by apply_sdn) ----------------------------

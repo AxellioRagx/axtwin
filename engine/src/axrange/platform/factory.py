@@ -4,14 +4,15 @@ A deploy target names its `platform` (`api/Spec.md` A4; `proxmox` when
 absent) and this module turns that name into one `PlatformAdapters` bundle
 of the five seams (`protocols.py`). It is a CLOSED SET, not a registry
 (`api/Spec.md` "Not being built"; `docs/ARCHITECTURE.md` §13): no
-decorators, no entry points, no self-registration. `libvirt` joins
-`_BUILDERS` when its adapter exists (`adapters/libvirt/SPEC.md`), VMware
-after that; an unknown name is refused by name, never defaulted.
+decorators, no entry points, no self-registration. The set is `proxmox`
+and `libvirt` (`adapters/libvirt/SPEC.md`, built 2026-10-30); VMware joins
+when built; an unknown name is refused by name, never defaulted.
 
 This is the ONE module under `axrange/` (beside the genuinely Proxmox-only
-image-build and render modules) that imports `axrange.adapter_proxmox`
-(`tests/test_platform_layering.py`). Every Proxmox name is looked up on its
-module AT CALL TIME, not bound at import: the suite's seams monkeypatch
+image-build and render modules) that imports `axrange.adapter_proxmox`,
+and the ONLY one that imports `axrange.adapter_libvirt`
+(`tests/test_platform_layering.py`). Every platform name is looked up on
+its module AT CALL TIME, not bound at import: the suite's seams monkeypatch
 `axrange.adapter_proxmox.ProxmoxAdapter` / `ProxmoxTeardown` /
 `load_config` and `adapter_proxmox.resolve.resolve_vm_ip`, and those must
 keep intercepting the engine's real call paths.
@@ -201,12 +202,74 @@ _PROXMOX = _Builders(
 
 
 # ---------------------------------------------------------------------------
+# libvirt -- `adapters/libvirt/SPEC.md`; code in `axrange.adapter_libvirt`.
+# `client` is the lazily-opened `LibvirtConnection` the inventory and the
+# guest channel share (one connection per bundle, as the Proxmox bundle
+# shares one `RestClient`).
+# ---------------------------------------------------------------------------
+def _lv_load_config(path: Any = None, *, overrides: Optional[dict[str, Any]] = None) -> Any:
+    import axrange.adapter_libvirt as lv
+
+    if overrides is None:
+        return lv.load_config(path)
+    return lv.load_config(path, overrides=overrides)
+
+
+def _lv_client(cfg: Any) -> Any:
+    from axrange.adapter_libvirt import connection as lv_conn
+
+    return lv_conn.LibvirtConnection(cfg)
+
+
+def _lv_adapter(cfg: Any) -> "Adapter":
+    import axrange.adapter_libvirt as lv
+
+    return lv.LibvirtAdapter(cfg)
+
+
+def _lv_inventory(cfg: Any, client: Any) -> Inventory:
+    from axrange.adapter_libvirt import inventory as lv_inventory
+
+    return lv_inventory.LibvirtInventory(cfg, client=client)
+
+
+def _lv_namer() -> ResourceNamer:
+    from axrange.adapter_libvirt import naming as lv_naming
+
+    return lv_naming
+
+
+def _lv_teardown(cfg: Any) -> Teardown:
+    import axrange.adapter_libvirt as lv
+
+    return lv.LibvirtTeardown(cfg)
+
+
+def _lv_guest_exec(cfg: Any, client: Any, host: str, os_family: str) -> GuestExec:
+    from axrange.adapter_libvirt import guest as lv_guest
+
+    return lv_guest.LibvirtGuestExec(client, host, os_family=os_family)
+
+
+_LIBVIRT = _Builders(
+    load_config=_lv_load_config,
+    client=_lv_client,
+    adapter=_lv_adapter,
+    inventory=_lv_inventory,
+    namer=_lv_namer,
+    teardown=_lv_teardown,
+    guest_exec=_lv_guest_exec,
+)
+
+
+# ---------------------------------------------------------------------------
 # The closed set. ONE place: `PLATFORMS` is derived from it, nothing else
-# lists platform names. `libvirt` is added here when `adapters/libvirt/`
-# has code (its SPEC is the prerequisite list).
+# lists platform names. VMware is added here when `adapters/vmware/` has
+# code (its SPEC is the prerequisite list).
 # ---------------------------------------------------------------------------
 _BUILDERS: dict[str, _Builders] = {
     "proxmox": _PROXMOX,
+    "libvirt": _LIBVIRT,
 }
 
 PLATFORMS: frozenset[str] = frozenset(_BUILDERS)

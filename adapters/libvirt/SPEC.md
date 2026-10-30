@@ -43,7 +43,7 @@ performs no platform call, the pattern ADAPTER.md §8 already used for SDN.
 |---|---|---|
 | `create-sdn-zone` | logical; `zone_id` from naming | — |
 | `create-ovs-bridge` | define + start an isolated libvirt network backed by a Linux (or OVS) bridge named by `naming` | libvirt |
-| `create-vnet` | Simple-zone analogue: one network per segment; VLAN-zone analogue: a tagged portgroup on the zone's underlay network | libvirt |
+| `create-vnet` | Simple-zone analogue: one network per segment; VLAN-zone analogue: a tagged portgroup on the zone's underlay network (needs `LIBVIRT_NETWORK_BACKEND=ovs` -- libvirt applies `<vlan>` tags to Open vSwitch ports only, so a VLAN zone on the `linux` backend fails loud at `create-ovs-bridge`) | libvirt |
 | `create-subnet` | logical (addressing is cloud-init's) | — |
 | `apply-sdn-config` | `net-start` / autostart of the networks defined above | libvirt |
 | `clone-vm` | qcow2 overlay in the storage pool with the template volume as backing file; `defineXML` from the binding's domain template | libvirt |
@@ -75,10 +75,13 @@ keys fail loud when unrecognized):
 | `GUEST_SSH_PUBKEY_FILE` | yes | unchanged |
 | `DEFAULT_NODE` | yes | the host's name as placement records it |
 | `MIRROR_GRETAP_TXQUEUELEN` | no | unchanged |
+| `LIBVIRT_BINDINGS_DIR` | no | the `images/bindings/libvirt/` directory `clone-vm` resolves a template volume from by the op's `image_id`, until the planner binds images per platform (`docs/ARCHITECTURE.md` §4); a plan that carries `template_volume` needs no directory |
 
 Image bindings: `images/bindings/libvirt/<image>.yaml` with the manifest's
 platform-independent half untouched; the binding carries the template volume
-name, the domain XML template, and the hardware defaults. A template is the
+name, the domain XML template, and the hardware defaults (the key set is
+documented in `adapter_libvirt/bindings.py`; the manifest loader walks every
+`images/bindings/<platform>/` directory). A template is the
 same qcow2 the Proxmox `img-*` build produces, imported into the pool; a
 libvirt-native `axrange image build` path is a follow-up, not a prerequisite.
 

@@ -133,10 +133,10 @@ def test_the_factory_looks_proxmox_names_up_at_call_time(monkeypatch):
     assert a.adapter is sentinel_adapter and a.teardown is sentinel_teardown
 
 
-def test_the_closed_set_is_proxmox_only_today_and_refuses_anything_else_by_name():
-    assert PLATFORMS == frozenset({"proxmox"})
+def test_the_closed_set_is_proxmox_and_libvirt_and_refuses_anything_else_by_name():
+    assert PLATFORMS == frozenset({"proxmox", "libvirt"})
     assert DEFAULT_PLATFORM == "proxmox"
-    for bad in ("libvirt", "vmware", "PROXMOX", "", None, 7):
+    for bad in ("vmware", "vsphere", "PROXMOX", "LIBVIRT", "", None, 7):
         if bad in ("", None):
             continue  # those mean "absent" for `check_platform`, below
         with pytest.raises(UnknownPlatformError) as ei:
@@ -156,6 +156,80 @@ def test_check_platform_defaults_an_absent_value_and_passes_a_known_one():
     assert check_platform("") == "proxmox"
     assert check_platform("   ") == "proxmox"
     assert check_platform("proxmox") == "proxmox"
+    assert check_platform("libvirt") == "libvirt"
+
+
+# --- libvirt: the second platform through the same seams ---------------------
+
+
+def _lv_cfg(**kw):
+    from axrange.adapter_libvirt import config as lv_config
+
+    base = dict(libvirt_uri="qemu:///system", storage_pool="default",
+                guest_ssh_pubkey_file="/nowhere/id.pub", default_node="kvm-a")
+    base.update(kw)
+    return lv_config.LibvirtConfig(**base)
+
+
+def test_the_libvirt_classes_satisfy_the_five_protocols():
+    from axrange.adapter_libvirt import naming as lv_naming
+    from axrange.adapter_libvirt.adapter import LibvirtAdapter
+    from axrange.adapter_libvirt.guest import LibvirtGuestExec
+    from axrange.adapter_libvirt.inventory import LibvirtInventory
+    from axrange.adapter_libvirt.teardown import LibvirtTeardown
+
+    cfg = _lv_cfg()
+    assert isinstance(LibvirtAdapter(cfg, conn=object()), Adapter)
+    assert isinstance(LibvirtGuestExec(object(), "kvm-a"), GuestExec)
+    assert isinstance(LibvirtInventory(cfg, client=object()), Inventory)
+    assert isinstance(lv_naming, ResourceNamer)
+    assert isinstance(LibvirtTeardown(cfg, client=object()), Teardown)
+    assert isinstance(cfg, PlatformConfig)
+
+
+def test_the_libvirt_config_error_is_the_seams_config_error():
+    import axrange.adapter_libvirt as lv
+
+    assert lv.ConfigError is ConfigError
+    with pytest.raises(ConfigError):
+        load_config("/nowhere/adapter.conf", platform="libvirt")   # required keys missing
+
+
+def test_the_factory_bundles_the_five_seams_for_libvirt():
+    cfg = _lv_cfg()
+    a = adapter_for("libvirt", cfg)
+    assert a.platform == "libvirt" and a.config is cfg
+    assert isinstance(a.adapter, Adapter)
+    assert isinstance(a.inventory, Inventory)
+    assert isinstance(a.namer, ResourceNamer)
+    assert isinstance(a.teardown, Teardown)
+    ga = a.guest_exec("kvm-a", os_family="windows")
+    assert isinstance(ga, GuestExec) and ga.node == "kvm-a" and ga.is_windows
+    # One lazily-opened connection per bundle, shared by inventory + guest channel;
+    # nothing opened libvirt (there is no `libvirt` module on this box).
+    assert a.inventory.client is a.client and ga.client is a.client
+    assert a.client._raw is None
+    assert namer_for("libvirt") is a.namer and namer_for("libvirt") is not namer_for("proxmox")
+
+
+def test_the_libvirt_namer_mints_a_uuid_handle_and_shares_the_engine_shapes():
+    """The shapes are the engine's (byte-identical across platforms); the
+    handle is libvirt's own (a UUID5 string, never an int)."""
+    lv, px = namer_for("libvirt"), namer_for("proxmox")
+    for fn, args in (
+        ("zone_id_for_plan", ("plan-1",)), ("underlay_bridge_for_plan", ("plan-1",)),
+        ("vm_name_for_host", ("plan-1", "h-a")), ("img_vm_name_for_image", ("debian-12-cloud",)),
+        ("gre_port_for_bridge_sensor", ("tebr_abc", "s1")),
+    ):
+        assert getattr(lv, fn)(*args) == getattr(px, fn)(*args)
+    assert lv.vnet_id_for_net("corp", plan_id="plan-1") == px.vnet_id_for_net("corp", plan_id="plan-1")
+    assert lv.tier_predicates() is px.tier_predicates() and lv.tier_shape_checks() is px.tier_shape_checks()
+    h = lv.guest_handle_for_op("plan-1", "op-1")
+    assert isinstance(h, str) and h == lv.guest_handle_for_op("plan-1", "op-1")
+    assert h != lv.guest_handle_for_op("plan-1", "op-2")
+    assert lv.is_managed_guest_handle(h)
+    assert not lv.is_managed_guest_handle(px.guest_handle_for_op("plan-1", "op-1"))   # a VMID is not ours
+    assert not px.is_managed_guest_handle(h)                                           # and vice versa
 
 
 def test_there_is_no_registry_surface():

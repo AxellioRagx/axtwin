@@ -13,7 +13,7 @@
 #
 # `axrange serve --targets` REFUSES TO START when:
 #   - an entry's `platform` is not one the engine's closed platform factory
-#     knows (`proxmox` today; `libvirt` when its adapter is built);
+#     knows (`proxmox` or `libvirt`; VMware when its adapter is built);
 #   - the file names more than one target and an entry has no adapter_config
 #     (the default search path would point it at another cluster);
 #   - any of PROXMOX_API_URL, PROXMOX_API_TOKEN, DEFAULT_NODE, OVS_SSH_HOST,
@@ -46,3 +46,12 @@ targets:
   - name: pxtwin1
     adapter_config: /etc/axrange/adapter-pxtwin1.conf
     db: ~/.axrange/state-pxtwin1.db
+
+  # A libvirt target: a KVM host driven through libvirt (adapters/libvirt/SPEC.md).
+  # Its adapter.conf has the libvirt keys (config/adapter.conf.libvirt.example),
+  # its image bindings live under images/bindings/libvirt/.
+  # - name: kvm1
+  #   platform: libvirt
+  #   adapter_config: /etc/axrange/adapter-kvm1.conf
+  #   db: ~/.axrange/state-kvm1.db
+  #   nodes: [kvm1]

@@ -1,8 +1,13 @@
 """Enforces `docs/ARCHITECTURE.md` §13 / `docs/CONVENTIONS.md` §4 as code, not
 prose: the engine reaches a deploy platform ONLY through the protocols in
-`axrange.platform`; nothing under `src/axrange/` imports `axrange.adapter_proxmox`
-except the closed factory and the modules that are genuinely Proxmox-only
-(listed in `_ALLOWED_IMPORTERS`, each with the reason it is there). The test
+`axrange.platform`; nothing under `src/axrange/` imports a platform's package
+(`axrange.adapter_proxmox`, `axrange.adapter_libvirt`) except the closed
+factory and the modules that are genuinely Proxmox-only (listed in
+`_ALLOWED_IMPORTERS`, each with the reason it is there). The adapter packages
+themselves are outside the scan: an adapter may lift another adapter's PURE
+helpers (the libvirt adapter reuses the Proxmox naming shapes, QGA value
+type and gretap command builders), which is platform code calling platform
+code, not the engine binding a platform. The test
 is the counterpart of `discovery/tests/test_acquire_layering.py` and uses the
 same static-AST approach for the same reason: a lazily-imported violation
 inside a function body is exactly as real as a module-level one, and a runtime
@@ -22,14 +27,16 @@ import pathlib
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _SRC_ROOT = _REPO_ROOT / "src"
 _AXRANGE_ROOT = _SRC_ROOT / "axrange"
-_ADAPTER_ROOT = _AXRANGE_ROOT / "adapter_proxmox"
+#: The platform packages (`adapters/<platform>/SPEC.md` each): the scan
+#: skips them and forbids importing them from anywhere else.
+_FORBIDDEN_ROOTS = ("adapter_proxmox", "adapter_libvirt")
+_ADAPTER_ROOTS = frozenset(_AXRANGE_ROOT / r for r in _FORBIDDEN_ROOTS)
 
-_FORBIDDEN_ROOT = "adapter_proxmox"
-
-#: Modules that may import `axrange.adapter_proxmox` directly, and why.
+#: Modules that may import a platform package directly, and why.
 _ALLOWED_IMPORTERS: dict[pathlib.Path, str] = {
     _AXRANGE_ROOT / "platform" / "factory.py":
-        "the closed platform factory -- the ONE place the engine binds a platform name to its code",
+        "the closed platform factory -- the ONE place the engine binds a platform name to its code "
+        "(proxmox and libvirt alike)",
     _AXRANGE_ROOT / "imagebuild" / "proxmox_build.py":
         "the Proxmox image-build backend (qm/qemu-img over the node; REST for nextid/templates); "
         "a libvirt-native build path is a follow-up per adapters/libvirt/SPEC.md",
@@ -94,12 +101,12 @@ def _resolved_imports_from_source(source: str, path: pathlib.Path) -> list[tuple
 
 def _is_forbidden(dotted: str) -> bool:
     parts = dotted.split(".")
-    return len(parts) >= 2 and parts[0] == "axrange" and parts[1] == _FORBIDDEN_ROOT
+    return len(parts) >= 2 and parts[0] == "axrange" and parts[1] in _FORBIDDEN_ROOTS
 
 
 def _violations() -> list[str]:
     out: list[str] = []
-    for path in _module_files(_AXRANGE_ROOT, exclude_dirs=frozenset({_ADAPTER_ROOT})):
+    for path in _module_files(_AXRANGE_ROOT, exclude_dirs=_ADAPTER_ROOTS):
         if path in _ALLOWED_IMPORTERS:
             continue
         for lineno, dotted in _resolved_imports_from_source(path.read_text(), path):
@@ -111,14 +118,23 @@ def _violations() -> list[str]:
 # --- the gate ----------------------------------------------------------------
 
 
-def test_the_engine_imports_the_proxmox_adapter_only_through_the_factory():
+def test_the_engine_imports_a_platform_adapter_only_through_the_factory():
     violations = _violations()
     assert not violations, (
         "the engine must reach a deploy platform through `axrange.platform` "
         "(ARCHITECTURE §13; CONVENTIONS §4 'platform-specific is adapter-only') -- "
-        f"found {len(violations)} direct import(s) of axrange.adapter_proxmox:\n  "
+        f"found {len(violations)} direct import(s) of a platform package:\n  "
         + "\n  ".join(violations)
     )
+
+
+def test_the_factory_is_the_only_importer_of_the_libvirt_adapter():
+    """`adapter_libvirt` is allowed from exactly one engine module."""
+    importers = sorted(
+        str(p.relative_to(_REPO_ROOT)) for p in _module_files(_AXRANGE_ROOT, exclude_dirs=_ADAPTER_ROOTS)
+        if any(d.startswith("axrange.adapter_libvirt") for _, d in _resolved_imports_from_source(p.read_text(), p))
+    )
+    assert importers == ["src/axrange/platform/factory.py"], importers
 
 
 def test_the_allowlist_has_not_gone_stale():
@@ -159,6 +175,8 @@ def test_resolver_catches_module_level_nested_and_dynamic_imports():
     assert _hits("def f():\n    from axrange.adapter_proxmox.rest import RestClient\n")
     assert _hits("import importlib\nimportlib.import_module('axrange.adapter_proxmox')\n")
     assert _hits("from axrange import adapter_proxmox\n")
+    assert _hits("from axrange.adapter_libvirt import LibvirtAdapter\n")
+    assert _hits("def f():\n    from axrange.adapter_libvirt.naming import guest_handle_for_op\n")
 
 
 def test_resolver_does_not_false_positive_on_the_seam_or_stdlib():

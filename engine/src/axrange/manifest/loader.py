@@ -1,7 +1,8 @@
 """Manifest + binding directory loader.
 
-Loads `images/manifests/*.yaml` and `images/bindings/<platform>/*.yaml` into a
-ManifestRegistry the validator can query by image-id.
+Loads `images/manifests/*.yaml` and `images/bindings/<platform>/*.yaml` (every
+platform directory present: `proxmox/`, `libvirt/`, ...) into a
+ManifestRegistry the validator can query by image-id and platform.
 """
 from __future__ import annotations
 
@@ -70,8 +71,14 @@ def load_registry(
     if manifest_dir is None and root is not None:
         manifest_dir = Path(root) / "images" / "manifests"
     if binding_dirs is None and root is not None:
-        proxmox_dir = Path(root) / "images" / "bindings" / "proxmox"
-        binding_dirs = {"proxmox": proxmox_dir}
+        # One directory per deploy platform (`images/bindings/<platform>/`,
+        # `docs/ARCHITECTURE.md` §4 "platform binds at plan"); each platform's
+        # binding keys are its adapter's (`adapters/<platform>/SPEC.md`).
+        bindings_root = Path(root) / "images" / "bindings"
+        binding_dirs = {
+            p.name: p for p in sorted(bindings_root.iterdir())
+            if p.is_dir() and not p.name.startswith(".")
+        } if bindings_root.is_dir() else {}
 
     if manifest_dir is not None and Path(manifest_dir).is_dir():
         for yaml_file in sorted(Path(manifest_dir).glob("*.yaml")):

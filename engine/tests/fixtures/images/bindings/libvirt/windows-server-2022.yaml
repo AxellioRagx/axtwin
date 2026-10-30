@@ -1,0 +1,23 @@
+binding_schema_version: 1
+binding:
+  image: windows-server-2022
+  platform: libvirt
+  versions:
+    - id: v1
+      storage: { type: volume, volume: img-windows-server-2022.qcow2, pool: fast }
+      clone_mode: full
+      cloud_init: { supported: true, user: Administrator, sysprep_required: true }
+      hardware: { machine: q35, bios: ovmf, nic_model: virtio, disk_bus: sata, agent: true, vcpu: 4, memory: 8Gi }
+      # A binding may carry its own domain document ($name-style placeholders,
+      # adapter_libvirt/domain_xml.py); the agent channel + metadata are asserted after.
+      domain_xml_template: |
+        <domain type='kvm'>
+          <name>$name</name><uuid>$uuid</uuid>
+          <memory unit='KiB'>$memory_kib</memory><vcpu>$vcpu</vcpu>
+          <os$firmware_attr><type arch='x86_64' machine='$machine'>hvm</type></os>
+          <features><acpi/><apic/><hyperv><relaxed state='on'/><vapic state='on'/><spinlocks state='on' retries='8191'/></hyperv></features>
+          <devices>
+            <disk type='file' device='disk'><driver name='qemu' type='qcow2'/><source file='$disk_path'/><target dev='$disk_dev' bus='$disk_bus'/></disk>
+            <tpm model='tpm-crb'><backend type='emulator' version='2.0'/></tpm>
+          </devices>
+        </domain>

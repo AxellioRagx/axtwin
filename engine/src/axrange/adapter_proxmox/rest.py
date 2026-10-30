@@ -1156,47 +1156,7 @@ exit 0
         if inp.get("router_os") == "vyos":
             return self._configure_vyos_router_ssh(op, inp, ctx)
 
-        script = (
-            "set -e\n"
-            "wan=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')\n"
-            '[ -n "$wan" ] || { echo AXR_ROUTER_FAIL no-WAN-default-route; exit 1; }\n'
-            # Reboot-persistent helper: re-detects the WAN at boot, enables
-            # forwarding, and installs the masquerade (nft if present, else
-            # iptables — both work on the base image; no apt needed). Idempotent.
-            "cat > /usr/local/sbin/axr-router-nat.sh <<'EOS'\n"
-            "#!/bin/sh\n"
-            "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true\n"
-            "W=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')\n"
-            '[ -n "$W" ] || exit 0\n'
-            "if command -v nft >/dev/null 2>&1; then\n"
-            "  nft add table ip axrnat 2>/dev/null || true\n"
-            "  nft 'add chain ip axrnat postrouting { type nat hook postrouting priority 100 ; }' 2>/dev/null || true\n"
-            '  nft list chain ip axrnat postrouting 2>/dev/null | grep -q masquerade || nft add rule ip axrnat postrouting oifname "$W" masquerade\n'
-            "else\n"
-            '  iptables -t nat -C POSTROUTING -o "$W" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$W" -j MASQUERADE\n'
-            "fi\n"
-            "EOS\n"
-            "chmod +x /usr/local/sbin/axr-router-nat.sh\n"
-            "echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-axr-router.conf\n"
-            # systemd oneshot so forwarding + NAT survive a router reboot.
-            "cat > /etc/systemd/system/axr-router-nat.service <<'EOS'\n"
-            "[Unit]\n"
-            "Description=axRange router NAT + IPv4 forwarding\n"
-            "After=network-online.target\n"
-            "Wants=network-online.target\n"
-            "[Service]\n"
-            "Type=oneshot\n"
-            "ExecStart=/usr/local/sbin/axr-router-nat.sh\n"
-            "RemainAfterExit=yes\n"
-            "[Install]\n"
-            "WantedBy=multi-user.target\n"
-            "EOS\n"
-            "systemctl daemon-reload >/dev/null 2>&1 || true\n"
-            "systemctl enable axr-router-nat.service >/dev/null 2>&1 || true\n"
-            # Apply now — don't wait for a reboot.
-            "/usr/local/sbin/axr-router-nat.sh\n"
-            'echo AXR_ROUTER_OK wan=$wan forward=$(cat /proc/sys/net/ipv4/ip_forward)\n'
-        )
+        script = ROUTER_NAT_SCRIPT
         ga = GuestAgent(self.client, ctx.cluster.default_node)
         ga.wait_ready(vmid, timeout_s=op.timeout_s or 300)
         res = ga.exec(vmid, ["/bin/bash", "-c", script], timeout_s=op.timeout_s or 300)
@@ -1411,6 +1371,53 @@ exit 0
 
     def _vm_status(self, node: str, vmid: int) -> dict[str, Any] | None:
         return vm_status(self.client, node, vmid)
+
+
+# The Debian router first-boot NAT + forwarding installer `configure-router`
+# runs over the guest channel -- a PURE string, guest-side only, so the
+# libvirt adapter (`axrange.adapter_libvirt`) runs the identical script
+# (`adapters/libvirt/SPEC.md`: configure-router "unchanged (guest side)").
+ROUTER_NAT_SCRIPT = (
+    "set -e\n"
+    "wan=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')\n"
+    '[ -n "$wan" ] || { echo AXR_ROUTER_FAIL no-WAN-default-route; exit 1; }\n'
+    # Reboot-persistent helper: re-detects the WAN at boot, enables
+    # forwarding, and installs the masquerade (nft if present, else
+    # iptables — both work on the base image; no apt needed). Idempotent.
+    "cat > /usr/local/sbin/axr-router-nat.sh <<'EOS'\n"
+    "#!/bin/sh\n"
+    "sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true\n"
+    "W=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')\n"
+    '[ -n "$W" ] || exit 0\n'
+    "if command -v nft >/dev/null 2>&1; then\n"
+    "  nft add table ip axrnat 2>/dev/null || true\n"
+    "  nft 'add chain ip axrnat postrouting { type nat hook postrouting priority 100 ; }' 2>/dev/null || true\n"
+    '  nft list chain ip axrnat postrouting 2>/dev/null | grep -q masquerade || nft add rule ip axrnat postrouting oifname "$W" masquerade\n'
+    "else\n"
+    '  iptables -t nat -C POSTROUTING -o "$W" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$W" -j MASQUERADE\n'
+    "fi\n"
+    "EOS\n"
+    "chmod +x /usr/local/sbin/axr-router-nat.sh\n"
+    "echo net.ipv4.ip_forward=1 > /etc/sysctl.d/99-axr-router.conf\n"
+    # systemd oneshot so forwarding + NAT survive a router reboot.
+    "cat > /etc/systemd/system/axr-router-nat.service <<'EOS'\n"
+    "[Unit]\n"
+    "Description=axRange router NAT + IPv4 forwarding\n"
+    "After=network-online.target\n"
+    "Wants=network-online.target\n"
+    "[Service]\n"
+    "Type=oneshot\n"
+    "ExecStart=/usr/local/sbin/axr-router-nat.sh\n"
+    "RemainAfterExit=yes\n"
+    "[Install]\n"
+    "WantedBy=multi-user.target\n"
+    "EOS\n"
+    "systemctl daemon-reload >/dev/null 2>&1 || true\n"
+    "systemctl enable axr-router-nat.service >/dev/null 2>&1 || true\n"
+    # Apply now — don't wait for a reboot.
+    "/usr/local/sbin/axr-router-nat.sh\n"
+    'echo AXR_ROUTER_OK wan=$wan forward=$(cat /proc/sys/net/ipv4/ip_forward)\n'
+)
 
 
 # The Windows local Administrator password now comes from

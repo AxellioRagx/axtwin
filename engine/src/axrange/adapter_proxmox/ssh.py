@@ -70,6 +70,58 @@ _GRETAP_PMTU_OPTS = "nopmtudisc ignore-df"
 
 
 # ---------------------------------------------------------------------------
+# gretap command builders -- PURE (string in, string out), platform-neutral:
+# the same `ip link` / `tc` / `ethtool` lines run on a Proxmox node and on a
+# plain KVM host (`adapters/libvirt/SPEC.md`: "the same `ip link ... type
+# gretap` + deep-FIFO qdisc"). `SshBackend._attach_gre_tunnel` below and
+# `axrange.adapter_libvirt.host` both call these; keep the strings here and
+# nowhere else.
+# ---------------------------------------------------------------------------
+
+
+def gretap_show_cmd(dev: str) -> str:
+    """`ip -o link show <dev>` -- empty output when absent (check-then-act)."""
+    return f"ip -o link show {shlex.quote(dev)} 2>/dev/null || true"
+
+
+def gretap_add_cmd(dev: str, remote_ip: str, key: int) -> str:
+    """Create the keyed gretap netdev with the outer-DF policy of
+    `_GRETAP_PMTU_OPTS`."""
+    return (
+        f"ip link add {shlex.quote(dev)} type gretap "
+        f"remote {shlex.quote(remote_ip)} key {int(key)} {_GRETAP_PMTU_OPTS}"
+    )
+
+
+def gretap_heal_cmd(dev: str) -> str:
+    """Re-assert the outer-DF policy on an ADOPTED netdev (changelink)."""
+    return f"ip link set {shlex.quote(dev)} type gretap {_GRETAP_PMTU_OPTS}"
+
+
+def gretap_up_cmd(dev: str) -> str:
+    """MTU + up, asserted on every run."""
+    return f"ip link set {shlex.quote(dev)} mtu {_GRETAP_MTU} up"
+
+
+def gretap_qdisc_cmd(dev: str, qlen: int) -> str:
+    """Deep FIFO in place of the host default AQM (see `_attach_gre_tunnel`)."""
+    return (
+        f"ip link set {shlex.quote(dev)} txqueuelen {int(qlen)} && "
+        f"tc qdisc replace dev {shlex.quote(dev)} root "
+        f"pfifo limit {int(qlen)}"
+    )
+
+
+def gretap_offload_cmd(dev: str) -> str:
+    """Segmentation offload off on the tunnel (never fatal)."""
+    return f"ethtool -K {shlex.quote(dev)} gso off tso off gro off || true"
+
+
+def gretap_del_cmd(dev: str) -> str:
+    return f"ip link del {shlex.quote(dev)}"
+
+
+# ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
@@ -596,17 +648,9 @@ class SshBackend:
         # `--fresh` redeploy). Note: an `ip link` netdev is NOT persistent across
         # a node reboot (unlike the old OVSDB GRE port); a node reboot is healed
         # by a resume-safe re-deploy, which re-runs this op.
-        show = run_ssh(
-            self.cfg,
-            f"ip -o link show {shlex.quote(dev)} 2>/dev/null || true",
-            timeout_s=15,
-        )
+        show = run_ssh(self.cfg, gretap_show_cmd(dev), timeout_s=15)
         if dev not in show:
-            add_cmd = (
-                f"ip link add {shlex.quote(dev)} type gretap "
-                f"remote {shlex.quote(sensor_ip)} key {key} {_GRETAP_PMTU_OPTS}"
-            )
-            run_ssh(self.cfg, add_cmd, timeout_s=op.timeout_s or 60)
+            run_ssh(self.cfg, gretap_add_cmd(dev, sensor_ip, key), timeout_s=op.timeout_s or 60)
         else:
             # Adopted netdev: assert the DF policy in place (`ip link set ...
             # type gretap` is a changelink -- iproute2 re-reads remote/key, the
@@ -614,18 +658,10 @@ class SshBackend:
             # This is what heals a gretap built before `_GRETAP_PMTU_OPTS`
             # existed on a plain tap re-apply. Fatal on failure: without it the
             # tunnel silently drops every full-size frame.
-            run_ssh(
-                self.cfg,
-                f"ip link set {shlex.quote(dev)} type gretap {_GRETAP_PMTU_OPTS}",
-                timeout_s=op.timeout_s or 60,
-            )
+            run_ssh(self.cfg, gretap_heal_cmd(dev), timeout_s=op.timeout_s or 60)
         # Idempotently assert MTU + up, whether freshly created or adopted, so a
         # partially-built tunnel from a prior attempt heals on re-run.
-        run_ssh(
-            self.cfg,
-            f"ip link set {shlex.quote(dev)} mtu {_GRETAP_MTU} up",
-            timeout_s=op.timeout_s or 60,
-        )
+        run_ssh(self.cfg, gretap_up_cmd(dev), timeout_s=op.timeout_s or 60)
         # Replace the node-default qdisc with a deep FIFO (2026-08-13, dev45
         # max-capture-rate run). A new netdev inherits the node default, which
         # on PVE 9.x is `fq_codel` -- an AQM that DROPS to hold latency down.
@@ -644,13 +680,7 @@ class SshBackend:
         # 0 is the operator opt-out (leave the node default alone).
         qlen = getattr(self.cfg, "mirror_gretap_txqueuelen", 0)
         if qlen:
-            run_ssh(
-                self.cfg,
-                f"ip link set {shlex.quote(dev)} txqueuelen {int(qlen)} && "
-                f"tc qdisc replace dev {shlex.quote(dev)} root "
-                f"pfifo limit {int(qlen)}",
-                timeout_s=op.timeout_s or 60,
-            )
+            run_ssh(self.cfg, gretap_qdisc_cmd(dev, qlen), timeout_s=op.timeout_s or 60)
         # Segmentation offload OFF on the gretap, asserted every run for the same reason the
         # qdisc is (an adopted pre-existing netdev must heal too).
         #
@@ -669,11 +699,7 @@ class SshBackend:
         #
         # Failure here is not fatal: a kernel or device that rejects the request should not fail
         # an otherwise good tunnel, and the drops it prevents are a fidelity loss, not an outage.
-        run_ssh(
-            self.cfg,
-            f"ethtool -K {shlex.quote(dev)} gso off tso off gro off || true",
-            timeout_s=op.timeout_s or 60,
-        )
+        run_ssh(self.cfg, gretap_offload_cmd(dev), timeout_s=op.timeout_s or 60)
         return {"gre_port": dev}
 
     def _install_ovs_mirror(
