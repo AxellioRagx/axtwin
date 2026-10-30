@@ -175,6 +175,11 @@ twin's canvas.
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target
   (a named entry of the adapter targets file). Credentials are stored by the
   API, never echoed back in any read.
+- A target carries `platform` (`proxmox` when absent, `libvirt`, VMware when
+  built); it selects the adapter through the closed platform factory
+  (`docs/ARCHITECTURE.md` §13) and the image-binding set
+  `images/bindings/<platform>/`. `GET /api/targets` reports it so the console
+  can show it; an unknown value is refused by name on write and at serve start.
 
 **A5 — platform-origin deploys.**
 - `GET /api/deploys?origin=platform` — reconstruct the live twins by querying
@@ -242,8 +247,10 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
 **Not being built (stated so it is not re-proposed):** `GET /api/attacks` and
 any attack plugin registry (the exercise request schema's `activity` and
 `adversary` kinds are the playout vocabulary, read from `/openapi.json`); a
-deploy-platform plugin registry (targets are the named entries A4 manages; one
-Proxmox adapter exists). Either is a new abstraction and needs explicit sign-off.
+deploy-platform plugin **registry** (targets are the named entries A4 manages;
+a target's `platform` picks one adapter from a closed factory, which is not a
+registry and must not grow into one). Either is a new abstraction and needs
+explicit sign-off.
 
 ### The edit model: baseline + working copy
 
@@ -262,6 +269,28 @@ An undeployed config has no working copy: Save (A3 `PUT`) and Save-As only.
 A discovered imprint is cast first (`GET /api/imprints/{id}/cast`) and edited
 as a twin-config. **The baseline is written by Persist and Save and by nothing
 else.**
+
+**Apply is classified by which tier file the delta touches**, because the
+bundle's tier split is the edit-type split:
+
+| Delta touches | Kind | Apply does |
+|---|---|---|
+| `tfc/`, `personas/`, `tap/` (persona assignment, intensity, schedule, cadence, tap bindings) | attribute | the tier's own playout re-applies; it converges and de-scopes, VMs untouched |
+| `te.yaml` (segments, nodes, attachments, counts, images) | topology | refused as `requires-replan` with the diff, until plan-diff (`docs/contracts/PLANNER.md` §9) exists; the working copy stays dirty |
+| `role` | either | attribute when the node's image is unchanged (a persona re-assignment); topology when it is not |
+
+A2 `GET …/config` reports the classification per pending change so the
+console shows an edit's blast radius before Apply. Persist and Save-As are
+not classified: they write a baseline, they touch no deploy.
+
+Two edit layers, one rule: a change that says *discovery was wrong* (this
+host is a domain controller, these two segments are one VLAN) is an operator
+**assertion** on the imprint and survives a re-cast; a change that says *the
+twin should differ from reality* (add a honeypot, halve an intensity) is a
+twin-config edit and belongs to the twin. Either layer takes topology and
+attribute changes alike. A twin-config edit may be **promoted** to an
+assertion (write it through `PUT /api/imprints/{id}/assertions`, re-cast,
+then re-open the working copy); nothing demotes an assertion into the cast.
 
 Why the imprint-side write path that already exists is **not** this:
 `PUT /api/imprints/{id}/assertions` + `POST .../apply` rewrite the operator

@@ -23,6 +23,7 @@ live beside them at the root, not inside a package:
 
 | Dir | What |
 |---|---|
+| `adapters/` | deploy-platform plugins, one folder and `SPEC.md` per platform (`proxmox/`, `libvirt/`); the Proxmox code stays in `engine/` until the platform seams are protocols |
 | `catalog/` | every twin config — `twins/` (live bundles), `twin-configs/` (legacy), `target-environments/` (scenario IR), `demo/` — and `personas/`, the persona library (see its README) |
 | `config/` | operator config: `adapter.conf` (gitignored) and the tracked examples (see its README) |
 | `o2/` | the observability stack as deployed assets (compose, Grafana, Loki, Prometheus, Alloy, Caldera, tcpdump sensor) and the old Grafana-era console (`o2/console`, superseded by `ui/`) |
@@ -57,8 +58,9 @@ this file ever growing. The extension points (seams):
 
 - **Discovery adapters** — `IngestPlugin` (`discovery/`): pcap, PacketXpress/axapi,
   axQuery, Zeek, Suricata, … each with its own config.
-- **Deploy platforms** — the `Adapter` protocol (`engine/`): Proxmox (built),
-  VMware and others as added plugins.
+- **Deploy platforms** — the `Adapter` protocol (`engine/`), selected by a
+  target's `platform`: Proxmox (built), libvirt and VMware as added plugins
+  (`adapters/<platform>/SPEC.md`).
 - **Sensors**, **personas**, and **attack frameworks** — registries (`engine/`):
   each type self-registers; the UI lists whatever is installed.
 

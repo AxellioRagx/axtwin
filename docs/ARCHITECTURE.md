@@ -29,6 +29,7 @@ of band and is not part of that gate.
 ```
 engine/src/axrange     twin plan -> deploy -> destroy, traffic, taps, exercises, O2, the control-plane API
 discovery/src/aximprint sensor metadata -> network IR -> cast to a twin bundle
+adapters/              deploy-platform plugins, one folder and SPEC.md per platform (proxmox, libvirt)
 catalog/               twins, legacy twin-configs, target-environments (scenario IR), personas
 config/                adapter.conf (gitignored) + examples
 o2/                    the observability stack as deployed assets; o2/tcpdump-sensor; the old console
@@ -118,6 +119,17 @@ runs to completion with all durable state in a SQLite state store.
 Scenario IR ──▶ Validator ──▶ Planner (DAG + state store + executor) ──▶ Adapter (Proxmox) ──▶ running twin ──▶ Destroy
 ```
 
+A twin is platform-independent up to and including its cast: images by
+manifest id, abstract resources, topology as segments and attachments. The
+platform binds at **plan**, not at cast and not inside the deploy run: a plan
+is `plan(twin, target)` — placement, image bindings from
+`images/bindings/<platform>/`, per-op identity and names — persisted in the
+target's state store under its `(twin, target)` key, deterministic, and
+inspectable on its own. A deploy runs a plan. One twin therefore keeps one id
+across platforms; what a small target cannot hold is a capacity profile
+applied at cast (occupancy, count scaling) and a fit finding from the
+validator's cluster pass, never a second cast.
+
 - **IR** (`ir/`, `docs/contracts/IR_SCHEMA.md`): a versioned YAML document with
   `infra`, `apps`, optional `activity`, `bindings` and optional `overlays`
   (identity, data, defense, adversary). Twin configs (`twinconfig/`) are
@@ -136,10 +148,12 @@ Scenario IR ──▶ Validator ──▶ Planner (DAG + state store + executor)
   follow retry-then-escalate to the preceding barrier.
 - **Op catalog** (`ops/`, `docs/contracts/OP_CATALOG.md`): `OP-NET`, `OP-HOST`,
   `OP-MIR`, `OP-APP`, `OP-OVL`, `OP-ACT`, `OP-TFC`, `OP-BAR`.
-- **Adapter** (`adapter_proxmox/`, `docs/contracts/ADAPTER.md`): one interface,
-  two backends. REST covers what the Proxmox API exposes; SSH covers the rest
-  (the `tc` mirror hook, the keyed gretap, VyOS `vbash`). Every resource name
-  carries a tier tag from one naming module.
+- **Adapter** (`adapter_proxmox/`, `docs/contracts/ADAPTER.md`; plugin index
+  under `adapters/`): one interface, two backends. REST covers what the Proxmox
+  API exposes; SSH covers the rest (the `tc` mirror hook, the keyed gretap,
+  VyOS `vbash`). Every resource name carries a tier tag from one naming module.
+  A deploy target names its platform and the platform factory picks the
+  adapter (§13); the op catalog and the planner's DAG do not know which.
 - **Config execution** (`config_exec/`): the `config`-class counterpart; Ansible
   rendered platform-agnostically and delivered into the guest over the
   qemu-guest-agent exec channel. In-guest file content rides base64 inside the
@@ -320,6 +334,26 @@ The core holds contracts; functionality lives in plugins that self-register:
 and the sensor, persona and attack registries. A new capability is a new plugin
 with its own `SPEC.md` beside its code and its own tests or verifier; the
 filesystem is the index.
+
+**The deploy-platform seam** is wider than `Adapter.run`. The engine reaches a
+platform through five surfaces, and a platform plugin implements all five:
+
+| Seam | Protocol | What the engine asks |
+|---|---|---|
+| ops | `Adapter` | run one catalog op, return its typed outputs |
+| guest exec | `GuestExec` | ping, exec, file in, file out, against a guest by its platform handle |
+| inventory | `Inventory` | guest → address and host, host facts, the platform's live tier-tagged resources |
+| naming | `ResourceNamer` | tier-tagged names and the platform's stable per-op identity (Proxmox VMID, libvirt UUID) |
+| teardown | `Teardown` | sweep by tier-tag shape under the protect guard |
+
+Today the Proxmox modules are imported directly for the last four; the
+protocols are extracted from them before a second platform is built, after
+which each adapter's code lives under `adapters/<platform>/` as its own
+package and the engine imports only the protocols. Selection is a closed
+factory keyed by the target's `platform` (`api/Spec.md` A4) — `proxmox`,
+`libvirt`, VMware when built — that fails by name on anything else; it is not
+a registry and does not become one until the set is open. Each platform's
+`SPEC.md` under `adapters/` carries its op mapping, config and acceptance.
 
 Kept in tree, not maintained, not on the critical path: the golden-twin and
 fidelity-scorecard direction (`axrange.fidelity`, `aximprint drift`), the
