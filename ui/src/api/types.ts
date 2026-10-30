@@ -488,3 +488,120 @@ export interface PersonaList {
   personas: Persona[];
   warnings: string[];
 }
+
+// --- The edit model (`api/Spec.md` A2, A3): the twin-config document, its write shapes and a deploy's working copy ---
+
+/** A bundle's text files keyed by bundle-relative path; `te_file` names the twin config among them. */
+export interface TwinConfigDocument {
+  id: string;
+  te_file: string;
+  files: Record<string, string>;
+  /** Bundle files that are not text and so not part of the document. */
+  skipped: string[];
+}
+
+export interface TwinConfigDetail {
+  id: string;
+  description: string | null;
+  cluster: string | null;
+  params: Array<{ name: string; default?: unknown; description?: string | null; declared?: boolean }>;
+  segments: Array<{ name: string; cidr: string; zone_type?: string | null; when?: string | null }>;
+  nodes: Array<{ name: string; kind: string; image: string; count: unknown; role?: string | null; when?: string | null }>;
+  identity_domain?: string | null;
+  identity_user_count?: number;
+  data_count?: number;
+  document: TwinConfigDocument | null;
+  warnings: string[];
+}
+
+/** `POST /api/twin-configs` (Save-As, `id` new) and `PUT /api/twin-configs/{id}` (Save / Persist). */
+export interface TwinConfigWrite {
+  id?: string;
+  files: Record<string, string>;
+}
+
+export type PendingChangeKind = "attribute" | "topology" | "inert";
+
+/** One file that differs between the baseline and the working copy, classified by the API. */
+export interface PendingChange {
+  path: string;
+  op: "added" | "removed" | "modified" | string;
+  kind: PendingChangeKind | string;
+  /** The playouts an attribute change re-applies through (`tfc`, `tap`). */
+  via: string[];
+  /** The differing dotted YAML paths inside the file. */
+  paths: string[];
+  reason: string;
+  /** A te `role` change classified attribute: node group -> new role. */
+  roles: Record<string, string>;
+}
+
+export interface DeployConfig {
+  deploy_id: string;
+  twin_id: string;
+  dirty: boolean;
+  has_working_copy: boolean;
+  document: TwinConfigDocument;
+  changes: PendingChange[];
+  /** True when every pending change is attribute or inert. */
+  apply_allowed: boolean;
+  applied: { at: string; tiers: string[]; roles: Record<string, string> } | null;
+  updated_at: string | null;
+  warnings: string[];
+}
+
+export interface DeployConfigApply {
+  deploy_id: string;
+  twin_id: string;
+  applied: string[];
+  roles: Record<string, string>;
+  warnings: string[];
+  config: DeployConfig;
+}
+
+export interface DeployConfigReset {
+  deploy_id: string;
+  twin_id: string;
+  discarded: boolean;
+  reverted: string[];
+  warnings: string[];
+  config: DeployConfig;
+}
+
+/** One row of `GET /api/deploys`: what the canvas reads to know whether a twin stands. */
+export interface DeploySummary {
+  deploy_id: string;
+  scenario_id: string;
+  scenario_version?: number | null;
+  /** `running` | `completed` | `failed` | `cancelled` | `destroyed`. */
+  status: string;
+  started_at: number;
+  updated_at: number;
+  completed_at?: number | null;
+  /** The display tier (`te` | `tap` | `tfc` | `exr` | `o2`); a twin's own deploy is `te`. */
+  tier?: string | null;
+  plan_id?: string | null;
+  target?: string | null;
+  store?: string | null;
+}
+
+export interface DeployList {
+  deploys: DeploySummary[];
+  warnings: string[];
+}
+
+export interface ValidationFinding {
+  rule_id: string;
+  severity: "error" | "warning" | "info" | string;
+  message: string;
+  location?: string | null;
+}
+
+export interface ValidateResult {
+  disposition: string;
+  exit_code: number;
+  passes_run: number[];
+  errors: number;
+  warnings: number;
+  findings: ValidationFinding[];
+}

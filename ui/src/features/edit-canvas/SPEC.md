@@ -98,10 +98,29 @@ canvas — the first two are what neither incumbent documents.
 | Run-time | per-node and twin-wide power actions with live progress; click-to-open console in a tabbed terminal with pop-out; **traffic overlay**: a filter over the observed edges (`proto`, port, bytes, peer) makes matching attachments glow in a chosen colour for a timeout, rendered from `TopologyExportDTO` evidence with no backend change; live counters at both ends of an attachment; PNG/SVG export | overlay RF+; console, power API |
 | Configurability | per-user console, theme, grid and label defaults; twin properties (description, params, containment claim) in the panel; template forms with `{name}-{n}` and interface patterns; per-node overrides; whole-twin text export beside the layout side-car | app |
 
-Phase 1 (read-only) covers the RF rows and the traffic overlay; Phase 2
-adds the palette, attaching, the command stack, the side panel and
-annotations. Fault injection and attachment impairments wait for an IR
-concept.
+Phase 1 (read-only, **built 2026-10-30**) covers the RF rows and the traffic
+overlay. Phase 2 (**built 2026-10-30**) adds the palette (searchable,
+categorised, N copies as `{name}-{n}`, drag-drop and click-to-place,
+snap-to-grid with Alt bypass, grid toggle, align H/V), attaching (drop onto
+a segment, a handle drag to the segment bus, the sticky attach mode with
+Esc, addresses allocated by the lifted `allocate.ts`, a second leg, labels,
+right-click detach), the command stack (Ctrl+Z/Y; undo restores the
+pre-edit text byte-for-byte because every edit is a line splice over the
+YAML text -- `edit/yaml.ts`, no YAML library is in the lock), the side
+panel (never a modal: node, segment, attachment, annotation and twin
+properties, persona / intensity / schedule through the traffic profile,
+validation state, the pending changes with their *live* / *re-plan*
+classification), the exits (Save / Save-As; Apply only when every pending
+change is live, Reset, Persist, redeploy from baseline), promote to
+assertion (a cast twin's role change or segment merge through
+`PUT /api/imprints/{pit}/assertions` and a re-cast), and annotations (text,
+rect, ellipse, line, per-item lock, hide-all). Not in Phase 2: the layout
+menu's hierarchical / force / radial presets, helper lines while dragging,
+per-attachment styles, icon sets and node resize, Ctrl+C/V/D, PNG/SVG
+export, the run-time row, and -- because `axr-layout/1` is a closed key set
+whose pins are strictly `{x, y}` -- annotations in the side-car: they are
+kept per browser (localStorage) until the schema gains an `annotations`
+key. Fault injection and attachment impairments wait for an IR concept.
 
 ## Config
 

@@ -9,10 +9,15 @@ import type {
   DiscoveryRun,
   DiscoverySource,
   AssertionsDoc,
+  DeployConfig,
+  DeploySummary,
   Imprint,
   LayoutDoc,
+  PendingChange,
   Persona,
   ProbeResult,
+  TwinConfigDetail,
+  TwinConfigDocument,
   TwinSummary,
   TwinTree,
   SourceRunRequest,
@@ -22,6 +27,10 @@ import type {
   TopologyExport,
   TwinConfigSummary,
 } from "../../src/api/types";
+import { mergeSegments, readDoc } from "../../src/features/edit-canvas/edit/document";
+import { readTe, setNodeField } from "../../src/features/edit-canvas/edit/te";
+import { validateTe } from "../../src/features/edit-canvas/edit/validate";
+import { parseYaml, toPlain, type Plain } from "../../src/features/edit-canvas/edit/yaml";
 
 export const AXQUERY: DiscoveryPlugin = {
   name: "axquery",
@@ -109,6 +118,12 @@ export interface FakeState {
   layouts: Record<string, LayoutDoc>;
   twinConfigs: TwinConfigSummary[];
   personas: Persona[];
+  /** The twin-config documents (`api/Spec.md` A3), by id: the baseline each editor opens. */
+  documents: Record<string, TwinConfigDocument>;
+  /** What `GET /api/deploys` lists. */
+  deploys: DeploySummary[];
+  /** Each deploy's working copy (A2), by deploy id, once first PUT; absent = the baseline, clean. */
+  workingCopies: Record<string, { files: Record<string, string>; applied: DeployConfig["applied"]; updated_at: string }>;
   /** Catalog folders the listing reports as unreadable. */
   skippedTwins: Array<{ id: string; reason: string }>;
   /** What the imprint listing warns about (a locked store). */
@@ -116,7 +131,7 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
 }
@@ -135,6 +150,9 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     layouts: {},
     twinConfigs: [],
     personas: [],
+    documents: {},
+    deploys: [],
+    workingCopies: {},
     skippedTwins: [],
     imprintWarnings: [],
     writes: [],
@@ -347,7 +365,31 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         hosts: i.entities ?? 0, segments: i.segments ?? 0, services: 0, personas: 0,
         mean_confidence: 0.5, windows: i.windows ?? null, topology_segments: [],
       };
-      state.twins[body.twin_id] = twin;
+      state.twins[body.twin_id] = { ...state.twins[body.twin_id], ...twin };
+      // A re-cast compiles the assertions into the twin's baseline: the fake
+      // applies the two the canvas promotes (a host's role, a segment merge).
+      const docu = state.documents[body.twin_id];
+      const asserted = state.assertions[i.pit_id];
+      if (docu && asserted) {
+        let files = { ...docu.files };
+        const te = () => readTe(files[docu.te_file] ?? "");
+        for (const o of asserted.override) {
+          const key = String(o["key"] ?? "");
+          if (o["field"] === "role" && key.startsWith("hostname:")) files[docu.te_file] = setNodeField(files[docu.te_file]!, key.slice("hostname:".length), "role", String(o["value"]));
+        }
+        for (const sup of asserted.suppress) {
+          const cidr = String(sup["key"] ?? "");
+          const from = te().segments.find((x) => x.cidr === cidr);
+          const into = asserted.override.find((o) => o["field"] === "segment");
+          const to = into ? te().segments.find((x) => x.cidr === String(into["value"])) : undefined;
+          if (from && to) files = mergeSegments({ id: body.twin_id, teFile: docu.te_file, files }, readDoc({ id: body.twin_id, teFile: docu.te_file, files }), from.name, to.name);
+        }
+        state.documents[body.twin_id] = { ...docu, files };
+        for (const [deployId, wc] of Object.entries(state.workingCopies)) {
+          const d = state.deploys.find((x) => x.deploy_id === deployId);
+          if (d?.scenario_id === body.twin_id && wc) delete state.workingCopies[deployId];
+        }
+      }
       return { twin, pit_id: i.pit_id, replaced, caveats: ["fake cast"], install_report: "installed" };
     },
     async listTwins() {
@@ -418,6 +460,202 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     async listPersonas() {
       return { twin: null, personas: state.personas, warnings: [] };
     },
+    async getTwinConfig(id) {
+      const d = state.documents[id];
+      if (!d) throw notFound(`twin-config '${id}'`);
+      return detailOf(d);
+    },
+    async createTwinConfig(body) {
+      state.writes.push({ op: "create-twin-config", id: body.id, body });
+      if (state.refuse.twinConfigWrite) throw state.refuse.twinConfigWrite;
+      const id = body.id ?? "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) throw new ApiError({ kind: "bad-request", status: 400, message: `'id' ${JSON.stringify(id)} is not a usable twin-config id`, url: "" });
+      if (state.documents[id] || state.twins[id]) throw new ApiError({ kind: "conflict", status: 409, message: `twin-config '${id}' already exists; Save-As never overwrites`, url: "" });
+      const teFile = teFileOf(body.files);
+      validateDocument(id, teFile, body.files);
+      const d: TwinConfigDocument = { id, te_file: teFile, files: { ...body.files }, skipped: [] };
+      state.documents[id] = d;
+      const te = readTe(body.files[teFile]!);
+      state.twinConfigs.push({ id, description: te.description, cluster: null, parameterized: Object.keys(te.params).length > 0, param_names: Object.keys(te.params), error: null });
+      state.twins[id] = { id, as_of: "2026-10-30T00:00:00Z", pit_id: null, hosts: te.nodes.reduce((a, n) => a + n.countValue, 0), segments: te.segments.length, services: 0, personas: 0, mean_confidence: 0, topology_segments: [] };
+      return detailOf(d);
+    },
+    async putTwinConfig(id, body) {
+      state.writes.push({ op: "put-twin-config", id, body });
+      if (state.refuse.twinConfigWrite) throw state.refuse.twinConfigWrite;
+      if (body.id !== undefined && body.id !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `body id '${body.id}' does not match the path id '${id}'`, url: "" });
+      const existing = state.documents[id];
+      if (!existing) throw notFound(`twin-config '${id}'`);
+      validateDocument(id, existing.te_file, body.files);
+      existing.files = { ...body.files };
+      // After a Persist the deploy's working copy equals the baseline: clean.
+      for (const d of state.deploys) if (d.scenario_id === id) delete state.workingCopies[d.deploy_id];
+      return detailOf(existing);
+    },
+    async listDeploys() {
+      return { deploys: [...state.deploys], warnings: [] };
+    },
+    async getDeployConfig(deployId) {
+      return configOf(deployId);
+    },
+    async putDeployConfig(deployId, files) {
+      state.writes.push({ op: "put-deploy-config", id: deployId, body: { files } });
+      if (state.refuse.config) throw state.refuse.config;
+      const { d, doc } = deployOf(deployId);
+      validateDocument(d.scenario_id, doc.te_file, files);
+      const prev = state.workingCopies[deployId];
+      state.workingCopies[deployId] = { files: { ...files }, applied: prev?.applied ?? null, updated_at: `2026-10-30T00:00:${String(nextId++ % 60).padStart(2, "0")}Z` };
+      return configOf(deployId);
+    },
+    async applyDeployConfig(deployId) {
+      state.writes.push({ op: "apply-deploy-config", id: deployId });
+      if (state.refuse.apply) throw state.refuse.apply;
+      const cfg = configOf(deployId);
+      const blocked = cfg.changes.filter((c) => c.kind === "topology");
+      if (blocked.length) {
+        throw new ApiError({ kind: "conflict", status: 409, message: `requires-replan: ${blocked.map((c) => c.path).join(", ")} changed the topology; the twin must be re-planned`, detail: { code: "requires-replan", paths: blocked.flatMap((c) => c.paths) }, url: "" });
+      }
+      const tiers = [...new Set(cfg.changes.flatMap((c) => c.via))];
+      const roles = Object.assign({}, ...cfg.changes.map((c) => c.roles)) as Record<string, string>;
+      const wc = state.workingCopies[deployId];
+      if (wc) wc.applied = { at: "2026-10-30T00:01:00Z", tiers, roles };
+      return { deploy_id: deployId, twin_id: cfg.twin_id, applied: tiers, roles, warnings: [], config: configOf(deployId) };
+    },
+    async resetDeployConfig(deployId) {
+      state.writes.push({ op: "reset-deploy-config", id: deployId });
+      const cfg = configOf(deployId);
+      const wc = state.workingCopies[deployId];
+      delete state.workingCopies[deployId];
+      return { deploy_id: deployId, twin_id: cfg.twin_id, discarded: Boolean(wc), reverted: wc?.applied?.tiers ?? [], warnings: [], config: configOf(deployId) };
+    },
   };
+
+  function teFileOf(files: Record<string, string>): string {
+    const manifest = files["twin.yaml"];
+    if (manifest) {
+      const p = toPlain(parseYaml(manifest).root) as { twin?: { tiers?: { te?: { default?: string } } } } | null;
+      const te = p?.twin?.tiers?.te?.default;
+      if (typeof te === "string" && files[te] !== undefined) return te;
+    }
+    return "te.yaml";
+  }
+
+  /** The server's refusal shape for an invalid document (A2.3 / A3): the validator's findings, nothing written. */
+  function validateDocument(id: string, teFile: string, files: Record<string, string>): void {
+    const text = files[teFile];
+    if (text === undefined) throw new ApiError({ kind: "bad-request", status: 400, message: `document for '${id}' has no twin config file`, url: "" });
+    const te = readTe(text);
+    if (te.id !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `document declares twin_config.id '${te.id}' but is being written as '${id}'`, url: "" });
+    const findings = validateTe(te);
+    if (findings.length) {
+      throw new ApiError({ kind: "unprocessable", status: 422, message: `twin-config '${id}' fails validation (${findings.length} error(s)): ${findings[0]!.rule_id} ${findings[0]!.message}`, detail: { code: "invalid", findings }, url: "" });
+    }
+  }
+
+  function detailOf(d: TwinConfigDocument): TwinConfigDetail {
+    const te = readTe(d.files[d.te_file] ?? "");
+    return {
+      id: d.id, description: te.description, cluster: null, params: Object.entries(te.params).map(([name, def]) => ({ name, default: def })),
+      segments: te.segments.map((s) => ({ name: s.name, cidr: s.cidr, zone_type: s.zoneType })),
+      nodes: te.nodes.map((n) => ({ name: n.name, kind: n.kind, image: n.image, count: n.count, role: n.role })),
+      document: { ...d, files: { ...d.files } }, warnings: [],
+    };
+  }
+
+  function deployOf(deployId: string): { d: DeploySummary; doc: TwinConfigDocument } {
+    const d = state.deploys.find((x) => x.deploy_id === deployId);
+    if (!d) throw notFound(`deploy '${deployId}'`);
+    const doc = state.documents[d.scenario_id];
+    if (!doc) throw notFound(`twin-config '${d.scenario_id}' behind deploy '${deployId}'`);
+    return { d, doc };
+  }
+
+  function configOf(deployId: string): DeployConfig {
+    const { d, doc } = deployOf(deployId);
+    const wc = state.workingCopies[deployId];
+    const files = wc ? wc.files : doc.files;
+    const changes = wc ? classify(doc.files, files, doc.te_file) : [];
+    return {
+      deploy_id: deployId, twin_id: d.scenario_id, dirty: changes.length > 0, has_working_copy: Boolean(wc),
+      document: { id: doc.id, te_file: doc.te_file, files: { ...files }, skipped: [] },
+      changes, apply_allowed: changes.every((c) => c.kind !== "topology"), applied: wc?.applied ?? null, updated_at: wc?.updated_at ?? null, warnings: [],
+    };
+  }
+
   return { api, state };
+}
+
+/** `api/Spec.md`'s apply classification, by the tier file a change touches
+ *  (`engine/src/axrange/api/edits.py`): tfc / personas / tap are attribute,
+ *  te.yaml is topology unless only a node's `role` changed with its image
+ *  unchanged, exr and prose are inert. */
+export function classify(baseline: Record<string, string>, working: Record<string, string>, teFile: string): PendingChange[] {
+  const out: PendingChange[] = [];
+  for (const path of [...new Set([...Object.keys(baseline), ...Object.keys(working)])].sort()) {
+    const before = baseline[path];
+    const after = working[path];
+    if (before === after) continue;
+    const op = before === undefined ? "added" : after === undefined ? "removed" : "modified";
+    const top = path.split("/")[0]!;
+    if (path === teFile) {
+      if (op !== "modified") out.push({ path, op, kind: "topology", via: [], paths: [path], reason: `${path} ${op}: the twin must be re-planned`, roles: {} });
+      else out.push(classifyTe(path, before!, after!));
+    } else if (path === "twin.yaml") {
+      out.push({ path, op, kind: "attribute", via: ["tfc", "tap"], paths: [path], reason: "tier wiring changed: the named tiers' playouts re-apply their defaults", roles: {} });
+    } else if (top === "tfc" || top === "personas") {
+      out.push({ path, op, kind: "attribute", via: ["tfc"], paths: [path], reason: top === "tfc" ? "traffic profile: the tfc playout re-applies" : "twin-local persona: the tfc playout re-applies", roles: {} });
+    } else if (top === "tap") {
+      out.push({ path, op, kind: "attribute", via: ["tap"], paths: [path], reason: "tap plan: the tap playout re-applies", roles: {} });
+    } else if (top === "exr" || /\.(md|txt)$/i.test(path)) {
+      out.push({ path, op, kind: "inert", via: [], paths: [path], reason: "nothing on the running twin reads this file; Persist carries it", roles: {} });
+    } else {
+      out.push({ path, op, kind: "topology", via: [], paths: [path], reason: "not a tier file Apply knows how to re-apply", roles: {} });
+    }
+  }
+  return out;
+}
+
+function classifyTe(path: string, before: string, after: string): PendingChange {
+  const a = readTe(before);
+  const b = readTe(after);
+  const paths: string[] = [];
+  const roles: Record<string, string> = {};
+  const plainA = toPlain(parseYaml(before).root) as Plain;
+  const plainB = toPlain(parseYaml(after).root) as Plain;
+  const strip = (p: Plain): Plain => {
+    if (p && typeof p === "object" && !Array.isArray(p)) {
+      const o = { ...(p as Record<string, Plain>) };
+      const tc = o["twin_config"];
+      if (tc && typeof tc === "object" && !Array.isArray(tc)) {
+        const t = { ...(tc as Record<string, Plain>) };
+        delete t["nodes"];
+        o["twin_config"] = t;
+      }
+      return o;
+    }
+    return p;
+  };
+  if (JSON.stringify(strip(plainA)) !== JSON.stringify(strip(plainB))) paths.push("twin_config.segments");
+  const byA = new Map(a.nodes.map((n) => [n.name, n]));
+  const byB = new Map(b.nodes.map((n) => [n.name, n]));
+  let topology = paths.length > 0;
+  for (const name of new Set([...byA.keys(), ...byB.keys()])) {
+    const x = byA.get(name);
+    const y = byB.get(name);
+    if (!x || !y) {
+      paths.push(`twin_config.nodes[${name}]`);
+      topology = true;
+      continue;
+    }
+    if (x.role !== y.role) {
+      paths.push(`twin_config.nodes[${name}].role`);
+      roles[name] = y.role ?? "";
+    }
+    if (x.image !== y.image || JSON.stringify(x.nets) !== JSON.stringify(y.nets) || x.count !== y.count || x.kind !== y.kind || JSON.stringify(x.requires) !== JSON.stringify(y.requires)) {
+      paths.push(`twin_config.nodes[${name}]`);
+      topology = true;
+    }
+  }
+  if (topology) return { path, op: "modified", kind: "topology", via: [], paths, reason: "segments, nodes, attachments, counts or images changed: the twin must be re-planned", roles: {} };
+  return { path, op: "modified", kind: "attribute", via: ["tfc"], paths, reason: "role re-assignment with the image unchanged: the tfc playout re-asserts it", roles };
 }

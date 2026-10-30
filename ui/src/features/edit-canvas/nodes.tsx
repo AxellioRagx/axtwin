@@ -5,12 +5,13 @@
  * the segments it joins, an observed arc with a `log(bytes)` width, and the
  * fixed chrome (Internet, the WAN edge). Nothing here edits anything.
  */
-import { BaseEdge, Handle, Position, getSmoothStepPath, getStraightPath, type EdgeProps, type NodeProps } from "@xyflow/react";
+import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, type EdgeProps, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
 import { HANDLE, type CanvasEdge, type CanvasNode } from "./canvas/placement";
+import { useEdit } from "./edit/EditContext";
 
 /** What the traffic overlay lit: host chip ids and arc keys, read by the
  *  nodes through context so a highlight never rebuilds the node array. */
@@ -21,15 +22,28 @@ export interface Glow {
 export const NO_GLOW: Glow = { hosts: new Set(), arcs: new Set() };
 export const GlowContext = createContext<Glow>(NO_GLOW);
 
-/** Every node offers the three handles the edges attach to; none accepts a connection. */
-function Handles() {
+/** Every node offers the three handles the edges attach to. In edit mode a
+ *  host's or router's bottom handle is a connection SOURCE and a segment's
+ *  top handle a TARGET -- dragging one to the other is the attach gesture;
+ *  read-only, none accepts a connection. */
+function Handles({ role = "none" }: { role?: "host" | "segment" | "none" }) {
+  const edit = useEdit();
+  const live = Boolean(edit && !edit.locked);
   return (
     <>
-      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={false} />
+      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={live && role === "segment"} />
+      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={live && role === "host"} />
       <Handle type="target" position={Position.Bottom} id={HANDLE.bottomIn} isConnectable={false} />
     </>
   );
+}
+
+/** The id of a leg edge is `leg:<node>><segment>`. */
+export function legParts(id: string): { node: string; segment: string } | null {
+  if (!id.startsWith("leg:")) return null;
+  const at = id.indexOf(">");
+  if (at === -1) return null;
+  return { node: id.slice(4, at), segment: id.slice(at + 1) };
 }
 
 type P = NodeProps<CanvasNode>;
@@ -54,16 +68,20 @@ export function SiteNode(p: P) {
 
 export function SegmentNode(p: P) {
   const d = p.data;
+  const edit = useEdit();
   if (d.kind !== "segment") return null;
   const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
+  const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing));
   return (
     <div
-      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}`}
+      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}`}
       data-testid="canvas-segment"
       data-cidr={d.cidr}
+      data-name={d.name}
       {...posAttrs(p, `segment:${d.cidr}`)}
       style={{ width: p.width, height: p.height }}
       title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}`}
+      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "segment", name: d.name }) : undefined}
     >
       <div className="cv-segment-header">
         <span className="mono">{d.cidr}</span>
@@ -71,7 +89,7 @@ export function SegmentNode(p: P) {
         {d.hasRouterLeg ? <span className="badge" title="a router has a leg here">gw</span> : null}
       </div>
       {d.hosts === 0 ? <p className="muted cv-empty">No hosts on this segment.</p> : null}
-      <Handles />
+      <Handles role="segment" />
     </div>
   );
 }
@@ -79,22 +97,30 @@ export function SegmentNode(p: P) {
 export function HostNode(p: P) {
   const d = p.data;
   const glow = useContext(GlowContext);
+  const edit = useEdit();
   const [hover, setHover] = useState(false);
   if (d.kind !== "host") return null;
   const lit = glow.hosts.has(d.nodeId);
   const evidence = d.evidence ?? "no evidence";
+  // In edit mode the chip is a node GROUP of the working document: its count and pinned address ride along.
+  const group = edit?.model.te.nodes.find((n) => n.name === d.nodeId) ?? null;
+  const pinned = group?.nets[0]?.ip ?? null;
+  const armed = edit?.attachFrom === d.nodeId;
   return (
     <div
-      className={`cv-host ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}`}
+      className={`cv-host ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}`}
       data-testid="canvas-host"
       data-node-id={d.nodeId}
       {...posAttrs(p, `host:${d.nodeId}`)}
       style={{ width: p.width, height: p.height }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "host", name: d.nodeId }) : undefined}
     >
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} aria-hidden="true" />
       <span className="cv-host-label mono">{d.label}</span>
+      {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
+      {pinned ? <span className="mono muted cv-addr" data-testid="chip-address">{pinned}</span> : null}
       <span className="badge cv-role" title={d.role ?? "no role discovered"}>{d.roleLabel}</span>
       {hover ? (
         <div className="cv-card" role="tooltip" data-testid="canvas-hover-card">
@@ -125,7 +151,7 @@ export function HostNode(p: P) {
           </dl>
         </div>
       ) : null}
-      <Handles />
+      <Handles role="host" />
     </div>
   );
 }
@@ -145,12 +171,42 @@ export function RungsNode(p: P) {
 
 export function RouterNode(p: P) {
   const d = p.data;
+  const edit = useEdit();
   if (d.kind !== "router") return null;
+  const armed = edit?.attachFrom === d.name;
   return (
-    <div className={`cv-router${p.selected ? " selected" : ""}`} data-testid="canvas-router" {...posAttrs(p, `host:${d.name}`)} style={{ width: p.width, height: p.height }} title={`${d.name} joins ${d.segments.join(", ") || "no segment"}`}>
+    <div
+      className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}`}
+      data-testid="canvas-router"
+      data-node-id={d.name}
+      {...posAttrs(p, `host:${d.name}`)}
+      style={{ width: p.width, height: p.height }}
+      title={`${d.name} joins ${d.segments.join(", ") || "no segment"}`}
+      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "router", name: d.name }) : undefined}
+    >
       <span className="mono">{d.name}</span>
       <span className="badge">router · {d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
-      <Handles />
+      <Handles role="host" />
+    </div>
+  );
+}
+
+/** An annotation: text, a rectangle, an ellipse or a line, resizable while
+ *  selected and unlocked. Presentation only; it never touches the twin. */
+export function AnnotationNode(p: P) {
+  const d = p.data;
+  if (d.kind !== "annotation") return null;
+  const a = d.ann;
+  const w = p.width ?? a.w;
+  const h = p.height ?? a.h;
+  return (
+    <div className={`cv-ann cv-ann-${a.kind}${a.locked ? " locked" : ""}${p.selected ? " selected" : ""}`} data-testid="canvas-annotation" data-ann-id={a.id} data-ann-kind={a.kind} style={{ width: w, height: Math.max(h, a.kind === "line" ? 2 : h) }}>
+      {a.kind !== "text" && !a.locked ? <NodeResizer isVisible={p.selected} minWidth={20} minHeight={a.kind === "line" ? 0 : 20} /> : null}
+      {a.kind === "text" ? <span className="cv-ann-text">{a.text}</span> : null}
+      {a.kind === "rect" ? <svg width={w} height={h} aria-hidden="true"><rect x={1} y={1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={6} /></svg> : null}
+      {a.kind === "ellipse" ? <svg width={w} height={h} aria-hidden="true"><ellipse cx={w / 2} cy={h / 2} rx={Math.max(0, w / 2 - 1)} ry={Math.max(0, h / 2 - 1)} /></svg> : null}
+      {a.kind === "line" ? <svg width={w} height={Math.max(2, h)} aria-hidden="true"><line x1={0} y1={1} x2={w} y2={Math.max(1, h - 1)} /></svg> : null}
+      {a.locked ? <span className="badge cv-ann-lock" title="locked">lock</span> : null}
     </div>
   );
 }
@@ -202,6 +258,7 @@ export const nodeTypes = {
   overflow: OverflowNode,
   chrome: ChromeNode,
   unplaced: UnplacedNode,
+  annotation: AnnotationNode,
 };
 
 // ---------------------------------------------------------------------------
@@ -228,10 +285,20 @@ export function ArcEdge(e: E) {
   );
 }
 
-/** A router's or a multi-homed host's leg onto a segment: a straight line. */
+/** A router's or a multi-homed host's leg onto a segment: a straight line.
+ *  In edit mode it is an ATTACHMENT of the working document: labelled with
+ *  the pinned address (or the segment), right-click to detach. */
 export function LegEdge(e: E) {
-  const [path] = getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
-  return <BaseEdge id={e.id} path={path} className="cv-leg" style={e.style} />;
+  const edit = useEdit();
+  const [path, labelX, labelY] = getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
+  const parts = legParts(e.id);
+  const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
+  const label = edit && parts ? (leg?.ip ?? parts.segment) : undefined;
+  return (
+    <g data-testid="canvas-leg" data-leg={e.id} className={e.selected ? "selected" : ""} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
+      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+    </g>
+  );
 }
 
 /** The trunk from the Internet through the WAN edge down to each site. */

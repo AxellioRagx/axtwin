@@ -3,6 +3,10 @@ import type {
   AssertionsDoc,
   CastRequest,
   CastResponse,
+  DeployConfig,
+  DeployConfigApply,
+  DeployConfigReset,
+  DeployList,
   DiscoveryPluginList,
   DiscoveryRun,
   DiscoveryRunList,
@@ -19,7 +23,9 @@ import type {
   SourceWrite,
   Topology,
   TopologyExport,
+  TwinConfigDetail,
   TwinConfigList,
+  TwinConfigWrite,
   TwinList,
   TwinSummary,
   TwinTree,
@@ -72,6 +78,23 @@ export interface Api {
   putLayout(id: string, doc: LayoutWrite): Promise<LayoutDoc>;
   listTwinConfigs(signal?: AbortSignal): Promise<TwinConfigList>;
   listPersonas(signal?: AbortSignal): Promise<PersonaList>;
+  // The edit model (`api/Spec.md` A2, A3): the document, Save / Save-As, and a deploy's working copy.
+  /** The twin-config with its `document` (the bundle's text files); 404 when the catalog has no such entry. */
+  getTwinConfig(id: string, signal?: AbortSignal): Promise<TwinConfigDetail>;
+  /** Save-As: a new twin-config under `body.id`; an existing id is refused, never overwritten. */
+  createTwinConfig(body: TwinConfigWrite): Promise<TwinConfigDetail>;
+  /** Save (undeployed) or Persist (from a working copy): overwrite the baseline. */
+  putTwinConfig(id: string, body: TwinConfigWrite): Promise<TwinConfigDetail>;
+  /** The deploys the API knows; the canvas reads which of them stand on a twin. */
+  listDeploys(signal?: AbortSignal): Promise<DeployList>;
+  /** The working copy with its per-change classification. */
+  getDeployConfig(deployId: string, signal?: AbortSignal): Promise<DeployConfig>;
+  /** Replace the working copy; refused with the validator's reason when invalid, the stored copy unchanged. */
+  putDeployConfig(deployId: string, files: Record<string, string>): Promise<DeployConfig>;
+  /** Push the working copy's attribute delta onto the running twin; refused naming the paths when a change is topology. */
+  applyDeployConfig(deployId: string): Promise<DeployConfigApply>;
+  /** Discard the working copy and revert what Apply pushed. */
+  resetDeployConfig(deployId: string): Promise<DeployConfigReset>;
 }
 
 const enc = encodeURIComponent;
@@ -108,5 +131,13 @@ export function makeApi(request: Requester): Api {
     putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc, auth: true }),
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
+    getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),
+    createTwinConfig: (body) => request("POST", "/api/twin-configs", { body, auth: true }),
+    putTwinConfig: (id, body) => request("PUT", `/api/twin-configs/${enc(id)}`, { body, auth: true }),
+    listDeploys: (signal) => request("GET", "/api/deploys", { signal }),
+    getDeployConfig: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/config`, { signal }),
+    putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files }, auth: true }),
+    applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {}, auth: true }),
+    resetDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: {}, auth: true }),
   };
 }

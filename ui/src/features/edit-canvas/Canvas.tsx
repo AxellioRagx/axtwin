@@ -1,10 +1,15 @@
 /**
- * The pan/zoom canvas (Phase 1, read-only): the `RF` rows of `SPEC.md`'s
+ * The pan/zoom canvas. Phase 1 (read-only): the `RF` rows of `SPEC.md`'s
  * feature table -- select, zoom-to-fit, minimap, zoom controls, dark/light
  * following the app theme, lock-all, find-node-and-centre, the hover card --
- * and the traffic overlay. The one write is a node's position after a drag,
- * reported to the page as a pin; no editing gesture exists here (no connect,
- * no delete, no add).
+ * and the traffic overlay; the one write is a node's position after a drag,
+ * reported to the page as a pin. Phase 2 (`edit` given): the gestures over
+ * the working document -- a palette item dropped or click-placed onto a
+ * segment, a host dragged onto another segment, a handle dragged from a host
+ * to a segment bus or the sticky attach mode (Esc leaves it), right-click
+ * menus, snap-to-grid with Alt bypass, align H/V, annotations -- each
+ * reported to the page, which owns the command stack. The canvas never
+ * writes the twin config itself.
  */
 import {
   Background,
@@ -15,6 +20,10 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeChange,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -24,10 +33,36 @@ import type { TopologyExport } from "../../api/types";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
+import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
+import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
+import type { DocModel } from "./edit/document";
 import type { ConsoleGraph } from "./model/graph";
 import { resolveSearch } from "./model/search";
-import { edgeTypes, GlowContext, NO_GLOW, nodeTypes, type Glow } from "./nodes";
+import { PALETTE_MIME } from "./Palette";
+import type { Selection } from "./SidePanel";
+import { edgeTypes, GlowContext, legParts, NO_GLOW, nodeTypes, type Glow } from "./nodes";
 import "./canvas.css";
+
+export interface CanvasEditProps {
+  model: DocModel;
+  /** View mode: the deploy is running; nothing but annotations moves. */
+  locked: boolean;
+  selection: Selection;
+  onSelection(sel: Selection): void;
+  placing: PaletteItem | null;
+  onPlacing(item: PaletteItem | null): void;
+  /** A palette item landed on a segment (or nowhere, `segment: null`). */
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null): void;
+  onAttach(node: string, segment: string): void;
+  /** An existing chip was dropped onto another segment. */
+  onMove(node: string, segment: string): void;
+  onDetach(node: string, segment: string): void;
+  onRemoveNode(name: string): void;
+  onRemoveSegment(name: string): void;
+  onAddSegment(): void;
+  annotations: Annotation[];
+  onAnnotations(list: Annotation[]): void;
+}
 
 export interface CanvasProps {
   graph: ConsoleGraph;
@@ -40,12 +75,15 @@ export interface CanvasProps {
   onToggleSite: (siteKey: string) => void;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
-  /** Lock-all's initial state (synced from the deploy state in Phase 2). */
+  /** Lock-all's initial state (synced from the deploy state in edit mode). */
   locked?: boolean;
   notes: string[];
+  /** Phase 2: the editing gestures. Absent = Phase 1's read-only canvas. */
+  edit?: CanvasEditProps;
 }
 
 const DEFAULT_GLOW_SECONDS = 8;
+const GRID = 24;
 
 export function Canvas(props: CanvasProps) {
   return (
@@ -55,12 +93,33 @@ export function Canvas(props: CanvasProps) {
   );
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes }: CanvasProps) {
+/** The segment whose box holds `at` (absolute canvas coordinates), by name. Pure. */
+export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
+  for (const n of nodes) {
+    if (n.data.kind !== "segment") continue;
+    const abs = absolutePosition(nodes, n.id);
+    const w = n.measured?.width ?? n.width ?? 0;
+    const h = n.measured?.height ?? n.height ?? 0;
+    if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
+  }
+  return null;
+}
+
+/** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
+export function connectionToAttach(c: Pick<Connection, "source" | "target">): { node: string; segment: string } | null {
+  const node = c.source.startsWith("host:") ? c.source.slice(5) : c.source.startsWith("router:") ? c.source.slice(7) : null;
+  const segment = c.target.startsWith("seg:") ? c.target.slice(4) : null;
+  return node && segment ? { node, segment } : null;
+}
+
+type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
+
+function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, edit }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
-  const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(placement.nodes);
-  useEffect(() => setNodes(placement.nodes), [placement, setNodes]);
-  const [locked, setLocked] = useState(lockedAtStart);
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
+  const [lockedAll, setLockedAll] = useState(lockedAtStart);
+  const locked = lockedAll || Boolean(edit?.locked);
   const [query, setQuery] = useState("");
   const [findNote, setFindNote] = useState<string | null>(null);
   const [filter, setFilter] = useState<TrafficFilter>(EMPTY_FILTER);
@@ -72,22 +131,256 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     if (glowTimer.current) clearTimeout(glowTimer.current);
   }, []);
 
+  // ---- Phase 2 state: grid, snap, attach mode, menus, annotations ----
+  const [grid, setGrid] = useState(true);
+  const [snap, setSnap] = useState(true);
+  const [alt, setAlt] = useState(false);
+  const [attachArmed, setAttachArmed] = useState(false);
+  const [attachFrom, setAttachFrom] = useState<string | null>(null);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
+  const editing = Boolean(edit) && !locked;
+
+  const annotationNodes = useMemo<CanvasNode[]>(() => {
+    if (!edit || !showAnnotations) return [];
+    return edit.annotations.map((a) => ({
+      id: `ann:${a.id}`,
+      type: "annotation",
+      position: { x: a.x, y: a.y },
+      width: a.w,
+      height: Math.max(a.h, a.kind === "line" ? 2 : 0),
+      draggable: !a.locked,
+      selectable: true,
+      zIndex: -1,
+      data: { kind: "annotation", ann: a },
+    }));
+  }, [edit, showAnnotations]);
+  useEffect(() => setNodes([...placement.nodes, ...annotationNodes]), [placement, annotationNodes, setNodes]);
+
+  // Annotation resizes land in the annotation list when the resize ends.
+  const onNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]) => {
+      onNodesChangeBase(changes);
+      if (!edit) return;
+      for (const c of changes) {
+        if (c.type === "dimensions" && c.id.startsWith("ann:") && c.resizing === false && c.dimensions) {
+          const id = c.id.slice(4);
+          const dims = c.dimensions;
+          edit.onAnnotations(edit.annotations.map((a) => (a.id === id ? { ...a, w: Math.round(dims.width), h: Math.round(dims.height) } : a)));
+        }
+      }
+    },
+    [onNodesChangeBase, edit],
+  );
+
   const onNodeDragStop = useCallback(
     (_e: unknown, node: CanvasNode) => {
+      if (node.data.kind === "annotation" && edit) {
+        const a = node.data.ann;
+        edit.onAnnotations(edit.annotations.map((x) => (x.id === a.id ? { ...x, x: Math.round(node.position.x), y: Math.round(node.position.y) } : x)));
+        return;
+      }
       const key = pinKeyOf(node);
       if (!key) return;
       const current = rf.getNodes();
-      const at = absolutePosition(current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n)), node.id);
-      if (at) onPin(key, { x: Math.round(at.x * 100) / 100, y: Math.round(at.y * 100) / 100 });
+      const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
+      const at = absolutePosition(moved, node.id);
+      if (!at) return;
+      // A host chip dropped inside another segment's box moves there (the attach gesture by drop).
+      if (editing && edit && node.data.kind === "host") {
+        const w = node.measured?.width ?? node.width ?? 0;
+        const h = node.measured?.height ?? node.height ?? 0;
+        const nodeId = node.data.nodeId;
+        const under = segmentAt(moved.filter((n) => n.id !== node.id), { x: at.x + w / 2, y: at.y + h / 2 });
+        const group = edit.model.te.nodes.find((n) => n.name === nodeId);
+        if (under && group && group.nets[0]?.segment !== under) {
+          edit.onMove(nodeId, under);
+          return;
+        }
+      }
+      onPin(key, { x: Math.round(at.x * 100) / 100, y: Math.round(at.y * 100) / 100 });
     },
-    [rf, onPin],
+    [rf, onPin, edit, editing],
   );
 
-  const onNodeClick = useCallback(
-    (_e: unknown, node: CanvasNode) => {
-      if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+  // Selection is explicit -- a click, a Shift-click to extend, an edge click,
+  // the pane to clear, the marquee for many -- and mirrored into React Flow's
+  // own `selected` flags so the drawing agrees with the side panel.
+  const select = useCallback(
+    (next: Selection, ids: string[]) => {
+      if (!edit) return;
+      const key = JSON.stringify(next);
+      if (key !== lastSel.current) {
+        lastSel.current = key;
+        edit.onSelection(next);
+      }
+      setNodes((ns) => ns.map((n) => (n.selected === ids.includes(n.id) ? n : { ...n, selected: ids.includes(n.id) })));
     },
-    [onToggleSite],
+    [edit, setNodes],
+  );
+  const lastSel = useRef<string>("");
+  const selectionRef = useRef<Selection>({ kind: "none" });
+  if (edit) selectionRef.current = edit.selection;
+
+  // Alt bypasses snap while held; Esc leaves the attach mode and disarms the palette.
+  useEffect(() => {
+    if (!edit) return;
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "Alt") setAlt(true);
+      if (e.key === "Escape") {
+        setAttachArmed(false);
+        setAttachFrom(null);
+        edit.onPlacing(null);
+        setMenu(null);
+        select({ kind: "none" }, []);
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === "Alt") setAlt(false);
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [edit, select]);
+
+  const onNodeClick = useCallback(
+    (e: React.MouseEvent, node: CanvasNode) => {
+      if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+      if (!edit) return;
+      const d = node.data;
+      const cur = selectionRef.current;
+      if (d.kind === "host" || d.kind === "router") {
+        const name = d.kind === "host" ? d.nodeId : d.name;
+        const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
+        select({ kind: "node", names }, names.map((n) => (edit.model.te.nodes.find((x) => x.name === n)?.kind === "router" ? ID.router(n) : ID.host(n))));
+      } else if (d.kind === "segment") {
+        // While a gesture is armed a segment is its TARGET, not the selection's subject.
+        if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
+          const names = e.shiftKey && cur.kind === "segment" ? [...cur.names.filter((n) => n !== d.name), d.name] : [d.name];
+          select({ kind: "segment", names }, names.map(ID.segment));
+        }
+      } else if (d.kind === "annotation") {
+        select({ kind: "annotation", id: d.ann.id }, [node.id]);
+      }
+      if (!editing) return;
+      if (node.data.kind === "segment") {
+        if (edit.placing) {
+          edit.onPlace(edit.placing, node.data.name, edit.placing.count ?? 1, null);
+          return;
+        }
+        if (attachArmed && attachFrom) {
+          edit.onAttach(attachFrom, node.data.name);
+          setAttachFrom(null);
+          return;
+        }
+      }
+      if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
+    },
+    [onToggleSite, edit, editing, attachArmed, attachFrom, select],
+  );
+
+  const onEdgeClick = useCallback(
+    (_e: React.MouseEvent, edge: Edge) => {
+      const leg = legParts(edge.id);
+      if (leg) select({ kind: "leg", ...leg }, []);
+    },
+    [select],
+  );
+
+  // A marquee selects many at once; a single pick is the click handlers' above.
+  const onSelectionChange = useCallback(
+    ({ nodes: sel }: { nodes: Node[]; edges: Edge[] }) => {
+      if (!edit || sel.length < 2) return;
+      const data = sel.map((n) => n.data as CanvasNode["data"]);
+      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" ? d.name : ""));
+      const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
+      const next: Selection = hosts.length ? { kind: "node", names: hosts } : segs.length ? { kind: "segment", names: segs } : { kind: "none" };
+      const key = JSON.stringify(next);
+      if (key !== lastSel.current) {
+        lastSel.current = key;
+        edit.onSelection(next);
+      }
+    },
+    [edit],
+  );
+
+  const onConnect = useCallback(
+    (c: Connection) => {
+      const a = connectionToAttach(c);
+      if (a && edit && editing) edit.onAttach(a.node, a.segment);
+    },
+    [edit, editing],
+  );
+
+  const onDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!edit || !editing) return;
+      const raw = e.dataTransfer.getData(PALETTE_MIME);
+      if (!raw) return;
+      e.preventDefault();
+      let item: PaletteItem & { count?: number };
+      try {
+        item = JSON.parse(raw) as PaletteItem & { count?: number };
+      } catch {
+        return;
+      }
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      const seg = segmentAt(rf.getNodes(), at);
+      edit.onPlace(item, seg, item.count ?? 1, at);
+    },
+    [edit, editing, rf],
+  );
+
+  const onContextMenu = useCallback<EditState["onContextMenu"]>((e, target) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const shell = (e.currentTarget as HTMLElement).closest(".canvas-shell") as HTMLElement | null;
+    const box = shell?.getBoundingClientRect();
+    setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target });
+  }, []);
+
+  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
+
+  const align = useCallback(
+    (axis: "h" | "v") => {
+      const current = rf.getNodes();
+      const sel = current.filter((n) => n.selected && pinKeyOf(n));
+      if (sel.length < 2) return;
+      const abs = sel.map((n) => ({ n, at: absolutePosition(current, n.id)! }));
+      const ref = axis === "h" ? Math.min(...abs.map((a) => a.at.y)) : Math.min(...abs.map((a) => a.at.x));
+      const moved = new Map<string, { x: number; y: number }>();
+      for (const { n, at } of abs) {
+        const target = axis === "h" ? { x: at.x, y: ref } : { x: ref, y: at.y };
+        moved.set(n.id, target);
+        onPin(pinKeyOf(n)!, target);
+      }
+      setNodes((ns) =>
+        ns.map((n) => {
+          const t = moved.get(n.id);
+          if (!t) return n;
+          const parent = n.parentId ? absolutePosition(ns, n.parentId) : null;
+          return { ...n, position: parent ? { x: t.x - parent.x, y: t.y - parent.y } : t };
+        }),
+      );
+    },
+    [rf, onPin, setNodes],
+  );
+
+  const addAnnotation = useCallback(
+    (kind: AnnotationKind) => {
+      if (!edit) return;
+      const v = rf.getViewport();
+      const shell = document.querySelector<HTMLElement>(".canvas-shell");
+      const w = shell?.clientWidth || 800;
+      const h = shell?.clientHeight || 500;
+      const at = { x: Math.round((-v.x + w / 2) / v.zoom), y: Math.round((-v.y + h / 2) / v.zoom) };
+      edit.onAnnotations([...edit.annotations, newAnnotation(kind, at)]);
+      setShowAnnotations(true);
+    },
+    [edit, rf],
   );
 
   const centreOn = useCallback(
@@ -144,77 +437,166 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
   const viewportProps = initialViewport ? { defaultViewport: initialViewport } : { fitView: true };
 
+  const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
+    if (!menu || !edit) return [];
+    const t = menu.target;
+    const items: Array<{ label: string; run(): void; danger?: boolean }> = [];
+    if (t.kind === "host" || t.kind === "router") {
+      const group = edit.model.te.nodes.find((n) => n.name === t.name);
+      items.push({
+        label: "Attach to a segment… (then click one)",
+        run: () => {
+          setAttachArmed(true);
+          setAttachFrom(t.name);
+        },
+      });
+      for (const leg of group?.nets ?? []) items.push({ label: `Detach from ${leg.segment}`, run: () => edit.onDetach(t.name, leg.segment) });
+      items.push({ label: `Remove ${t.name}`, run: () => edit.onRemoveNode(t.name), danger: true });
+    } else if (t.kind === "leg") {
+      items.push({ label: `Detach ${t.node} from ${t.segment}`, run: () => edit.onDetach(t.node, t.segment), danger: true });
+    } else if (t.kind === "segment") {
+      if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
+      if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
+      items.push({ label: "Add a segment", run: () => edit.onAddSegment() });
+      items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
+    }
+    return items;
+  }, [menu, edit, attachArmed, attachFrom]);
+
   return (
     <GlowContext.Provider value={glow}>
-      <div className="canvas-shell" data-testid="canvas" data-locked={locked ? "true" : "false"} data-color-mode={colorMode}>
-        <ReactFlow<CanvasNode>
-          nodes={nodes}
-          edges={placement.edges}
-          onNodesChange={onNodesChange}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          colorMode={colorMode}
-          nodesDraggable={!locked}
-          nodesConnectable={false}
-          elementsSelectable
-          deleteKeyCode={null}
-          zoomOnDoubleClick={false}
-          minZoom={0.1}
-          maxZoom={2.5}
-          onNodeDragStop={onNodeDragStop}
-          onNodeClick={onNodeClick}
-          onMoveEnd={(_e, v) => onViewport(v)}
-          proOptions={{ hideAttribution: true }}
-          {...viewportProps}
+      <EditContext.Provider value={editState}>
+        <div
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}`}
+          data-testid="canvas"
+          data-locked={locked ? "true" : "false"}
+          data-color-mode={colorMode}
+          data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
+          onClick={() => setMenu(null)}
         >
-          <Background gap={24} />
-          <Controls showInteractive={false} />
-          <MiniMap pannable zoomable nodeStrokeWidth={2} />
-          <Panel position="top-left" className="cv-toolbar">
-            <form
-              className="row"
-              onSubmit={(e) => {
+          <ReactFlow<CanvasNode>
+            nodes={nodes}
+            edges={placement.edges}
+            onNodesChange={onNodesChange}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            colorMode={colorMode}
+            nodesDraggable={!locked}
+            nodesConnectable={editing}
+            elementsSelectable
+            deleteKeyCode={null}
+            zoomOnDoubleClick={false}
+            minZoom={0.1}
+            maxZoom={2.5}
+            snapToGrid={editing && snap && !alt}
+            snapGrid={[GRID, GRID]}
+            onNodeDragStop={onNodeDragStop}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onSelectionChange={onSelectionChange}
+            onConnect={onConnect}
+            onDrop={onDrop}
+            onDragOver={(e) => {
+              if (editing) {
                 e.preventDefault();
-                find();
-              }}
-            >
-              <input type="text" aria-label="Find node" placeholder="name, address, role or CIDR" value={query} onChange={(e) => setQuery(e.target.value)} />
-              <button type="submit">Find</button>
-              <button type="button" onClick={() => void rf.fitView({ duration: 300 })}>
-                Zoom to fit
-              </button>
-              <button type="button" aria-pressed={locked} onClick={() => setLocked((l) => !l)}>
-                {locked ? "Unlock all" : "Lock all"}
-              </button>
-              {findNote ? <span className="muted" role="status">{findNote}</span> : null}
-            </form>
-            <form
-              className="row cv-overlay"
-              aria-label="Traffic overlay"
-              onSubmit={(e) => {
-                e.preventDefault();
-                applyOverlay();
-              }}
-            >
-              <span className="muted">Traffic</span>
-              <input type="text" aria-label="Protocol" placeholder="proto" value={filter.proto} onChange={(e) => setFilter({ ...filter, proto: e.target.value })} />
-              <input type="text" aria-label="Port" placeholder="port" value={filter.port} onChange={(e) => setFilter({ ...filter, port: e.target.value })} />
-              <input type="text" aria-label="Minimum bytes" placeholder="bytes ≥" value={filter.minBytes} onChange={(e) => setFilter({ ...filter, minBytes: e.target.value })} />
-              <input type="text" aria-label="Peer" placeholder="peer" value={filter.peer} onChange={(e) => setFilter({ ...filter, peer: e.target.value })} />
-              <input type="text" aria-label="Glow seconds" value={glowSeconds} onChange={(e) => setGlowSeconds(e.target.value)} className="cv-seconds" />
-              <button type="submit">Light up</button>
-              {overlayNote ? <span className="muted" role="status" data-testid="overlay-note">{overlayNote}</span> : null}
-            </form>
-          </Panel>
-          {status.length ? (
-            <Panel position="bottom-left" className="cv-status">
-              {status.map((s, i) => (
-                <div key={i} className="muted">{s}</div>
-              ))}
+                e.dataTransfer.dropEffect = "copy";
+              }
+            }}
+            onPaneClick={() => {
+              setMenu(null);
+              select({ kind: "none" }, []);
+            }}
+            onMoveEnd={(_e, v) => onViewport(v)}
+            proOptions={{ hideAttribution: true }}
+            {...viewportProps}
+          >
+            {grid ? <Background gap={GRID} /> : null}
+            <Controls showInteractive={false} />
+            <MiniMap pannable zoomable nodeStrokeWidth={2} />
+            <Panel position="top-left" className="cv-toolbar">
+              <form
+                className="row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  find();
+                }}
+              >
+                <input type="text" aria-label="Find node" placeholder="name, address, role or CIDR" value={query} onChange={(e) => setQuery(e.target.value)} />
+                <button type="submit">Find</button>
+                <button type="button" onClick={() => void rf.fitView({ duration: 300 })}>
+                  Zoom to fit
+                </button>
+                <button type="button" aria-pressed={lockedAll} onClick={() => setLockedAll((l) => !l)} disabled={Boolean(edit?.locked)}>
+                  {lockedAll ? "Unlock all" : "Lock all"}
+                </button>
+                {findNote ? <span className="muted" role="status">{findNote}</span> : null}
+              </form>
+              {edit ? (
+                <div className="row cv-edit-tools" aria-label="Edit tools">
+                  <button type="button" aria-pressed={attachArmed} disabled={!editing} onClick={() => { setAttachArmed((a) => !a); setAttachFrom(null); }} title="click a host, then a segment; stays on until Esc">
+                    {attachArmed ? (attachFrom ? `Attach ${attachFrom} → click a segment` : "Attach: click a host") : "Attach"}
+                  </button>
+                  <button type="button" aria-pressed={snap} onClick={() => setSnap((s) => !s)} title="hold Alt to bypass">Snap</button>
+                  <button type="button" aria-pressed={grid} onClick={() => setGrid((g) => !g)}>Grid</button>
+                  <button type="button" disabled={!editing} onClick={() => align("h")}>Align H</button>
+                  <button type="button" disabled={!editing} onClick={() => align("v")}>Align V</button>
+                  <span className="muted">Annotate:</span>
+                  <button type="button" onClick={() => addAnnotation("text")}>text</button>
+                  <button type="button" onClick={() => addAnnotation("rect")}>rect</button>
+                  <button type="button" onClick={() => addAnnotation("ellipse")}>ellipse</button>
+                  <button type="button" onClick={() => addAnnotation("line")}>line</button>
+                  <button type="button" aria-pressed={!showAnnotations} onClick={() => setShowAnnotations((s) => !s)}>
+                    {showAnnotations ? "Hide all" : "Show annotations"}
+                  </button>
+                </div>
+              ) : null}
+              <form
+                className="row cv-overlay"
+                aria-label="Traffic overlay"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  applyOverlay();
+                }}
+              >
+                <span className="muted">Traffic</span>
+                <input type="text" aria-label="Protocol" placeholder="proto" value={filter.proto} onChange={(e) => setFilter({ ...filter, proto: e.target.value })} />
+                <input type="text" aria-label="Port" placeholder="port" value={filter.port} onChange={(e) => setFilter({ ...filter, port: e.target.value })} />
+                <input type="text" aria-label="Minimum bytes" placeholder="bytes ≥" value={filter.minBytes} onChange={(e) => setFilter({ ...filter, minBytes: e.target.value })} />
+                <input type="text" aria-label="Peer" placeholder="peer" value={filter.peer} onChange={(e) => setFilter({ ...filter, peer: e.target.value })} />
+                <input type="text" aria-label="Glow seconds" value={glowSeconds} onChange={(e) => setGlowSeconds(e.target.value)} className="cv-seconds" />
+                <button type="submit">Light up</button>
+                {overlayNote ? <span className="muted" role="status" data-testid="overlay-note">{overlayNote}</span> : null}
+              </form>
             </Panel>
+            {status.length ? (
+              <Panel position="bottom-left" className="cv-status">
+                {status.map((s, i) => (
+                  <div key={i} className="muted">{s}</div>
+                ))}
+              </Panel>
+            ) : null}
+          </ReactFlow>
+          {menu && menuItems.length ? (
+            <ul className="cv-menu" role="menu" style={{ left: menu.x, top: menu.y }} data-testid="context-menu">
+              {menuItems.map((m) => (
+                <li key={m.label} role="menuitem">
+                  <button
+                    type="button"
+                    className={m.danger ? "danger" : undefined}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenu(null);
+                      m.run();
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
           ) : null}
-        </ReactFlow>
-      </div>
+        </div>
+      </EditContext.Provider>
     </GlowContext.Provider>
   );
 }

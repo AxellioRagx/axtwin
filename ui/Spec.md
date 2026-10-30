@@ -35,8 +35,8 @@ seam, everything else exists today):
 |---|---|
 | T0 — v0 loop | twin-configs list/detail, topology, inventory, targets, deploys create/run/status, tfc, taps, **A6** metrics |
 | C1 — discovery | **A7** sources (save / test / run), **A1** plugins + runs, imprints detail. **Built 2026-10-27** (sources, probe, run-and-poll, open the imprint); pcap/`cast` views not yet |
-| C2 — view twin | covered by T0 |
-| C3 — edit twin | validate, **A2** working copy, **A3** twin-config create/update |
+| C2 — view twin | covered by T0. **Built 2026-10-30** (the design canvas, `features/edit-canvas`, phase 1: cast and authored graphs, positions, the traffic overlay) |
+| C3 — edit twin | validate, **A2** working copy, **A3** twin-config create/update. **Built 2026-10-30** (canvas phase 2: palette, attaching, the command stack, the side panel, Save / Save-As / Apply / Reset / Persist, promote to assertion); the per-mutation `POST /api/validate` is the canvas's own structural check plus the API's validation on every working-copy `PUT` and on Save, because that route validates catalog ids, not documents |
 | C4 — targets | targets list, **A4** create/update/delete |
 | C5 — tweak + promote | **A2** apply/reset, **A3** update |
 | C6 — inventory | deploys list, **A5** `origin=platform` |
@@ -160,21 +160,31 @@ its listed tests pass. T0.x is the release gate for UI v0.
   The run form asks for an imprint name, not a catalog id.
   *(`run.page.test.tsx`, `run.flow.test.tsx`.)*
 
-**C2 — view discovered twin:** covered by T0.1.
+**C2 — view discovered twin:** covered by T0.1. **Built 2026-10-30** (the
+design canvas renders the cast and the authored graph with every segment,
+host and router, positions stable across renders of one layout document;
+*`canvas.test.tsx`*).
 
-**C3 — edit twin (working copy):**
+**C3 — edit twin (working copy):** **Built 2026-10-30** (*`canvas.edit.test.tsx`*,
+*`canvas.edit.model.test.ts`*; the design canvas's phase 2).
 - C3.1 (auto) Add a node and a segment; the editor shows the config valid.
+  **Built 2026-10-30.**
 - C3.2 (auto) Duplicate a section and place it onto a target segment; placed nodes
   receive segment-appropriate addressing automatically; still valid.
+  **Built 2026-10-30** (the lifted `allocate.ts`: `.10` upward, skipping pinned
+  addresses and the gateway).
 - C3.3 (auto) Save-As under a new name, from both an undeployed config and a
   deployed twin's working copy, appears in the list and reopens identical; a
-  name that already exists is refused with the reason shown.
+  name that already exists is refused with the reason shown. **Built 2026-10-30.**
 - C3.4 (auto) An edit that would produce an invalid config is blocked with the
-  validator's reason surfaced in the editor.
+  validator's reason surfaced in the editor. **Built 2026-10-30** (the canvas's
+  structural check blocks in place; the API's refusal of a working-copy `PUT`
+  reverts the edit and is shown verbatim).
 - C3.5 (auto) Editing a **deployed** twin shows a dirty marker and leaves the
-  baseline view unchanged until Persist.
+  baseline view unchanged until Persist. **Built 2026-10-30.**
 - C3.6 (auto) Reset clears the marker and shows baseline; a second console open
-  on the same deploy shows the same state.
+  on the same deploy shows the same state. **Built 2026-10-30** (two mounted
+  consoles over one fake control plane; the second polls and has a Refresh).
 
 **C4 — deploy targets:**
 - C4.1 (auto) Add/edit/remove a target; the list reflects it and never shows a

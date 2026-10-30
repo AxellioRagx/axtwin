@@ -60,6 +60,7 @@ import { stackBands } from "../layout/tiers";
 import { BUDGET_LEVEL0, BUDGET_LEVEL1_BANDS, type RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
+import type { Annotation } from "../edit/annotations";
 import type { ExtraLeg } from "./authored";
 
 // ---------------------------------------------------------------------------
@@ -100,7 +101,9 @@ export type RouterData = { kind: "router"; name: string; segments: string[]; dra
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
 export type ChromeData = { kind: "internet" | "wan"; label: string; sub: string };
 export type UnplacedData = { kind: "unplaced"; count: number };
-export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData;
+/** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
+export type AnnotationData = { kind: "annotation"; ann: Annotation };
+export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData | AnnotationData;
 export type CanvasNode = Node<CanvasData, string>;
 
 export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
