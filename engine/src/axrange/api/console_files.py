@@ -1417,7 +1417,7 @@ _SITE_KEY_RE = re.compile(r"^site:[0-9A-Za-z._:-]+$")
 # A host pin names the node by its graph id (an entity key such as
 # `address:10.80.20.4`, or a twin-config node name): anything printable but
 # whitespace, bounded so a pasted document cannot carry an unbounded key.
-_HOST_KEY_RE = re.compile(r"^host:\S{1,200}$")
+_HOST_PIN_RE = re.compile(r"^host:\S{1,200}$")
 
 
 def _validate_pin_key(key: str, *, where: str) -> None:
@@ -1438,7 +1438,7 @@ def _validate_pin_key(key: str, *, where: str) -> None:
             )
         return
     if key.startswith("host:"):
-        if not _HOST_KEY_RE.match(key):
+        if not _HOST_PIN_RE.match(key):
             raise ConsoleFileShapeError(
                 f"{where}: pin key {key!r} must be `host:<name>` -- a "
                 "non-empty name with no whitespace, at most 200 characters"
