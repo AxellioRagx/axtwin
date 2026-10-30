@@ -460,6 +460,10 @@ class TargetDTO(BaseModel):
     error: Optional[str] = None
     # Fix round 2: every state store of this target ({label, path, primary}).
     stores: list[dict[str, Any]] = []
+    # `api/Spec.md` A4: the deploy platform this target casts onto (the
+    # closed factory's set, `axrange.platform.PLATFORMS`; `proxmox` when the
+    # targets file names none).
+    platform: str = "proxmox"
 
 
 class TargetListDTO(BaseModel):

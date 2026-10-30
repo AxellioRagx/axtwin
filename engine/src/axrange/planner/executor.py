@@ -39,7 +39,7 @@ import random
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from axrange.ops.registry import IdempotencyClass
 from axrange.planner.cluster import ClusterContext
@@ -96,6 +96,7 @@ class ExecutionContext:
     tier: str = "te"
 
 
+@runtime_checkable
 class Adapter(Protocol):
     """The one interface docs/ADAPTER.md §2.1 says the planner sees.
 

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from axrange.adapter_proxmox.naming import img_vm_name_for_image
+from axrange.platform import default_namer
 from axrange.imagebuild import bake as bake_mod
 from axrange.imagebuild import bake_windows as bakewin_mod
 from axrange.imagebuild import binding_io
@@ -83,7 +83,7 @@ def _vm_name(image: str, version: str) -> str:
     but not embedded: multiple versions of one image share the golden name;
     they are distinguished by VMID, not name."""
     del version  # unused — see docstring
-    return img_vm_name_for_image(image)
+    return default_namer().img_vm_name_for_image(image)
 
 
 def _read_pubkey(path: str) -> str:

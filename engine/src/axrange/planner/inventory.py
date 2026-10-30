@@ -161,11 +161,15 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
-from axrange.adapter_proxmox import naming
-from axrange.adapter_proxmox.naming import vm_name_for_host
 from axrange.planner.egress import EgressPosture, egress_posture_from_ops
 from axrange.planner.opview import op_fields
 from axrange.planner.state import StateStore
+from axrange.platform import default_namer
+
+# The naming seam of the default platform (`planner/teardown.py` says why
+# the default: an inventory is derived from a deploy row, not a target).
+naming = default_namer()
+vm_name_for_host = naming.vm_name_for_host
 
 
 def _os_family_lookup(image_id: str | None, manifests: Any) -> str | None:
@@ -361,7 +365,7 @@ def build_twin_inventory(
     # caller's existing `except InventoryError` handling covers it, instead
     # of a raw traceback surfacing at the CLI/API layer.
     own_tier = deploy.tier or "te"
-    if own_tier not in naming.TIER_SHAPE_CHECKS:
+    if own_tier not in naming.tier_shape_checks():
         raise InventoryError(
             f"deploy {deploy_id} has unrecognized tier {own_tier!r}; refusing to read"
         )

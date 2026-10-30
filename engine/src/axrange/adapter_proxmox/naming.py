@@ -850,3 +850,35 @@ def is_protected_external(name: str, extra: Iterable[str] = ()) -> bool:
         stripped in PROTECTED_EXTERNAL_NAMES
         or stripped in {e.strip() for e in extra}
     )
+
+
+# ---------------------------------------------------------------------------
+# `axrange.platform.protocols.ResourceNamer` — this module satisfies the
+# engine's naming seam structurally (`adapters/proxmox/SPEC.md` Seam table).
+# The tier tables are reached through accessors (a Protocol member must be
+# callable to be checked at runtime) and the two platform-identity names are
+# the neutral spellings of `vmid_for_op` / `is_te_vmid`: a `GuestHandle` is
+# the VMID here, a domain UUID on libvirt.
+# ---------------------------------------------------------------------------
+def tier_predicates() -> dict[str, Callable[[str], bool]]:
+    """`TIER_PREDICATES` (`ResourceNamer.tier_predicates`)."""
+    return TIER_PREDICATES
+
+
+def tier_shape_checks() -> dict[str, tuple[Callable[[str], bool], ...]]:
+    """`TIER_SHAPE_CHECKS` (`ResourceNamer.tier_shape_checks`)."""
+    return TIER_SHAPE_CHECKS
+
+
+def guest_handle_for_op(plan_id: str, op_id: str) -> int:
+    """`ResourceNamer.guest_handle_for_op`: the VMID (`vmid_for_op`)."""
+    return vmid_for_op(plan_id, op_id)
+
+
+def is_managed_guest_handle(guest: int | str) -> bool:
+    """`ResourceNamer.is_managed_guest_handle`: `is_te_vmid` over the
+    handle; a non-numeric handle is never one of ours."""
+    try:
+        return is_te_vmid(int(guest))
+    except (TypeError, ValueError):
+        return False

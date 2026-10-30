@@ -12,6 +12,8 @@
 # --adapter-config/--db, named after that adapter.conf's DEFAULT_NODE.
 #
 # `axrange serve --targets` REFUSES TO START when:
+#   - an entry's `platform` is not one the engine's closed platform factory
+#     knows (`proxmox` today; `libvirt` when its adapter is built);
 #   - the file names more than one target and an entry has no adapter_config
 #     (the default search path would point it at another cluster);
 #   - any of PROXMOX_API_URL, PROXMOX_API_TOKEN, DEFAULT_NODE, OVS_SSH_HOST,
@@ -25,6 +27,10 @@
 # request carries `override_protection=<that id>`. The CLI is not affected.
 targets:
   - name: dev45
+    # The deploy platform this target casts onto; selects the adapter and the
+    # image bindings under images/bindings/<platform>/. Optional: `proxmox`
+    # when absent. Reported by GET /api/targets.
+    platform: proxmox
     adapter_config: /etc/axrange/adapter.conf
     db: ~/.axrange/state.db
     # Optional: the PVE node names this cluster runs. A deploy whose recorded

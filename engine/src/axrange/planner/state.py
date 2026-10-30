@@ -498,7 +498,8 @@ class StateStore:
         # Fail at the point of the mistake (docs/WORK_ORDER_tier_split.md
         # review MUST-FIX #13): a bad `tier=` used to only surface later,
         # deep inside a naming producer or `planner/teardown.py` mid-sweep.
-        # Lazy/function-local import (not module-level) -- `adapter_proxmox`
+        # Lazy/function-local import (not module-level) -- the platform
+        # factory's namer (`adapter_proxmox.naming` today)
         # transitively imports `axrange.planner.executor`/`dag`, which are
         # THEMSELVES mid-initialization when `state.py` is first loaded
         # (`axrange/planner/__init__.py` loads `executor` before `state`,
@@ -507,9 +508,9 @@ class StateStore:
         # it to call time (long after every module has finished loading)
         # sidesteps that entirely, same pattern this file's callers already
         # use for cross-package engine imports.
-        from axrange.adapter_proxmox.naming import check_tier
+        from axrange.platform import default_namer
 
-        check_tier(tier)
+        default_namer().check_tier(tier)
         now = time.time()
         row = DeployRow(
             deploy_id=deploy_id,

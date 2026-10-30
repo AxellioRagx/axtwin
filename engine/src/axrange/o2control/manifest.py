@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 from axrange.sensors import DEFAULT_SENSOR_TYPE, is_known_type
 
 if TYPE_CHECKING:
-    from axrange.adapter_proxmox.config import AdapterConfig
+    from axrange.platform.protocols import PlatformConfig
 
 
 class SurfaceManifestError(Exception):
@@ -204,7 +204,7 @@ def load_surface_manifest(path: str | Path) -> SurfaceManifest:
     return parse_surface_manifest(raw)
 
 
-def resolve_manifest_endpoints(cfg: "AdapterConfig", manifest: SurfaceManifest) -> dict[str, str]:
+def resolve_manifest_endpoints(cfg: "PlatformConfig", manifest: SurfaceManifest) -> dict[str, str]:
     """The five O2 endpoint URLs for `manifest`, per
     `docs/WORK_ORDER_access_facts.md` Part B item 5.
 

@@ -18,11 +18,10 @@ from __future__ import annotations
 import re
 import shlex
 import time
-from typing import Any
+from typing import Any, Optional
 
-from axrange.adapter_proxmox.config import AdapterConfig
-from axrange.adapter_proxmox.guest_agent import GuestAgent
-from axrange.adapter_proxmox.rest import RestClient
+from axrange.platform import DEFAULT_PLATFORM, adapter_for
+from axrange.platform.protocols import GuestExec, PlatformConfig
 from axrange.config_exec.render import (
     ActivityRenderError,
     ConfigRenderError,
@@ -119,20 +118,24 @@ _DOMAIN_READY_STABLE = 3
 class ConfigBackend:
     """Implements axrange.planner.Adapter for `config`-class ops.
 
-    `guest_agent_factory` is injectable so tests drive the full flow without a
-    cluster (mirrors the adapter slice's client-stub approach)."""
+    The guest channel is the platform's `GuestExec` seam (`axrange.platform`,
+    ARCHITECTURE §13). `guest_agent_factory` is injectable so tests drive the
+    full flow without a cluster (mirrors the adapter slice's client-stub
+    approach): called as `(client, host, os_family=...)` with the platform's
+    own connection (`rest_client` when injected) and must return a
+    `GuestExec`."""
 
     def __init__(
         self,
-        config: AdapterConfig,
+        config: PlatformConfig,
         *,
-        rest_client: RestClient | None = None,
-        guest_agent_factory=GuestAgent,
+        rest_client: Any = None,
+        guest_agent_factory=None,
         sleep_fn=time.sleep,
         actor_poll_interval_s: float = 3.0,
     ) -> None:
         self.config = config
-        self._client = rest_client or RestClient(config)
+        self._adapters = adapter_for(DEFAULT_PLATFORM, config, client=rest_client)
         self._ga_factory = guest_agent_factory
         self._sleep = sleep_fn
         self._actor_poll_interval_s = actor_poll_interval_s
@@ -141,6 +144,17 @@ class ConfigBackend:
         # docs/WORK_ORDER_sensor_agnostic_te.md — no SENSOR_SSH_* mgmt-SSH
         # fallback, so no injectable confirm fn is needed; tests drive it via
         # `guest_agent_factory`'s fake, like every other QGA-mediated op).
+
+    def _guest(self, host: str, *, os_family: Optional[str] = None) -> GuestExec:
+        """The guest-control channel on `host` for `os_family` guests
+        (`None`: the platform's Linux default). An injected factory is called
+        exactly as the ops always called it -- `os_family=` only when the op
+        resolved one -- so the suite's two-argument fakes keep working."""
+        if self._ga_factory is not None:
+            if os_family is None:
+                return self._ga_factory(self._adapters.client, host)
+            return self._ga_factory(self._adapters.client, host, os_family=os_family)
+        return self._adapters.guest_exec(host, os_family=os_family or "linux")
 
     def run(
         self,
@@ -189,8 +203,7 @@ class ConfigBackend:
         app_id = str(inp.get("app_id") or op.scope.get("app") or "app")
         os_family = (inp.get("os_family") or "linux").lower()
 
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
 
         if not actions:
@@ -252,8 +265,7 @@ class ConfigBackend:
         if not content:
             return {"script_ran": True}
 
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         if os_family == "windows":
             return self._run_script_windows(vmid, name, content, ga, op)
@@ -444,8 +456,7 @@ class ConfigBackend:
         domain_fqdn = str(inp.get("domain_fqdn") or "")
         # AD is Windows; default the channel accordingly even if os_family is absent.
         os_family = (inp.get("os_family") or "windows").lower()
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         # Services must be Running (ADWS first — that's the create-domain-user dep).
         svc_check = (
@@ -507,8 +518,7 @@ class ConfigBackend:
         groups = list(inp.get("groups") or [])
         os_family = (inp.get("os_family") or "windows").lower()
         password = str(inp.get("password") or self.config.default_password)
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         try:
             script = render_create_domain_user(
@@ -555,8 +565,7 @@ class ConfigBackend:
         groups = list(inp.get("groups") or [])
         os_family = (inp.get("os_family") or "windows").lower()
         password = str(inp.get("password") or self.config.default_password)
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         try:
             script = render_create_local_user(
@@ -610,8 +619,7 @@ class ConfigBackend:
                 error_class="windows-join-no-domain",
             )
         os_family = (inp.get("os_family") or "windows").lower()
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         try:
             script = render_join_to_domain(
@@ -723,7 +731,7 @@ class ConfigBackend:
         # parent before writing, or write_file fails with ENOENT (the guest is
         # fresh; the dir doesn't exist until the runner itself first runs).
         activity_dir = paths["runner"].rsplit("/", 1)[0]
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         ga.exec(vmid, ["mkdir", "-p", activity_dir], timeout_s=30)
         ga.write_file(vmid, paths["runner"], runner, mode="0755")
 
@@ -808,7 +816,7 @@ class ConfigBackend:
         vmid = int(inp["vmid"])
         activity_id = str(inp["activity_id"])
         paths = activity_paths(activity_id)
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         if self._activity_interval(inp) is not None:
             argv = ["bash", paths["launch"]]
         else:
@@ -840,7 +848,7 @@ class ConfigBackend:
         activity_id = str(inp["activity_id"])
         paths = activity_paths(activity_id)
         jittered = self._activity_interval(inp) is not None
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         budget = float(op.timeout_s or 180)
         interval = self._actor_poll_interval_s
         if jittered:
@@ -885,7 +893,7 @@ class ConfigBackend:
             )
         seeder_path = overlay_seeder_path(data_id)
         seeder_dir = seeder_path.rsplit("/", 1)[0]
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         ga.exec(vmid, ["mkdir", "-p", seeder_dir], timeout_s=30)
         ga.write_file(vmid, seeder_path, seeder, mode="0755")
         # python3 is baked into the template by imagebuild; fail loudly if absent
@@ -916,8 +924,7 @@ class ConfigBackend:
         defense_id = str(inp["defense_id"])
         entry = inp.get("defense_entry") or {}
         os_family = (inp.get("os_family") or "linux").lower()
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
         if os_family == "windows":
             return self._install_defense_agent_windows(
@@ -984,8 +991,7 @@ class ConfigBackend:
         kind = str(inp.get("agent_kind") or "")
         entry = inp.get("agent_entry") or {}
         os_family = (inp.get("os_family") or "linux").lower()
-        ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
 
         if kind == "exporter":
@@ -1066,7 +1072,7 @@ class ConfigBackend:
         )
         path = network_sensor_script_path(defense_id)
         sensor_dir = path.rsplit("/", 1)[0]
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         ga.exec(vmid, ["mkdir", "-p", sensor_dir], timeout_s=30)
         ga.write_file(vmid, path, script, mode="0755")
         res = ga.exec(vmid, [path], timeout_s=op.timeout_s or 600)
@@ -1110,7 +1116,7 @@ class ConfigBackend:
         )
         path = sensor_script_path(sensor_id)
         sdir = path.rsplit("/", 1)[0]
-        ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        ga = self._guest(ctx.cluster.default_node)
         ga.exec(vmid, ["mkdir", "-p", sdir], timeout_s=30)
         ga.write_file(vmid, path, script, mode="0755")
         res = ga.exec(vmid, [path], timeout_s=op.timeout_s or 900)
@@ -1236,10 +1242,9 @@ class ConfigBackend:
         # `injector_ga` is bound to the INJECTOR's real os_family (Windows or
         # Linux); `sensor_ga` stays the default (Linux — sensors are always
         # Linux VMs, sensors design Phase B / A2 standing inventory).
-        injector_ga = self._ga_factory(
-            self._client, ctx.cluster.default_node, os_family=os_family
+        injector_ga = self._guest(ctx.cluster.default_node, os_family=os_family
         )
-        sensor_ga = self._ga_factory(self._client, ctx.cluster.default_node)
+        sensor_ga = self._guest(ctx.cluster.default_node)
         if is_windows_injector:
             if not windows_target_ip:
                 raise AdapterError(

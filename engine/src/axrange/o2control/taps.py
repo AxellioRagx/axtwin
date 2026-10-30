@@ -185,14 +185,18 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional
 
-from axrange.adapter_proxmox.naming import gre_port_for_bridge_sensor
-
-if TYPE_CHECKING:
-    from axrange.adapter_proxmox.config import ExternalSensor
 from axrange.ops.registry import get_op
 from axrange.planner.dag import OpInstance, Plan, _op_id
 from axrange.planner.inventory import InventoryError, TwinInventory
 from axrange.planner.state import OpStatus
+from axrange.platform import default_namer
+
+if TYPE_CHECKING:
+    from axrange.platform.protocols import ExternalSensorSpec
+
+# The naming seam (ARCHITECTURE §13) of the default platform: the gretap
+# port name is a pure function of `(bridge, sensor)`.
+gre_port_for_bridge_sensor = default_namer().gre_port_for_bridge_sensor
 from axrange.planner.tappoints import (
     TAP_SCOPES,
     TapIndex,
@@ -1355,7 +1359,7 @@ def _resolve_bindings(
 # it explicitly (below) so this feature can never grow an implicit QGA/SSH
 # reach into an externally-managed node.
 # ---------------------------------------------------------------------------
-def _external_to_inventory_entry(ext: "ExternalSensor") -> Any:
+def _external_to_inventory_entry(ext: "ExternalSensorSpec") -> Any:
     """Map one config-declared `ExternalSensor` to a `SensorInventoryEntry`
     so it flows through the SAME resolution/composition path as an A1
     standing sensor, unchanged."""
@@ -1368,7 +1372,7 @@ def _external_to_inventory_entry(ext: "ExternalSensor") -> Any:
 
 
 def merge_external_sensors(
-    sensor_by_id: dict[str, Any], external_sensors: Iterable["ExternalSensor"],
+    sensor_by_id: dict[str, Any], external_sensors: Iterable["ExternalSensorSpec"],
     *, warnings: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """`sensor_by_id` (built from A1's standing inventory) plus every
@@ -1589,7 +1593,7 @@ def _capacity_warning(
 
 def resolve_tap_plan_bindings(
     spec: TapPlanSpec, store: Any, *, db_path: str,
-    external_sensors: Iterable["ExternalSensor"] = (),
+    external_sensors: Iterable["ExternalSensorSpec"] = (),
 ) -> TapPlanResolution:
     """Resolve `spec`'s bindings against `store` (an ALREADY-OPEN
     `StateStore` -- the caller owns its lifecycle): the target TE must
@@ -2495,9 +2499,9 @@ def _delete_dropped_gretaps(
     }
     backend = teardown_backend
     if backend is None:
-        from axrange.adapter_proxmox import ProxmoxTeardown, load_config
+        from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
-        backend = ProxmoxTeardown(load_config(adapter_config))
+        backend = adapter_for(DEFAULT_PLATFORM, load_config(adapter_config)).teardown
     for net_id, sensor_id in sorted(dropped_pairs):
         bridge = _gre_naming_bridge(inv, net_id, plan_id)
         if not bridge:
@@ -2586,12 +2590,12 @@ def apply_tap_plan(
     `ProxmoxAdapter`/`ConfigBackend`/`ProxmoxTeardown`, same as
     `axrange.o2control.control.stand_up_surface` / `tear_down_surface`.
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import DeployStatus, default_process_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     resolved = resolve_tap_plan(spec, spec_path)
 
@@ -2742,10 +2746,9 @@ def apply_tap_plan(
             real_adapter = adapter
             real_config_backend = config_backend
             if real_adapter is None or real_config_backend is None:
-                from axrange.adapter_proxmox import ProxmoxAdapter
                 from axrange.config_exec import ConfigBackend
 
-                real_adapter = real_adapter or ProxmoxAdapter(cfg)
+                real_adapter = real_adapter or adapter_for(DEFAULT_PLATFORM, cfg).adapter
                 real_config_backend = real_config_backend or ConfigBackend(cfg)
 
             # M1: force EVERY op in the freshly composed plan back to pending
@@ -2912,10 +2915,10 @@ def destroy_taps(
     Returns the `planner.teardown.TeardownResult` unchanged (the CLI/API
     surfaces map it, same as `axrange destroy` / `axrange o2 down` do).
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     store = StateStore(db_path)
     try:
@@ -2977,15 +2980,11 @@ def destroy_taps(
 
         backend = teardown_backend
         if backend is None:
-            from axrange.adapter_proxmox import ProxmoxTeardown
-
-            backend = ProxmoxTeardown(cfg)
+            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
 
         real_adapter = adapter
         if real_adapter is None:
-            from axrange.adapter_proxmox import ProxmoxAdapter
-
-            real_adapter = ProxmoxAdapter(cfg)
+            real_adapter = adapter_for(DEFAULT_PLATFORM, cfg).adapter
 
         lease = store.acquire_lease(
             d.scenario_id, did, process_info=default_process_info()

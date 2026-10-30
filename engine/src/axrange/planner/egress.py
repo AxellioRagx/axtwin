@@ -291,3 +291,13 @@ def egress_posture_from_ops(ops: Any) -> Optional[EgressPosture]:
             live_read_at=(str(read_at) if read_at else None),
         )
     return None
+
+
+def egress_engine_markers() -> tuple[str, str]:
+    """`(EGRESS_ENGINE, EGRESS_OK_MARKER)` -- the in-guest egress engine's
+    path and its OK marker, for `o2control/containment.py`'s live read. This
+    module is the engine's one importer of the egress render (the boundary
+    note in the module docstring); callers take the constants from here."""
+    from axrange.adapter_proxmox.egress_render import EGRESS_ENGINE, EGRESS_OK_MARKER
+
+    return EGRESS_ENGINE, EGRESS_OK_MARKER

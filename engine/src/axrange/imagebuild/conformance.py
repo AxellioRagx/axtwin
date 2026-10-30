@@ -205,8 +205,8 @@ def smoke_test(
 
     Imports the planner/adapter inline (like cli/main.py) so a build that skips
     the smoke-test pays none of that import cost."""
-    from axrange.adapter_proxmox import ProxmoxAdapter
     from axrange.ir.parser import parse_ir
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
     from axrange.manifest.loader import load_registry
     from axrange.planner import Executor, StateStore, build_plan
     from axrange.planner.cluster import ClusterContext
@@ -248,7 +248,7 @@ def smoke_test(
         ir_hash=plan.ir_hash,
         placement=plan.placement,
     )
-    adapter = ProxmoxAdapter(build_cfg.deploy)
+    adapter = adapter_for(DEFAULT_PLATFORM, build_cfg.deploy).adapter
     executor = Executor(plan, store, adapter, ctx, deploy_id=deploy_id)
     executor.persist_plan()
     try:
@@ -285,17 +285,14 @@ def _smoke_teardown(bp, plan, net_id, log) -> None:
     per-net `bridge_name_for_net(net_id)`. Deleting the old name left the zone,
     vnet and underlay bridge behind (live-verified leak, dev45 2026-06-08).
     """
-    from axrange.adapter_proxmox.naming import (
-        underlay_bridge_for_plan,
-        vmid_for_op,
-        vnet_id_for_net,
-        zone_id_for_plan,
-    )
+    from axrange.platform import default_namer
+
+    naming = default_namer()
 
     for op in plan.ops.values():
         if op.op_name != "clone-vm":
             continue
-        vmid = vmid_for_op(plan.plan_id, op.op_id)
+        vmid = naming.guest_handle_for_op(plan.plan_id, op.op_id)
         try:
             if bp.vm_exists(vmid):
                 bp.destroy_vm(vmid)
@@ -303,15 +300,15 @@ def _smoke_teardown(bp, plan, net_id, log) -> None:
         except Exception as e:  # noqa: BLE001
             log(f"smoke teardown: vm {vmid} destroy failed: {e}")
 
-    zone = zone_id_for_plan(plan.plan_id)
-    vnet = vnet_id_for_net(net_id, plan_id=plan.plan_id)
+    zone = naming.zone_id_for_plan(plan.plan_id)
+    vnet = naming.vnet_id_for_net(net_id, plan_id=plan.plan_id)
     try:
         bp.delete_sdn(zone, vnet)
         log(f"smoke teardown: removed sdn vnet {vnet} + zone {zone}")
     except Exception as e:  # noqa: BLE001
         log(f"smoke teardown: sdn {zone}/{vnet} removal failed: {e}")
 
-    bridge = underlay_bridge_for_plan(plan.plan_id)
+    bridge = naming.underlay_bridge_for_plan(plan.plan_id)
     try:
         bp.delete_bridge(bridge)
         log(f"smoke teardown: removed bridge {bridge}")

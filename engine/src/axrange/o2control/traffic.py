@@ -1439,16 +1439,20 @@ def compose_traffic_ops(
 # ---------------------------------------------------------------------------
 class PersonaBackend:
     """Drives one persona instance via `axrange.personas.drivers.get_driver`
-    over a `GuestAgent` built from the SAME `adapter_proxmox` REST client
-    `axrange.config_exec.ConfigBackend` uses -- no second QGA client."""
+    over the platform's guest-exec seam (`axrange.platform`, ARCHITECTURE
+    §13) -- the SAME connection `axrange.config_exec.ConfigBackend` uses, no
+    second guest-control client. `guest_agent_factory` (test seam) is called
+    `(client, host, os_family=...)` with the platform's connection."""
 
     def __init__(self, config: Any, *, rest_client: Any = None, guest_agent_factory: Any = None) -> None:
-        from axrange.adapter_proxmox.guest_agent import GuestAgent
-        from axrange.adapter_proxmox.rest import RestClient
+        from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
         self.config = config
-        self._client = rest_client or RestClient(config)
-        self._ga_factory = guest_agent_factory or GuestAgent
+        self._adapters = adapter_for(DEFAULT_PLATFORM, config, client=rest_client)
+        self._client = self._adapters.client
+        self._ga_factory = guest_agent_factory or (
+            lambda _client, node, *, os_family="linux": self._adapters.guest_exec(node, os_family=os_family)
+        )
 
     def run(self, op: Any, resolved_inputs: dict[str, Any], ctx: Any) -> dict[str, Any]:
         from axrange.planner.executor import AdapterError
@@ -1607,7 +1611,7 @@ def apply_traffic_profile(
     `allow_revert_host_edits` (CLI `--revert-host-edits`). With no host
     edits recorded -- every deploy before this feature -- nothing changes.
     """
-    from axrange.adapter_proxmox import load_config
+    from axrange.platform import load_config
     from axrange.planner.entry import release_deploy_resources, run_deploy_executor
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
@@ -2291,19 +2295,18 @@ def _orphaned_hard_roles(
     return out
 
 
-def _instance_driver(inp: dict[str, Any], client: Any, cfg: Any, *, node: Optional[str] = None):
+def _instance_driver(inp: dict[str, Any], adapters: Any, cfg: Any, *, node: Optional[str] = None):
     """(driver, guest agent, persona) for a persisted `drive-persona` input --
     `os_family` recovered onto BOTH the placeholder persona and the agent
-    (see `_stop_instances` for why both)."""
-    from axrange.adapter_proxmox.guest_agent import GuestAgent
-
+    (see `_stop_instances` for why both). `adapters` is the target's
+    `PlatformAdapters` (the guest-exec seam)."""
     drive = inp.get("drive")
     driver = get_driver(drive)
     osf = (inp.get("os_family") or "linux").lower()
     persona = persona_registry.get(inp.get("persona_id")) or Persona(
         id=inp.get("persona_id") or "unknown", os_family=osf, drive=drive,
     )
-    ga = GuestAgent(client, node or cfg.default_node, os_family=persona.os_family)
+    ga = adapters.guest_exec(node or cfg.default_node, os_family=persona.os_family)
     return driver, ga, persona
 
 
@@ -2359,14 +2362,14 @@ def heartbeat_instances(
                 "reason": "this persona backend cannot read a heartbeat",
             }
         return out
-    from axrange.adapter_proxmox.rest import RestClient
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
-    client = RestClient(cfg)
+    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
     for inp in inps:
         iid = str(inp.get("instance_id") or "")
 
         def _one(inp: dict[str, Any] = inp, iid: str = iid) -> Any:
-            driver, ga, persona = _instance_driver(inp, client, cfg, node=node)
+            driver, ga, persona = _instance_driver(inp, adapters, cfg, node=node)
             return driver.heartbeat(ga, int(inp["vmid"]), persona, instance_id=iid)
 
         out[iid] = _heartbeat_record(_one)
@@ -2414,8 +2417,8 @@ def apply_host_personas(
     status is recomputed over ALL its non-destroyed rows (S3)."""
     import time as _time
 
-    from axrange.adapter_proxmox import load_config
     from axrange.o2control.containment import NodeResolvingGuestAgent, containment_verdict
+    from axrange.platform import load_config
     from axrange.planner import StateStore
     from axrange.planner.state import DeployStatus, default_process_info
 
@@ -3006,9 +3009,9 @@ def _stop_instances(
                 failed[str(instance_id)] = f"{type(e).__name__}: {e}"
         return failed
 
-    from axrange.adapter_proxmox.rest import RestClient
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
-    client = RestClient(cfg)
+    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
     for inp in inps:
         instance_id = inp.get("instance_id")
         vmid = inp.get("vmid")
@@ -3018,7 +3021,7 @@ def _stop_instances(
         try:
             # One construction of (driver, agent, persona) shared with the
             # heartbeat read (`_instance_driver`, LES-037).
-            driver, ga, persona = _instance_driver(inp, client, cfg)
+            driver, ga, persona = _instance_driver(inp, adapters, cfg)
             driver.stop(ga, int(vmid), persona, instance_id=instance_id)
             log(f"  - persona {instance_id}: stopped")
         except Exception as e:  # noqa: BLE001 -- best-effort, see docstring
@@ -3212,10 +3215,10 @@ def destroy_traffic_profile(
     Returns the `planner.teardown.TeardownResult` unchanged (the CLI/API
     surfaces map it, same as `axrange tap destroy` / `axrange o2 destroy`).
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     store = StateStore(db_path)
     try:
@@ -3266,9 +3269,7 @@ def destroy_traffic_profile(
 
         backend = teardown_backend
         if backend is None:
-            from axrange.adapter_proxmox import ProxmoxTeardown
-
-            backend = ProxmoxTeardown(cfg)
+            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
 
         lease = store.acquire_lease(d.scenario_id, did, process_info=default_process_info())
         if not lease.acquired:

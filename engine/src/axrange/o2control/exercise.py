@@ -780,8 +780,8 @@ def apply_exercise(
     posture). `config_backend` is a test seam (inject a fake, no real QGA/
     Proxmox); production builds the real `axrange.config_exec.ConfigBackend`.
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.planner.entry import release_deploy_resources, run_deploy_executor
+    from axrange.platform import load_config
     from axrange.planner import StateStore
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat
@@ -905,15 +905,18 @@ def _stop_exercise_processes(
     (agent_kind=adversary) row gets a best-effort stop. A failure here must
     never block the deploy-state transition that follows (mirrors
     `traffic.py::_stop_instances`)."""
-    from axrange.adapter_proxmox.guest_agent import GuestAgent
-    from axrange.adapter_proxmox.rest import RestClient
     from axrange.config_exec.render import activity_paths
     from axrange.planner.opview import op_fields
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
-    factory = ga_factory or GuestAgent
-    client = rest_client
-    if client is None:
-        client = RestClient(cfg)
+    # The guest-exec seam; an injected `ga_factory` (test seam) is called
+    # exactly as before, with the platform's connection (`rest_client` when
+    # injected).
+    adapters = adapter_for(DEFAULT_PLATFORM, cfg, client=rest_client)
+    factory = ga_factory or (
+        lambda _client, node, *, os_family="linux": adapters.guest_exec(node, os_family=os_family)
+    )
+    client = adapters.client
 
     for op in store.ops_for_deploy(deploy_id):
         _op_name, _scope, inp, _out = op_fields(op)
@@ -982,10 +985,10 @@ def destroy_exercise(
     Returns the `planner.teardown.TeardownResult` unchanged (the CLI/API
     surfaces map it, same as `axrange tap destroy` / `axrange tfc destroy`).
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     if not deploy_id:
         raise ExercisePlanError("destroy needs deploy_id=", status=400)
@@ -1008,9 +1011,7 @@ def destroy_exercise(
 
         backend = teardown_backend
         if backend is None:
-            from axrange.adapter_proxmox import ProxmoxTeardown
-
-            backend = ProxmoxTeardown(cfg)
+            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
 
         lease = store.acquire_lease(d.scenario_id, deploy_id, process_info=default_process_info())
         if not lease.acquired:

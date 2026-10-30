@@ -37,12 +37,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
-class ConfigError(Exception):
-    """Raised for a malformed adapter.conf value that must fail LOUD rather
-    than silently drop (e.g. an `EXTERNAL_SENSORS` entry missing a required
-    key) — a swallowed parse error here would leave a tap plan unable to
-    resolve a sensor the operator believes is configured."""
+# One error type for every platform's config loader (`axrange.platform.
+# protocols.ConfigError`): raised for a malformed adapter.conf value that
+# must fail LOUD rather than silently drop (e.g. an `EXTERNAL_SENSORS` entry
+# missing a required key) — a swallowed parse error here would leave a tap
+# plan unable to resolve a sensor the operator believes is configured.
+from axrange.platform.protocols import ConfigError
 
 
 @dataclass

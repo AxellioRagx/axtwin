@@ -4,8 +4,16 @@ Public surface:
 
   ProxmoxAdapter      — implements axrange.planner.Adapter; routes ops to
                         the rest or ssh backend per docs/ADAPTER.md §3.
+  ProxmoxInventory    — the `Inventory` seam (resolve.py's live reads).
+  ProxmoxTeardown     — the `Teardown` seam (reverse-of-create).
   AdapterConfig       — connection config loaded from adapter.conf / env.
   AdapterError        — common failure type (mirrors planner.AdapterError).
+
+The engine does not import this package directly: it reaches these through
+the protocols in `axrange.platform` (`docs/ARCHITECTURE.md` §13) and the
+closed factory `axrange.platform.factory` is the one module that does
+(`tests/test_platform_layering.py`). `guest_agent.GuestAgent` is the
+`GuestExec` seam and `naming` the `ResourceNamer` seam, structurally.
 
 The slice (docs/ADAPTER.md §6) implements 13 REST ops + 2 SSH ops + 1 probe
 op (wait-os-ready, neither REST nor SSH-into-Proxmox: it SSHs to the guest).
@@ -24,6 +32,7 @@ from axrange.adapter_proxmox.config import (
     ExternalSensor,
     load_config,
 )
+from axrange.adapter_proxmox.resolve import ProxmoxInventory
 from axrange.adapter_proxmox.teardown import ProxmoxTeardown
 from axrange.planner.executor import AdapterError, AdapterTimeout
 
@@ -34,6 +43,7 @@ __all__ = [
     "ConfigError",
     "ExternalSensor",
     "ProxmoxAdapter",
+    "ProxmoxInventory",
     "ProxmoxTeardown",
     "load_config",
 ]

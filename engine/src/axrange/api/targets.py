@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from axrange.api.settings import ApiSettings, ApiSettingsError
+from axrange.platform import DEFAULT_PLATFORM, UnknownPlatformError, check_platform
 
 #: Name used for the implicit target when its adapter.conf names no node.
 IMPLICIT_FALLBACK_NAME = "default"
@@ -67,6 +68,12 @@ class Target:
     # target is one cluster identity with one or more stores. `db_path` is
     # the primary -- where NEW deploys are written; reads search them all.
     extra_dbs: tuple[str, ...] = ()
+    # `api/Spec.md` A4: the deploy platform this target casts onto, one of
+    # the closed factory's set (`axrange.platform.PLATFORMS`); it selects the
+    # adapter and the image-binding set `images/bindings/<platform>/`.
+    # `DEFAULT_PLATFORM` when the targets file names none; an unknown value
+    # is refused by name at load (serve start) and on write.
+    platform: str = DEFAULT_PLATFORM
 
     @property
     def stores(self) -> tuple[str, ...]:
@@ -148,6 +155,7 @@ def load_targets_file(path: str | Path) -> list[Target]:
             raise ApiSettingsError(f"{where} must be a mapping")
         unknown = sorted(set(e) - {
             "name", "adapter_config", "db", "extra_dbs", "nodes", "protected_deploys",
+            "platform",
         })
         if unknown:
             raise ApiSettingsError(f"{where}: unknown key(s) {unknown}")
@@ -202,6 +210,10 @@ def load_targets_file(path: str | Path) -> list[Target]:
         nodes = e.get("nodes") or []
         if not isinstance(nodes, list) or not all(isinstance(n, str) and n for n in nodes):
             raise ApiSettingsError(f"{where} ({name}): 'nodes' must be a list of node names")
+        try:
+            platform = check_platform(e.get("platform"))
+        except UnknownPlatformError as ex:
+            raise ApiSettingsError(f"{where} ({name}): {ex}") from None
         names.add(name)
         dbs[db_path] = name
         for xp in extra:
@@ -210,6 +222,7 @@ def load_targets_file(path: str | Path) -> list[Target]:
             name=name, adapter_config=str(Path(ac).expanduser()) if ac else None,
             db_path=db_path, nodes=tuple(nodes), default=(i == 0),
             protected_deploys=tuple(protected), extra_dbs=tuple(extra),
+            platform=platform,
         ))
     return out
 
@@ -270,11 +283,14 @@ def validate_targets(targets: list[Target], *, env: Optional[dict[str, str]] = N
         seen[url] = t.name
 
 
-def _load_cfg(adapter_config: Optional[str]) -> tuple[Any, Optional[str]]:
-    from axrange.adapter_proxmox import load_config
+def _load_cfg(
+    adapter_config: Optional[str], *, platform: str = DEFAULT_PLATFORM,
+) -> tuple[Any, Optional[str]]:
+    """`(cfg, None)` through `platform`'s own loader, or `(None, error)`."""
+    from axrange.platform import load_config
 
     try:
-        return load_config(adapter_config), None
+        return load_config(adapter_config, platform=platform), None
     except Exception as e:  # noqa: BLE001 -- reported on the target, never raised
         return None, f"adapter config load failed: {e}"
 
@@ -330,7 +346,7 @@ def target_facts(target: Target) -> TargetFacts:
 
 
 def _target_facts_uncached(target: Target) -> TargetFacts:
-    cfg, err = _load_cfg(target.adapter_config)
+    cfg, err = _load_cfg(target.adapter_config, platform=target.platform)
     if cfg is None:
         return TargetFacts(target=target, error=err)
     return TargetFacts(

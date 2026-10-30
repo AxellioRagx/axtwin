@@ -1645,11 +1645,11 @@ def cmd_deploy(args: argparse.Namespace, *, confirm_fn: Callable[[str], str] = i
         sys.stdout.write(plan.render_tree() + "\n")
         return 0
 
-    from axrange.adapter_proxmox import ProxmoxAdapter
     from axrange.api.service import (
         ApiError, apply_update_tail, release_deploy_resources,
         resolve_deploy_plan, run_deploy_executor,
     )
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
     from axrange.config_exec import ConfigBackend
     from axrange.planner import StateStore
     from axrange.planner.locks import Heartbeat
@@ -1807,7 +1807,7 @@ def cmd_deploy(args: argparse.Namespace, *, confirm_fn: Callable[[str], str] = i
                 f"barriers={len(plan.barriers)}\n\n"
             )
 
-        adapter = ProxmoxAdapter(cfg)
+        adapter = adapter_for(DEFAULT_PLATFORM, cfg).adapter
         config_backend = ConfigBackend(cfg)
         # Shared with the API's background runner (code-review finding #3,
         # 2026-07-07): build+persist+run is identical between the two
@@ -1983,7 +1983,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_te_info(args: argparse.Namespace) -> int:
-    from axrange.adapter_proxmox import load_config
+    from axrange.platform import load_config
     from axrange.planner import StateStore
 
     arg = args.id_or_spec
@@ -2486,10 +2486,10 @@ def _display_tier(store: Any, d: Any) -> str:
 
 
 def cmd_destroy(args: argparse.Namespace) -> int:
-    from axrange.adapter_proxmox import ProxmoxTeardown, load_config
     from axrange.planner import StateStore, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     store = StateStore(args.db)
     deploy_id = args.deploy_id
@@ -2553,7 +2553,7 @@ def cmd_destroy(args: argparse.Namespace) -> int:
         f"\nDestroying {deploy_id} (scenario={deploy.scenario_id}, "
         f"plan_id={deploy.plan_id})...\n"
     )
-    backend = ProxmoxTeardown(cfg)
+    backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
     # Heartbeat the lease for the life of the teardown (code-review finding #2,
     # 2026-07-07): a multi-VM sweep can outrun the lease's fixed TTL with no
     # renewal, same fix as the deploy path's `heartbeat` above. It spans the
@@ -2707,15 +2707,16 @@ def _render_o2_endpoints(endpoints: dict[str, str]) -> None:
 def _external_sensor_facts(
     cfg: Any, *, only_ids: Optional[set[str]] = None
 ) -> list[dict[str, Any]]:
-    """Thin wrapper over `axrange.adapter_proxmox.resolve.external_sensor_facts`
-    (moved there 2026-07-26, `docs/WORK_ORDER_access_facts.md`'s API-parity
-    follow-on, so `axrange.api.service.o2_info` can call the SAME derivation
-    this CLI verb does instead of a second implementation, LES-037). Kept as
-    a module-level name here since `cmd_o2_info`/`cmd_tap_info` already call
-    it as `_external_sensor_facts`."""
-    from axrange.adapter_proxmox.resolve import external_sensor_facts
+    """Thin wrapper over the inventory seam's `external_sensor_facts`
+    (`axrange.platform.protocols.Inventory`; moved into the adapter
+    2026-07-26, `docs/WORK_ORDER_access_facts.md`'s API-parity follow-on, so
+    `axrange.api.service.o2_info` can call the SAME derivation this CLI verb
+    does instead of a second implementation, LES-037). Kept as a module-level
+    name here since `cmd_o2_info`/`cmd_tap_info` already call it as
+    `_external_sensor_facts`."""
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
-    return external_sensor_facts(cfg, only_ids=only_ids)
+    return adapter_for(DEFAULT_PLATFORM, cfg).inventory.external_sensor_facts(only_ids=only_ids)
 
 
 def _render_external_sensors(sensors: list[dict[str, Any]], *, no_secrets: bool = False) -> None:
@@ -2814,7 +2815,7 @@ def cmd_o2_status(args: argparse.Namespace) -> int:
 
 
 def cmd_o2_info(args: argparse.Namespace) -> int:
-    from axrange.adapter_proxmox import load_config
+    from axrange.platform import load_config
     from axrange.o2control import O2ControlError, surface_status
     from axrange.o2control.manifest import (
         SurfaceManifestError, load_surface_manifest, resolve_manifest_endpoints,
@@ -2994,7 +2995,7 @@ def cmd_tap_validate(args: argparse.Namespace) -> int:
         twin it could ever bind to." This is how a PREDEFINED/library plan
         (no `target:`, no `--target`) validates.
     """
-    from axrange.adapter_proxmox import ConfigError, load_config
+    from axrange.platform import ConfigError, load_config
     from axrange.o2control.taps import (
         TapPlanError, TapPlanSpec, binding_label, load_tap_plan,
         resolve_live_target_deploy, resolve_tap_plan_bindings,
@@ -3113,7 +3114,7 @@ def cmd_tap_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_tap_plan(args: argparse.Namespace) -> int:
-    from axrange.adapter_proxmox import load_config
+    from axrange.platform import load_config
     from axrange.o2control.taps import (
         TapPlanError, TapPlanSpec, compose_tap_ops, load_tap_plan,
         resolve_target_deploy, resolve_tap_plan_bindings,
@@ -3190,7 +3191,7 @@ def _egress_guest_agent(args: argparse.Namespace) -> Any:
     gate's live read, from `--adapter-config`/`--node`; it execs on the node
     the router VM is on (`_NodeResolvingGuestAgent`). One function so the two
     callers cannot build it differently -- and the tests' one seam."""
-    from axrange.adapter_proxmox import load_config
+    from axrange.platform import load_config
 
     cfg = load_config(getattr(args, "adapter_config", None))
     return _NodeResolvingGuestAgent(cfg, getattr(args, "node", None) or cfg.default_node)
@@ -3199,7 +3200,7 @@ def _egress_guest_agent(args: argparse.Namespace) -> Any:
 def cmd_te_egress(args: argparse.Namespace, *, ga: Any = None) -> int:
     """`te egress` (see `_add_te_egress`). `ga` is a test seam: a
     GuestAgent-shaped fake; the real one is built from adapter.conf."""
-    from axrange.adapter_proxmox import ConfigError
+    from axrange.platform import ConfigError
     from axrange.o2control.containment import ContainmentError, egress_live
     from axrange.o2control.taps import TapPlanError, resolve_target_deploy
     from axrange.planner import StateStore
@@ -3367,7 +3368,7 @@ def cmd_tap_status(args: argparse.Namespace) -> int:
 
 
 def cmd_tap_info(args: argparse.Namespace) -> int:
-    from axrange.adapter_proxmox import ConfigError, load_config
+    from axrange.platform import ConfigError, load_config
     from axrange.o2control.control import surface_status
     from axrange.o2control.taps import (
         TapPlanError, latest_tap_plan_deploy, load_tap_plan, merge_external_sensors,
@@ -4750,7 +4751,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # around the entire dispatch, makes every path fail CLEANLY regardless
     # of whether that handler also has its own (now largely redundant, but
     # harmless) catch.
-    from axrange.adapter_proxmox import ConfigError
+    from axrange.platform import ConfigError
     # Same belt-and-suspenders backstop for `--config`/twin-config expansion
     # (docs/WORK_ORDER_twin_configs.md) — `_resolve_scenario_or_config` and
     # `cmd_twin_config_*` already catch `TwinConfigError` locally, but a

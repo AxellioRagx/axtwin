@@ -46,24 +46,34 @@ Design (the §8 "resolve at build" choices, settled here):
 This module is the planner-side ORCHESTRATOR — it owns the ordering, the
 name-guards, and the state transition; it knows nothing about Proxmox. The
 Proxmox-specific reverse operations live behind the `TeardownBackend` protocol
-(implemented by `axrange.adapter_proxmox.teardown.ProxmoxTeardown`), the same
-boundary the executor keeps with the `Adapter` protocol.
+(`axrange.platform.protocols.Teardown`; the Proxmox one is
+`axrange.adapter_proxmox.teardown.ProxmoxTeardown`, handed in by the platform
+factory), the same boundary the executor keeps with the `Adapter` protocol.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable
 
-from axrange.adapter_proxmox import naming
-from axrange.adapter_proxmox.naming import (
-    is_img,
-    is_protected_external,
-    is_tap_gretap,
-    is_te_vmid,
-    underlay_bridge_for_plan,
-)
+from axrange.platform.protocols import Teardown
+
 from axrange.planner.state import DeployRow, OpRow, StateStore
+from axrange.platform import default_namer
+
+# The naming seam (`axrange.platform.protocols.ResourceNamer`, ARCHITECTURE
+# §13) of the default platform: the tier-shape predicates below are the
+# engine's own vocabulary (`docs/CONVENTIONS.md` §2) and the one platform
+# identity check (`is_te_vmid` -> `is_managed_guest_handle`) is the
+# platform's. No target is in hand here (the deploy row is), so the default
+# platform's namer is the one `api/Spec.md` A4 says a target without
+# `platform:` means.
+naming = default_namer()
+is_img = naming.is_img
+is_protected_external = naming.is_protected_external
+is_tap_gretap = naming.is_tap_gretap
+is_te_vmid = naming.is_managed_guest_handle
+underlay_bridge_for_plan = naming.underlay_bridge_for_plan
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +110,7 @@ _vmid_ok = is_te_vmid
 # the CASCADE policy (`_CASCADE_ALLOWED_FOREIGN`, below) — whether a tier is
 # ALLOWED to touch a foreign tier's resources is a teardown decision, not a
 # naming-shape fact.
-_TIER_SHAPE_PREDICATES = naming.TIER_PREDICATES
+_TIER_SHAPE_PREDICATES = naming.tier_predicates()
 
 
 def _shape_checks_for_tier(tier: str) -> tuple[
@@ -109,7 +119,7 @@ def _shape_checks_for_tier(tier: str) -> tuple[
 ]:
     """(vnet_ok, zone_ok, gretap_ok, vm_name_ok) for the deploy's OWN tier.
 
-    `vnet_ok`/`zone_ok`/`vm_name_ok` come from `naming.TIER_SHAPE_CHECKS`
+    `vnet_ok`/`zone_ok`/`vm_name_ok` come from `naming.tier_shape_checks()`
     (the single source of truth, MUST-FIX #5 above) — `vm_name_ok` (code-
     review N1, A1 follow-up) is the symmetric positive gate the vnet/zone/
     gretap steps already had and the VM step lacked: it defends the REVERSE
@@ -150,7 +160,7 @@ def _shape_checks_for_tier(tier: str) -> tuple[
     deploy tier — `docs/WORK_ORDER_tap_points.md` deliberately decided
     AGAINST that promotion (see `axrange.o2control.taps`'s module docstring
     for the reasoning); `tap` stays a resource name-shape tag only."""
-    base = naming.TIER_SHAPE_CHECKS.get(tier)
+    base = naming.tier_shape_checks().get(tier)
     if base is None:
         _always_false: Callable[[str], bool] = lambda _n: False  # noqa: E731
         return _always_false, _always_false, _always_false, _always_false
@@ -202,20 +212,10 @@ _CASCADE_ALLOWED_FOREIGN: dict[str, frozenset[str]] = {
 # ---------------------------------------------------------------------------
 # Backend protocol — the Proxmox-specific reverse operations.
 # ---------------------------------------------------------------------------
-class TeardownBackend(Protocol):
-    """Reverse-of-create operations. Each is check-then-act: a missing resource
-    is success (returns ``"absent"``); a removed one returns ``"removed"``; a
-    hard failure raises (the orchestrator records it and skips the clean sweep).
-    """
-
-    def vm_name(self, node: str, vmid: int) -> str | None: ...
-    def destroy_vm(self, node: str, vmid: int) -> str: ...
-    def delete_mirror_snippets(self, node: str, vmid: int) -> str: ...
-    def delete_gretap(self, dev: str) -> str: ...
-    def delete_vnet(self, vnet_id: str) -> str: ...
-    def delete_sdn_zone(self, zone_id: str) -> str: ...
-    def apply_sdn(self) -> str: ...
-    def delete_ovs_bridge(self, node: str, bridge_name: str) -> str: ...
+# The reverse-of-create protocol is the platform seam `Teardown`
+# (`axrange.platform.protocols`); this is its planner-side name, kept for the
+# orchestrator's callers and the suite's fake backends.
+TeardownBackend = Teardown
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +363,7 @@ def _sweep(
     # function (LES-098: fail closed at every later use of `own_tier`, not
     # just the first check).
     own_tier = deploy.tier or "te"
-    if own_tier not in naming.TIER_SHAPE_CHECKS:
+    if own_tier not in naming.tier_shape_checks():
         raise TeardownError(
             f"deploy {deploy.deploy_id} has unrecognized tier {own_tier!r}; "
             "refusing to sweep"

@@ -284,3 +284,40 @@ def _static_ip_from_config(body: Any) -> str | None:
                 if ip:
                     return ip
     return None
+
+
+class ProxmoxInventory:
+    """`axrange.platform.protocols.Inventory` over this module's helpers —
+    the inventory seam the factory hands the engine (`adapters/proxmox/
+    SPEC.md` Seam table). Each method is a thin call to the module-level
+    function of the same meaning, looked up at call time so the suite's
+    `resolve_mod.resolve_vm_ip` seam keeps intercepting. `client` is the
+    shared `RestClient` when the caller already has one (one HTTP path per
+    process); `None` lets each read build the short-timeout default."""
+
+    def __init__(self, cfg: AdapterConfig, *, client: RestClient | None = None) -> None:
+        self.cfg = cfg
+        self.client = client
+
+    def is_configured(self) -> bool:
+        return bool(self.cfg.proxmox_api_url)
+
+    def guest_address(self, guest: int | str, *, host: str | None = None) -> str | None:
+        return resolve_vm_ip(self.cfg, int(guest), node=host, client=self.client)
+
+    def guest_host(self, guest: int | str) -> str | None:
+        return resolve_vm_node(self.cfg, int(guest), client=self.client)
+
+    def platform_version(self, *, timeout_s: int = _INFO_TIMEOUT_S) -> dict[str, Any]:
+        return cluster_version(self.cfg, client=self.client, timeout_s=timeout_s)
+
+    def live_guests(self, *, timeout_s: int = _INFO_TIMEOUT_S) -> list[dict[str, Any]]:
+        return cluster_vm_resources(self.cfg, client=self.client, timeout_s=timeout_s)
+
+    def ping_guest(
+        self, guest: int | str, *, host: str | None = None, timeout_s: int = _INFO_TIMEOUT_S,
+    ) -> None:
+        qga_ping(self.cfg, int(guest), node=host, client=self.client, timeout_s=timeout_s)
+
+    def external_sensor_facts(self, *, only_ids: set[str] | None = None) -> list[dict[str, Any]]:
+        return external_sensor_facts(self.cfg, only_ids=only_ids)

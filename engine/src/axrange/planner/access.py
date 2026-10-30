@@ -217,7 +217,11 @@ def fill_access_facts(info: TeInfo, cfg: Any, *, live_resolve: bool = True) -> N
     a caller skip the network call entirely (e.g. a not-yet-deployed
     scenario.yaml preview has no live vmid to resolve against anyway).
     """
-    from axrange.adapter_proxmox.resolve import resolve_vm_ip
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+
+    # The inventory seam (`Inventory.guest_address`, best-effort, never
+    # raises); not even built when the caller opted out of live reads.
+    inventory = adapter_for(DEFAULT_PLATFORM, cfg).inventory if live_resolve else None
 
     for h in info.hosts:
         ip: Optional[str] = None
@@ -225,8 +229,8 @@ def fill_access_facts(info: TeInfo, cfg: Any, *, live_resolve: bool = True) -> N
             ip = h.wan_ip
         elif h.ips:
             ip = sorted(h.ips.items())[0][1]
-        if not ip and live_resolve and h.vmid is not None and cfg.proxmox_api_url:
-            ip = resolve_vm_ip(cfg, h.vmid)
+        if not ip and inventory is not None and h.vmid is not None and inventory.is_configured():
+            ip = inventory.guest_address(h.vmid)
         h.access_ip = ip or "(unresolved)"
 
         if h.kind == "router" and not h.ssh_user:

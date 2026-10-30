@@ -323,10 +323,10 @@ def stand_up_surface(
             real_adapter = adapter
             real_config_backend = config_backend
             if real_adapter is None or real_config_backend is None:
-                from axrange.adapter_proxmox import ProxmoxAdapter
                 from axrange.config_exec import ConfigBackend
+                from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
-                real_adapter = real_adapter or ProxmoxAdapter(r.cfg)
+                real_adapter = real_adapter or adapter_for(DEFAULT_PLATFORM, r.cfg).adapter
                 real_config_backend = real_config_backend or ConfigBackend(r.cfg)
 
             result = run_deploy_executor(
@@ -430,15 +430,13 @@ def tear_down_surface(
                 status=400,
             )
 
-        from axrange.adapter_proxmox import load_config
+        from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
         cfg = load_config(adapter_config)
 
         backend = teardown_backend
         if backend is None:
-            from axrange.adapter_proxmox import ProxmoxTeardown
-
-            backend = ProxmoxTeardown(cfg)
+            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
 
         lease = store.acquire_lease(
             d.scenario_id, did, process_info=default_process_info()

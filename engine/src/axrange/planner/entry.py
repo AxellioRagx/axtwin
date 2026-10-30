@@ -63,8 +63,8 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
     (no tap→sensor wiring at plan time; that is entirely the A2 tap playout's
     job, `axrange o2 tap apply`, against A1's standing sensor inventory).
     """
-    from axrange.adapter_proxmox import load_config
     from axrange.ir.parser import parse_ir
+    from axrange.platform import load_config
     from axrange.planner import build_plan
     from axrange.planner.cluster import ClusterContext
 

@@ -1907,7 +1907,7 @@ def list_targets(settings: ApiSettings) -> dtos.TargetListDTO:
             api_url=f.api_url, verify_tls=f.verify_tls,
             has_token=f.has_token, has_ssh_key=f.has_ssh_key,
             name=t.name, default=t.default, nodes=list(f.known_nodes),
-            db_path=t.db_path, error=f.error,
+            db_path=t.db_path, error=f.error, platform=t.platform,
             stores=[
                 {"label": lbl, "path": p, "primary": p == t.db_path}
                 for p, lbl in store_labels(t).items()
@@ -2236,13 +2236,13 @@ def apply_update_tail(
     lease/heartbeat (§4.4) — see `_proxmox_runner`'s `post_run` docstring
     and `cli.main.cmd_deploy`'s inline call.
     """
-    from axrange.adapter_proxmox import ProxmoxTeardown
     from axrange.planner import destroy_ops_scoped
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
     clean = True
     errors: list[Any] = []
     if diff.removed:
-        backend = ProxmoxTeardown(cfg)
+        backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
         result = destroy_ops_scoped(
             store, backend, deploy_id, diff.removed, node=node, log=log,
             protected_names=cfg.protected_external_names,
@@ -2374,9 +2374,9 @@ def _proxmox_runner(settings: ApiSettings, plan, cfg, ctx, deploy_id: str, *,
     `COMPLETED` the executor's OWN successful pass already wrote — a
     `--update` whose removal half is still standing is not a green deploy.
     """
-    from axrange.adapter_proxmox import ProxmoxAdapter
     from axrange.config_exec import ConfigBackend
     from axrange.planner import StateStore
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import DeployStatus
 
@@ -2385,7 +2385,7 @@ def _proxmox_runner(settings: ApiSettings, plan, cfg, ctx, deploy_id: str, *,
         settings.db_path, deploy_id=deploy_id, scenario_id=plan.scenario_id
     )
     try:
-        adapter = ProxmoxAdapter(cfg)
+        adapter = adapter_for(DEFAULT_PLATFORM, cfg).adapter
         config_backend = ConfigBackend(cfg)
         result = run_deploy_executor(
             store, adapter, config_backend, plan, ctx, deploy_id, heartbeat
@@ -2444,10 +2444,11 @@ def run_scenario(settings: ApiSettings, deploy_id: str) -> dtos.RunResponse:
 TeardownFactory = Callable[[ApiSettings], Any]
 
 
-def _proxmox_teardown(settings: ApiSettings):
-    from axrange.adapter_proxmox import ProxmoxTeardown, load_config
+def _platform_teardown(settings: ApiSettings):
+    """The default `TeardownFactory`: the settings' target's platform seam."""
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
-    return ProxmoxTeardown(load_config(settings.adapter_config))
+    return adapter_for(DEFAULT_PLATFORM, load_config(settings.adapter_config)).teardown
 
 
 def destroy_deploy(settings: ApiSettings, deploy_id: str,
@@ -2471,9 +2472,9 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
                 400, "destroy requires allow_destroy: true in the request body"
             )
 
-        backend = (teardown_factory or _proxmox_teardown)(settings)
+        backend = (teardown_factory or _platform_teardown)(settings)
 
-        from axrange.adapter_proxmox import load_config
+        from axrange.platform import load_config
 
         cfg = load_config(settings.adapter_config)
 
@@ -2716,16 +2717,15 @@ def o2_tap_info(
     settings: ApiSettings, *, target: Optional[str] = None,
     deploy_id: Optional[str] = None, reveal_secrets: bool = False,
 ) -> dtos.TapInfoDTO:
-    from axrange.adapter_proxmox import load_config
-    from axrange.adapter_proxmox.resolve import external_sensor_facts
     from axrange.o2control.taps import tap_info
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     cfg = load_config(settings.adapter_config)
     info = tap_info(
         db_path=settings.db_path, target=target, deploy_id=deploy_id,
         external_sensors=cfg.external_sensors,
     )
-    ext = external_sensor_facts(cfg)
+    ext = adapter_for(DEFAULT_PLATFORM, cfg).inventory.external_sensor_facts()
     return dtos.TapInfoDTO(
         target=info.target,
         target_status=info.target_status,
@@ -3117,9 +3117,9 @@ def _masked(value: Optional[str], *, reveal: bool) -> Optional[str]:
 
 def deploy_access_facts(settings: ApiSettings, deploy_id: str, *,
                         reveal_secrets: bool = False) -> dtos.AccessFactsDTO:
-    from axrange.adapter_proxmox import load_config
     from axrange.planner import StateStore
     from axrange.planner.access import fill_access_facts, te_info_from_ops
+    from axrange.platform import load_config
 
     cfg = load_config(settings.adapter_config)
     store = StateStore(settings.db_path)
@@ -3184,12 +3184,11 @@ def deploy_access_facts(settings: ApiSettings, deploy_id: str, *,
 # `GET /api/o2/info`.
 # ---------------------------------------------------------------------------
 def o2_info(settings: ApiSettings, *, reveal_secrets: bool = False) -> dtos.O2InfoDTO:
-    from axrange.adapter_proxmox import load_config
-    from axrange.adapter_proxmox.resolve import external_sensor_facts
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     cfg = load_config(settings.adapter_config)
     endpoints = cfg.resolve_o2_endpoints()
-    ext = external_sensor_facts(cfg)
+    ext = adapter_for(DEFAULT_PLATFORM, cfg).inventory.external_sensor_facts()
     return dtos.O2InfoDTO(
         endpoints=endpoints,
         external_sensors=[
@@ -5230,8 +5229,8 @@ def _completed_persona_count(store: Any, tfc_id: str) -> int:
 
 def _probe_reachability(facts: Any, probe: Optional[Callable[[Any], Any]],
                         caches: Optional[LiveCaches] = None) -> dtos.LiveValueDTO:
-    from axrange.adapter_proxmox.resolve import cluster_version
     from axrange.planner.executor import AdapterError
+    from axrange.platform import adapter_for
 
     if facts.error:
         return dtos.LiveValueDTO(state="unknown", reason=facts.error)
@@ -5239,7 +5238,9 @@ def _probe_reachability(facts: Any, probe: Optional[Callable[[Any], Any]],
         return dtos.LiveValueDTO(state="unknown", reason="adapter.conf has no PROXMOX_API_URL")
     def _read() -> dtos.LiveValueDTO:
         try:
-            ver = (probe or (lambda cfg: cluster_version(cfg, timeout_s=3)))(facts.cfg)
+            ver = (probe or (
+                lambda cfg: adapter_for(facts.target.platform, cfg).inventory.platform_version(timeout_s=3)
+            ))(facts.cfg)
         except (AdapterError, OSError) as e:
             return dtos.LiveValueDTO(state="unreachable", checked_at=_now(), reason=str(e))
         v = ver.get("version") if isinstance(ver, dict) else None
@@ -5260,12 +5261,14 @@ def _sweep_outcome(
     `/api/range` (unrecorded VMs) and `/health` (power): `(at, rows, error)`.
     The outcome -- success OR failure, with its time -- is what is cached,
     so a cached answer repeats its ORIGINAL `checked_at` (fix round 2 nit)."""
-    from axrange.adapter_proxmox.resolve import cluster_vm_resources
     from axrange.planner.executor import AdapterError
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
     def _do() -> tuple[float, Optional[list[dict[str, Any]]], Optional[str]]:
         try:
-            rows = (sweep or (lambda c: cluster_vm_resources(c, timeout_s=5)))(cfg)
+            rows = (sweep or (
+                lambda c: adapter_for(DEFAULT_PLATFORM, c).inventory.live_guests(timeout_s=5)
+            ))(cfg)
             return _now(), list(rows), None
         except (AdapterError, OSError) as e:
             return _now(), None, str(e)
@@ -5280,11 +5283,10 @@ UNRECORDED_LIMIT = 50
 
 
 def _is_axrange_vm_name(name: str) -> bool:
-    from axrange.adapter_proxmox.naming import (
-        is_exr_vm_name, is_o2_vm_name, is_te_vm_name, is_tfc_vm_name,
-    )
+    from axrange.platform import default_namer
 
-    return any(f(name) for f in (is_te_vm_name, is_o2_vm_name, is_tfc_vm_name, is_exr_vm_name))
+    n = default_namer()
+    return any(f(name) for f in (n.is_te_vm_name, n.is_o2_vm_name, n.is_tfc_vm_name, n.is_exr_vm_name))
 
 
 def _recorded_vmids(store: Any) -> set[int]:
@@ -5293,8 +5295,9 @@ def _recorded_vmids(store: Any) -> set[int]:
     every `clone-vm` op whatever its status (fix round 3, S3) -- a clone
     that failed after creating the VM, or is still running, owns its vmid
     too, and would otherwise be listed as unrecorded."""
-    from axrange.adapter_proxmox.naming import vmid_for_op
+    from axrange.platform import default_namer
 
+    vmid_for_op = default_namer().guest_handle_for_op
     out: set[int] = set()
     for d in store.deploys_matching(exclude_destroyed=True):
         for op in store.ops_for_deploy(d.deploy_id):
@@ -5652,9 +5655,9 @@ def deploy_health(
     that one host's QGA reachability and a driver heartbeat per persona
     instance on it -- never a whole-twin QGA fan-out. `sweep`/`qga_ping`/
     `persona_backend` are test seams."""
-    from axrange.adapter_proxmox import load_config
     from axrange.planner.inventory import InventoryError, build_twin_inventory
     from axrange.planner.opview import op_fields
+    from axrange.platform import load_config
     from axrange.planner.state import OpStatus
 
     target = _target_name(settings)
@@ -5771,9 +5774,9 @@ def _host_health_detail(
     qga_ping: Optional[Callable[[Any, int, str], None]], persona_backend: Any,
 ) -> dtos.HealthHostDetailDTO:
     """One host's QGA reachability + persona heartbeats (live)."""
-    from axrange.adapter_proxmox.resolve import qga_ping as _qga_ping
     from axrange.o2control.traffic import heartbeat_instances
     from axrange.planner.executor import AdapterError
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
     hinfo = next(h for h in inv.hosts if h.host_id == host)
     node = node_of.get(host) or (cfg.default_node if cfg is not None else None)
@@ -5782,7 +5785,9 @@ def _host_health_detail(
         qga = dtos.LiveValueDTO(state="unknown", reason=why)
     else:
         try:
-            (qga_ping or (lambda c, v, n: _qga_ping(c, v, node=n, timeout_s=5)))(
+            (qga_ping or (
+                lambda c, v, n: adapter_for(DEFAULT_PLATFORM, c).inventory.ping_guest(v, host=n, timeout_s=5)
+            ))(
                 cfg, int(hinfo.vmid), node,
             )
             qga = dtos.LiveValueDTO(state="reachable", checked_at=_now())

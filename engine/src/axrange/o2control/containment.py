@@ -202,8 +202,9 @@ def egress_live(
     exception anywhere below leaves the record saying "not contained" --
     never a stale `measure`. Only a completed read-back that asserts
     overwrites it with `measure`."""
-    from axrange.adapter_proxmox.egress_render import EGRESS_ENGINE, EGRESS_OK_MARKER
+    from axrange.planner.egress import egress_engine_markers
 
+    EGRESS_ENGINE, EGRESS_OK_MARKER = egress_engine_markers()
     if action not in ACTIONS:
         raise ContainmentError(f"unknown action {action!r}; one of {list(ACTIONS)}")
     cr_row, host, vmid = _router_op_and_vmid(store, deploy_id)
@@ -352,33 +353,29 @@ def containment_verdict(
 
 
 class NodeResolvingGuestAgent:
-    """`GuestAgent.exec` on whichever node the VM actually lives on: the
-    router's node is resolved from its vmid (`/cluster/resources`, via
-    `adapter_proxmox.resolve.resolve_vm_node`), falling back to `fallback`
+    """`GuestExec.exec` on whichever host the guest actually lives on: the
+    router's host is resolved from its handle through the platform's
+    inventory seam (`Inventory.guest_host`), falling back to `fallback`
     (`--node`, else `DEFAULT_NODE`) only when that lookup is unavailable. A
-    router placed off the default node would otherwise read as "unreachable"
+    router placed off the default host would otherwise read as "unreachable"
     -- i.e. NOT contained -- on every gate. (Moved here from `cli.main` so
     the API path builds the identical agent; the CLI name is an alias.)"""
 
     def __init__(self, cfg: Any, fallback: str) -> None:
-        from axrange.adapter_proxmox.rest import RestClient
+        from axrange.platform import DEFAULT_PLATFORM, adapter_for
 
         self.cfg, self.fallback = cfg, fallback
-        self.client = RestClient(cfg)
+        self._adapters = adapter_for(DEFAULT_PLATFORM, cfg)
         self._nodes: dict[int, str] = {}
 
     def node_for(self, vmid: int) -> str:
-        from axrange.adapter_proxmox.resolve import resolve_vm_node
-
         if vmid not in self._nodes:
             self._nodes[vmid] = (
-                resolve_vm_node(self.cfg, vmid, client=self.client) or self.fallback
+                self._adapters.inventory.guest_host(vmid) or self.fallback
             )
         return self._nodes[vmid]
 
     def exec(self, vmid: int, argv: list[str], timeout_s: int = 300) -> Any:
-        from axrange.adapter_proxmox.guest_agent import GuestAgent
-
-        return GuestAgent(self.client, self.node_for(vmid)).exec(
+        return self._adapters.guest_exec(self.node_for(vmid)).exec(
             vmid, argv, timeout_s=timeout_s
         )

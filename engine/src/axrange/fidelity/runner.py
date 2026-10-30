@@ -343,22 +343,19 @@ def default_ga_factory(adapter_config: Optional[str] = None) -> tuple[Callable[.
     short-timeout client (LES-128): a probe that cannot reach the cluster
     must say so, not degrade to "nothing answered."
     """
-    from axrange.adapter_proxmox import load_config
-    from axrange.adapter_proxmox.guest_agent import GuestAgent
-    from axrange.adapter_proxmox.rest import RestClient
+    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
 
     cfg = load_config(adapter_config)
-    if not cfg.default_node or not cfg.proxmox_api_url:
+    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
+    if not cfg.default_node or not adapters.inventory.is_configured():
         raise ProbeRunError(
             "adapter.conf names no PROXMOX_API_URL / default node -- the "
             "in-guest probe needs a cluster to reach. Run with --no-probe to "
             "produce the artifact-only rows (row 5 then reads not-computed, "
             "and the verdict is `incomplete`, never `not-golden`)."
         )
-    client = RestClient(cfg)
-
     def factory(*, node: str, os_family: str = "linux") -> Any:
-        return GuestAgent(client, node, os_family=os_family)
+        return adapters.guest_exec(node, os_family=os_family)
 
     return factory, cfg.default_node
 
