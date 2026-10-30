@@ -74,6 +74,35 @@ re-casts, and re-opens the working copy; the canvas never writes assertions
 directly and never edits the imprint in place. A twin designed from scratch
 starts from an empty twin-config and has no imprint and no promote action.
 
+## Feature set
+
+The interaction set EVE-NG and GNS3 operators expect, reimplemented at the
+concept level over React Flow (**RF** = built-in; **RF+** = a custom node or
+edge on RF primitives; **app** = application code; **API** = needs a seam).
+The two incumbents' editing primitives are table stakes; what reads as
+sleek is undo/redo, a side panel instead of modals, and state visible on the
+canvas — the first two are what neither incumbent documents.
+
+| Area | Items | Tag |
+|---|---|---|
+| Palette & placement | searchable, categorised palette of images, personas and node groups, with an availability cue per image; drag-drop and click-to-place; count field for N copies with `{name}-{n}` naming; default template with Shift-click quick add | app over RF `onDrop` |
+| | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
+| | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
+| Attaching (the twin's "linking") | drag a host onto a segment or from a host's handle to a segment bus; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | RF handles + app state machine |
+| | per-attachment label modes (all / selected / hidden); straight, bezier and orthogonal styles with curvature; colour, width, dash; state colours | RF, RF+ for labels and state |
+| | right-click on an attachment: capture, suspend, style, detach; impairment badge once the IR has an impairment concept | app; impairment API |
+| Node visuals | SVG icon sets and custom upload; resize; run-state tint and badges (locked, capturing, dirty); label style and position; hover card with address, role, evidence ring | RF+ |
+| | segments as compound nodes with colour and transparency; tag-driven auto-sizing zones (site, VLAN); z-order | RF groups, smart zones app |
+| Annotations | inline text with a typography dialog; rect, ellipse, line, Bézier with rotation; image or wallpaper at low z; per-item lock; hide-all; stored as positioned SVG in the layout side-car | app node types over RF resizer |
+| Ergonomics | marquee and Shift/Ctrl multi-select, delete, select-all; Ctrl+C/V/D and Ctrl+Z/Y over the command stack; state-dependent right-click menus on node, attachment, canvas, selection; persistent property side panel, never a modal; find node and centre; zoom-to-fit, mini-map, zoom controls; dark/light theme; lock-all synced from the deploy state; viewport and positions restored from the side-car | RF for select/zoom/theme/lock; command stack, menus, panel, find app |
+| Run-time | per-node and twin-wide power actions with live progress; click-to-open console in a tabbed terminal with pop-out; **traffic overlay**: a filter over the observed edges (`proto`, port, bytes, peer) makes matching attachments glow in a chosen colour for a timeout, rendered from `TopologyExportDTO` evidence with no backend change; live counters at both ends of an attachment; PNG/SVG export | overlay RF+; console, power API |
+| Configurability | per-user console, theme, grid and label defaults; twin properties (description, params, containment claim) in the panel; template forms with `{name}-{n}` and interface patterns; per-node overrides; whole-twin text export beside the layout side-car | app |
+
+Phase 1 (read-only) covers the RF rows and the traffic overlay; Phase 2
+adds the palette, attaching, the command stack, the side panel and
+annotations. Fault injection and attachment impairments wait for an IR
+concept.
+
 ## Config
 
 None of its own. The telemetry base URL and everything else come from

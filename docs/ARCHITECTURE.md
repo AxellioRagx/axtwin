@@ -78,6 +78,23 @@ sensor metadata ──▶ ingest plugin ──▶ events ──▶ windowing ─
   `aximprint plugins` lists them and the API serves that list. A second plugin
   kind, **reference ingest** (`ingest/reference/`), reads out-of-band documents
   such as the operator assertions file and is kept out of the sensor registry.
+
+  Every new source lands as a plugin that ends in one of the two readers that
+  exist, the Zeek log reader or the axquery-shaped HTTP puller, because the
+  learners are shaped by them: a listen port needs a sensor-reported
+  acceptance state, and Windows roles need the Kerberos, NTLM, SMB and
+  DCE-RPC records only Zeek structures. So a **pcap** is read by running the
+  pinned Zeek over it into a temporary log directory and handing that to the
+  Zeek reader (`ingest/pcap/SPEC.md`), never by parsing packets in Python; a
+  **running Zeek** is read where its logs already land — a log directory on a
+  reachable host through the `zeek` plugin, or a SIEM through that SIEM's
+  plugin (Elastic for Filebeat-shipped `zeek.*`, Splunk for the Corelight
+  add-on, Sentinel for its ASIM parser), never through Zeek's Broker, its
+  WebSocket event API or a Kafka writer; and a **SIEM** is an `http` plugin
+  that copies axquery's locator, env-only credentials and time-bisected
+  paging with a vendor leaf fetcher (`ingest/siem/SPEC.md`). The runner that
+  executes Zeek is shared by `acquire` and the `pcap` plugin from a module
+  below both, which keeps the acquire layering wall intact.
 - **`events/`** is the contract both sides speak: `Flow`, `Identity`,
   `Service`, `Alert`, plus `SensorHealth`. Disorder and capture loss are
   surfaced, never swallowed.
