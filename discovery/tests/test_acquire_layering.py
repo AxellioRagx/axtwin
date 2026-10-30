@@ -249,7 +249,13 @@ def test_forbidden_roots_are_exactly_conventions_mds_list_no_more_no_less():
     # module imports nothing from `aximprint`, so it cannot create an upward edge either. The
     # alternative (each side spelling the same JSON by hand, to avoid an import) is `LES-005`'s
     # failure with extra steps: a format is a contract with two ends.
-    known_not_forbidden_for_acquire = {"ingest", "provenance", "vantage"}
+    #
+    # `zeekrun` (2026-10-30, `ingest/pcap/SPEC.md`) is `vantage`'s shape again: the Zeek runner
+    # `acquire/harvest/zeek.py` used to own, hoisted below both `acquire` and `ingest` so the
+    # pcap plugin and the harvester share one copy of the runner and the stem tables. It imports
+    # nothing from `aximprint` (not even `acquire.errors`), so it can create no upward edge, and
+    # `acquire/harvest/zeek.py` re-exports it — `acquire` is its first importer by design.
+    known_not_forbidden_for_acquire = {"ingest", "provenance", "vantage", "zeekrun"}
     unaccounted = actual_packages - _FORBIDDEN_FOR_ACQUIRE - known_not_forbidden_for_acquire
     assert not unaccounted, (
         f"new top-level aximprint package/module(s) {sorted(unaccounted)} are classified "

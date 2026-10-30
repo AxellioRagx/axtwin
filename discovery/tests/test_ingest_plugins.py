@@ -12,7 +12,7 @@ def test_every_registered_plugin_is_listed_with_a_closed_schema():
     rows = list_plugins()
     names = [r["name"] for r in rows]
     assert names == sorted(names)
-    assert {"zeek", "suricata", "axquery"} <= set(names)
+    assert {"zeek", "suricata", "axquery", "pcap"} <= set(names)
     for r in rows:
         schema = r["config_schema"]
         assert schema["type"] == "object"
@@ -24,7 +24,7 @@ def test_every_registered_plugin_is_listed_with_a_closed_schema():
 
 
 def test_each_shipped_plugin_says_what_its_source_is():
-    for name in ("zeek", "suricata", "axquery"):
+    for name in ("zeek", "suricata", "axquery", "pcap"):
         assert get_plugin(name).source_help, name
         desc = get_plugin(name).config_schema()["properties"]["source"]["description"]
         assert desc == get_plugin(name).source_help
@@ -54,6 +54,7 @@ def test_the_listing_says_how_each_source_is_addressed():
     assert kinds["axquery"] == "http"
     assert kinds["zeek"] == "path"
     assert kinds["suricata"] == "path"
+    assert kinds["pcap"] == "path"
     assert set(kinds.values()) <= {"path", "http"}
 
 
