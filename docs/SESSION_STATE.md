@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (nineteen commits past
+**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (twenty-one commits past
 `wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
 the user pushes. Rule restated 2026-10-31: **commit each track as it lands**.
 
@@ -43,12 +43,17 @@ unreviewed tracks and fixed what the reviews found:
    writes a blank twin-config (one empty segment, no nodes -- the engine refuses a config with
    no segment; checked through `validate_document`) or a copy of one in the catalog through A3
    and opens it; `/canvas/:id` is the canvas (`/twins/:id/canvas` still reaches it).
+6. **The layout side-car is a draft** (user rule 2026-10-31: no write per drag): moves, aligns,
+   placements and annotation changes count as unsaved on the canvas; **Save layout** is the one
+   PUT (also run by a document Save / Persist), **Discard** returns to the last loaded or saved
+   layout, a 412 keeps the draft and takes the fresh etag. `edit/useLayoutDraft.ts`, hook-tested
+   (`canvas.layout.test.ts`) because jsdom cannot drive a React Flow drag, align or drop.
 
 ## Current state
 
-- **Tests at HEAD (`387edc3`):** engine 4164 passed / 19 skipped / 2 failed (the untracked
+- **Tests at HEAD:** engine 4164 passed / 19 skipped / 2 failed (the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest —
-  pre-existing, decide commit-or-remove); discovery 2422 passed / 1 skipped; ui 141 passed,
+  pre-existing, decide commit-or-remove); discovery 2422 passed / 1 skipped; ui 156 passed,
   typecheck + build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - The running `axrange serve` (the 2026-10-28 process on `0.0.0.0:8080`) serves `ui/dist` from
@@ -98,7 +103,8 @@ unreviewed tracks and fixed what the reviews found:
 - `engine/tests/test_api_console.py::_MIRRORED_DTO_FIELDS` pins every console DTO's field set by
   hand; `o2/console/src/api/types.ts` is the mirror it names, `ui/src/api/types.ts` the live one.
 - Run the two Python `tests/` trees separately; engine with `-n auto -p no:cacheprovider`.
-- `ui/`: `npm ci` only; `@xyflow/react` pinned 12.12.0.
+- `ui/`: `npm ci` only; `@xyflow/react` pinned 12.12.0. In jsdom React Flow never marks a
+  chip `selected`, a palette drop and a drag are inert: test canvas state machines as hooks.
 
 ## Environment
 
