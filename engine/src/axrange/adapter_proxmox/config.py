@@ -84,6 +84,12 @@ _O2_SERVICE_DEFAULTS: dict[str, tuple[int, str]] = {
 
 @dataclass
 class AdapterConfig:
+    #: The platform this config belongs to (`axrange.platform.protocols.
+    #: PlatformConfig.platform`); the factory selects the adapter from it.
+    #: A `PLATFORM=` key in the file is read by `axrange.platform.load_config`
+    #: (it must say `proxmox` to reach this loader) and is otherwise ignored
+    #: here.
+    platform: str = "proxmox"
     proxmox_api_url: str = ""
     proxmox_api_token: str = ""
     proxmox_verify_tls: bool = True
@@ -230,6 +236,23 @@ class AdapterConfig:
                 Path(self.guest_ssh_pubkey_file).expanduser()
             )
         return self
+
+    # ---- the neutral facts `GET /api/targets` reports (`PlatformConfig`) ----
+    @property
+    def endpoint(self) -> str:
+        return self.proxmox_api_url or ""
+
+    @property
+    def verify_tls(self) -> bool:
+        return bool(self.proxmox_verify_tls)
+
+    @property
+    def has_token(self) -> bool:
+        return bool(self.proxmox_api_token)
+
+    @property
+    def has_ssh_key(self) -> bool:
+        return bool(self.ovs_ssh_key)
 
     def resolve_o2_endpoints(self, *, services_vmid: int | None = None,
                               services_name: str | None = None,

@@ -72,7 +72,6 @@ naming = default_namer()
 is_img = naming.is_img
 is_protected_external = naming.is_protected_external
 is_tap_gretap = naming.is_tap_gretap
-is_te_vmid = naming.is_managed_guest_handle
 underlay_bridge_for_plan = naming.underlay_bridge_for_plan
 
 
@@ -94,10 +93,10 @@ underlay_bridge_for_plan = naming.underlay_bridge_for_plan
 # checks must match whichever tier the DEPLOY BEING TORN DOWN was built under
 # (`deploy.tier`), not always `te`. `vmid_ok` stays tier-agnostic: the
 # 100000-999999 VMID range is shared by every engine-managed VM regardless of
-# tier (`is_te_vmid`'s docstring); a resource's tier is determined by its NAME
+# tier (`is_managed_guest_handle`'s docstring); a resource's tier is determined by its NAME
 # shape, checked separately by the protect guard below.
 # ---------------------------------------------------------------------------
-_vmid_ok = is_te_vmid
+_vmid_ok = naming.is_managed_guest_handle
 
 # One tier table, owned by `adapter_proxmox/naming.py` (`docs/WORK_ORDER_
 # tier_split.md` review, MUST-FIX #5): `TIER_PREDICATES` (which foreign tiers

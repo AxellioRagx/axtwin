@@ -16,10 +16,12 @@ from axrange.platform.factory import (
     PlatformAdapters,
     UnknownPlatformError,
     adapter_for,
+    adapter_for_config,
     check_platform,
     default_namer,
     load_config,
     namer_for,
+    platform_of,
 )
 from axrange.platform.protocols import (
     ConfigError,
@@ -48,8 +50,10 @@ __all__ = [
     "Teardown",
     "UnknownPlatformError",
     "adapter_for",
+    "adapter_for_config",
     "check_platform",
     "default_namer",
     "load_config",
     "namer_for",
+    "platform_of",
 ]

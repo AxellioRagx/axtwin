@@ -32,21 +32,50 @@ _AXRANGE_ROOT = _SRC_ROOT / "axrange"
 _FORBIDDEN_ROOTS = ("adapter_proxmox", "adapter_libvirt")
 _ADAPTER_ROOTS = frozenset(_AXRANGE_ROOT / r for r in _FORBIDDEN_ROOTS)
 
-#: Modules that may import a platform package directly, and why.
-_ALLOWED_IMPORTERS: dict[pathlib.Path, str] = {
-    _AXRANGE_ROOT / "platform" / "factory.py":
+#: Modules that may import a platform package directly: each with EXACTLY the
+#: dotted modules it may reach (a new crossing from an allowed file fails like
+#: one from anywhere else) and the reason.
+_ALLOWED_IMPORTERS: dict[pathlib.Path, tuple[frozenset[str], str]] = {
+    _AXRANGE_ROOT / "platform" / "factory.py": (
+        frozenset({
+            "axrange.adapter_proxmox", "axrange.adapter_proxmox.config", "axrange.adapter_proxmox.rest",
+            "axrange.adapter_proxmox.resolve", "axrange.adapter_proxmox.naming",
+            "axrange.adapter_proxmox.guest_agent",
+            "axrange.adapter_libvirt", "axrange.adapter_libvirt.connection", "axrange.adapter_libvirt.inventory",
+            "axrange.adapter_libvirt.naming", "axrange.adapter_libvirt.guest",
+        }),
         "the closed platform factory -- the ONE place the engine binds a platform name to its code "
-        "(proxmox and libvirt alike)",
-    _AXRANGE_ROOT / "imagebuild" / "proxmox_build.py":
+        "(proxmox and libvirt alike); it also reads the shared conf-file grammar for the PLATFORM= key",
+    ),
+    _AXRANGE_ROOT / "imagebuild" / "proxmox_build.py": (
+        frozenset({
+            "axrange.adapter_proxmox.config", "axrange.adapter_proxmox.guest_agent",
+            "axrange.adapter_proxmox.rest", "axrange.adapter_proxmox.ssh",
+        }),
         "the Proxmox image-build backend (qm/qemu-img over the node; REST for nextid/templates); "
         "a libvirt-native build path is a follow-up per adapters/libvirt/SPEC.md",
-    _AXRANGE_ROOT / "imagebuild" / "config.py":
+    ),
+    _AXRANGE_ROOT / "imagebuild" / "config.py": (
+        frozenset({"axrange.adapter_proxmox.config"}),
         "the image-build config is the Proxmox adapter.conf plus BUILD_* keys read from the same "
         "file with the same precedence; it moves with adapters/proxmox/ (SPEC Notes: adapter.conf.example)",
-    _AXRANGE_ROOT / "planner" / "egress.py":
+    ),
+    _AXRANGE_ROOT / "planner" / "egress.py": (
+        frozenset({"axrange.adapter_proxmox.egress_render"}),
         "the engine's one importer of the egress render (`egress_render`: the in-guest VyOS egress "
-        "engine and its phase normalisation; guest-side, not platform-side -- a move candidate)",
+        "engine and its phase normalisation; guest-side, not platform-side -- a move candidate; the "
+        "two in-guest constants it used to re-export already live here)",
+    ),
 }
+
+#: Modules that may spell `DEFAULT_PLATFORM`: the factory that defines it
+#: (and its package re-export). Everything else gets the platform from the
+#: loaded config (`adapter_for_config`) or, for pre-plan naming, from
+#: `default_namer()` -- never by naming the default platform itself.
+_ALLOWED_DEFAULT_PLATFORM = frozenset({
+    _AXRANGE_ROOT / "platform" / "factory.py",
+    _AXRANGE_ROOT / "platform" / "__init__.py",
+})
 
 
 def _module_files(root: pathlib.Path, *, exclude_dirs: frozenset[pathlib.Path]) -> list[pathlib.Path]:
@@ -104,14 +133,35 @@ def _is_forbidden(dotted: str) -> bool:
     return len(parts) >= 2 and parts[0] == "axrange" and parts[1] in _FORBIDDEN_ROOTS
 
 
+def _allowed_module(dotted: str, allowed: frozenset[str]) -> bool:
+    """`from X import a` yields both `X` and `X.a`; the `X.a` reading is fine
+    when `X` itself is allowed (a name from an allowed module)."""
+    return dotted in allowed or dotted.rsplit(".", 1)[0] in allowed
+
+
 def _violations() -> list[str]:
     out: list[str] = []
     for path in _module_files(_AXRANGE_ROOT, exclude_dirs=_ADAPTER_ROOTS):
-        if path in _ALLOWED_IMPORTERS:
-            continue
+        allowed = _ALLOWED_IMPORTERS.get(path, (frozenset(), ""))[0]
         for lineno, dotted in _resolved_imports_from_source(path.read_text(), path):
-            if _is_forbidden(dotted):
+            if _is_forbidden(dotted) and not _allowed_module(dotted, allowed):
                 out.append(f"{path.relative_to(_REPO_ROOT)}:{lineno}: imports {dotted!r}")
+    return sorted(out)
+
+
+def _default_platform_mentions() -> list[str]:
+    out: list[str] = []
+    for path in _module_files(_AXRANGE_ROOT, exclude_dirs=_ADAPTER_ROOTS):
+        if path in _ALLOWED_DEFAULT_PLATFORM:
+            continue
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "DEFAULT_PLATFORM":
+                out.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}: DEFAULT_PLATFORM")
+            elif isinstance(node, ast.Attribute) and node.attr == "DEFAULT_PLATFORM":
+                out.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}: .DEFAULT_PLATFORM")
+            elif isinstance(node, ast.ImportFrom) and any(a.name == "DEFAULT_PLATFORM" for a in node.names):
+                out.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}: imports DEFAULT_PLATFORM")
     return sorted(out)
 
 
@@ -140,14 +190,28 @@ def test_the_factory_is_the_only_importer_of_the_libvirt_adapter():
 def test_the_allowlist_has_not_gone_stale():
     missing = [str(p.relative_to(_REPO_ROOT)) for p in _ALLOWED_IMPORTERS if not p.is_file()]
     assert not missing, f"_ALLOWED_IMPORTERS names modules that no longer exist: {missing}"
-    # Each allowed module must actually still import the adapter -- an entry
+    # Each allowed (file, module) pair must actually still be used -- an entry
     # that no longer needs its exemption should be dropped, so the list only
     # ever shrinks (adapters/proxmox/SPEC.md Notes: "this list shrinks to nothing").
-    idle = [
-        str(p.relative_to(_REPO_ROOT)) for p in _ALLOWED_IMPORTERS
-        if not any(_is_forbidden(d) for _, d in _resolved_imports_from_source(p.read_text(), p))
-    ]
-    assert not idle, f"_ALLOWED_IMPORTERS entries that no longer import the adapter: {idle}"
+    idle = []
+    for p, (allowed, _why) in _ALLOWED_IMPORTERS.items():
+        reached = {d for _, d in _resolved_imports_from_source(p.read_text(), p)}
+        for mod in sorted(allowed):
+            if mod not in reached and not any(d.rsplit(".", 1)[0] == mod for d in reached):
+                idle.append(f"{p.relative_to(_REPO_ROOT)} -> {mod}")
+    assert not idle, f"_ALLOWED_IMPORTERS entries no longer used: {idle}"
+
+
+def test_no_engine_module_names_the_default_platform_outside_the_factory():
+    """The platform travels with the loaded config (`PlatformConfig.platform`
+    from the conf's `PLATFORM=` key; `adapter_for_config`). A call site that
+    spells `DEFAULT_PLATFORM` is a site that would silently run a libvirt
+    target's config through the Proxmox adapter -- the reviewer's D1."""
+    mentions = _default_platform_mentions()
+    assert not mentions, (
+        "engine modules must not name DEFAULT_PLATFORM (use adapter_for_config(cfg) / "
+        f"default_namer()) -- found {len(mentions)}:\n  " + "\n  ".join(mentions)
+    )
 
 
 def test_the_platform_package_itself_is_import_light():

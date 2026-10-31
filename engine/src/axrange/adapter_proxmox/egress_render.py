@@ -86,6 +86,11 @@ from __future__ import annotations
 import ipaddress
 from typing import Any, Mapping
 
+# The two in-guest constants are the ENGINE's (one definition, shared with
+# `o2control/containment.py`'s live read); re-exported here so the render
+# and its tests keep reading them from this module.
+from axrange.planner.egress import EGRESS_ENGINE, EGRESS_OK_MARKER  # noqa: F401
+
 # ---------------------------------------------------------------------------
 # Contract
 # ---------------------------------------------------------------------------
@@ -104,7 +109,6 @@ EGRESS_DIR = "/etc/axr-egress"
 EGRESS_CONF = f"{EGRESS_DIR}/egress.conf"
 EGRESS_STATE = f"{EGRESS_DIR}/phase"
 EGRESS_CIDRS = f"{EGRESS_DIR}/external-cidrs.txt"
-EGRESS_ENGINE = "/usr/local/sbin/axr-egress-phase.sh"
 EGRESS_INSTALLER = "/usr/local/sbin/axr-egress-install.sh"
 EGRESS_UNIT = "/etc/systemd/system/axr-egress-phase.service"
 
@@ -119,7 +123,6 @@ EGRESS_TABLE = 210
 EGRESS_PROBE_DST = "203.0.113.9"
 
 #: Marker the adapter greps for in the installer's output.
-EGRESS_OK_MARKER = "AXR_EGRESS_OK"
 
 
 class EgressRenderError(ValueError):

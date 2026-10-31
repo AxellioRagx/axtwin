@@ -1,8 +1,14 @@
-"""The closed platform factory — `adapter_for(platform, cfg)`.
+"""The closed platform factory — `load_config` / `adapter_for_config(cfg)`.
 
-A deploy target names its `platform` (`api/Spec.md` A4; `proxmox` when
-absent) and this module turns that name into one `PlatformAdapters` bundle
-of the five seams (`protocols.py`). It is a CLOSED SET, not a registry
+A deploy target names its `platform` (`api/Spec.md` A4) and this module
+turns that name into one `PlatformAdapters` bundle of the five seams
+(`protocols.py`). The platform TRAVELS WITH THE LOADED CONFIG: `load_config`
+reads the adapter conf's neutral `PLATFORM=` key (`proxmox` when absent),
+dispatches to that platform's loader and the loaded object carries
+`cfg.platform`; `adapter_for_config(cfg)` reads it back. A target's own
+`platform:` (the targets file, `ApiSettings.platform`) is a cross-check —
+when both are present they must agree — never a second argument threaded
+through every call site. It is a CLOSED SET, not a registry
 (`api/Spec.md` "Not being built"; `docs/ARCHITECTURE.md` §13): no
 decorators, no entry points, no self-registration. The set is `proxmox`
 and `libvirt` (`adapters/libvirt/SPEC.md`, built 2026-10-30); VMware joins
@@ -33,17 +39,24 @@ if TYPE_CHECKING:  # the ops seam lives in the planner; see protocols.py
     from axrange.planner.executor import Adapter
 
 __all__ = [
-    "ConfigError",  # re-exported: one error type for every platform's config loader
     "DEFAULT_PLATFORM",
     "PLATFORMS",
     "PlatformAdapters",
     "UnknownPlatformError",
     "adapter_for",
+    "adapter_for_config",
     "check_platform",
     "default_namer",
     "load_config",
     "namer_for",
+    "platform_of",
 ]
+
+#: The one neutral key every platform's `adapter.conf` may carry; the value
+#: is a name from the closed set below. Read by `load_config` here (file and
+#: `overrides` only, never the environment: an env `PLATFORM` would re-aim
+#: every target of a multi-target serve at once).
+PLATFORM_KEY = "PLATFORM"
 
 
 class UnknownPlatformError(ValueError):
@@ -278,11 +291,14 @@ assert DEFAULT_PLATFORM in _BUILDERS
 
 
 def check_platform(platform: Optional[str]) -> str:
-    """The canonical platform name for a target's `platform:` value —
-    `DEFAULT_PLATFORM` for `None`/empty, the name itself when it is in the
-    closed set, `UnknownPlatformError` (naming it) otherwise. Used at
-    targets-file load (serve start) and on any target write."""
-    if platform is None or (isinstance(platform, str) and not platform.strip()):
+    """The canonical platform name for a `platform` value — `DEFAULT_PLATFORM`
+    for `None` (absent: a targets-file `platform:` with no value parses to
+    None, a conf file without `PLATFORM=`), the name itself when it is in
+    the closed set, `UnknownPlatformError` (naming it) otherwise. An empty
+    or blank string is NOT absent: it is refused by name like any other
+    unknown value. Used at targets-file load (serve start), on any target
+    write, and by `load_config`."""
+    if platform is None:
         return DEFAULT_PLATFORM
     if not isinstance(platform, str) or platform not in _BUILDERS:
         raise UnknownPlatformError(platform)
@@ -296,22 +312,101 @@ def _builders(platform: str) -> _Builders:
         raise UnknownPlatformError(platform) from None
 
 
+def _declared_platform_in(config_path: Any, overrides: Optional[dict[str, Any]]) -> Optional[str]:
+    """The `PLATFORM=` value of the conf file `load_config` will read (the
+    given path, else the first hit on the default search path), `overrides`
+    winning; `None` when neither names one. The file grammar and the search
+    path are the neutral helpers every loader shares (they live in the
+    Proxmox loader today — the factory is allowed to reach them)."""
+    if overrides and overrides.get(PLATFORM_KEY) is not None:
+        return str(overrides[PLATFORM_KEY])
+    from pathlib import Path
+
+    from axrange.adapter_proxmox.config import _read_conf_file, default_adapter_conf_paths
+
+    paths = [Path(config_path)] if config_path is not None else default_adapter_conf_paths()
+    for p in paths:
+        if p.is_file():
+            # `PLATFORM=` with no value is "" here, which `check_platform`
+            # refuses by name; only a missing key is "absent".
+            return _read_conf_file(p).get(PLATFORM_KEY)
+    return None
+
+
 def load_config(
     config_path: Any = None,
     *,
-    platform: str = DEFAULT_PLATFORM,
+    platform: Optional[str] = None,
     overrides: Optional[dict[str, Any]] = None,
 ) -> Any:
-    """Load `platform`'s adapter config (`config/adapter.conf` by default
-    search path) through that platform's own loader. Raises `ConfigError`
-    on a bad file and `UnknownPlatformError` on a bad platform."""
-    return _builders(platform).load_config(config_path, overrides=overrides)
+    """Load an adapter config (`config/adapter.conf` by default search path)
+    through its platform's own loader, and stamp the platform on it.
+
+    Which platform: the file's `PLATFORM=` key (`DEFAULT_PLATFORM` when the
+    file has none), refused by name when unknown. `platform`, when given
+    (a target's declared `platform:`), must equal the file's key if the file
+    has one — a mismatch is a `ConfigError` naming both, so a libvirt conf
+    behind a target declared `proxmox` fails before any op runs — and
+    selects the loader when the file is silent. Raises `ConfigError` on a
+    bad file, `UnknownPlatformError` on a bad platform.
+    """
+    declared = _declared_platform_in(config_path, overrides)
+    if declared is not None:
+        declared = check_platform(declared)
+    if platform is not None:
+        platform = check_platform(platform)
+        if declared is not None and declared != platform:
+            raise ConfigError(
+                f"adapter config {config_path or '(default search path)'} says "
+                f"{PLATFORM_KEY}={declared} but the target declares platform "
+                f"{platform!r}; make them agree"
+            )
+    chosen = platform or declared or DEFAULT_PLATFORM
+    cfg = _builders(chosen).load_config(config_path, overrides=overrides)
+    stamped = getattr(cfg, "platform", None)
+    if stamped is None:
+        # A loader that does not carry `platform` (a test's fake config):
+        # stamp it so `adapter_for_config` still works.
+        try:
+            cfg.platform = chosen
+        except (AttributeError, TypeError):
+            pass
+    elif stamped != chosen:
+        raise ConfigError(
+            f"{chosen} adapter config loader returned a config for platform "
+            f"{stamped!r}"
+        )
+    return cfg
+
+
+def platform_of(cfg: Any) -> str:
+    """The platform a loaded config belongs to: `cfg.platform`, stamped by
+    `load_config` / each adapter's config type, refused by name when unknown.
+    A config object that carries no `platform` at all (the suite's bare
+    `SimpleNamespace` / `object()` stand-ins) is "absent", the same as a conf
+    file without `PLATFORM=`: the default platform, exactly as
+    `check_platform(None)`."""
+    return check_platform(getattr(cfg, "platform", None))
+
+
+def adapter_for_config(cfg: Any, *, client: Any = None) -> PlatformAdapters:
+    """The five seams for a loaded config, keyed by its own `cfg.platform`.
+    This is how every engine call site selects the adapter; `adapter_for`
+    below is the explicit form for a caller that already holds the name."""
+    return adapter_for(platform_of(cfg), cfg, client=client)
 
 
 def adapter_for(platform: str, cfg: Any, *, client: Any = None) -> PlatformAdapters:
     """The five seams for `platform` over its loaded config `cfg`. Fails by
-    name on a platform outside the closed set."""
-    return PlatformAdapters(platform, cfg, _builders(platform), client=client)
+    name on a platform outside the closed set, and with a `ConfigError` when
+    `cfg` carries a different `platform` than asked for."""
+    builders = _builders(platform)
+    carried = getattr(cfg, "platform", None)
+    if carried is not None and carried != platform:
+        raise ConfigError(
+            f"adapter_for({platform!r}) given a config for platform {carried!r}"
+        )
+    return PlatformAdapters(platform, cfg, builders, client=client)
 
 
 def namer_for(platform: str) -> ResourceNamer:

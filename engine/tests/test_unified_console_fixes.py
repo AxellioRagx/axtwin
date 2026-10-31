@@ -115,7 +115,7 @@ def test_m1_two_targets_on_one_api_url_are_refused(tmp_path):
     b = _adapter_conf(tmp_path / "b.conf", "nodeb")  # same default URL
     tf = _targets_file(tmp_path, f"  - {{name: a, db: {tmp_path}/a.db, adapter_config: {a}}}\n"
                                  f"  - {{name: b, db: {tmp_path}/b.db, adapter_config: {b}}}\n")
-    with pytest.raises(ApiSettingsError, match="same Proxmox API"):
+    with pytest.raises(ApiSettingsError, match="same platform endpoint"):
         create_app(ApiSettings(targets_file=tf))
 
 

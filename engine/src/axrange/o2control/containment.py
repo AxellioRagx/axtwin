@@ -202,9 +202,8 @@ def egress_live(
     exception anywhere below leaves the record saying "not contained" --
     never a stale `measure`. Only a completed read-back that asserts
     overwrites it with `measure`."""
-    from axrange.planner.egress import egress_engine_markers
+    from axrange.planner.egress import EGRESS_ENGINE, EGRESS_OK_MARKER
 
-    EGRESS_ENGINE, EGRESS_OK_MARKER = egress_engine_markers()
     if action not in ACTIONS:
         raise ContainmentError(f"unknown action {action!r}; one of {list(ACTIONS)}")
     cr_row, host, vmid = _router_op_and_vmid(store, deploy_id)
@@ -362,10 +361,10 @@ class NodeResolvingGuestAgent:
     the API path builds the identical agent; the CLI name is an alias.)"""
 
     def __init__(self, cfg: Any, fallback: str) -> None:
-        from axrange.platform import DEFAULT_PLATFORM, adapter_for
+        from axrange.platform import adapter_for_config
 
         self.cfg, self.fallback = cfg, fallback
-        self._adapters = adapter_for(DEFAULT_PLATFORM, cfg)
+        self._adapters = adapter_for_config(cfg)
         self._nodes: dict[int, str] = {}
 
     def node_for(self, vmid: int) -> str:

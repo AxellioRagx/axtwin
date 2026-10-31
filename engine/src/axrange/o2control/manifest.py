@@ -35,7 +35,20 @@ from typing import TYPE_CHECKING, Any
 from axrange.sensors import DEFAULT_SENSOR_TYPE, is_known_type
 
 if TYPE_CHECKING:
-    from axrange.platform.protocols import PlatformConfig
+    from typing import Protocol
+
+    class O2EndpointSource(Protocol):
+        """What `resolve_manifest_endpoints` reads off an adapter config:
+        the O2 surface's endpoint resolution (`O2_*_URL` keys and the
+        services VM register). Today only the Proxmox `AdapterConfig`
+        carries it -- the standing O2 surface is a Proxmox-hosted stack --
+        so this is deliberately NOT part of `axrange.platform.protocols.
+        PlatformConfig`; a libvirt-hosted O2 surface adds it there."""
+
+        def resolve_o2_endpoints(self, *, services_vmid: int | None = ...,
+                                 services_name: str | None = ...,
+                                 services_node: str | None = ...,
+                                 service_ports: dict[str, int] | None = ...) -> dict[str, str]: ...
 
 
 class SurfaceManifestError(Exception):
@@ -204,7 +217,7 @@ def load_surface_manifest(path: str | Path) -> SurfaceManifest:
     return parse_surface_manifest(raw)
 
 
-def resolve_manifest_endpoints(cfg: "PlatformConfig", manifest: SurfaceManifest) -> dict[str, str]:
+def resolve_manifest_endpoints(cfg: "O2EndpointSource", manifest: SurfaceManifest) -> dict[str, str]:
     """The five O2 endpoint URLs for `manifest`, per
     `docs/WORK_ORDER_access_facts.md` Part B item 5.
 

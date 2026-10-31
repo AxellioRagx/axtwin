@@ -4,6 +4,12 @@
 # not point a libvirt target at a Proxmox file. Env vars of the same names
 # override this file.
 
+# The deploy platform this file configures: selects the adapter (and the
+# image bindings under images/bindings/<platform>/) for every command that
+# loads it. Required to be `libvirt` here; a file without it is read as a
+# Proxmox one.
+PLATFORM=libvirt
+
 # --- libvirt backend ---
 # Local host: qemu:///system. Remote host: qemu+ssh://user@host/system
 # (then HOST_SSH_* below are required for the host backend).
@@ -44,3 +50,8 @@ DEFAULT_NODE=kvm1
 # PROTECTED_EXTERNAL_NAMES=XPress-SW
 # PROTECTED_EXTERNAL_VMIDS=250
 # EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20"}]
+# Loki for the activity truth shipper (empty: no shipping).
+# LOKI_URL=http://10.0.0.90:3100
+# The appliance-adjacent network sensor, by platform identity (a VMID today;
+# 0 = none -- deploy-network-sensor needs a libvirt handle before it can run here).
+# NETWORK_SENSOR_VMID=0

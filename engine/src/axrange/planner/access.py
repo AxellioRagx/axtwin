@@ -217,11 +217,11 @@ def fill_access_facts(info: TeInfo, cfg: Any, *, live_resolve: bool = True) -> N
     a caller skip the network call entirely (e.g. a not-yet-deployed
     scenario.yaml preview has no live vmid to resolve against anyway).
     """
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
 
     # The inventory seam (`Inventory.guest_address`, best-effort, never
     # raises); not even built when the caller opted out of live reads.
-    inventory = adapter_for(DEFAULT_PLATFORM, cfg).inventory if live_resolve else None
+    inventory = adapter_for_config(cfg).inventory if live_resolve else None
 
     for h in info.hosts:
         ip: Optional[str] = None

@@ -98,6 +98,15 @@ class ApiSettings:
         default_factory=lambda: os.environ.get("AXRANGE_ADAPTER_CONFIG") or None
     )
 
+    # The deploy platform the target these settings aim at DECLARES (its
+    # targets-file `platform:`, carried here by `targets.settings_for_target`).
+    # None -- the implicit single target, or a targets entry without
+    # `platform:` -- lets the adapter conf's own `PLATFORM=` key decide
+    # (`axrange.platform.load_config`). Every `load_config(settings.
+    # adapter_config, platform=settings.platform)` in `service.py` passes it
+    # as the cross-check; the loaded config then carries the platform itself.
+    platform: str | None = None
+
     # Auth token for WRITE endpoints (deploy/run/destroy). Reads stay open on a
     # trusted bind (`docs/design/11-api-ui.md`). Empty → writes are open too
     # (dev default on 127.0.0.1); set AXRANGE_API_TOKEN to require it.

@@ -343,10 +343,10 @@ def default_ga_factory(adapter_config: Optional[str] = None) -> tuple[Callable[.
     short-timeout client (LES-128): a probe that cannot reach the cluster
     must say so, not degrade to "nothing answered."
     """
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     cfg = load_config(adapter_config)
-    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
+    adapters = adapter_for_config(cfg)
     if not cfg.default_node or not adapters.inventory.is_configured():
         raise ProbeRunError(
             "adapter.conf names no PROXMOX_API_URL / default node -- the "

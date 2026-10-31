@@ -20,7 +20,7 @@ import shlex
 import time
 from typing import Any, Optional
 
-from axrange.platform import DEFAULT_PLATFORM, adapter_for
+from axrange.platform import adapter_for_config
 from axrange.platform.protocols import GuestExec, PlatformConfig
 from axrange.config_exec.render import (
     ActivityRenderError,
@@ -135,7 +135,7 @@ class ConfigBackend:
         actor_poll_interval_s: float = 3.0,
     ) -> None:
         self.config = config
-        self._adapters = adapter_for(DEFAULT_PLATFORM, config, client=rest_client)
+        self._adapters = adapter_for_config(config, client=rest_client)
         self._ga_factory = guest_agent_factory
         self._sleep = sleep_fn
         self._actor_poll_interval_s = actor_poll_interval_s
@@ -203,8 +203,7 @@ class ConfigBackend:
         app_id = str(inp.get("app_id") or op.scope.get("app") or "app")
         os_family = (inp.get("os_family") or "linux").lower()
 
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
 
         if not actions:
             # An app with no install actions is a no-op success (still valid IR).
@@ -265,8 +264,7 @@ class ConfigBackend:
         if not content:
             return {"script_ran": True}
 
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         if os_family == "windows":
             return self._run_script_windows(vmid, name, content, ga, op)
         scripts_dir = f"{_PROVISION_DIR}/scripts"
@@ -456,8 +454,7 @@ class ConfigBackend:
         domain_fqdn = str(inp.get("domain_fqdn") or "")
         # AD is Windows; default the channel accordingly even if os_family is absent.
         os_family = (inp.get("os_family") or "windows").lower()
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         # Services must be Running (ADWS first — that's the create-domain-user dep).
         svc_check = (
             "foreach ($n in 'ADWS','NTDS','Netlogon') { "
@@ -518,8 +515,7 @@ class ConfigBackend:
         groups = list(inp.get("groups") or [])
         os_family = (inp.get("os_family") or "windows").lower()
         password = str(inp.get("password") or self.config.default_password)
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         try:
             script = render_create_domain_user(
                 identity_id, password=password, groups=groups,
@@ -565,8 +561,7 @@ class ConfigBackend:
         groups = list(inp.get("groups") or [])
         os_family = (inp.get("os_family") or "windows").lower()
         password = str(inp.get("password") or self.config.default_password)
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         try:
             script = render_create_local_user(
                 identity_id, password=password, groups=groups, os_family=os_family
@@ -619,8 +614,7 @@ class ConfigBackend:
                 error_class="windows-join-no-domain",
             )
         os_family = (inp.get("os_family") or "windows").lower()
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         try:
             script = render_join_to_domain(
                 str(domain_fqdn), dc_ip=str(dc_ip),
@@ -924,8 +918,7 @@ class ConfigBackend:
         defense_id = str(inp["defense_id"])
         entry = inp.get("defense_entry") or {}
         os_family = (inp.get("os_family") or "linux").lower()
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         if os_family == "windows":
             return self._install_defense_agent_windows(
                 vmid, defense_id, entry, inp, ga, op
@@ -991,8 +984,7 @@ class ConfigBackend:
         kind = str(inp.get("agent_kind") or "")
         entry = inp.get("agent_entry") or {}
         os_family = (inp.get("os_family") or "linux").lower()
-        ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        ga = self._guest(ctx.cluster.default_node, os_family=os_family)
 
         if kind == "exporter":
             script = (
@@ -1242,8 +1234,7 @@ class ConfigBackend:
         # `injector_ga` is bound to the INJECTOR's real os_family (Windows or
         # Linux); `sensor_ga` stays the default (Linux — sensors are always
         # Linux VMs, sensors design Phase B / A2 standing inventory).
-        injector_ga = self._guest(ctx.cluster.default_node, os_family=os_family
-        )
+        injector_ga = self._guest(ctx.cluster.default_node, os_family=os_family)
         sensor_ga = self._guest(ctx.cluster.default_node)
         if is_windows_injector:
             if not windows_target_ip:

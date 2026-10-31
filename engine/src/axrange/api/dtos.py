@@ -477,9 +477,11 @@ class TargetDTO(BaseModel):
     # Fix round 2: every state store of this target ({label, path, primary}).
     stores: list[dict[str, Any]] = []
     # `api/Spec.md` A4: the deploy platform this target casts onto (the
-    # closed factory's set, `axrange.platform.PLATFORMS`; `proxmox` when the
-    # targets file names none).
-    platform: str = "proxmox"
+    # closed factory's set, `axrange.platform.PLATFORMS`): the loaded adapter
+    # conf's `PLATFORM=` (`proxmox` when it has none), else the targets-file
+    # declaration; None only when the conf failed to load and nothing was
+    # declared (`error` says why).
+    platform: Optional[str] = None
 
 
 class TargetListDTO(BaseModel):

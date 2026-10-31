@@ -358,15 +358,17 @@ platform through five surfaces, and a platform plugin implements all five:
 | Seam | Protocol | What the engine asks |
 |---|---|---|
 | ops | `Adapter` | run one catalog op, return its typed outputs |
-| guest exec | `GuestExec` | ping, exec, file in, file out, against a guest by its platform handle |
+| guest exec | `GuestExec` | exec and file in against a guest by its platform handle (no file out: no engine caller reads a file back; ping/wait-ready belong to each adapter's `wait-guest-agent`, with `Inventory.ping_guest` the one engine-side liveness read) |
 | inventory | `Inventory` | guest → address and host, host facts, the platform's live tier-tagged resources |
 | naming | `ResourceNamer` | tier-tagged names and the platform's stable per-op identity (Proxmox VMID, libvirt UUID) |
 | teardown | `Teardown` | sweep by tier-tag shape under the protect guard |
 
 The protocols live in `axrange.platform.protocols` (built 2026-10-30), the
 Proxmox modules satisfy them structurally, and an AST layering test holds
-that the engine imports `adapter_proxmox` only from the factory and the
-Proxmox-only image build. The adapter's code still lives under
+that the engine imports `adapter_proxmox` only from the factory, the
+Proxmox-only image build and `planner/egress.py` (the egress render, a
+guest-side VyOS render that is a move candidate), each allowed exactly the
+modules it needs. The adapter's code still lives under
 `engine/src/axrange/adapter_proxmox/`; moving it under `adapters/<platform>/`
 as its own package is a packaging decision not yet taken. Selection is a closed
 factory keyed by the target's `platform` (`api/Spec.md` A4) — `proxmox`,

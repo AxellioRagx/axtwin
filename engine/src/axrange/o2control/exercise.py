@@ -907,12 +907,12 @@ def _stop_exercise_processes(
     `traffic.py::_stop_instances`)."""
     from axrange.config_exec.render import activity_paths
     from axrange.planner.opview import op_fields
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
 
     # The guest-exec seam; an injected `ga_factory` (test seam) is called
     # exactly as before, with the platform's connection (`rest_client` when
     # injected).
-    adapters = adapter_for(DEFAULT_PLATFORM, cfg, client=rest_client)
+    adapters = adapter_for_config(cfg, client=rest_client)
     factory = ga_factory or (
         lambda _client, node, *, os_family="linux": adapters.guest_exec(node, os_family=os_family)
     )
@@ -988,7 +988,7 @@ def destroy_exercise(
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     if not deploy_id:
         raise ExercisePlanError("destroy needs deploy_id=", status=400)
@@ -1011,7 +1011,7 @@ def destroy_exercise(
 
         backend = teardown_backend
         if backend is None:
-            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
+            backend = adapter_for_config(cfg).teardown
 
         lease = store.acquire_lease(d.scenario_id, deploy_id, process_info=default_process_info())
         if not lease.acquired:

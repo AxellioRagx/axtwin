@@ -10,7 +10,7 @@ outside the factory module imports a platform's own package
 | Seam | Protocol | What the engine asks |
 |---|---|---|
 | ops | `Adapter` (defined in `axrange.planner.executor`) | run one catalog op, return its typed outputs |
-| guest exec | `GuestExec` | ping, exec, file in — against a guest by its platform handle |
+| guest exec | `GuestExec` | exec and file in, against a guest by its platform handle |
 | inventory | `Inventory` | guest → address and host, host facts, the platform's live tier-tagged resources |
 | naming | `ResourceNamer` | tier-tagged names and the platform's stable per-op identity |
 | teardown | `Teardown` | reverse-of-create under `planner/teardown.py`'s protect guard |
@@ -23,6 +23,14 @@ engine's (`docs/CONVENTIONS.md` §4): a guest is addressed by an opaque
 platform's word it is because a version-locked contract does (the state
 store's resource kinds, `vmid` DTO fields — `adapters/proxmox/SPEC.md`
 Notes); each is a confirm-first bump and is marked `# contract:` here.
+
+Call-site parameters are POSITIONAL-ONLY (`/`) in every protocol: the
+implementations name them in their own vocabulary (`node`/`vmid` on
+Proxmox, `host`/`guest` on libvirt) and `runtime_checkable` compares
+attribute names only, so a keyword call would TypeError on one platform and
+not the other. Keyword-only parameters (`timeout_s`, `host`, `tier`, ...)
+are the one place names ARE the contract, and `tests/test_platform_seam.py`
+compares every implementation's `inspect.signature` against these.
 """
 from __future__ import annotations
 
@@ -95,38 +103,37 @@ class GuestResult(Protocol):
 class GuestExec(Protocol):
     """A guest-control channel bound to one `host` and one guest OS family
     (`PlatformAdapters.guest_exec(host, os_family=...)`); each call names the
-    guest by its handle. Ping, exec and file-in; there is no file-out today
-    because no engine caller reads a file back (they `exec` a `cat`).
+    guest by its handle. Exec and file-in only:
+
+    * no file-out — no engine caller reads a file back (they `exec` a `cat`
+      and read stdout);
+    * no ping / wait-ready — readiness is the `wait-guest-agent` op's job
+      inside each adapter (Proxmox `rest.py`, libvirt `adapter.py`), and the
+      one engine-side liveness read is `Inventory.ping_guest`. Both adapters
+      still expose `ping_once`/`wait_ready` on their channel objects for
+      their own use; they are not part of the seam.
 
     Derived from the Proxmox `GuestAgent` calls at:
     `config_exec/backend.py` (every config-class op: `exec`, `shell_exec`,
     `write_file`), `o2control/traffic.py` (persona drivers), `o2control/
     exercise.py` (`_stop_exercise_processes`), `o2control/containment.py`
     (`NodeResolvingGuestAgent.exec`), `fidelity/runner.py` (the in-guest
-    probe), `adapter_proxmox/resolve.qga_ping` (`ping_once`).
+    probe).
     """
 
-    def ping_once(self, guest: GuestHandle, *, timeout_s: Optional[int] = None) -> None:
-        """One liveness ping; raises `AdapterError` when the guest's agent does
-        not answer. `timeout_s=None` keeps the platform's deploy-time default."""
-
-    def wait_ready(self, guest: GuestHandle, *, timeout_s: int = 180) -> None:
-        """Poll `ping_once` until it answers or the budget runs out
-        (`AdapterTimeout`)."""
-
     def exec(
-        self, guest: GuestHandle, argv: list[str], *, timeout_s: int = 300,
+        self, guest: GuestHandle, argv: list[str], /, *, timeout_s: int = 300,
     ) -> GuestResult:
         """Run `argv` in the guest; block until it exits or `timeout_s`."""
 
     def shell_exec(
-        self, guest: GuestHandle, command: str, *, timeout_s: int = 300,
+        self, guest: GuestHandle, command: str, /, *, timeout_s: int = 300,
     ) -> GuestResult:
         """Run a shell command string in the guest's native shell (`sh -lc`
         on Linux, PowerShell on Windows)."""
 
     def write_file(
-        self, guest: GuestHandle, path: str, content: str, *, mode: Optional[str] = None,
+        self, guest: GuestHandle, path: str, content: str, /, *, mode: Optional[str] = None,
     ) -> None:
         """Write `content` to `path` in the guest (file-in). Content rides
         base64 inside the exec channel (`docs/CONVENTIONS.md` §4)."""
@@ -160,10 +167,35 @@ class ExternalSensorSpec(Protocol):
 class PlatformConfig(Protocol):
     """The slice of a platform's adapter config the ENGINE reads. Everything
     else on the object (API URLs, SSH keys, storage names) is the adapter's
-    own and stays behind the seam. `default_node` is the placement host when
-    a plan does not choose (`host` in the engine's vocabulary; the attribute
-    name is `adapter.conf`'s `DEFAULT_NODE` key — contract:
-    `config/adapter.conf.example`)."""
+    own and stays behind the seam.
+
+    `platform` is set by the loader (`axrange.platform.load_config`: the
+    file's `PLATFORM=` key, `proxmox` when absent) and travels with the
+    config, so `adapter_for_config(cfg)` picks the adapter without a second
+    argument threaded through every call site. `endpoint`/`verify_tls`/
+    `has_token`/`has_ssh_key` are the redacted facts `GET /api/targets`
+    reports (`TargetDTO`); each adapter's config fills them from its own
+    keys. `default_node` is the placement host when a plan does not choose
+    (`host` in the engine's vocabulary; the attribute name is `adapter.conf`'s
+    `DEFAULT_NODE` key — contract: `config/adapter.conf.example`).
+    """
+
+    @property
+    def platform(self) -> str: ...
+
+    @property
+    def endpoint(self) -> str:
+        """The platform API the adapter talks to (a Proxmox API URL, a
+        libvirt URI); empty when the file names none."""
+
+    @property
+    def verify_tls(self) -> bool: ...
+
+    @property
+    def has_token(self) -> bool: ...
+
+    @property
+    def has_ssh_key(self) -> bool: ...
 
     @property
     def default_node(self) -> str: ...
@@ -179,6 +211,18 @@ class PlatformConfig(Protocol):
 
     @property
     def protected_external_vmids(self) -> list[int]: ...
+
+    @property
+    def loki_url(self) -> str:
+        """`config_exec/backend.py`: the activity truth shipper's Loki, when
+        the operator wired one; empty disables shipping."""
+
+    @property
+    def network_sensor_vmid(self) -> int:
+        """`config_exec/backend.py` `deploy-network-sensor`: the appliance-
+        adjacent network sensor by platform identity — contract:
+        `adapters/proxmox/SPEC.md` Notes (sensor identity by VMID; libvirt
+        would need a handle here, so its default `0` means "none")."""
 
 
 @runtime_checkable
@@ -203,10 +247,10 @@ class Inventory(Protocol):
         Best-effort reads answer `None` without one; `platform_version`
         raises."""
 
-    def guest_address(self, guest: GuestHandle, *, host: Optional[str] = None) -> Optional[str]:
+    def guest_address(self, guest: GuestHandle, /, *, host: Optional[str] = None) -> Optional[str]:
         """The guest's live management IP, or `None` on any failure."""
 
-    def guest_host(self, guest: GuestHandle) -> Optional[str]:
+    def guest_host(self, guest: GuestHandle, /) -> Optional[str]:
         """The host the guest currently lives on, or `None` (the caller picks
         its own fallback, typically `default_node`)."""
 
@@ -220,7 +264,7 @@ class Inventory(Protocol):
         and health sweeps read `vmid`/`node`."""
 
     def ping_guest(
-        self, guest: GuestHandle, *, host: Optional[str] = None, timeout_s: int = 5,
+        self, guest: GuestHandle, /, *, host: Optional[str] = None, timeout_s: int = 5,
     ) -> None:
         """One short-timeout liveness ping for a health read. Raises."""
 
@@ -248,7 +292,7 @@ class ResourceNamer(Protocol):
     """
 
     # ---- tier table -------------------------------------------------------
-    def check_tier(self, tier: str) -> None:
+    def check_tier(self, tier: str, /) -> None:
         """Refuse an unrecognized deploy tier by name (fail closed)."""
 
     def tier_predicates(self) -> Mapping[str, Callable[[str], bool]]:
@@ -261,41 +305,41 @@ class ResourceNamer(Protocol):
         gates for that tier's own resources."""
 
     # ---- names ------------------------------------------------------------
-    def zone_id_for_plan(self, plan_id: str, *, tier: str = "te") -> str: ...
+    def zone_id_for_plan(self, plan_id: str, /, *, tier: str = "te") -> str: ...
 
-    def vnet_id_for_net(self, net_id: str, *, plan_id: str, tier: str = "te") -> str: ...
+    def vnet_id_for_net(self, net_id: str, /, *, plan_id: str, tier: str = "te") -> str: ...
 
-    def underlay_bridge_for_plan(self, plan_id: str, *, tier: str = "te") -> str: ...
+    def underlay_bridge_for_plan(self, plan_id: str, /, *, tier: str = "te") -> str: ...
 
-    def vm_name_for_host(self, plan_id: str, host_id: str, *, tier: str = "te") -> str: ...
+    def vm_name_for_host(self, plan_id: str, host_id: str, /, *, tier: str = "te") -> str: ...
 
-    def gre_port_for_bridge_sensor(self, bridge_name: str, sensor_id: str) -> str: ...
+    def gre_port_for_bridge_sensor(self, bridge_name: str, sensor_id: str, /) -> str: ...
 
-    def img_vm_name_for_image(self, image: str) -> str: ...
+    def img_vm_name_for_image(self, image: str, /) -> str: ...
 
     # ---- the platform's per-op guest identity -----------------------------
-    def guest_handle_for_op(self, plan_id: str, op_id: str) -> GuestHandle:
+    def guest_handle_for_op(self, plan_id: str, op_id: str, /) -> GuestHandle:
         """The deterministic guest identity a clone op materializes
         (Proxmox: `vmid_for_op`; libvirt: a UUID5 of `{plan_id, op_id}`)."""
 
-    def is_managed_guest_handle(self, guest: GuestHandle) -> bool:
+    def is_managed_guest_handle(self, guest: GuestHandle, /) -> bool:
         """True when `guest` is a handle this engine mints (the teardown
         guard's range check; Proxmox: `is_te_vmid`)."""
 
     # ---- shape predicates the engine reads directly -----------------------
-    def is_img(self, name: str) -> bool: ...
+    def is_img(self, name: str, /) -> bool: ...
 
-    def is_protected_external(self, name: str, extra: Iterable[str] = ()) -> bool: ...
+    def is_protected_external(self, name: str, extra: Iterable[str] = (), /) -> bool: ...
 
-    def is_tap_gretap(self, name: str) -> bool: ...
+    def is_tap_gretap(self, name: str, /) -> bool: ...
 
-    def is_te_vm_name(self, name: str) -> bool: ...
+    def is_te_vm_name(self, name: str, /) -> bool: ...
 
-    def is_o2_vm_name(self, name: str) -> bool: ...
+    def is_o2_vm_name(self, name: str, /) -> bool: ...
 
-    def is_tfc_vm_name(self, name: str) -> bool: ...
+    def is_tfc_vm_name(self, name: str, /) -> bool: ...
 
-    def is_exr_vm_name(self, name: str) -> bool: ...
+    def is_exr_vm_name(self, name: str, /) -> bool: ...
 
 
 @runtime_checkable
@@ -317,20 +361,20 @@ class Teardown(Protocol):
     exercise}.py`) reaches through.
     """
 
-    def vm_name(self, host: str, guest: GuestHandle) -> Optional[str]:
+    def vm_name(self, host: str, guest: GuestHandle, /) -> Optional[str]:
         """The guest's current platform display name, for the protect guard;
         `None` if absent."""
 
-    def destroy_vm(self, host: str, guest: GuestHandle) -> str: ...
+    def destroy_vm(self, host: str, guest: GuestHandle, /) -> str: ...
 
-    def delete_mirror_snippets(self, host: str, guest: GuestHandle) -> str: ...
+    def delete_mirror_snippets(self, host: str, guest: GuestHandle, /) -> str: ...
 
-    def delete_gretap(self, dev: str) -> str: ...
+    def delete_gretap(self, dev: str, /) -> str: ...
 
-    def delete_vnet(self, vnet_id: str) -> str: ...  # contract: kind `vnet`
+    def delete_vnet(self, vnet_id: str, /) -> str: ...  # contract: kind `vnet`
 
-    def delete_sdn_zone(self, zone_id: str) -> str: ...  # contract: kind `zone`
+    def delete_sdn_zone(self, zone_id: str, /) -> str: ...  # contract: kind `zone`
 
     def apply_sdn(self) -> str: ...  # contract: kind `sdn-apply`
 
-    def delete_ovs_bridge(self, host: str, bridge_name: str) -> str: ...  # contract: kind `ovs-bridge`
+    def delete_ovs_bridge(self, host: str, bridge_name: str, /) -> str: ...  # contract: kind `ovs-bridge`

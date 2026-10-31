@@ -1649,7 +1649,7 @@ def cmd_deploy(args: argparse.Namespace, *, confirm_fn: Callable[[str], str] = i
         ApiError, apply_update_tail, release_deploy_resources,
         resolve_deploy_plan, run_deploy_executor,
     )
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
     from axrange.config_exec import ConfigBackend
     from axrange.planner import StateStore
     from axrange.planner.locks import Heartbeat
@@ -1807,7 +1807,7 @@ def cmd_deploy(args: argparse.Namespace, *, confirm_fn: Callable[[str], str] = i
                 f"barriers={len(plan.barriers)}\n\n"
             )
 
-        adapter = adapter_for(DEFAULT_PLATFORM, cfg).adapter
+        adapter = adapter_for_config(cfg).adapter
         config_backend = ConfigBackend(cfg)
         # Shared with the API's background runner (code-review finding #3,
         # 2026-07-07): build+persist+run is identical between the two
@@ -2489,7 +2489,7 @@ def cmd_destroy(args: argparse.Namespace) -> int:
     from axrange.planner import StateStore, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     store = StateStore(args.db)
     deploy_id = args.deploy_id
@@ -2553,7 +2553,7 @@ def cmd_destroy(args: argparse.Namespace) -> int:
         f"\nDestroying {deploy_id} (scenario={deploy.scenario_id}, "
         f"plan_id={deploy.plan_id})...\n"
     )
-    backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
+    backend = adapter_for_config(cfg).teardown
     # Heartbeat the lease for the life of the teardown (code-review finding #2,
     # 2026-07-07): a multi-VM sweep can outrun the lease's fixed TTL with no
     # renewal, same fix as the deploy path's `heartbeat` above. It spans the
@@ -2714,9 +2714,9 @@ def _external_sensor_facts(
     does instead of a second implementation, LES-037). Kept as a module-level
     name here since `cmd_o2_info`/`cmd_tap_info` already call it as
     `_external_sensor_facts`."""
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
 
-    return adapter_for(DEFAULT_PLATFORM, cfg).inventory.external_sensor_facts(only_ids=only_ids)
+    return adapter_for_config(cfg).inventory.external_sensor_facts(only_ids=only_ids)
 
 
 def _render_external_sensors(sensors: list[dict[str, Any]], *, no_secrets: bool = False) -> None:

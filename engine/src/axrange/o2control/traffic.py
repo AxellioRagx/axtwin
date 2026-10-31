@@ -1445,14 +1445,24 @@ class PersonaBackend:
     `(client, host, os_family=...)` with the platform's connection."""
 
     def __init__(self, config: Any, *, rest_client: Any = None, guest_agent_factory: Any = None) -> None:
-        from axrange.platform import DEFAULT_PLATFORM, adapter_for
-
         self.config = config
-        self._adapters = adapter_for(DEFAULT_PLATFORM, config, client=rest_client)
-        self._client = self._adapters.client
+        self._injected_client = rest_client
+        self._adapters: Any = None
+        # The platform's connection (the injected one, else the bundle's);
+        # a fake config with an injected connection AND factory never builds
+        # a bundle at all.
+        self._client = rest_client if rest_client is not None else self._bundle().client
         self._ga_factory = guest_agent_factory or (
-            lambda _client, node, *, os_family="linux": self._adapters.guest_exec(node, os_family=os_family)
+            lambda _client, node, *, os_family="linux": self._bundle().guest_exec(node, os_family=os_family)
         )
+
+    def _bundle(self) -> Any:
+        """The target's `PlatformAdapters`, keyed by `config.platform`."""
+        if self._adapters is None:
+            from axrange.platform import adapter_for_config
+
+            self._adapters = adapter_for_config(self.config, client=self._injected_client)
+        return self._adapters
 
     def run(self, op: Any, resolved_inputs: dict[str, Any], ctx: Any) -> dict[str, Any]:
         from axrange.planner.executor import AdapterError
@@ -2362,9 +2372,9 @@ def heartbeat_instances(
                 "reason": "this persona backend cannot read a heartbeat",
             }
         return out
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
 
-    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
+    adapters = adapter_for_config(cfg)
     for inp in inps:
         iid = str(inp.get("instance_id") or "")
 
@@ -3009,9 +3019,9 @@ def _stop_instances(
                 failed[str(instance_id)] = f"{type(e).__name__}: {e}"
         return failed
 
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
 
-    adapters = adapter_for(DEFAULT_PLATFORM, cfg)
+    adapters = adapter_for_config(cfg)
     for inp in inps:
         instance_id = inp.get("instance_id")
         vmid = inp.get("vmid")
@@ -3218,7 +3228,7 @@ def destroy_traffic_profile(
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     store = StateStore(db_path)
     try:
@@ -3269,7 +3279,7 @@ def destroy_traffic_profile(
 
         backend = teardown_backend
         if backend is None:
-            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
+            backend = adapter_for_config(cfg).teardown
 
         lease = store.acquire_lease(d.scenario_id, did, process_info=default_process_info())
         if not lease.acquired:

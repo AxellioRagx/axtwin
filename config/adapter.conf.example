@@ -2,6 +2,12 @@
 # Copy to /etc/axrange/adapter.conf and fill in the operator-side values.
 # Env vars (PROXMOX_API_URL, OVS_SSH_KEY, etc.) override this file.
 
+# The deploy platform this file configures: selects the adapter (and the
+# image bindings under images/bindings/<platform>/) for every command that
+# loads it. `proxmox` when absent; a target's `platform:` in the targets
+# file must agree with it. See adapter.conf.libvirt.example for the other.
+PLATFORM=proxmox
+
 # --- REST backend (Proxmox API) ---
 PROXMOX_API_URL=https://10.0.0.85:8006/api2/json
 # PVEAPIToken=<user>@<realm>!<token-id>=<secret>

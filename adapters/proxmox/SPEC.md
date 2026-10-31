@@ -26,13 +26,16 @@ these modules satisfy them:
 
 | Seam | Proxmox module | Used by |
 |---|---|---|
-| guest exec (ping / exec / file in / file out) | `guest_agent.GuestAgent` over `rest.RestClient` (QGA) | personas, `o2control` exercise and containment, config execution |
+| guest exec (exec / file in; no file out — no engine caller reads a file back, they `exec` a `cat`; ping/wait-ready are each adapter's own `wait-guest-agent`, not the seam) | `guest_agent.GuestAgent` over `rest.RestClient` (QGA) | personas, `o2control` exercise and containment, config execution |
 | inventory (VM → IP / node, cluster version, live resources) | `resolve.py` | planner access, API targets and status, platform-origin deploys |
 | resource naming (tier-tagged names, VMID) | `naming.py` | planner inventory/state/teardown, image build |
 | teardown (sweep by tier tag, protect guard) | `teardown.ProxmoxTeardown` | planner, API, `o2control` |
 
 Code: `engine/src/axrange/adapter_proxmox/`. The engine imports it only from
-the factory and the Proxmox-only image build (`engine/tests/test_platform_layering.py`);
+the factory, the Proxmox-only image build (`imagebuild/proxmox_build.py`,
+`imagebuild/config.py`) and `planner/egress.py` for the egress render
+(`egress_render`: guest-side VyOS, a move candidate) — a per-module allowlist
+in `engine/tests/test_platform_layering.py`;
 moving it under this folder as its own package is a packaging decision still
 open (a second installable package versus a path inside `axrange`).
 

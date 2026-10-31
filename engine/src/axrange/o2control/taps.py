@@ -193,10 +193,6 @@ from axrange.platform import default_namer
 
 if TYPE_CHECKING:
     from axrange.platform.protocols import ExternalSensorSpec
-
-# The naming seam (ARCHITECTURE §13) of the default platform: the gretap
-# port name is a pure function of `(bridge, sensor)`.
-gre_port_for_bridge_sensor = default_namer().gre_port_for_bridge_sensor
 from axrange.planner.tappoints import (
     TAP_SCOPES,
     TapIndex,
@@ -213,6 +209,10 @@ from axrange.planner.tappoints import (
     segment_attached_hosts,
     select_tap_points,
 )
+
+# The naming seam (ARCHITECTURE §13) of the default platform: the gretap
+# port name is a pure function of `(bridge, sensor)`.
+gre_port_for_bridge_sensor = default_namer().gre_port_for_bridge_sensor
 
 # NOTE: `axrange.o2control.control` is imported lazily inside functions below
 # (matching this package's existing style, `control.py`'s own docstring) to
@@ -2499,9 +2499,9 @@ def _delete_dropped_gretaps(
     }
     backend = teardown_backend
     if backend is None:
-        from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+        from axrange.platform import adapter_for_config, load_config
 
-        backend = adapter_for(DEFAULT_PLATFORM, load_config(adapter_config)).teardown
+        backend = adapter_for_config(load_config(adapter_config)).teardown
     for net_id, sensor_id in sorted(dropped_pairs):
         bridge = _gre_naming_bridge(inv, net_id, plan_id)
         if not bridge:
@@ -2595,7 +2595,7 @@ def apply_tap_plan(
     from axrange.planner.cluster import ClusterContext
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import DeployStatus, default_process_info
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     resolved = resolve_tap_plan(spec, spec_path)
 
@@ -2748,7 +2748,7 @@ def apply_tap_plan(
             if real_adapter is None or real_config_backend is None:
                 from axrange.config_exec import ConfigBackend
 
-                real_adapter = real_adapter or adapter_for(DEFAULT_PLATFORM, cfg).adapter
+                real_adapter = real_adapter or adapter_for_config(cfg).adapter
                 real_config_backend = real_config_backend or ConfigBackend(cfg)
 
             # M1: force EVERY op in the freshly composed plan back to pending
@@ -2918,7 +2918,7 @@ def destroy_taps(
     from axrange.planner import StateStore, TeardownError, destroy_deploy
     from axrange.planner.locks import Heartbeat
     from axrange.planner.state import default_process_info
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for, load_config
+    from axrange.platform import adapter_for_config, load_config
 
     store = StateStore(db_path)
     try:
@@ -2980,11 +2980,11 @@ def destroy_taps(
 
         backend = teardown_backend
         if backend is None:
-            backend = adapter_for(DEFAULT_PLATFORM, cfg).teardown
+            backend = adapter_for_config(cfg).teardown
 
         real_adapter = adapter
         if real_adapter is None:
-            real_adapter = adapter_for(DEFAULT_PLATFORM, cfg).adapter
+            real_adapter = adapter_for_config(cfg).adapter
 
         lease = store.acquire_lease(
             d.scenario_id, did, process_info=default_process_info()

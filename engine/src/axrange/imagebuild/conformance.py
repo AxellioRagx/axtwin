@@ -206,7 +206,7 @@ def smoke_test(
     Imports the planner/adapter inline (like cli/main.py) so a build that skips
     the smoke-test pays none of that import cost."""
     from axrange.ir.parser import parse_ir
-    from axrange.platform import DEFAULT_PLATFORM, adapter_for
+    from axrange.platform import adapter_for_config
     from axrange.manifest.loader import load_registry
     from axrange.planner import Executor, StateStore, build_plan
     from axrange.planner.cluster import ClusterContext
@@ -248,7 +248,7 @@ def smoke_test(
         ir_hash=plan.ir_hash,
         placement=plan.placement,
     )
-    adapter = adapter_for(DEFAULT_PLATFORM, build_cfg.deploy).adapter
+    adapter = adapter_for_config(build_cfg.deploy).adapter
     executor = Executor(plan, store, adapter, ctx, deploy_id=deploy_id)
     executor.persist_plan()
     try:

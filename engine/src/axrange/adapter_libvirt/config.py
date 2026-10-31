@@ -19,7 +19,8 @@ never silently half-loaded.
 | `DEFAULT_NODE` | yes | the host's name as placement records it |
 | `MIRROR_GRETAP_TXQUEUELEN` | no | deep-FIFO depth on each mirror gretap (default 20000; 0 leaves the host default) |
 | `LIBVIRT_BINDINGS_DIR` | no | where `images/bindings/libvirt/<image>.yaml` live, for `clone-vm`'s template lookup when the planner did not resolve `template_volume` itself (see `bindings.py`) |
-| `DEFAULT_PASSWORD`, `PROTECTED_EXTERNAL_NAMES`, `PROTECTED_EXTERNAL_VMIDS`, `EXTERNAL_SENSORS` | no | unchanged from the Proxmox file (the engine's `PlatformConfig` slice) |
+| `DEFAULT_PASSWORD`, `PROTECTED_EXTERNAL_NAMES`, `PROTECTED_EXTERNAL_VMIDS`, `EXTERNAL_SENSORS`, `LOKI_URL`, `NETWORK_SENSOR_VMID` | no | unchanged from the Proxmox file (the engine's `PlatformConfig` slice) |
+| `PLATFORM` | no | `libvirt` -- the neutral key `axrange.platform.load_config` reads to pick this loader; refused here if it says anything else |
 
 Precedence: `overrides` > environment (known keys only) > file > defaults.
 """
@@ -61,6 +62,7 @@ NETWORK_BACKENDS = ("linux", "ovs")
 #: Every key this loader accepts. Anything else in the file / overrides is a
 #: `ConfigError` naming the key.
 KNOWN_KEYS: frozenset[str] = frozenset({
+    "PLATFORM",
     "LIBVIRT_URI",
     "LIBVIRT_STORAGE_POOL",
     "LIBVIRT_NETWORK_BACKEND",
@@ -75,6 +77,8 @@ KNOWN_KEYS: frozenset[str] = frozenset({
     "PROTECTED_EXTERNAL_NAMES",
     "PROTECTED_EXTERNAL_VMIDS",
     "EXTERNAL_SENSORS",
+    "LOKI_URL",
+    "NETWORK_SENSOR_VMID",
 })
 
 _REQUIRED_KEYS = ("LIBVIRT_URI", "LIBVIRT_STORAGE_POOL", "GUEST_SSH_PUBKEY_FILE", "DEFAULT_NODE")
@@ -104,6 +108,8 @@ class LibvirtConfig:
     reads `default_node`, `default_password`, `external_sensors`,
     `protected_external_*`); everything else stays behind the seam."""
 
+    #: `PlatformConfig.platform`: the factory selects the adapter from it.
+    platform: str = "libvirt"
     libvirt_uri: str = ""
     storage_pool: str = ""
     network_backend: str = "linux"
@@ -121,6 +127,31 @@ class LibvirtConfig:
     protected_external_names: list[str] = field(default_factory=list)
     protected_external_vmids: list[int] = field(default_factory=list)
     external_sensors: list[ExternalSensor] = field(default_factory=list)
+    # The engine's `PlatformConfig` slice `config_exec/backend.py` reads:
+    # the activity truth shipper's Loki (empty: no shipping) and the
+    # appliance-adjacent network sensor by platform identity (contract:
+    # `adapters/proxmox/SPEC.md` Notes -- a VMID int; `0` is "none", and a
+    # libvirt sensor would need a UUID handle here before deploy-network-
+    # sensor can run on this platform).
+    loki_url: str = ""
+    network_sensor_vmid: int = 0
+
+    # ---- the neutral facts `GET /api/targets` reports (`PlatformConfig`) ----
+    @property
+    def endpoint(self) -> str:
+        return self.libvirt_uri or ""
+
+    @property
+    def verify_tls(self) -> bool:
+        return self.libvirt_uri.startswith("qemu+tls://")
+
+    @property
+    def has_token(self) -> bool:
+        return False  # libvirt authenticates by URI transport (SSH/TLS), not a token
+
+    @property
+    def has_ssh_key(self) -> bool:
+        return bool(self.host_ssh_key)
 
     @property
     def is_remote(self) -> bool:
@@ -216,6 +247,16 @@ def load_config(
     except ValueError as e:
         raise ConfigError(f"PROTECTED_EXTERNAL_VMIDS must be a comma list of ints: {e}") from e
     external_sensors = _parse_external_sensors(get("EXTERNAL_SENSORS", ""))
+    declared = get("PLATFORM", "libvirt")
+    if declared != "libvirt":
+        raise ConfigError(
+            f"libvirt adapter.conf {source or ''}: PLATFORM={declared!r} is not this "
+            "loader's platform (libvirt)"
+        )
+    try:
+        sensor_vmid = int(get("NETWORK_SENSOR_VMID", "0") or "0")
+    except ValueError as e:
+        raise ConfigError(f"NETWORK_SENSOR_VMID must be an int: {e}") from e
     for ext in external_sensors:
         if ext.id not in protected_names:
             protected_names.append(ext.id)
@@ -234,6 +275,8 @@ def load_config(
         default_password=get("DEFAULT_PASSWORD", "Axr4nge-Lab!"),
         mirror_gretap_txqueuelen=qlen,
         bindings_dir=get("LIBVIRT_BINDINGS_DIR", "").strip(),
+        loki_url=get("LOKI_URL", "").strip(),
+        network_sensor_vmid=sensor_vmid,
         protected_external_names=protected_names,
         protected_external_vmids=protected_vmids,
         external_sensors=external_sensors,
@@ -250,6 +293,12 @@ def example_conf_text() -> str:
         "# Same file shape as the Proxmox adapter.conf; UNKNOWN KEYS ARE REFUSED, so do\n"
         "# not point a libvirt target at a Proxmox file. Env vars of the same names\n"
         "# override this file.\n"
+        "\n"
+        "# The deploy platform this file configures: selects the adapter (and the\n"
+        "# image bindings under images/bindings/<platform>/) for every command that\n"
+        "# loads it. Required to be `libvirt` here; a file without it is read as a\n"
+        "# Proxmox one.\n"
+        "PLATFORM=libvirt\n"
         "\n"
         "# --- libvirt backend ---\n"
         "# Local host: qemu:///system. Remote host: qemu+ssh://user@host/system\n"
@@ -291,4 +340,9 @@ def example_conf_text() -> str:
         "# PROTECTED_EXTERNAL_NAMES=XPress-SW\n"
         "# PROTECTED_EXTERNAL_VMIDS=250\n"
         "# EXTERNAL_SENSORS=[{\"id\":\"XPress-SW\",\"vmid\":250,\"transport_ip\":\"10.255.250.20\"}]\n"
+        "# Loki for the activity truth shipper (empty: no shipping).\n"
+        "# LOKI_URL=http://10.0.0.90:3100\n"
+        "# The appliance-adjacent network sensor, by platform identity (a VMID today;\n"
+        "# 0 = none -- deploy-network-sensor needs a libvirt handle before it can run here).\n"
+        "# NETWORK_SENSOR_VMID=0\n"
     )

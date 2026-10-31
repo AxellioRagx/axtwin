@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from axrange.api.settings import ApiSettings, ApiSettingsError
-from axrange.platform import DEFAULT_PLATFORM, UnknownPlatformError, check_platform
+from axrange.platform import UnknownPlatformError, check_platform
 
 #: Name used for the implicit target when its adapter.conf names no node.
 IMPLICIT_FALLBACK_NAME = "default"
@@ -46,6 +46,8 @@ IMPLICIT_FALLBACK_NAME = "default"
 CLUSTER_IDENTITY_ENV = (
     "PROXMOX_API_URL", "PROXMOX_API_TOKEN", "DEFAULT_NODE",
     "OVS_SSH_HOST", "OVS_SSH_USER", "OVS_SSH_KEY",
+    # the libvirt adapter's identity keys (`adapters/libvirt/SPEC.md` Config)
+    "LIBVIRT_URI", "HOST_SSH_HOST", "HOST_SSH_USER", "HOST_SSH_KEY",
 )
 
 #: Env/setting for the implicit single target's protected deploys (comma list).
@@ -68,12 +70,18 @@ class Target:
     # target is one cluster identity with one or more stores. `db_path` is
     # the primary -- where NEW deploys are written; reads search them all.
     extra_dbs: tuple[str, ...] = ()
-    # `api/Spec.md` A4: the deploy platform this target casts onto, one of
-    # the closed factory's set (`axrange.platform.PLATFORMS`); it selects the
-    # adapter and the image-binding set `images/bindings/<platform>/`.
-    # `DEFAULT_PLATFORM` when the targets file names none; an unknown value
-    # is refused by name at load (serve start) and on write.
-    platform: str = DEFAULT_PLATFORM
+    # `api/Spec.md` A4: the deploy platform this target DECLARES, one of the
+    # closed factory's set (`axrange.platform.PLATFORMS`). The platform that
+    # actually selects the adapter travels with the loaded adapter config
+    # (`PlatformConfig.platform`, from the conf's `PLATFORM=` key, `proxmox`
+    # when absent); a declared value here is cross-checked against it when
+    # the config loads. None: not declared -- the conf decides. An unknown
+    # value is refused by name at load (serve start), on write, and here.
+    platform: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if self.platform is not None:
+            check_platform(self.platform)  # raises UnknownPlatformError by name
 
     @property
     def stores(self) -> tuple[str, ...]:
@@ -104,7 +112,12 @@ class TargetFacts:
 
     target: Target
     node: str = ""
-    api_url: str = ""
+    # The resolved platform (the loaded config's `platform`); the declared
+    # one when the config failed to load, else "" (unknown).
+    platform: str = ""
+    # The redacted `PlatformConfig` facts (`endpoint` is the platform API:
+    # a Proxmox API URL, a libvirt URI; `TargetDTO.api_url` carries it).
+    endpoint: str = ""
     verify_tls: bool = False
     has_token: bool = False
     has_ssh_key: bool = False
@@ -210,10 +223,14 @@ def load_targets_file(path: str | Path) -> list[Target]:
         nodes = e.get("nodes") or []
         if not isinstance(nodes, list) or not all(isinstance(n, str) and n for n in nodes):
             raise ApiSettingsError(f"{where} ({name}): 'nodes' must be a list of node names")
-        try:
-            platform = check_platform(e.get("platform"))
-        except UnknownPlatformError as ex:
-            raise ApiSettingsError(f"{where} ({name}): {ex}") from None
+        # `platform:` with no value parses to None -- "not declared", like
+        # the key being absent; anything else must be in the closed set.
+        platform = e.get("platform")
+        if platform is not None:
+            try:
+                platform = check_platform(platform)
+            except UnknownPlatformError as ex:
+                raise ApiSettingsError(f"{where} ({name}): {ex}") from None
         names.add(name)
         dbs[db_path] = name
         for xp in extra:
@@ -272,21 +289,22 @@ def validate_targets(targets: list[Target], *, env: Optional[dict[str, str]] = N
         f = target_facts(t)
         if f.error:
             raise ApiSettingsError(f"target {t.name!r}: {f.error}")
-        url = (f.api_url or "").rstrip("/")
+        url = (f.endpoint or "").rstrip("/")
         if not url:
             continue
         if url in seen:
             raise ApiSettingsError(
-                f"targets {seen[url]!r} and {t.name!r} resolve to the same Proxmox "
-                f"API ({url}) -- one cluster, two stores: refused"
+                f"targets {seen[url]!r} and {t.name!r} resolve to the same platform "
+                f"endpoint ({url}) -- one cluster, two stores: refused"
             )
         seen[url] = t.name
 
 
 def _load_cfg(
-    adapter_config: Optional[str], *, platform: str = DEFAULT_PLATFORM,
+    adapter_config: Optional[str], *, platform: Optional[str] = None,
 ) -> tuple[Any, Optional[str]]:
-    """`(cfg, None)` through `platform`'s own loader, or `(None, error)`."""
+    """`(cfg, None)` through the conf's own platform loader (`platform`, the
+    target's declared value, is the cross-check), or `(None, error)`."""
     from axrange.platform import load_config
 
     try:
@@ -298,7 +316,7 @@ def _load_cfg(
 def implicit_target(settings: ApiSettings) -> Target:
     """The no-file target: `settings`' own db + adapter.conf, named after its
     DEFAULT_NODE; protected ids from `settings.protected_deploys`."""
-    cfg, _err = _load_cfg(settings.adapter_config)
+    cfg, _err = _load_cfg(settings.adapter_config, platform=settings.platform)
     name = (cfg.default_node if cfg is not None else "") or IMPLICIT_FALLBACK_NAME
     return Target(
         name=name, adapter_config=settings.adapter_config, db_path=settings.db_path,
@@ -348,11 +366,11 @@ def target_facts(target: Target) -> TargetFacts:
 def _target_facts_uncached(target: Target) -> TargetFacts:
     cfg, err = _load_cfg(target.adapter_config, platform=target.platform)
     if cfg is None:
-        return TargetFacts(target=target, error=err)
+        return TargetFacts(target=target, platform=target.platform or "", error=err)
     return TargetFacts(
-        target=target, node=cfg.default_node or "", api_url=cfg.proxmox_api_url or "",
-        verify_tls=bool(cfg.proxmox_verify_tls), has_token=bool(cfg.proxmox_api_token),
-        has_ssh_key=bool(cfg.ovs_ssh_key), cfg=cfg,
+        target=target, node=cfg.default_node or "", platform=cfg.platform,
+        endpoint=cfg.endpoint or "", verify_tls=bool(cfg.verify_tls),
+        has_token=bool(cfg.has_token), has_ssh_key=bool(cfg.has_ssh_key), cfg=cfg,
     )
 
 
@@ -375,7 +393,9 @@ def settings_for_target(settings: ApiSettings, name: Optional[str]) -> ApiSettin
     t = get_target(settings, name)
     if t.implicit:
         return settings
-    return dataclasses.replace(settings, db_path=t.db_path, adapter_config=t.adapter_config)
+    return dataclasses.replace(
+        settings, db_path=t.db_path, adapter_config=t.adapter_config, platform=t.platform,
+    )
 
 
 def placement_warnings(placement: dict[str, Any], facts: TargetFacts) -> list[str]:

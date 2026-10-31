@@ -52,6 +52,15 @@ from typing import Any, Optional
 
 from axrange.ir.schema import IR, Node
 
+# The in-guest egress engine's contract with the engine, platform-neutral
+# (the router guest is the same VyOS/Debian image on every platform): the
+# script path every `configure-router` op installs and the marker its output
+# carries on success. Read by `o2control/containment.py`'s live read and by
+# the render in `adapter_proxmox.egress_render` (which imports them from
+# here, so there is one definition).
+EGRESS_ENGINE = "/usr/local/sbin/axr-egress-phase.sh"
+EGRESS_OK_MARKER = "AXR_EGRESS_OK"
+
 #: The node `role:` a sink advertises itself with. The twin's own vocabulary
 #: (`twins/svc-engines/te.yaml`), not a new one.
 SINK_ROLE = "sink"
@@ -292,12 +301,3 @@ def egress_posture_from_ops(ops: Any) -> Optional[EgressPosture]:
         )
     return None
 
-
-def egress_engine_markers() -> tuple[str, str]:
-    """`(EGRESS_ENGINE, EGRESS_OK_MARKER)` -- the in-guest egress engine's
-    path and its OK marker, for `o2control/containment.py`'s live read. This
-    module is the engine's one importer of the egress render (the boundary
-    note in the module docstring); callers take the constants from here."""
-    from axrange.adapter_proxmox.egress_render import EGRESS_ENGINE, EGRESS_OK_MARKER
-
-    return EGRESS_ENGINE, EGRESS_OK_MARKER
