@@ -19,8 +19,11 @@ separate, later feature over the expanded IR and are not this canvas.
 ## Seam
 
 A consumer of the control-plane API only (`ui/Spec.md`); it defines no
-endpoint and holds no orchestration logic. Mounted as the `features/edit-canvas`
-route inside the twins area.
+endpoint and holds no orchestration logic. Mounted as `/canvas/:id` in the
+console's **Canvas** area (`ui/src/areas/canvas/`: the top-menu entry whose
+drop-down lists the catalog's twins, the `/canvas` designs page, and
+`/canvas/new`, which writes a blank or copied twin-config through A3 and opens
+it); `/twins/:id/canvas` reaches the same page from a twin's page.
 
 | Reads | Route |
 |---|---|
@@ -72,7 +75,9 @@ two segments that are one VLAN — the edit is offered a **promote to
 assertion** action that writes it through the imprint's assertions seam,
 re-casts, and re-opens the working copy; the canvas never writes assertions
 directly and never edits the imprint in place. A twin designed from scratch
-starts from an empty twin-config and has no imprint and no promote action.
+starts from the blank twin-config `/canvas/new` writes -- one empty segment
+and no nodes, since the engine refuses a config with no segment at all -- and
+has no imprint and no promote action.
 
 ## Feature set
 

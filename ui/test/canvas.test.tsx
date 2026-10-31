@@ -290,7 +290,7 @@ describe("the design canvas (C2, read-only)", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-cast");
     await screen.findByTestId("twin-summary");
-    expect(screen.getByRole("link", { name: "Open the design canvas" }).getAttribute("href")).toBe("/twins/corp-cast/canvas");
+    expect(screen.getByRole("link", { name: "Open the design canvas" }).getAttribute("href")).toBe("/canvas/corp-cast");
   });
 });
 

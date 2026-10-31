@@ -17,7 +17,7 @@ export function TwinPage() {
     <>
       <div className="row">
         <h1 style={{ flex: 1 }}>Twin {id}</h1>
-        {data ? <Link to={`/twins/${encodeURIComponent(id)}/canvas`}>Open the design canvas</Link> : null}
+        {data ? <Link to={`/canvas/${encodeURIComponent(id)}`}>Open the design canvas</Link> : null}
         {data ? (
           <ConfirmDelete label="Delete twin" target={id} confirmText="Confirm: remove the twin from the catalog" onDelete={() => api.deleteTwin(id)} onDeleted={() => navigate("/twins")} />
         ) : null}

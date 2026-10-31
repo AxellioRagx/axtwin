@@ -9,6 +9,18 @@ view and edit the discovered twin → deploy it to a target → leave it running
 traffic → optionally inject an attack → confirm tapped traffic is reaching a
 sensor. Telemetry views (O2) are embedded Grafana panels, not rebuilt here.
 
+The console is titled **axTwin** (renamed from axRange 2026-10-31; the engine,
+its CLI and the API keep their names). Its top menu is the loop's areas:
+**Discovery** (Sources, Runs beneath it), **Imprints**, **Twins** and
+**Canvas** -- the design surface, with a drop-down that lists every twin in the
+catalog (cast from an imprint or authored) to open on the canvas and a *New
+design…* entry, and *Designs* / *New design* beneath it. `/canvas` lists the
+twins (and the imprints not yet cast, which have no twin-config to draw),
+`/canvas/new` writes a blank twin-config (one empty segment, no nodes: the
+smallest document the engine accepts) or a copy of one in the catalog through
+A3 and opens it, `/canvas/:id` is the canvas (`/twins/:id/canvas` still reaches
+it from a twin's page).
+
 It is a **consumer** of the control-plane API (`api/Spec.md`); it holds no
 orchestration logic and defines no endpoint of its own. The console is generic
 over what the API reports — it lists whatever discovery adapters, targets,
@@ -166,7 +178,10 @@ host and router, positions stable across renders of one layout document;
 *`canvas.test.tsx`*).
 
 **C3 — edit twin (working copy):** **Built 2026-10-30** (*`canvas.edit.test.tsx`*,
-*`canvas.edit.model.test.ts`*; the design canvas's phase 2).
+*`canvas.edit.model.test.ts`*; the design canvas's phase 2). **2026-10-31:** the
+Canvas area -- the top-menu entry with its drop-down of designs, `/canvas`,
+`/canvas/new` (blank or copied design through A3), `/canvas/:id`
+(*`canvas.menu.test.tsx`*).
 - C3.1 (auto) Add a node and a segment; the editor shows the config valid.
   **Built 2026-10-30.**
 - C3.2 (auto) Duplicate a section and place it onto a target segment; placed nodes

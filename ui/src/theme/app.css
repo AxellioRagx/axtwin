@@ -61,6 +61,21 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
 .topbar nav a { color: var(--muted); text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
 .topbar nav a.active { color: var(--ink); border-bottom-color: var(--accent); }
 .topbar .spacer { flex: 1; }
+.topbar .area-menu { position: relative; display: flex; align-items: center; gap: 2px; }
+.topbar .area-menu .caret { padding: 0 4px; line-height: 20px; min-width: 0; border: none; background: none; color: var(--muted); font-size: 12px; }
+.topbar .area-menu .caret:hover, .topbar .area-menu .caret[aria-expanded="true"] { color: var(--ink); }
+.topbar .dropdown {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 260px; max-height: 70vh; overflow: auto;
+  margin: 0; padding: 6px 0; list-style: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.topbar .dropdown a { display: flex; justify-content: space-between; gap: 16px; padding: 5px 12px; border-bottom: none; color: var(--ink); white-space: nowrap; }
+.topbar .dropdown a:hover { background: var(--line); }
+.topbar .dropdown a .muted { font-size: 12px; }
+.topbar .dropdown .sep { height: 1px; margin: 5px 0; background: var(--line); }
+.topbar .dropdown .note { padding: 4px 12px; font-size: 12.5px; }
+a.button { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--ink); }
+a.button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .subbar {
   display: flex; gap: 14px; padding: 6px 16px 6px 112px; font-size: 13px;
   background: var(--panel); border-bottom: 1px solid var(--line);

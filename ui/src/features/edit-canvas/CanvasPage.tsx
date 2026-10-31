@@ -1,5 +1,6 @@
 /**
- * The `features/edit-canvas` route inside the twins area: `/twins/:id/canvas`.
+ * The `features/edit-canvas` route: `/canvas/:id` (the Canvas area), also
+ * reachable as `/twins/:id/canvas` from a twin's page.
  *
  * Reads the twin (summary and tree), its graph -- the cast topology export
  * when the twin has one, else the authored scenario topology -- the layout
@@ -525,7 +526,7 @@ export function CanvasPage() {
       if (!newId) throw new Error("give the new twin-config an id");
       await api.createTwinConfig({ id: newId, files: saveAsFiles(editor.doc, newId) });
       setSaveAsId("");
-      navigate(`/twins/${encodeURIComponent(newId)}/canvas`);
+      navigate(`/canvas/${encodeURIComponent(newId)}`);
       return `saved as ${newId}`;
     });
   const applyExit = () =>
