@@ -141,7 +141,10 @@ export function makeRequester(options: ClientOptions = {}): Requester {
     }
     if (!response.ok) {
       const { message, detail } = messageFromBody(response.status, body);
-      throw new ApiError({ kind: KIND_BY_STATUS[response.status] ?? "http", status: response.status, message, detail, url });
+      // A 405 on an API route means the running server has no such route:
+      // it predates this console build (a route was added since it started).
+      const said = response.status === 405 && path.startsWith("/api/") ? `the running API does not serve ${method} ${path} (${message}): it predates this console build; restart \`axrange serve\` from this checkout` : message;
+      throw new ApiError({ kind: KIND_BY_STATUS[response.status] ?? "http", status: response.status, message: said, detail, url });
     }
     return body as T;
   };

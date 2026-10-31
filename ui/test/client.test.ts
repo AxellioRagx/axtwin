@@ -49,6 +49,12 @@ describe("the requester", () => {
     expect((err as ApiError).message).toBe("already exists");
     expect((err as ApiError).detail).toEqual({ runs: ["disc-1"] });
   });
+  it("names a route the running server does not serve on a 405", async () => {
+    const request = makeRequester({ fetchImpl: fetchStub(405, { detail: "Method Not Allowed" }, []) });
+    const err = await request("POST", "/api/twin-configs", { body: { id: "x", files: {} } }).catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(405);
+    expect((err as ApiError).message).toBe("the running API does not serve POST /api/twin-configs (Method Not Allowed): it predates this console build; restart `axrange serve` from this checkout");
+  });
   it("treats 204 as done", async () => {
     const request = makeRequester({ fetchImpl: fetchStub(204, undefined, []) });
     await expect(request("DELETE", "/api/discovery/sources/x", { auth: true })).resolves.toBeUndefined();
