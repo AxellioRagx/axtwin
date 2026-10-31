@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (twenty-one commits past
+**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (twenty-two commits past
 `wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
 the user pushes. Rule restated 2026-10-31: **commit each track as it lands**.
 
@@ -56,9 +56,11 @@ unreviewed tracks and fixed what the reviews found:
   pre-existing, decide commit-or-remove); discovery 2422 passed / 1 skipped; ui 156 passed,
   typecheck + build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
-- The running `axrange serve` (the 2026-10-28 process on `0.0.0.0:8080`) serves `ui/dist` from
-  disk: the served bundle carries the canvas route (checked with curl), so a reload shows it at
-  `/twins/<id>/canvas`. Nothing deployed, destroyed or restarted on dev45 / pxtwin1.
+- The running `axrange serve` was **restarted 2026-10-31 on the user's request** (pid 823433,
+  same command and environment as the 2026-10-29 process it replaced: `--spa-dir ui/dist`,
+  log `~/.axrange/serve-8080.log`, `AXRANGE_*` from the old process): it now serves the A3
+  routes (`POST /api/twin-configs`, `PUT .../{id}`) the earlier process lacked (every create
+  answered 405). Nothing deployed, destroyed or touched on dev45 / pxtwin1.
 - **Existing cast bundles predate the `members` row**: their promote actions show disabled
   until the imprint is re-cast (`POST /api/imprints/{pit}/cast {replace:true}`).
 
