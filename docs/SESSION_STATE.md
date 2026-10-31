@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-30 · **Branch:** `wip/design-platforms-canvas` (ten commits past
+**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (fifteen commits past
 `wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
 the user pushes.
 
@@ -25,46 +25,38 @@ code, each track by a subagent, committed per track:
    fixtures AUTHORED from vendor docs, not recorded.
 6. `69bab7a` **libvirt adapter** (`engine/src/axrange/adapter_libvirt/`, 70 tests on a fake
    connection; libvirt not installed here).
-7. `03503fc` **canvas phase 2** (editing: palette, attach, command stack, side panel, A2/A3
-   exits, promote-to-assertion). 117 console tests.
+7. `03503fc` + `39f2cfb` **canvas phase 2** (editing: palette, attach, command stack, side
+   panel, A2/A3 exits, promote-to-assertion; validation through the document route, annotations
+   in the side-car). 121 console tests.
+8. `94efa09` **the platform travels with the loaded config** (`PLATFORM=` conf key,
+   `adapter_for_config`, no `DEFAULT_PLATFORM` outside the factory) + the seam-review fixes.
+9. `2eda68d` `POST /api/validate {document}` and the layout `annotations` key.
 
 ## Current state
 
-- **Tests at HEAD:** engine 4097 passed / 18 skipped / 2 failed (both from the untracked
+- **Tests at HEAD:** engine 4143 passed / 18 skipped / 2 failed (both from the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest —
-  pre-existing, decide commit-or-remove); discovery 2392 passed / 1 skipped; ui 117 passed,
+  pre-existing, decide commit-or-remove); discovery 2392 passed / 1 skipped; ui 121 passed,
   typecheck + build clean.
-- **UNCOMMITTED, PARTIAL, NOT GREEN — the user stopped two agents mid-task on 2026-10-30:**
-  `git status` shows ~20 modified files. Two interleaved half-done changes:
-  (a) *platform threading* (seams review D1): `PlatformConfig.platform` set by the loader from a
-  neutral `PLATFORM=` conf key, `adapter_for_config(cfg)` replacing `adapter_for(DEFAULT_PLATFORM,
-  cfg)` across service/cli/o2control/config_exec/planner, `settings_for_target` carrying platform,
-  neutral target facts (`endpoint`, `verify_tls`, `has_token`, `has_ssh_key`), plus seam-review
-  should-fixes (positional-only protocol params + signature test, per-import layering allowlist,
-  `check_platform("")` refused, `Target.__post_init__`). The agent reported its batch rewrite had
-  NOT yet applied when stopped; verify with `git diff` before trusting any of it.
-  (b) *canvas seams*: `POST /api/validate` accepting `{document: {id, files}}`, and an optional
-  `annotations` list in the `axr-layout` document (`console_files.py`, sanitised SVG). That agent
-  had only started reading when stopped; its edits, if any, are minimal.
-  Either finish both from this description, or `git checkout -- .` and re-brief.
-- **Not wired yet (the canvas reported):** the console validates through PUT because validate
-  takes no document; annotations live in `localStorage` until the layout schema has a key.
+- **Working tree clean** (2026-10-31) apart from the three untracked catalog folders. Every
+  track above was committed after its gate; the two agents the user stopped on 2026-10-30 were
+  resumed and finished (`94efa09`, `2eda68d`, `39f2cfb`).
 - Nothing deployed, destroyed or restarted on dev45, pxtwin1 or the running `axrange serve`
   (still the 2026-10-28 process on `0.0.0.0:8080`, SPA built from `1dc0e76` — rebuild `ui/dist`
   and restart to see the canvas).
 
 ## Next steps (ordered)
 
-1. Resolve the uncommitted tree (finish or discard), run all three gates, commit.
-2. Wire the console to the document-validate route and the `annotations` key once they exist.
-3. Libvirt end to end: the `int(vmid)` readers (`planner/teardown.py:400`, `planner/inventory.py`,
+1. `ui/dist` was rebuilt from `39f2cfb`; the running serve reads it from disk, so a reload
+   should show the canvas at `/twins/<id>/canvas` — confirm, else restart serve.
+2. Libvirt end to end: the `int(vmid)` readers (`planner/teardown.py:400`, `planner/inventory.py`,
    `planner/access.py`, `o2control/containment.py`, ~15 sites in `config_exec/backend.py`) and
    `pass1_emit._binding_for_node` (Proxmox-hard-coded binding) block a libvirt deploy; they are
    the confirm-first `vmid` contract bump in `adapters/proxmox/SPEC.md` Notes.
-4. Then the live libvirt two-host slice (needs `libvirt-daemon`, `qemu-kvm`, `python3-libvirt`,
+3. Then the live libvirt two-host slice (needs `libvirt-daemon`, `qemu-kvm`, `python3-libvirt`,
    an ISO tool, a template volume; recipe in the `69bab7a` report / `config/adapter.conf.libvirt.example`).
-5. Eyes on the canvas against the largest cast twin; the element budgets are measured, not assumed.
-6. Review the libvirt adapter (not reviewed) and the SIEM plugins (not reviewed).
+4. Eyes on the canvas against the largest cast twin; the element budgets are measured, not assumed.
+5. Review the libvirt adapter (not reviewed) and the SIEM plugins (not reviewed).
 
 ## Decisions pending the user
 
