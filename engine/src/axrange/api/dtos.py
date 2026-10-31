@@ -103,6 +103,22 @@ class FindingDTO(BaseModel):
     location: Optional[str] = None
 
 
+class ValidateRequest(BaseModel):
+    """`POST /api/validate`: exactly one of `scenario` / `config` /
+    `imprint` (a catalog id, `params` with the latter two), OR a `document`
+    -- a twin-config bundle as `POST /api/twin-configs` takes it, validated
+    through the same path Save-As / Persist use (the twin config expanded
+    and validated with the real manifests, every tier file parsed by its
+    playout's loader, the twin-local personas loaded) without writing
+    anything. `document` is mutually exclusive with the id fields."""
+
+    scenario: Optional[str] = None
+    config: Optional[str] = None
+    imprint: Optional[str] = None
+    params: Optional[dict[str, Any]] = None
+    document: Optional["TwinConfigWriteRequest"] = None
+
+
 class ValidateResultDTO(BaseModel):
     disposition: str  # pass | pass_with_warnings | fail
     exit_code: int
@@ -1700,8 +1716,29 @@ class LayoutDocDTO(BaseModel):
     # `None` = a LEGACY file with no stamp, which is what a pin saved before
     # the stamp existed looks like; it is NOT "the current plane" (LES-289).
     plane: Optional[str] = None
+    # The canvas's annotations (free text and shapes as positioned SVG
+    # snippets; `ui/src/features/edit-canvas/SPEC.md`). Optional in the file:
+    # a document without the key stays `axr-layout/1` and round-trips
+    # unchanged. Every snippet is refused if it carries script, an event
+    # handler, a foreignObject or an href (`console_files._check_svg`).
+    annotations: list["LayoutAnnotationDTO"] = []
 
     model_config = {"populate_by_name": True}
+
+
+class LayoutAnnotationDTO(BaseModel):
+    id: str  # 1-64 chars of [A-Za-z0-9._:-], unique in the document
+    kind: str  # text | rect | ellipse | line
+    x: float
+    y: float
+    w: Optional[float] = None
+    h: Optional[float] = None
+    svg: str  # at most 8 KiB
+    locked: bool = False
+    hidden: bool = False
+
+
+LayoutDocDTO.model_rebuild()
 
 
 class ImprintApplyRequest(BaseModel):
@@ -2337,3 +2374,5 @@ class DeployConfigResetDTO(BaseModel):
 # `TwinConfigDetailDTO.document` names `TwinConfigDocumentDTO` before it is
 # declared; resolve the forward reference now that it is.
 TwinConfigDetailDTO.model_rebuild()
+
+ValidateRequest.model_rebuild()

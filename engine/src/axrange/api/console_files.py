@@ -353,7 +353,28 @@ _REFUSED_PIN_PREFIXES = ("address:", "hostname:", "mac:")
 # means LEGACY (written before the stamp existed) -- absent is not empty.
 _PLANE_MAX_LEN = 64
 _PLANE_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
-_LAYOUT_KEYS = ("schema", "imprint", "pins", "plane")
+_LAYOUT_KEYS = ("schema", "imprint", "pins", "plane", "annotations")
+
+# The OPTIONAL `annotations` list (the canvas's free text and shapes, each a
+# positioned SVG snippet: `ui/src/features/edit-canvas/SPEC.md`). Still
+# `axr-layout/1`: the key is optional, absent stays absent, so every document
+# written before it existed validates and round-trips byte-identical. Like
+# the pins it is presentation, never evidence. The file is served back to a
+# browser, so every snippet passes `_check_svg`: no script, no event-handler
+# attribute, no foreignObject, no href of any kind -- refused by name, never
+# stripped (a sanitiser that rewrites is a second opinion about the drawing).
+_ANNOTATION_KINDS = ("text", "rect", "ellipse", "line")
+_ANNOTATION_KEYS = ("id", "kind", "x", "y", "w", "h", "svg", "locked", "hidden")
+_ANNOTATION_ID_MAX_LEN = 64
+_ANNOTATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
+_ANNOTATION_SVG_MAX_BYTES = 8 * 1024
+_ANNOTATIONS_MAX = 200
+_SVG_REFUSED = (
+    (re.compile(r"<\s*script", re.I), "a <script> element"),
+    (re.compile(r"<\s*foreignObject", re.I), "a <foreignObject> element"),
+    (re.compile(r"\bon[a-z]+\s*=", re.I), "an on*= event-handler attribute"),
+    (re.compile(r"\b(?:xlink:)?href\s*=", re.I), "an href / xlink:href attribute"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1285,6 +1306,9 @@ class LayoutDoc:
     #: The layout plane the pins were authored against, or `None` for a LEGACY
     #: file that carries none. Opaque here (see `_PLANE_RE`).
     plane: Optional[str] = None
+    #: The canvas's annotations (`_ANNOTATION_KEYS`), canonical; `[]` when the
+    #: file carries none.
+    annotations: list[dict[str, Any]] = field(default_factory=list)
 
 
 def read_layout(bundle_dir: Path, imprint_id: str) -> LayoutDoc:
@@ -1303,7 +1327,7 @@ def read_layout(bundle_dir: Path, imprint_id: str) -> LayoutDoc:
     return LayoutDoc(
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], pins=doc["pins"],
-        plane=doc.get("plane"),
+        plane=doc.get("plane"), annotations=list(doc.get("annotations") or []),
     )
 
 
@@ -1326,7 +1350,7 @@ def write_layout(
     return LayoutDoc(
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], pins=doc["pins"],
-        plane=doc.get("plane"),
+        plane=doc.get("plane"), annotations=list(doc.get("annotations") or []),
     )
 
 
@@ -1387,7 +1411,100 @@ def validate_layout(raw: Any, imprint_id: str, *, where: str) -> dict[str, Any]:
     plane = body.get("plane")
     if plane is not None:
         doc["plane"] = _canonical_plane(plane, where=where)
+    # Same absent-stays-absent rule for the annotations, and an EMPTY list
+    # is the same statement as no key ("no annotations" is one state): a GET
+    # answers `[]` for a legacy file, and PUTting that answer back verbatim
+    # leaves the file byte-identical. The shape is checked either way.
+    if body.get("annotations") is not None:
+        annotations = _canonical_annotations(body["annotations"], where=where)
+        if annotations:
+            doc["annotations"] = annotations
     return doc
+
+
+def _canonical_annotations(raw: Any, *, where: str) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        raise ConsoleFileShapeError(f"{where}: `annotations` must be a list")
+    if len(raw) > _ANNOTATIONS_MAX:
+        raise ConsoleFileShapeError(
+            f"{where}: {len(raw)} annotations; at most {_ANNOTATIONS_MAX}"
+        )
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, item in enumerate(raw):
+        label = f"annotations[{i}]"
+        if not isinstance(item, dict):
+            raise ConsoleFileShapeError(f"{where}: {label} must be a mapping")
+        unknown = [k for k in item if k not in _ANNOTATION_KEYS]
+        if unknown:
+            raise ConsoleFileShapeError(
+                f"{where}: {label} has unknown field(s) {sorted(unknown)}; "
+                f"accepted: {list(_ANNOTATION_KEYS)}"
+            )
+        aid = item.get("id")
+        if (
+            not isinstance(aid, str) or not aid or len(aid) > _ANNOTATION_ID_MAX_LEN
+            or not _ANNOTATION_ID_RE.match(aid)
+        ):
+            raise ConsoleFileShapeError(
+                f"{where}: {label} `id` must be 1-{_ANNOTATION_ID_MAX_LEN} characters "
+                f"from [A-Za-z0-9._:-], got {aid!r}"
+            )
+        if aid in seen:
+            raise ConsoleFileShapeError(f"{where}: {label} `id` {aid!r} is used twice")
+        seen.add(aid)
+        kind = item.get("kind")
+        if kind not in _ANNOTATION_KINDS:
+            raise ConsoleFileShapeError(
+                f"{where}: {label} `kind` {kind!r} is not one of {list(_ANNOTATION_KINDS)}"
+            )
+        canon: dict[str, Any] = {"id": aid, "kind": kind}
+        for axis in ("x", "y"):
+            v = item.get(axis)
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ConsoleFileShapeError(
+                    f"{where}: {label} `{axis}` must be a number, got {v!r}"
+                )
+            canon[axis] = float(v)
+        for size in ("w", "h"):
+            v = item.get(size)
+            if v is None:
+                continue
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+                raise ConsoleFileShapeError(
+                    f"{where}: {label} `{size}` must be a non-negative number, got {v!r}"
+                )
+            canon[size] = float(v)
+        svg = item.get("svg")
+        if not isinstance(svg, str) or not svg.strip():
+            raise ConsoleFileShapeError(f"{where}: {label} `svg` must be a non-empty string")
+        if len(svg.encode("utf-8")) > _ANNOTATION_SVG_MAX_BYTES:
+            raise ConsoleFileShapeError(
+                f"{where}: {label} `svg` is {len(svg.encode('utf-8'))} bytes; at most "
+                f"{_ANNOTATION_SVG_MAX_BYTES}"
+            )
+        _check_svg(svg, where=where, label=label)
+        canon["svg"] = svg
+        for flag in ("locked", "hidden"):
+            v = item.get(flag, False)
+            if not isinstance(v, bool):
+                raise ConsoleFileShapeError(
+                    f"{where}: {label} `{flag}` must be a boolean, got {v!r}"
+                )
+            canon[flag] = v
+        out.append(canon)
+    return out
+
+
+def _check_svg(svg: str, *, where: str, label: str) -> None:
+    """Refuse, by name, what must never be served back to a browser from a
+    layout file. A match is refused outright; nothing is stripped."""
+    for pattern, what in _SVG_REFUSED:
+        if pattern.search(svg):
+            raise ConsoleFileShapeError(
+                f"{where}: {label} `svg` carries {what}, which a layout annotation "
+                "may not (the file is served back to browsers)"
+            )
 
 
 def _canonical_plane(value: Any, *, where: str) -> str:

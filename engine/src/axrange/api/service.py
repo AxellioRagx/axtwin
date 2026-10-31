@@ -4503,6 +4503,7 @@ def _layout_dto(doc: Any) -> dtos.LayoutDocDTO:
         imprint_id=doc.imprint_id, path=str(doc.path), exists=doc.exists,
         etag=doc.etag, schema=doc.schema, imprint=doc.imprint, pins=doc.pins,
         plane=doc.plane,
+        annotations=[dtos.LayoutAnnotationDTO(**a) for a in getattr(doc, "annotations", [])],
     )
 
 
@@ -6095,14 +6096,20 @@ def _normalized_files(files: Any) -> dict[str, str]:
 
 
 def _validate_twin_document(
-    settings: ApiSettings, twin_id: str, files: dict[str, str],
+    settings: ApiSettings, twin_id: str, files: dict[str, str], *,
+    raise_on_fail: bool = True,
 ) -> dtos.ValidateResultDTO:
     """The document, validated through the SAME path as `POST /api/validate`
     (`validate(config=...)`: expand, then `validate_full` with the real
     manifests) from a throwaway catalog, then each tier file parsed by the
     loader its playout uses (`load_traffic_profile`, `load_tap_plan`, the
-    personas overlay loader). Any refusal is an `ApiError` carrying the
-    validator's or parser's reason; nothing is written anywhere."""
+    personas overlay loader). Nothing is written anywhere.
+
+    A writer (`raise_on_fail`) gets an `ApiError` carrying the validator's
+    or parser's reason; `POST /api/validate` (`raise_on_fail=False`) gets
+    the result as the ANSWER -- a `FAIL` disposition with its findings, a
+    tier-loader refusal as one more `error` finding (`rule_id` `TIER-LOAD`).
+    A document that is not this twin, or a bad path, is a 400 either way."""
     import dataclasses
     import shutil
     import tempfile
@@ -6124,7 +6131,7 @@ def _validate_twin_document(
             images_root=str(_effective_images_root(settings)),
         )
         result = validate(scratch, config=twin_id)
-        if result.disposition == "FAIL":
+        if result.disposition == "FAIL" and raise_on_fail:
             raise ApiError(
                 422, f"twin-config {twin_id!r} fails validation "
                 f"({result.errors} error(s))",
@@ -6133,10 +6140,40 @@ def _validate_twin_document(
                     "findings": [f.model_dump() for f in result.findings if f.severity == "error"],
                 },
             )
-        _check_tier_files(td / twin_id, files)
+        try:
+            _check_tier_files(td / twin_id, files)
+        except ApiError as e:
+            if raise_on_fail:
+                raise
+            result = _with_tier_finding(result, e.message)
     finally:
         shutil.rmtree(td, ignore_errors=True)
     return result
+
+
+def _with_tier_finding(result: dtos.ValidateResultDTO, message: str) -> dtos.ValidateResultDTO:
+    """A tier-loader refusal folded into the validate answer as an error."""
+    findings = list(result.findings) + [
+        dtos.FindingDTO(rule_id="TIER-LOAD", severity="error", message=message,
+                        location=message.split(":", 1)[0]),
+    ]
+    return dtos.ValidateResultDTO(
+        disposition="FAIL", exit_code=1, passes_run=list(result.passes_run),
+        errors=result.errors + 1, warnings=result.warnings, findings=findings,
+    )
+
+
+def validate_document(
+    settings: ApiSettings, req: dtos.TwinConfigWriteRequest,
+) -> dtos.ValidateResultDTO:
+    """`POST /api/validate {document: {id, files}}`: the same validation a
+    Save-As / Persist / working-copy PUT runs, as a pure read -- the result
+    with its findings, nothing written."""
+    twin_id = (req.id or "").strip()
+    if not twin_id or not _is_safe_catalog_ref(twin_id):
+        raise ApiError(400, f"document 'id' {req.id!r} is not a usable twin-config id")
+    files = _normalized_files(req.files)
+    return _validate_twin_document(settings, twin_id, files, raise_on_fail=False)
 
 
 def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> None:

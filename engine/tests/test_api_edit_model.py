@@ -1177,3 +1177,77 @@ def test_sidecar_is_private_and_never_created_by_a_read(env):
     # writes nothing (no -wal/-shm for a read of an idle file).
     c2, _, _ = _client(settings)
     assert c2.get(f"/api/deploys/{did}/config").json()["has_working_copy"] is True
+
+
+# ---------------------------------------------------------------------------
+# `POST /api/validate {document}` -- the editor's pre-flight: the same path
+# Save-As / Persist / the working-copy PUT validate through, as a pure read.
+# ---------------------------------------------------------------------------
+def _validate(c, files, twin_id=TWIN, **extra):
+    return c.post("/api/validate", json={"document": {"id": twin_id, "files": files}, **extra})
+
+
+def test_validate_document_passes_a_valid_bundle_and_writes_nothing(env):
+    settings, catalog = env
+    before = _catalog_fingerprint(catalog)
+    c, _, _ = _client(settings)
+    files = {rel: text.replace("edit-twin", "unsaved") for rel, text in _doc(c).items()}
+    r = _validate(c, files, "unsaved")  # no token: validate is an open read
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["disposition"] in ("PASS", "PASS-WITH-WARNINGS") and j["errors"] == 0
+    assert 1 in j["passes_run"]
+    assert not (catalog / "unsaved").exists()
+    assert _catalog_fingerprint(catalog) == before
+    assert "unsaved" not in {e["id"] for e in c.get("/api/twin-configs").json()["twin_configs"]}
+
+
+def test_validate_document_reports_an_invalid_image_with_the_validators_reason(env):
+    settings, _ = env
+    c, _, _ = _client(settings)
+    files = _edited(_doc(c), **{"te.yaml": TE.replace("debian-12-cloud@v1", "no-such-image@v9", 1)})
+    r = _validate(c, files)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["disposition"] == "FAIL" and j["errors"] >= 1
+    assert any("no-such-image" in f["message"] and f["severity"] == "error" for f in j["findings"])
+    # The same document through the writers is REFUSED with those findings.
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "invalid"
+
+
+def test_validate_document_reports_a_bad_tap_plan_and_a_bad_persona(env):
+    settings, _ = env
+    c, _, _ = _client(settings)
+    files = _edited(_doc(c), **{"tap/default.yaml": "tap-plan:\n  target: edit-twin\n  bindings: []\n"})
+    r = _validate(c, files)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["disposition"] == "FAIL"
+    (f,) = [f for f in j["findings"] if f["rule_id"] == "TIER-LOAD"]
+    assert f["severity"] == "error" and f["location"] == "tap/default.yaml" and "bindings" in f["message"]
+    files = _edited(_doc(c), **{"personas/bad.yaml": "persona: [broken\n"})
+    j = _validate(c, files).json()
+    assert j["disposition"] == "FAIL" and any(
+        f["rule_id"] == "TIER-LOAD" and "personas/" in f["message"] for f in j["findings"]
+    )
+
+
+def test_validate_document_is_exclusive_with_the_id_fields_and_checks_its_shape(env):
+    settings, _ = env
+    c, _, _ = _client(settings)
+    files = _doc(c)
+    for extra in ({"config": TWIN}, {"scenario": "x"}, {"imprint": "x"}, {"params": {"N": "1"}}):
+        r = _validate(c, files, **extra)
+        assert r.status_code == 400 and "cannot be combined" in r.json()["error"], r.text
+    r = c.post("/api/validate", json={"document": {"files": files}})
+    assert r.status_code == 400 and "not a usable twin-config id" in r.json()["error"]
+    r = c.post("/api/validate", json={"document": {"id": TWIN}})
+    assert r.status_code == 400 and "files" in r.json()["error"]
+    r = c.post("/api/validate", json={"document": "nope"})
+    assert r.status_code == 400
+    # A document that is not the id it claims, or a bad path, is a 400 too.
+    assert _validate(c, files, "other").status_code == 400
+    assert _validate(c, dict(files, **{"../x.yaml": "x"})).status_code == 400
+    # The plain id form still works beside it.
+    assert c.post("/api/validate", json={"config": TWIN}).status_code == 200

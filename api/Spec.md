@@ -35,6 +35,19 @@ that is **not** listed under a seam below already exists:
 `DELETE /api/deploys/{id}`, `GET|POST|DELETE /api/tfc`, `GET|POST|DELETE /api/taps`,
 `GET|POST|DELETE /api/exr`, `GET /openapi.json`.
 
+`POST /api/validate` also takes `{document: {id, files}}` -- a twin-config
+bundle in the shape `POST /api/twin-configs` writes -- and validates it
+through the same path Save-As / Persist / the working-copy PUT use (the twin
+config expanded and validated with the real manifests, every tier file parsed
+by its playout's loader, the twin-local personas loaded), answering the same
+findings shape; pure, nothing written; `document` is exclusive with the id
+fields. **Built 2026-10-30** (`service.validate_document`, tests
+`engine/tests/test_api_edit_model.py`). The layout document (`axr-layout/1`)
+gained an optional `annotations` list for the canvas's text and shapes
+(`console_files._canonical_annotations`, svg refused by name when it carries
+script, an event handler, a foreignObject or an href; tests
+`engine/tests/test_api_layout_annotations.py`).
+
 The new seams, each a thin layer over working engine code, in critical-path
 order:
 
