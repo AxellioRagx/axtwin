@@ -114,6 +114,8 @@ class DomainSpec:
     firmware: str = "seabios"      # seabios | ovmf
     disk_bus: str = "virtio"       # virtio | scsi | sata
     pool: str = ""                 # the storage pool holding the overlay (recorded in metadata)
+    nic_model: str = ""            # the binding's NIC model (recorded in metadata; attach-vm-to-vnet reads it)
+    ci_user: str = ""              # the binding's cloud-init user (recorded in metadata; configure-cloud-init reads it)
 
 
 def _disk_dev_for(bus: str) -> str:
@@ -192,6 +194,10 @@ def _ensure_metadata(root: ET.Element, spec: DomainSpec) -> None:
     el.set("tier", spec.tier)
     if spec.pool:
         el.set("pool", spec.pool)
+    if spec.nic_model:
+        el.set("nic_model", spec.nic_model)
+    if spec.ci_user:
+        el.set("ci_user", spec.ci_user)
 
 
 def ensure_agent_channel(root: ET.Element) -> bool:
@@ -315,6 +321,22 @@ def interfaces(xml: str) -> list[dict[str, Any]]:
     return out
 
 
+def _free_cdrom_dev(devices: ET.Element, q35: bool) -> str:
+    """First `<target dev>` of the bus family (`sd?` on q35's SATA, `hd?` on
+    i440fx's IDE) no existing disk already uses: a sata/scsi boot disk is
+    `sda` (`_disk_dev_for`), so a fixed `sda` would collide."""
+    taken = {t.get("dev") for d in devices.findall("disk") if (t := d.find("target")) is not None}
+    prefix = "sd" if q35 else "hd"
+    # i440fx keeps `hdc` (cloud images find cidata on /dev/sr0) as its first choice.
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    if not q35:
+        letters = "cdab" + letters[4:]
+    for ch in letters:
+        if f"{prefix}{ch}" not in taken:
+            return f"{prefix}{ch}"
+    raise AdapterError("no free sd?/hd? target for the cloud-init CD-ROM", error_class="libvirt-xml")
+
+
 def add_cdrom(xml: str, iso_path: str) -> str:
     """`configure-cloud-init`: attach (or re-point) the NoCloud seed ISO as a
     read-only CD-ROM. Bus follows the machine type: SATA on q35 (no IDE
@@ -333,7 +355,7 @@ def add_cdrom(xml: str, iso_path: str) -> str:
     cd = ET.Element("disk", {"type": "file", "device": "cdrom"})
     ET.SubElement(cd, "driver", {"name": "qemu", "type": "raw"})
     ET.SubElement(cd, "source", {"file": iso_path})
-    ET.SubElement(cd, "target", {"dev": "sda" if q35 else "hdc", "bus": "sata" if q35 else "ide"})
+    ET.SubElement(cd, "target", {"dev": _free_cdrom_dev(dev, q35), "bus": "sata" if q35 else "ide"})
     ET.SubElement(cd, "readonly")
     disks = dev.findall("disk")
     anchor = disks[-1] if disks else None
@@ -354,7 +376,8 @@ def disk_sources(xml: str) -> list[str]:
 
 
 def metadata_of(xml: str) -> dict[str, str]:
-    """The axRange `<metadata>` attributes (`plan`, `op`, `tier`, `pool`), or
+    """The axRange `<metadata>` attributes (`plan`, `op`, `tier`, `pool`,
+    `nic_model`, `ci_user`), or
     `{}` for a domain axRange did not define."""
     root = _parse(xml)
     el = root.find(f"./metadata/{{{AXRANGE_XMLNS}}}deploy")

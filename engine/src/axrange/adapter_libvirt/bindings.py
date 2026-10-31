@@ -20,18 +20,20 @@ binding:
         volume: img-debian-12-cloud.qcow2   # the imported `img-*` template (qcow2)
         pool: default              # optional; defaults to LIBVIRT_STORAGE_POOL
       clone_mode: linked           # linked = qcow2 overlay on the template; full = copy
-      cloud_init: { supported: true, user: debian, sysprep_required: false }
+      cloud_init: { supported: true, user: debian, sysprep_required: false }   # `user` = the cloud-init account
       hardware:
         machine: pc                # libvirt machine type (pc = i440fx, q35)
         bios: seabios              # seabios | ovmf
-        nic_model: virtio
+        nic_model: virtio          # recorded on the domain at clone-vm; attach-vm-to-vnet uses it
         disk_bus: virtio           # virtio | scsi | sata
-        agent: true
         vcpu: 2                    # defaults until configure-vm-hardware runs
         memory: 2Gi
       domain_xml_template: |       # optional; `$name`-style placeholders, see domain_xml.py
         <domain type='kvm'> ... </domain>
 ```
+
+The guest agent channel is always asserted (`domain_xml.render_domain`), so a
+binding has no `agent` key; one in a document is ignored.
 
 A template volume is the same qcow2 the Proxmox `img-*` build produces,
 imported into the pool (`virsh vol-create-as <pool> <volume> <size> --format
@@ -61,7 +63,6 @@ class LibvirtBinding:
     firmware: str = "seabios"
     nic_model: str = "virtio"
     disk_bus: str = "virtio"
-    agent: bool = True
     vcpu: int = 2
     memory: str = "2Gi"
     domain_xml_template: Optional[str] = None
@@ -141,7 +142,6 @@ class LibvirtBindings:
             firmware=str(_get(hw, "bios", "seabios") or "seabios"),
             nic_model=str(_get(hw, "nic_model", "virtio") or "virtio"),
             disk_bus=str(_get(hw, "disk_bus", "virtio") or "virtio"),
-            agent=bool(_get(hw, "agent", True)),
             vcpu=int(_get(hw, "vcpu", 2) or 2),
             memory=str(_get(hw, "memory", "2Gi") or "2Gi"),
             domain_xml_template=_get(ver, "domain_xml_template"),

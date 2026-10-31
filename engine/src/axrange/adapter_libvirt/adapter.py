@@ -15,8 +15,8 @@ Op -> call (the SPEC's mapping table, implemented):
 |---|---|
 | create-sdn-zone | logical: `zone_id` from naming, no call |
 | create-ovs-bridge | Simple zone: logical (`bridge_name` = the segment's network name). VLAN zone: define+start the plan's underlay network (`tebr_<6hex>`, OVS-backed -- needs `LIBVIRT_NETWORK_BACKEND=ovs`) |
-| create-vnet | Simple zone: define+start one isolated network per segment (`tev<5hex>`, bridge of the same name). VLAN zone: a tagged `<portgroup>` named `tev<5hex>` on the underlay network |
-| create-subnet | logical (addressing is cloud-init's) |
+| create-vnet | Simple zone: define+start one isolated network per segment (`tev<5hex>`, bridge of the same name). VLAN zone: a tagged `<portgroup>` named `tev<5hex>` on the underlay network. A DHCP block is refused (not implemented) |
+| create-subnet | logical (addressing is cloud-init's); `snat` / DHCP refused (not implemented) |
 | apply-sdn-config | every network of this plan active + autostart |
 | clone-vm | qcow2 overlay volume in the pool with the template volume as backing file (`linked`; `full` = `createXMLFrom`), `defineXML` of the binding's / default domain document, UUID = `naming.guest_handle_for_op` |
 | configure-vm-hardware | re-define with vcpu / memory / machine / firmware / agent channel; grow the overlay (`vol.resize`) |
@@ -38,6 +38,7 @@ from __future__ import annotations
 import shlex
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
@@ -51,6 +52,7 @@ from axrange.adapter_libvirt.connection import (
     VIR_NETWORK_UPDATE_AFFECT_LIVE,
     VIR_NETWORK_UPDATE_COMMAND_ADD_LAST,
     LibvirtConnection,
+    libvirt_call,
 )
 from axrange.adapter_libvirt.domain_xml import (
     DomainSpec,
@@ -148,17 +150,28 @@ exit 0
 """
 
 
-def _hook_script(name: str, uuid: str, plan_id: str, entries: list[tuple[int, str, str, str]]) -> str:
-    """`entries` = `(nic_index, tap, gretap, direction)`; an empty list renders
-    a hook whose `started` branch installs nothing (the revert shape)."""
+def _group_by_tap(entries: list[tuple[int, str, str, str]]) -> dict[str, list[tuple[str, str]]]:
+    """`(nic, tap, gretap, direction)` entries -> `{tap: [(gretap, direction)]}`,
+    in first-seen tap order."""
     by_tap: dict[str, list[tuple[str, str]]] = {}
     for _nic, tap, gretap, direction in entries:
         by_tap.setdefault(tap, []).append((gretap, direction))
+    return by_tap
+
+
+def _ethtool_off_cmd(tap: str) -> str:
+    """Segmentation offloads off on a tap, so the mirror sees real frames."""
+    return f"ethtool -K {shlex.quote(tap)} gso off tso off gro off >/dev/null 2>&1 || true"
+
+
+def _hook_script(name: str, uuid: str, plan_id: str, entries: list[tuple[int, str, str, str]]) -> str:
+    """`entries` = `(nic_index, tap, gretap, direction)`; an empty list renders
+    a hook whose `started` branch installs nothing (the revert shape)."""
     started: list[str] = []
     stopped: list[str] = []
-    for tap, gretaps in by_tap.items():
+    for tap, gretaps in _group_by_tap(entries).items():
         q = shlex.quote(tap)
-        started.append(f"    ethtool -K {q} gso off tso off gro off >/dev/null 2>&1 || true")
+        started.append("    " + _ethtool_off_cmd(tap))
         started.append("    " + _tc_mirror_cmd(tap, gretaps))
         started.append(f"    tc filter show dev {q} ingress | grep -q mirred")
         stopped.append(f"    tc qdisc del dev {q} clsact 2>/dev/null || true")
@@ -170,14 +183,20 @@ def _hook_script(name: str, uuid: str, plan_id: str, entries: list[tuple[int, st
     )
 
 
-def _render_network_config(ip_config: dict[str, Any], plan_id: str, host_id: str) -> str:
+_DEFAULT_DNS = ("1.1.1.1",)
+
+
+def _render_network_config(
+    ip_config: dict[str, Any], plan_id: str, host_id: str, dns_by_net: Optional[dict[str, list[str]]] = None,
+) -> str:
     """cloud-init network-config v2 from the planner's `ip_config`
     (`net_id -> {ip, cidr, gateway} | "dhcp"`), one `ethernets` entry per
     NIC matched BY MAC (`naming.mac_for_nic`, the same MAC
     `attach-vm-to-vnet` pins), indexed by position like Proxmox's
-    `ipconfigN` (an address-less leg keeps its index)."""
+    `ipconfigN` (an address-less leg keeps its index). `dns_by_net` carries
+    each segment's create-vnet `dns`; a segment without one keeps 1.1.1.1."""
     lines = ["version: 2", "ethernets:"]
-    for i, (_net, net_cfg) in enumerate(ip_config.items()):
+    for i, (net, net_cfg) in enumerate(ip_config.items()):
         ip = net_cfg.get("ip") if isinstance(net_cfg, dict) else net_cfg
         if not ip:
             continue
@@ -194,7 +213,8 @@ def _render_network_config(ip_config: dict[str, Any], plan_id: str, host_id: str
         gw = net_cfg.get("gateway") if isinstance(net_cfg, dict) else None
         if gw:
             lines.append(f"    routes: [{{to: 0.0.0.0/0, via: {gw}}}]")
-        lines.append("    nameservers: {addresses: [1.1.1.1], search: [axrange.local]}")
+        dns = (dns_by_net or {}).get(net) or list(_DEFAULT_DNS)
+        lines.append(f"    nameservers: {{addresses: [{', '.join(dns)}], search: [axrange.local]}}")
     if len(lines) == 2:
         lines.append("  {}")
     return "\n".join(lines) + "\n"
@@ -220,6 +240,11 @@ class LibvirtAdapter:
         self.bindings = bindings or LibvirtBindings(getattr(config, "bindings_dir", "") or None)
         self._guest_exec_factory = guest_exec_factory
         self._sleep = sleep
+        # What THIS deploy defined (one adapter instance per deploy): the
+        # networks `apply-sdn-config` may touch, and each segment's `dns`
+        # for the network-config. Another plan's networks are never listed.
+        self._plan_networks: set[str] = set()
+        self._net_dns: dict[str, list[str]] = {}
 
     # ---- the Adapter protocol -----------------------------------------
     def run(self, op: OpInstance, resolved_inputs: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
@@ -259,17 +284,53 @@ class LibvirtAdapter:
         if net is None:
             net = self.conn.define_network(xml)
         if not net.isActive():
-            net.create()
+            libvirt_call("network-create", net.create)
         net.setAutostart(True)
+        self._plan_networks.add(name)
         return net
 
     def _underlay(self, ctx: ExecutionContext) -> str:
         return naming.underlay_bridge_for_plan(ctx.plan_id, tier=ctx.tier)
 
+    def _guest_pubkey(self) -> str:
+        """The operator public key cloud-init injects. Unreadable (or never
+        configured) is an error: a guest cast without it is unreachable."""
+        path = self.config.guest_ssh_pubkey_file
+        if not path:
+            raise AdapterError("GUEST_SSH_PUBKEY_FILE is not set; refusing to cast a guest with no key",
+                               error_class="adapter-config")
+        try:
+            return Path(path).expanduser().read_text().strip()
+        except OSError as e:
+            raise AdapterError(
+                f"GUEST_SSH_PUBKEY_FILE {path!r} is unreadable ({e}); refusing to cast a guest with no key",
+                error_class="adapter-config",
+            ) from e
+
     def _pool_of(self, dom_xml: str) -> str:
         return metadata_of(dom_xml).get("pool") or self.config.storage_pool
 
     # ---- OP-NET --------------------------------------------------------
+    @staticmethod
+    def _refuse_nat_dhcp(op_name: str, inp: dict[str, Any]) -> None:
+        """NAT (`snat`) and libvirt-served DHCP are not implemented here
+        (adapters/libvirt/SPEC.md, `create-subnet` / `create-vnet` rows: the
+        decision is held); a plan that asks for either fails loud rather than
+        casting a segment with no egress / no lease server."""
+        dhcp = inp.get("dhcp")
+        if inp.get("snat"):
+            raise AdapterError(
+                f"{op_name}: snat (egress NAT for a segment) is not implemented on the libvirt "
+                f"platform -- adapters/libvirt/SPEC.md op table, `{op_name}` row (NAT and DHCP refused)",
+                error_class="adapter-unsupported",
+            )
+        if isinstance(dhcp, dict) and dhcp.get("enabled"):
+            raise AdapterError(
+                f"{op_name}: a dhcp block (libvirt-served leases) is not implemented on the libvirt "
+                f"platform -- adapters/libvirt/SPEC.md op table, `{op_name}` row (NAT and DHCP refused)",
+                error_class="adapter-unsupported",
+            )
+
     def op_create_sdn_zone(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
         zone_type = (inp.get("zone_type") or "simple").lower()
         return {"zone_id": naming.zone_id_for_plan(ctx.plan_id, tier=ctx.tier), "zone_type": zone_type}
@@ -279,6 +340,7 @@ class LibvirtAdapter:
         cidr = inp.get("cidr")
         if not net_id or not cidr:
             raise AdapterError("create-subnet: net_id/cidr missing", error_class="adapter-input")
+        self._refuse_nat_dhcp("create-subnet", inp)
         return {"subnet_id": cidr, "vnet_id": naming.vnet_id_for_net(net_id, plan_id=ctx.plan_id, tier=ctx.tier)}
 
     def op_create_ovs_bridge(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
@@ -303,6 +365,9 @@ class LibvirtAdapter:
         net_id = inp.get("net_id") or op.scope.get("net")
         if not net_id:
             raise AdapterError("create-vnet: net_id missing", error_class="adapter-input")
+        self._refuse_nat_dhcp("create-vnet", inp)
+        if inp.get("dns"):
+            self._net_dns[str(net_id)] = [str(d) for d in inp["dns"]]
         vnet_id = naming.vnet_id_for_net(net_id, plan_id=ctx.plan_id, tier=ctx.tier)
         vlan = inp.get("vlan")
         if vlan is None:
@@ -320,20 +385,24 @@ class LibvirtAdapter:
         if vnet_id in _portgroups_of(net.XMLDesc(0)):
             return {"vnet_id": vnet_id}
         flags = VIR_NETWORK_UPDATE_AFFECT_CONFIG | (VIR_NETWORK_UPDATE_AFFECT_LIVE if net.isActive() else 0)
-        net.update(VIR_NETWORK_UPDATE_COMMAND_ADD_LAST, VIR_NETWORK_SECTION_PORTGROUP, -1,
-                   _portgroup_xml(vnet_id, int(vlan)), flags)
+        libvirt_call("network-update", net.update, VIR_NETWORK_UPDATE_COMMAND_ADD_LAST,
+                     VIR_NETWORK_SECTION_PORTGROUP, -1, _portgroup_xml(vnet_id, int(vlan)), flags)
         return {"vnet_id": vnet_id}
 
     def op_apply_sdn_config(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
         underlay = self._underlay(ctx)
-        mine = naming.tier_shape_checks().get(ctx.tier, (lambda _n: False,))[0]
+        # This deploy's networks only: the underlay plus the segment networks
+        # create-vnet / create-ovs-bridge defined or adopted on this instance --
+        # never a tier-shape sweep, which would also start (and autostart)
+        # another same-tier plan's networks on a shared host.
+        mine = self._plan_networks | {underlay}
         touched = 0
         for net in self.conn.all_networks():
             name = net.name()
-            if name != underlay and not mine(name):
+            if name not in mine:
                 continue
             if not net.isActive():
-                net.create()
+                libvirt_call("network-create", net.create)
             net.setAutostart(True)
             touched += 1
         return {"applied": True, "networks": touched}
@@ -405,7 +474,10 @@ class LibvirtAdapter:
                 f"<capacity unit='bytes'>{capacity}</capacity>"
                 f"<target><format type='qcow2'/></target>{backing}</volume>"
             )
-            vol = pool.createXML(vol_xml, 0) if clone_mode == "linked" else pool.createXMLFrom(vol_xml, tpl, 0)
+            vol = (
+                libvirt_call("vol-create", pool.createXML, vol_xml, 0) if clone_mode == "linked"
+                else libvirt_call("vol-create", pool.createXMLFrom, vol_xml, tpl, 0)
+            )
 
         spec = DomainSpec(
             name=name, uuid=guest, disk_path=vol.path(), plan_id=ctx.plan_id, op_id=op.op_id,
@@ -415,6 +487,8 @@ class LibvirtAdapter:
             machine=binding.machine if binding else "pc",
             firmware=binding.firmware if binding else "seabios",
             disk_bus=binding.disk_bus if binding else "virtio",
+            nic_model=binding.nic_model if binding else "",
+            ci_user=(binding.cloud_init_user or "") if binding else "",
         )
         self.conn.define_domain(render_domain(spec, binding.domain_xml_template if binding else None))
         return {"vmid": guest}
@@ -437,7 +511,7 @@ class LibvirtAdapter:
             wanted = parse_size_bytes(str(inp["disk"]))
             vol = self.conn.volume_by_name(self._pool_of(xml), naming.overlay_volume_name(guest))
             if vol is not None and int(vol.info()[1]) < wanted:
-                vol.resize(wanted, 0)   # a smaller/equal request is the Model-C no-op
+                libvirt_call("vol-resize", vol.resize, wanted, 0)   # a smaller/equal request is the Model-C no-op
         return {"configured": True}
 
     def op_configure_cloud_init(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
@@ -451,18 +525,16 @@ class LibvirtAdapter:
         if (inp.get("os_family") or "linux").lower() == "windows":
             files["user-data"] = _render_windows_userdata(hostname=hostname, admin_password=password)
         else:
-            pubkey = ""
-            if self.config.guest_ssh_pubkey_file:
-                try:
-                    from pathlib import Path as _P
-
-                    pubkey = _P(self.config.guest_ssh_pubkey_file).expanduser().read_text().strip()
-                except OSError:
-                    pubkey = ""
+            pubkey = self._guest_pubkey()
+            # planner's `ci_user` (the manifest's cloud_init.user) > the libvirt
+            # binding's, recorded on the domain at clone-vm > `axrange`.
+            ci_user = inp.get("ci_user") or metadata_of(dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE)).get("ci_user") or "axrange"
             files["user-data"] = _render_userdata(
-                hostname=hostname, user=inp.get("ci_user") or "axrange", ssh_pubkey=pubkey, password=password,
+                hostname=hostname, user=ci_user, ssh_pubkey=pubkey, password=password,
             )
-        files["network-config"] = _render_network_config(inp.get("ip_config") or {}, ctx.plan_id, host_id)
+        files["network-config"] = _render_network_config(
+            inp.get("ip_config") or {}, ctx.plan_id, host_id, self._net_dns,
+        )
 
         xml = dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE)
         pool_name = self._pool_of(xml)
@@ -503,6 +575,7 @@ class LibvirtAdapter:
             mac=naming.mac_for_nic(ctx.plan_id, host_id, nic_index),
             network=network, portgroup=portgroup,
             tap=naming.tap_name_for_nic(guest, nic_index),
+            model=metadata_of(xml).get("nic_model") or "virtio",   # the binding's, recorded at clone-vm
         )
         self.conn.define_domain(new_xml)
         return {"nic_attached": True}
@@ -510,7 +583,7 @@ class LibvirtAdapter:
     def op_start_vm(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
         dom = self._domain(self._uuid(inp))
         if not dom.isActive():
-            dom.create()
+            libvirt_call("domain-create", dom.create)
         return {"started": True}
 
     def op_wait_guest_agent(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
@@ -665,7 +738,10 @@ class LibvirtAdapter:
 
     def _vyos_ssh_cfg(self) -> Any:
         """`ssh.apply_vyos_sets` / `run_ssh_guest` read one field of the
-        Proxmox config -- the operator key PATH; here it is `HOST_SSH_KEY`."""
+        Proxmox config -- the operator key PATH; here it is `HOST_SSH_KEY`.
+        Both take the whole `AdapterConfig` (no positional key parameter), so
+        this one-field stand-in stays until they are hoisted out of
+        `adapter_proxmox/ssh.py` (held, SPEC Notes)."""
         return SimpleNamespace(ovs_ssh_key=self.config.host_ssh_key)
 
     def _discover_ip_by_mac(self, mac: str, bridge: str, *, attempts: int = 12, delay_s: int = 5) -> str:
@@ -786,12 +862,10 @@ class LibvirtAdapter:
             result["mirror_cleared"] = True
         if not dom.isActive():
             return result
-        by_tap: dict[str, list[tuple[str, str]]] = {}
-        for _nic, tap, gretap, direction in entries:
-            by_tap.setdefault(tap, []).append((gretap, direction))
+        by_tap = _group_by_tap(entries)
         t = op.timeout_s or 60
         for tap, gretaps in by_tap.items():
-            self.host.run(f"ethtool -K {shlex.quote(tap)} gso off tso off gro off >/dev/null 2>&1 || true", timeout_s=t)
+            self.host.run(_ethtool_off_cmd(tap), timeout_s=t)
             self.host.run(_tc_mirror_cmd(tap, gretaps), timeout_s=t)
         cleared: list[str] = []
         for tap in taps.values():

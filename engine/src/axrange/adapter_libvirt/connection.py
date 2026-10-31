@@ -23,13 +23,20 @@ off the module, for the same lazy-import reason.
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
+from axrange.adapter_libvirt.config import uri_with_keyfile
 from axrange.planner.executor import AdapterError, AdapterTimeout
 
 __all__ = [
     "Connection",
     "LibvirtConnection",
+    "VIR_ERR_NO_DOMAIN",
+    "VIR_ERR_NO_NETWORK",
+    "VIR_ERR_NO_STORAGE_POOL",
+    "VIR_ERR_NO_STORAGE_VOL",
+    "libvirt_call",
     "VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT",
     "VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE",
     "VIR_DOMAIN_UNDEFINE_MANAGED_SAVE",
@@ -52,13 +59,42 @@ VIR_DOMAIN_UNDEFINE_MANAGED_SAVE = 1
 VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA = 2
 VIR_DOMAIN_UNDEFINE_NVRAM = 4
 VIR_NETWORK_UPDATE_COMMAND_DELETE = 2
-VIR_NETWORK_UPDATE_COMMAND_ADD_LAST = 4
+VIR_NETWORK_UPDATE_COMMAND_ADD_LAST = 3
 VIR_NETWORK_SECTION_PORTGROUP = 9
 VIR_NETWORK_UPDATE_AFFECT_LIVE = 1
 VIR_NETWORK_UPDATE_AFFECT_CONFIG = 2
 
-#: `virDomainQemuAgentCommand` timeout sentinels (libvirt-qemu.h).
-_AGENT_TIMEOUT_DEFAULT = -2
+#: virErrorNumber values that mean "that object is not there" -- the only
+#: errors a check-then-act lookup may turn into `None`. Any other
+#: `libvirtError` (a dropped qemu+ssh connection, a permission failure) is NOT
+#: absence and must surface, or a teardown would report a live domain gone.
+VIR_ERR_NO_DOMAIN = 42
+VIR_ERR_NO_NETWORK = 43
+VIR_ERR_NO_STORAGE_POOL = 49
+VIR_ERR_NO_STORAGE_VOL = 50
+_NOT_FOUND_CODES = frozenset({
+    VIR_ERR_NO_DOMAIN, VIR_ERR_NO_NETWORK, VIR_ERR_NO_STORAGE_POOL, VIR_ERR_NO_STORAGE_VOL,
+})
+
+#: `virDomainQemuAgentCommand` timeout sentinels (libvirt-qemu.h):
+#: BLOCK = -2, DEFAULT = -1, NOWAIT = 0.
+_AGENT_TIMEOUT_DEFAULT = -1
+
+
+def libvirt_call(op: str, fn: Callable[..., Any], *args: Any) -> Any:
+    """Run one mutating libvirt OBJECT method (`dom.create`, `net.update`,
+    `pool.createXML`, `vol.resize`, ...), mapping a raw `libvirtError` to
+    `AdapterError(error_class="libvirt-<op>")` so the executor classifies it
+    like every other adapter failure. Lazy: with no `libvirt` module imported
+    no `libvirtError` can exist, so nothing is imported here."""
+    try:
+        return fn(*args)
+    except Exception as e:
+        lv = sys.modules.get("libvirt")
+        err = getattr(lv, "libvirtError", None)
+        if isinstance(err, type) and isinstance(e, err):
+            raise AdapterError(f"libvirt {op}: {e}", error_class=f"libvirt-{op}") from e
+        raise
 
 
 @runtime_checkable
@@ -112,6 +148,8 @@ class LibvirtConnection:
                 raise AdapterError(
                     "LIBVIRT_URI is not set; populate adapter.conf", error_class="adapter-config",
                 )
+            # libvirt's own ssh transport uses the operator key too (HOST_SSH_KEY)
+            uri = uri_with_keyfile(uri, getattr(self.cfg, "host_ssh_key", "") or "")
             if self._opener is not None:
                 self._raw = self._opener(uri)
             else:
@@ -144,10 +182,16 @@ class LibvirtConnection:
         return self._error_type
 
     def _absent(self, fn: Callable[[], Any]) -> Any | None:
+        """`fn()`, or None when libvirt says the object is not there (a
+        not-found error code). Every other libvirt failure is a transport /
+        driver problem and raises -- never "absent"."""
         try:
             return fn()
-        except self._err:
-            return None
+        except self._err as e:
+            code = e.get_error_code() if hasattr(e, "get_error_code") else None
+            if code in _NOT_FOUND_CODES:
+                return None
+            raise AdapterError(f"libvirt lookup: {e}", error_class="libvirt-transport") from e
 
     # ---- domains ------------------------------------------------------
     def domain_by_uuid(self, uuid: str) -> Any | None:

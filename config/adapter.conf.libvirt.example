@@ -2,7 +2,7 @@
 # Copy to the path your target's `adapter_config:` names and fill in the values.
 # Same file shape as the Proxmox adapter.conf; UNKNOWN KEYS ARE REFUSED, so do
 # not point a libvirt target at a Proxmox file. Env vars of the same names
-# override this file.
+# override this file (except PLATFORM, which only the file or an override sets).
 
 # The deploy platform this file configures: selects the adapter (and the
 # image bindings under images/bindings/<platform>/) for every command that
@@ -12,7 +12,8 @@ PLATFORM=libvirt
 
 # --- libvirt backend ---
 # Local host: qemu:///system. Remote host: qemu+ssh://user@host/system
-# (then HOST_SSH_* below are required for the host backend).
+# (then HOST_SSH_* below are required for the host backend; HOST_SSH_HOST must
+# be the URI's host and defaults to it).
 LIBVIRT_URI=qemu:///system
 # Storage pool holding the img-* template volumes; per-deploy qcow2 overlays
 # and NoCloud seed ISOs are created in the same pool.
@@ -25,7 +26,9 @@ LIBVIRT_STORAGE_POOL=default
 # --- host backend (seed ISO build, gretap + tc mirror) ---
 # Local URI: commands run as this process (needs sudo-less `ip`/`tc`/
 # `xorriso` rights, e.g. run axrange as root or via a sudo-capable user).
-# Remote URI: SSH with this key PATH (never key material).
+# Remote URI: SSH with this key PATH (never key material). The key is also
+# passed to libvirt's own ssh transport as `?keyfile=<path>` when the
+# qemu+ssh URI has no keyfile parameter of its own.
 # HOST_SSH_HOST=kvm1.lab
 # HOST_SSH_USER=root
 # HOST_SSH_KEY=~/.ssh/kvm1_ed25519

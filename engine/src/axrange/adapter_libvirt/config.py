@@ -14,7 +14,7 @@ never silently half-loaded.
 | `LIBVIRT_URI` | yes | `qemu:///system`, `qemu+ssh://user@host/system`, ... |
 | `LIBVIRT_STORAGE_POOL` | yes | pool holding the `img-*` template volumes and the per-deploy overlays + seed ISOs |
 | `LIBVIRT_NETWORK_BACKEND` | no | `linux` (default) or `ovs`; a VLAN zone needs `ovs` (libvirt applies `<vlan>` tags to Open vSwitch ports only) |
-| `HOST_SSH_HOST`, `HOST_SSH_USER`, `HOST_SSH_KEY` | when the URI is remote | the host backend's SSH (key PATH) for the seed ISO, gretap and `tc` work |
+| `HOST_SSH_HOST`, `HOST_SSH_USER`, `HOST_SSH_KEY` | when the URI is remote | the host backend's SSH (key PATH) for the seed ISO, gretap and `tc` work. `HOST_SSH_HOST` defaults to the URI's host and must equal it when both are set (one machine, not two); `HOST_SSH_KEY` is also handed to libvirt's own ssh transport as `?keyfile=` when a `qemu+ssh` URI carries none |
 | `GUEST_SSH_PUBKEY_FILE` | yes | public key cloud-init injects into every Linux guest |
 | `DEFAULT_NODE` | yes | the host's name as placement records it |
 | `MIRROR_GRETAP_TXQUEUELEN` | no | deep-FIFO depth on each mirror gretap (default 20000; 0 leaves the host default) |
@@ -22,7 +22,9 @@ never silently half-loaded.
 | `DEFAULT_PASSWORD`, `PROTECTED_EXTERNAL_NAMES`, `PROTECTED_EXTERNAL_VMIDS`, `EXTERNAL_SENSORS`, `LOKI_URL`, `NETWORK_SENSOR_VMID` | no | unchanged from the Proxmox file (the engine's `PlatformConfig` slice) |
 | `PLATFORM` | no | `libvirt` -- the neutral key `axrange.platform.load_config` reads to pick this loader; refused here if it says anything else |
 
-Precedence: `overrides` > environment (known keys only) > file > defaults.
+Precedence: `overrides` > environment (known keys only, except `PLATFORM`,
+which is file / overrides only -- an env value would re-aim every target of a
+multi-target serve at once; `platform/factory.py`) > file > defaults.
 """
 from __future__ import annotations
 
@@ -30,7 +32,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 # The conf-file grammar, the default search path and the EXTERNAL_SENSORS
 # parser are platform-neutral helpers that happen to live in the Proxmox
@@ -55,6 +57,7 @@ __all__ = [
     "example_conf_text",
     "load_config",
     "uri_is_remote",
+    "uri_with_keyfile",
 ]
 
 NETWORK_BACKENDS = ("linux", "ovs")
@@ -166,6 +169,20 @@ class LibvirtConfig:
         return self
 
 
+def uri_with_keyfile(uri: str, key_path: str) -> str:
+    """`uri` with `?keyfile=<key_path>` added for a `qemu+ssh` URI that names
+    no keyfile of its own, so libvirt's ssh transport uses the same operator
+    key as the host backend. Any other URI, or an empty key, is returned
+    unchanged."""
+    parsed = urlparse(uri)
+    if parsed.scheme != "qemu+ssh" or not key_path:
+        return uri
+    if any(part.split("=", 1)[0] == "keyfile" for part in parsed.query.split("&") if part):
+        return uri
+    extra = f"keyfile={quote(key_path, safe='/')}"
+    return parsed._replace(query=f"{parsed.query}&{extra}" if parsed.query else extra).geturl()
+
+
 def _validate(cfg: LibvirtConfig) -> None:
     missing = [
         k for k, v in (
@@ -185,6 +202,15 @@ def _validate(cfg: LibvirtConfig) -> None:
             f"got {cfg.network_backend!r}"
         )
     if cfg.is_remote:  # raises ConfigError itself on a bad scheme
+        uri_host = urlparse(cfg.libvirt_uri.strip()).hostname or ""
+        if not cfg.host_ssh_host:
+            cfg.host_ssh_host = uri_host
+        elif cfg.host_ssh_host.lower() != uri_host.lower():
+            raise ConfigError(
+                f"HOST_SSH_HOST {cfg.host_ssh_host!r} is not the host of LIBVIRT_URI "
+                f"{cfg.libvirt_uri!r} ({uri_host!r}): the host backend and libvirt must "
+                "reach the same machine"
+            )
         missing = [
             k for k, v in (
                 ("HOST_SSH_HOST", cfg.host_ssh_host),
@@ -230,7 +256,7 @@ def load_config(
     def get(key: str, default: str = "") -> str:
         if overrides and key in overrides and overrides[key] is not None:
             return str(overrides[key])
-        env_val = os.environ.get(key)
+        env_val = os.environ.get(key) if key != "PLATFORM" else None   # never from the environment
         if env_val is not None:
             return env_val
         return file_data.get(key, default)
@@ -292,7 +318,7 @@ def example_conf_text() -> str:
         "# Copy to the path your target's `adapter_config:` names and fill in the values.\n"
         "# Same file shape as the Proxmox adapter.conf; UNKNOWN KEYS ARE REFUSED, so do\n"
         "# not point a libvirt target at a Proxmox file. Env vars of the same names\n"
-        "# override this file.\n"
+        "# override this file (except PLATFORM, which only the file or an override sets).\n"
         "\n"
         "# The deploy platform this file configures: selects the adapter (and the\n"
         "# image bindings under images/bindings/<platform>/) for every command that\n"
@@ -302,7 +328,8 @@ def example_conf_text() -> str:
         "\n"
         "# --- libvirt backend ---\n"
         "# Local host: qemu:///system. Remote host: qemu+ssh://user@host/system\n"
-        "# (then HOST_SSH_* below are required for the host backend).\n"
+        "# (then HOST_SSH_* below are required for the host backend; HOST_SSH_HOST must\n"
+        "# be the URI's host and defaults to it).\n"
         "LIBVIRT_URI=qemu:///system\n"
         "# Storage pool holding the img-* template volumes; per-deploy qcow2 overlays\n"
         "# and NoCloud seed ISOs are created in the same pool.\n"
@@ -315,7 +342,9 @@ def example_conf_text() -> str:
         "# --- host backend (seed ISO build, gretap + tc mirror) ---\n"
         "# Local URI: commands run as this process (needs sudo-less `ip`/`tc`/\n"
         "# `xorriso` rights, e.g. run axrange as root or via a sudo-capable user).\n"
-        "# Remote URI: SSH with this key PATH (never key material).\n"
+        "# Remote URI: SSH with this key PATH (never key material). The key is also\n"
+        "# passed to libvirt's own ssh transport as `?keyfile=<path>` when the\n"
+        "# qemu+ssh URI has no keyfile parameter of its own.\n"
         "# HOST_SSH_HOST=kvm1.lab\n"
         "# HOST_SSH_USER=root\n"
         "# HOST_SSH_KEY=~/.ssh/kvm1_ed25519\n"

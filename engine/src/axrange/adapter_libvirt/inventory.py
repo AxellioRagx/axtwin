@@ -10,7 +10,8 @@ render prints what it knows when the host is down); the others raise
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import threading
+from typing import Any, Callable, Optional
 
 from axrange.adapter_libvirt import naming
 from axrange.adapter_libvirt.connection import (
@@ -42,6 +43,29 @@ def first_ipv4(addresses: Any) -> str | None:
             if ip and not ip.startswith("127."):
                 return ip
     return None
+
+
+def _bounded(fn: Callable[[], Any], timeout_s: float, what: str) -> Any:
+    """`fn()` bounded by `timeout_s`: libvirt's python calls take no timeout,
+    so an unreachable host would hang a health read. Runs `fn` on a daemon
+    thread; past the budget `AdapterTimeout` is raised and the call is left to
+    die with its connection."""
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["ok"] = fn()
+        except BaseException as e:  # noqa: BLE001 -- handed to the caller's thread
+            box["err"] = e
+
+    t = threading.Thread(target=run, daemon=True, name=f"libvirt-{what}")
+    t.start()
+    t.join(timeout_s)
+    if t.is_alive():
+        raise AdapterTimeout(f"libvirt {what}: no answer in {timeout_s}s")
+    if "err" in box:
+        raise box["err"]
+    return box.get("ok")
 
 
 def _is_tier_tagged(name: str) -> bool:
@@ -84,7 +108,7 @@ class LibvirtInventory:
         if not self.is_configured():
             raise AdapterError("adapter.conf has no LIBVIRT_URI")
         try:
-            return self.client.host_facts()
+            return _bounded(self.client.host_facts, timeout_s, "host facts")
         except AdapterError:
             raise
         except Exception as e:  # noqa: BLE001 -- libvirtError at the raw layer
@@ -96,7 +120,7 @@ class LibvirtInventory:
         if not self.is_configured():
             raise AdapterError("adapter.conf has no LIBVIRT_URI")
         try:
-            doms = self.client.all_domains()
+            doms = _bounded(self.client.all_domains, timeout_s, "listAllDomains")
         except AdapterError:
             raise
         except Exception as e:  # noqa: BLE001

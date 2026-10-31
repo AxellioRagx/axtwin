@@ -29,6 +29,7 @@ from axrange.adapter_libvirt.connection import (
     VIR_NETWORK_UPDATE_AFFECT_LIVE,
     VIR_NETWORK_UPDATE_COMMAND_DELETE,
     LibvirtConnection,
+    libvirt_call,
 )
 from axrange.adapter_libvirt.domain_xml import metadata_of
 from axrange.adapter_libvirt.host import HostBackend
@@ -50,6 +51,15 @@ class ProtectedResource(AdapterError):
         self.kind, self.name, self.why = kind, name, why
 
 
+#: Each deploy tier's bridge shape (`tebr_*` / `o2br_*` / ...): the underlay of
+#: a VLAN zone. A Simple zone's "bridge" is the segment network itself, so a
+#: vnet shape is also a valid `delete_ovs_bridge` target.
+_BRIDGE_SHAPES = {
+    "te": naming.is_te_bridge, "o2": naming.is_o2_bridge,
+    "tfc": naming.is_tfc_bridge, "exr": naming.is_exr_bridge,
+}
+
+
 class LibvirtTeardown:
     def __init__(self, cfg: Any, *, client: Any = None, host: Optional[HostBackend] = None, tier: str = "te") -> None:
         naming.check_tier(tier)
@@ -59,6 +69,24 @@ class LibvirtTeardown:
         self.tier = tier
 
     # ---- the guard ----------------------------------------------------
+    def _own_shape(self, kind: str, name: str) -> bool:
+        """Positive match: `name` has the shape THIS teardown's tier gives a
+        `kind` resource (vm: `[2]`, vnet: `[0]`, zone: `[1]`, ovs-bridge: the
+        tier's bridge or segment-network shape)."""
+        checks = naming.tier_shape_checks().get(self.tier)
+        if checks is None:
+            return False
+        if kind == "vm":
+            return checks[2](name)
+        if kind == "vnet":
+            return checks[0](name)
+        if kind == "zone":
+            return checks[1](name)
+        if kind == "ovs-bridge":
+            bridge = _BRIDGE_SHAPES.get(self.tier)
+            return checks[0](name) or bool(bridge and bridge(name))
+        return False
+
     def _guard(self, kind: str, name: str | None) -> None:
         if not name:
             return
@@ -71,6 +99,11 @@ class LibvirtTeardown:
                 continue
             if pred(name):
                 raise ProtectedResource(kind, name, f"{tier} tier resource; this is a {self.tier} teardown")
+        # Fail closed: only a name positively shaped like this tier's own
+        # resource is ours. `default` (libvirt's own network) or a hand-made
+        # domain that merely carries a v5 UUID matches nothing and is left alone.
+        if not self._own_shape(kind, name):
+            raise ProtectedResource(kind, name, f"not a {self.tier}-tier {kind} shape; left alone")
 
     # ---- VMs ----------------------------------------------------------
     def vm_name(self, host: str, guest: int | str) -> Optional[str]:
@@ -87,14 +120,24 @@ class LibvirtTeardown:
             raise ProtectedResource("vm", name, f"uuid {guest} is not an axRange-minted (version-5) handle")
         xml = dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE)
         if dom.isActive():
-            dom.destroy()
+            libvirt_call("destroy", dom.destroy)
         pool = metadata_of(xml).get("pool") or self.cfg.storage_pool
+        self._refresh_pool(pool)   # the seed ISO is built outside libvirt; make it visible before the lookup
         for vol_name in (naming.overlay_volume_name(str(guest)), naming.seed_iso_name(str(guest))):
             vol = self.client.volume_by_name(pool, vol_name)
             if vol is not None:
-                vol.delete(0)
-        dom.undefineFlags(_UNDEFINE_FLAGS)
+                libvirt_call("vol-delete", vol.delete, 0)
+        libvirt_call("undefine", dom.undefineFlags, _UNDEFINE_FLAGS)
         return "removed"
+
+    def _refresh_pool(self, pool_name: str) -> None:
+        pool = self.client.pool_by_name(pool_name)
+        if pool is None:
+            return
+        try:
+            pool.refresh(0)
+        except Exception:  # noqa: BLE001 -- best effort; a stale listing only risks the lookup below
+            pass
 
     def delete_mirror_snippets(self, host: str, guest: int | str) -> str:
         self.host.remove_files(naming.hook_script_path(str(guest)))
@@ -112,8 +155,8 @@ class LibvirtTeardown:
     # ---- networks -----------------------------------------------------
     def _remove_network(self, net: Any) -> None:
         if net.isActive():
-            net.destroy()
-        net.undefine()
+            libvirt_call("network-destroy", net.destroy)
+        libvirt_call("network-undefine", net.undefine)
         if getattr(self.cfg, "network_backend", "linux") == "ovs":
             self.host.run(f"ovs-vsctl --if-exists del-br {shlex.quote(net.name())}", timeout_s=30)
 
@@ -127,6 +170,8 @@ class LibvirtTeardown:
         import xml.etree.ElementTree as ET
 
         for candidate in self.client.all_networks():
+            if not _BRIDGE_SHAPES[self.tier](candidate.name()):   # only this tier's underlay hosts portgroups
+                continue
             try:
                 root = ET.fromstring(candidate.XMLDesc(0))
             except ET.ParseError:
@@ -136,8 +181,8 @@ class LibvirtTeardown:
                     flags = VIR_NETWORK_UPDATE_AFFECT_CONFIG | (
                         VIR_NETWORK_UPDATE_AFFECT_LIVE if candidate.isActive() else 0
                     )
-                    candidate.update(VIR_NETWORK_UPDATE_COMMAND_DELETE, VIR_NETWORK_SECTION_PORTGROUP, -1,
-                                     ET.tostring(pg, encoding="unicode"), flags)
+                    libvirt_call("network-update", candidate.update, VIR_NETWORK_UPDATE_COMMAND_DELETE,
+                                 VIR_NETWORK_SECTION_PORTGROUP, -1, ET.tostring(pg, encoding="unicode"), flags)
                     return "removed"
         return "absent"
 

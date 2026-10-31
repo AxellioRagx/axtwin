@@ -18,6 +18,11 @@ from __future__ import annotations
 import base64
 import json
 import re
+import subprocess
+import sys
+import tempfile
+import threading
+import types
 import uuid as _uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -62,6 +67,10 @@ LV_BINDINGS = FIXTURES / "images" / "bindings" / "libvirt"
 PLAN = "plan-lv-1"
 HOST = "kvm1"
 POOL_PATH = "/var/lib/libvirt/images"
+#: A readable operator public key for the rigs (an unreadable
+#: GUEST_SSH_PUBKEY_FILE is an error, not a silent keyless deploy).
+_PUBKEY = Path(tempfile.mkdtemp(prefix="axr-lv-")) / "id.pub"
+_PUBKEY.write_text("ssh-ed25519 AAAArig rig@lab\n")
 
 
 # ===========================================================================
@@ -102,6 +111,7 @@ class FakePool:
         self.vols: dict[str, FakeVol] = {}
         self.created: list[tuple[str, str]] = []   # (how, xml)
         self.refreshed = 0
+        self.pending: dict[str, FakeVol] = {}      # on disk, unknown to libvirt until refresh()
 
     def name(self) -> str:
         return self._name
@@ -127,6 +137,8 @@ class FakePool:
 
     def refresh(self, flags: int = 0) -> None:
         self.refreshed += 1
+        self.vols.update(self.pending)
+        self.pending.clear()
 
     def XMLDesc(self, flags: int = 0) -> str:
         return f"<pool type='dir'><name>{self._name}</name><target><path>{self.target}</path></target></pool>"
@@ -359,7 +371,7 @@ class RecordingRunner:
 
 def _cfg(**kw: Any) -> LibvirtConfig:
     base = dict(libvirt_uri="qemu:///system", storage_pool="default",
-                guest_ssh_pubkey_file="/nowhere/id.pub", default_node=HOST,
+                guest_ssh_pubkey_file=str(_PUBKEY), default_node=HOST,
                 bindings_dir=str(LV_BINDINGS))
     base.update(kw)
     return LibvirtConfig(**base)
@@ -462,10 +474,43 @@ def test_config_refuses_missing_required_keys(tmp_path):
 
 def test_config_remote_uri_requires_the_host_ssh_keys(tmp_path):
     remote = _MIN_CONF.replace("qemu:///system", "qemu+ssh://root@kvm1.lab/system")
-    with pytest.raises(ConfigError, match="remote.*HOST_SSH_HOST, HOST_SSH_USER, HOST_SSH_KEY"):
+    with pytest.raises(ConfigError, match="remote.*HOST_SSH_USER, HOST_SSH_KEY"):
         load_config(_write(tmp_path, remote))
     cfg = load_config(_write(tmp_path, remote + "HOST_SSH_HOST=kvm1.lab\nHOST_SSH_USER=root\nHOST_SSH_KEY=~/.ssh/k\n"))
     assert cfg.is_remote and cfg.host_ssh_key.startswith("/")
+
+
+def test_config_host_ssh_host_defaults_from_and_must_match_the_uri_host(tmp_path):
+    remote = _MIN_CONF.replace("qemu:///system", "qemu+ssh://root@kvm1.lab/system") + "HOST_SSH_USER=root\nHOST_SSH_KEY=/k\n"
+    assert load_config(_write(tmp_path, remote)).host_ssh_host == "kvm1.lab"          # defaulted from the URI
+    assert load_config(_write(tmp_path, remote + "HOST_SSH_HOST=KVM1.lab\n")).host_ssh_host == "KVM1.lab"
+    with pytest.raises(ConfigError, match="HOST_SSH_HOST 'kvm2.lab' is not the host of LIBVIRT_URI"):
+        load_config(_write(tmp_path, remote + "HOST_SSH_HOST=kvm2.lab\n"))
+
+
+def test_the_ssh_key_reaches_libvirts_own_ssh_transport_as_keyfile():
+    from axrange.adapter_libvirt.config import uri_with_keyfile
+
+    assert uri_with_keyfile("qemu+ssh://root@kvm1.lab/system", "/k/id") == "qemu+ssh://root@kvm1.lab/system?keyfile=/k/id"
+    assert uri_with_keyfile("qemu+ssh://root@kvm1.lab/system?no_verify=1", "/k") == \
+        "qemu+ssh://root@kvm1.lab/system?no_verify=1&keyfile=/k"
+    own = "qemu+ssh://root@kvm1.lab/system?keyfile=/mine"
+    assert uri_with_keyfile(own, "/k") == own                       # the URI's own keyfile wins
+    assert uri_with_keyfile("qemu:///system", "/k") == "qemu:///system"
+    assert uri_with_keyfile("qemu+tcp://kvm1.lab/system", "/k") == "qemu+tcp://kvm1.lab/system"
+    assert uri_with_keyfile("qemu+ssh://root@kvm1.lab/system", "") == "qemu+ssh://root@kvm1.lab/system"
+    opened: list[str] = []
+    cfg = _cfg(libvirt_uri="qemu+ssh://root@kvm1.lab/system", host_ssh_host="kvm1.lab", host_ssh_user="root",
+               host_ssh_key="/k/id")
+    LibvirtConnection(cfg, opener=lambda u: (opened.append(u), _Raw())[1], error_type=_RawErr).domain_by_name("x")
+    assert opened == ["qemu+ssh://root@kvm1.lab/system?keyfile=/k/id"]
+
+
+def test_platform_is_never_read_from_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLATFORM", "x86_64")                         # a common shell variable
+    assert load_config(_write(tmp_path, _MIN_CONF)).platform == "libvirt"
+    with pytest.raises(ConfigError, match="PLATFORM='proxmox'"):    # file / overrides still count
+        load_config(_write(tmp_path, _MIN_CONF + "PLATFORM=proxmox\n"))
 
 
 def test_config_refuses_a_bad_backend_or_scheme(tmp_path):
@@ -578,6 +623,25 @@ def test_logical_ops_record_outputs_and_make_no_call():
     assert rig.conn.network_defined == [] and rig.conn.defined == [] and rig.runner.calls == []
 
 
+def test_snat_and_dhcp_are_refused_loud_with_the_spec_row():
+    """NAT / DHCP networks are not implemented (decision held): the planner's
+    `snat=bool(net.egress)` and a `dhcp` block fail the op, never drop silently."""
+    rig = Rig()
+    for op, scope in (("create-subnet", {"net": "corp"}), ("create-vnet", {"net": "corp"})):
+        base = {"net_id": "corp", "cidr": "10.0.0.0/24", "gateway": "10.0.0.1"}
+        with pytest.raises(AdapterError, match=rf"snat.*SPEC.*`{op}` row") as ei:
+            rig.run(op, scope, {**base, "snat": True})
+        assert ei.value.error_class == "adapter-unsupported"
+        with pytest.raises(AdapterError, match=rf"dhcp.*SPEC.*`{op}` row") as ei:
+            rig.run(op, scope, {**base, "dhcp": {"enabled": True, "range": "10.0.0.10-10.0.0.50"}})
+        assert ei.value.error_class == "adapter-unsupported"
+    assert rig.conn.network_defined == []
+    # the planner's no-NAT shapes pass: snat False, a dhcp block that is off or absent
+    rig.run("create-subnet", {"net": "corp"}, {"net_id": "corp", "cidr": "10.0.0.0/24", "snat": False})
+    rig.run("create-vnet", {"net": "corp"}, {"net_id": "corp", "dhcp": {"enabled": False, "range": None}, "dns": []})
+    assert _vnet() in rig.conn.networks
+
+
 # ---- networks -------------------------------------------------------------
 
 
@@ -651,13 +715,27 @@ def test_vlan_vnet_without_its_underlay_fails_loud():
 
 def test_apply_sdn_config_starts_this_plans_networks_only():
     rig = Rig()
-    mine = rig.conn.define_network(f"<network><name>{_vnet()}</name></network>")
+    rig.run("create-vnet", {"net": "corp"}, {"net_id": "corp"})
+    mine = rig.conn.networks[_vnet()]
+    mine.active = mine.autostart = False                              # went down since create-vnet
     other = rig.conn.define_network(f"<network><name>{naming.vnet_id_for_net('x', plan_id='other-plan', tier='o2')}</name></network>")
+    # another deploy of the SAME tier on the same host: te-shaped, not ours
+    sibling = rig.conn.define_network(f"<network><name>{naming.vnet_id_for_net('corp', plan_id='plan-lv-OTHER')}</name></network>")
+    assert sibling.name() != mine.name() and naming.is_te_vnet(sibling.name())
     foreign = rig.conn.define_network("<network><name>default</name></network>")
     out = rig.run("apply-sdn-config", {"scenario": "s"}, {"zone_id": naming.zone_id_for_plan(PLAN)})
     assert out["applied"] is True and out["networks"] == 1
     assert mine.active and mine.autostart
-    assert not other.active and not foreign.active
+    for untouched in (other, sibling, foreign):
+        assert not untouched.active and not untouched.autostart
+
+
+def test_apply_sdn_config_also_covers_the_plans_vlan_underlay():
+    rig = Rig(network_backend="ovs")
+    rig.run("create-ovs-bridge", {"scenario": "s"}, {"zone_type": "vlan"})
+    underlay = rig.conn.networks[naming.underlay_bridge_for_plan(PLAN)]
+    underlay.active = False
+    assert rig.run("apply-sdn-config", {"scenario": "s"}, {})["networks"] == 1 and underlay.active
 
 
 # ---- clone-vm --------------------------------------------------------------
@@ -680,7 +758,8 @@ def test_clone_vm_makes_a_linked_overlay_and_defines_the_domain():
     xml = dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE)
     assert dom.name() == naming.vm_name_for_host(PLAN, "h-a") and dom.UUIDString() == g
     assert disk_sources(xml) == [f"{POOL_PATH}/{naming.overlay_volume_name(g)}"]
-    assert metadata_of(xml) == {"plan": PLAN, "op": op.op_id, "tier": "te", "pool": "default"}
+    assert metadata_of(xml) == {"plan": PLAN, "op": op.op_id, "tier": "te", "pool": "default",
+                                "nic_model": "virtio", "ci_user": "debian"}   # the binding's, for later ops
     root = ET.fromstring(xml)
     assert root.find("./os/type").get("machine") == "pc" and root.find("os").get("firmware") is None
     assert root.find("vcpu").text == "2" and root.find("memory").text == str(2 * 1024 * 1024)
@@ -862,11 +941,97 @@ def test_configure_cloud_init_windows_and_q35_cdrom():
     assert ud.startswith("<powershell>") and "Rename-Computer -NewName 'dc'" in ud
     root = ET.fromstring(rig.conn.domains[g].xml)
     cd = [d for d in root.findall("./devices/disk") if d.get("device") == "cdrom"][0]
-    assert cd.find("target").attrib == {"dev": "sda", "bus": "sata"}
+    assert cd.find("target").attrib == {"dev": "sdb", "bus": "sata"}   # the sata boot disk owns sda
+    targets = [d.find("target").get("dev") for d in root.findall("./devices/disk")]
+    assert len(targets) == len(set(targets)) == 2
     assert cd.find("source").get("file") == f"/fast/{naming.seed_iso_name(g)}"   # the binding's pool
     # re-run re-points the same CD-ROM, never adds a second one
     rig.run("configure-cloud-init", {"host": "dc"}, {"vmid": g, "hostname": "dc", "os_family": "windows"})
     assert len([d for d in ET.fromstring(rig.conn.domains[g].xml).findall("./devices/disk") if d.get("device") == "cdrom"]) == 1
+
+
+def test_configure_cloud_init_refuses_an_unreadable_or_unset_pubkey(tmp_path):
+    for bad in (str(tmp_path / "missing.pub"), ""):
+        rig = Rig(guest_ssh_pubkey_file=bad)
+        g = rig.clone()
+        with pytest.raises(AdapterError, match="GUEST_SSH_PUBKEY_FILE") as ei:
+            rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "os_family": "linux"})
+        assert ei.value.error_class == "adapter-config"
+        assert not rig.runner.having("genisoimage")          # nothing was built
+    rig = Rig(guest_ssh_pubkey_file=str(tmp_path / "missing.pub"))   # windows takes no key
+    g = rig.clone()
+    rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "os_family": "windows"})
+
+
+def test_network_config_honours_the_segments_dns_from_create_vnet():
+    rig = Rig()
+    rig.run("create-vnet", {"net": "corp"}, {"net_id": "corp", "dns": ["10.0.0.53", "10.0.0.54"]})
+    rig.run("create-vnet", {"net": "ext"}, {"net_id": "ext", "dns": []})
+    g = rig.clone()
+    ip_config = {"corp": {"ip": "10.0.0.5", "cidr": "10.0.0.0/24", "gateway": None},
+                 "ext": {"ip": "10.9.0.5", "cidr": "10.9.0.0/24", "gateway": None}}
+    rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "ip_config": ip_config})
+    nc = _seed_files(rig.runner)["network-config"]
+    assert "nameservers: {addresses: [10.0.0.53, 10.0.0.54], search: [axrange.local]}" in nc
+    assert "nameservers: {addresses: [1.1.1.1], search: [axrange.local]}" in nc   # no dns declared: the old default
+
+
+def _binding_dir(tmp_path: Path, **hardware: str) -> Path:
+    d = tmp_path / "bindings"
+    d.mkdir(exist_ok=True)
+    text = (LV_BINDINGS / "debian-12-cloud.yaml").read_text()
+    for k, v in hardware.items():
+        text = re.sub(rf"{k}: \S+", f"{k}: {v}", text)
+    (d / "debian-12-cloud.yaml").write_text(text)
+    return d
+
+
+def test_the_bindings_nic_model_and_cloud_init_user_reach_the_domain(tmp_path):
+    bdir = _binding_dir(tmp_path, nic_model="e1000")
+    rig = Rig(bindings_dir=str(bdir))
+    rig.run("create-vnet", {"net": "corp"}, {"net_id": "corp"})
+    g = rig.clone()
+    meta = metadata_of(rig.conn.domains[g].xml)
+    assert meta["nic_model"] == "e1000" and meta["ci_user"] == "debian"
+    rig.run("attach-vm-to-vnet", {"host": "h-a"}, {"vmid": g, "vnet_id": _vnet(), "nic_index": 0})
+    rig.run("attach-vm-to-vnet", {"host": "h-a"}, {"vmid": g, "vnet_id": _vnet(), "nic_index": 1})
+    models = [m.get("type") for m in ET.fromstring(rig.conn.domains[g].xml).findall("./devices/interface/model")]
+    assert models == ["e1000", "e1000"]
+    # no planner ci_user: the binding's account; a planner ci_user still wins
+    rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "ip_config": {}})
+    assert "name: debian" in _seed_files(rig.runner)["user-data"]
+    rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "ip_config": {}, "ci_user": "ops"})
+    assert "name: ops" in _seed_files(rig.runner)["user-data"]
+
+
+def test_without_a_binding_user_cloud_init_defaults_to_axrange_and_virtio():
+    rig = Rig()
+    g = rig.run("clone-vm", {"host": "h-a"}, {"template_volume": "img-debian-12-cloud.qcow2"})["vmid"]
+    assert "nic_model" not in metadata_of(rig.conn.domains[g].xml)
+    rig.run("create-vnet", {"net": "corp"}, {"net_id": "corp"})
+    rig.run("attach-vm-to-vnet", {"host": "h-a"}, {"vmid": g, "vnet_id": _vnet(), "nic_index": 0})
+    assert ET.fromstring(rig.conn.domains[g].xml).find("./devices/interface/model").get("type") == "virtio"
+    rig.run("configure-cloud-init", {"host": "h-a"}, {"vmid": g, "ip_config": {}})
+    assert "name: axrange" in _seed_files(rig.runner)["user-data"]
+
+
+def test_the_cdrom_target_never_collides_with_a_disk():
+    from axrange.adapter_libvirt.domain_xml import add_cdrom
+
+    def doc(machine: str, *disks: tuple[str, str]) -> str:
+        return (f"<domain><os><type machine='{machine}'>hvm</type></os><devices>"
+                + "".join(f"<disk type='file' device='disk'><source file='/d{i}'/><target dev='{d}' bus='{b}'/></disk>"
+                          for i, (d, b) in enumerate(disks))
+                + "</devices></domain>")
+
+    def cd_dev(xml: str) -> str:
+        return [d for d in ET.fromstring(xml).findall("./devices/disk") if d.get("device") == "cdrom"][0].find("target").get("dev")
+
+    assert cd_dev(add_cdrom(doc("q35", ("vda", "virtio")), "/x.iso")) == "sda"
+    assert cd_dev(add_cdrom(doc("q35", ("sda", "sata")), "/x.iso")) == "sdb"
+    assert cd_dev(add_cdrom(doc("q35", ("sda", "scsi"), ("sdb", "scsi")), "/x.iso")) == "sdc"
+    assert cd_dev(add_cdrom(doc("pc", ("vda", "virtio")), "/x.iso")) == "hdc"
+    assert cd_dev(add_cdrom(doc("pc", ("hdc", "ide")), "/x.iso")) == "hdd"
 
 
 # ---- attach-vm-to-vnet / start-vm -----------------------------------------
@@ -1229,6 +1394,21 @@ def test_inventory_raising_reads_and_pings():
         unconfigured.live_guests()
 
 
+def test_inventory_raising_reads_honour_their_timeout():
+    rig = Rig()
+    gate = threading.Event()
+    rig.conn.all_domains = lambda: (gate.wait(5), [])[1]
+    rig.conn.host_facts = lambda: (gate.wait(5), {})[1]
+    inv = LibvirtInventory(rig.cfg, client=rig.conn)
+    try:
+        with pytest.raises(AdapterTimeout, match="listAllDomains"):
+            inv.live_guests(timeout_s=0.05)
+        with pytest.raises(AdapterTimeout, match="host facts"):
+            inv.platform_version(timeout_s=0.05)
+    finally:
+        gate.set()
+
+
 def test_inventory_external_sensor_facts(tmp_path):
     cfg = load_config(_write(tmp_path, _MIN_CONF + 'EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20"}]\n'))
     conn = FakeConn()
@@ -1287,6 +1467,51 @@ def test_teardown_guard_refuses_img_o2_foreign_and_protected_vms(name, why):
         td.destroy_vm(HOST, g)
     assert ei.value.error_class == "teardown-protected" and why in str(ei.value) and name in str(ei.value)
     assert dom.destroyed == 0 and dom.undefined == [] and dom.isActive()
+
+
+def test_teardown_fails_closed_on_names_that_are_not_this_tiers_shape():
+    """Not img / o2 / protected is not the same as ours: libvirt's own
+    `default` network and a hand-named domain match no tier and are left alone."""
+    rig = Rig()
+    td = LibvirtTeardown(rig.cfg, client=rig.conn, host=rig.host)
+    default = rig.conn.define_network("<network><name>default</name></network>")
+    default.active = True
+    with pytest.raises(ProtectedResource, match="not a te-tier vnet shape"):
+        td.delete_vnet("default")
+    with pytest.raises(ProtectedResource, match="zone shape"):
+        td.delete_sdn_zone("default")
+    with pytest.raises(ProtectedResource, match="ovs-bridge shape"):
+        td.delete_ovs_bridge(HOST, "default")
+    assert default.destroyed == 0 and default.undefined == 0 and "default" in rig.conn.networks
+    # a domain with a v5 uuid (so the handle check passes) but an unrecognised name
+    g = naming.guest_handle_for_op(PLAN, "o1")
+    dom = rig.conn.add_domain("web-frontend", g, active=True)
+    with pytest.raises(ProtectedResource, match="not a te-tier vm shape"):
+        td.destroy_vm(HOST, g)
+    assert dom.destroyed == 0 and dom.undefined == [] and dom.isActive()
+    # the positive matches still pass: the tier's own underlay and segment network
+    under = rig.conn.define_network(f"<network><name>{naming.underlay_bridge_for_plan(PLAN)}</name></network>")
+    assert td.delete_ovs_bridge(HOST, under.name()) == "removed"
+    seg = rig.conn.define_network(f"<network><name>{_vnet()}</name></network>")
+    assert td.delete_ovs_bridge(HOST, seg.name()) == "removed"
+
+
+def test_teardown_refreshes_the_pool_so_the_seed_iso_cannot_leak():
+    rig, g, td = _deployed_rig()
+    iso = rig.pool.vols.pop(naming.seed_iso_name(g))
+    rig.pool.pending[iso.name()] = iso            # on disk, not yet in libvirt's volume list
+    before = rig.pool.refreshed
+    assert td.destroy_vm(HOST, g) == "removed"
+    assert rig.pool.refreshed == before + 1
+    assert set(rig.pool.vols) == {"img-debian-12-cloud.qcow2"} and not rig.pool.pending
+
+
+def test_teardown_portgroup_scan_only_visits_this_tiers_underlay():
+    rig = Rig(network_backend="ovs")
+    td = LibvirtTeardown(rig.cfg, client=rig.conn, host=rig.host)
+    stray = rig.conn.define_network(
+        f"<network><name>default</name><portgroup name='{_vnet()}'><vlan><tag id='5'/></vlan></portgroup></network>")
+    assert td.delete_vnet(_vnet()) == "absent" and stray.updates == []
 
 
 def test_teardown_guard_refuses_a_hand_made_uuid_even_with_our_name():
@@ -1348,16 +1573,24 @@ def test_teardown_gretap_bridge_and_portgroup_paths():
 
 
 class _RawErr(Exception):
-    pass
+    """Stands in for `libvirt.libvirtError` (`get_error_code()` is its API)."""
+
+    def __init__(self, msg: str = "", code: int = 0) -> None:
+        super().__init__(msg)
+        self.code = code
+
+    def get_error_code(self) -> int:
+        return self.code
 
 
 class _Raw:
-    def __init__(self) -> None:
+    def __init__(self, lookup_code: int = 42) -> None:
         self.opened: list[str] = []
         self.agent_calls: list[tuple[str, int, int]] = []
+        self.lookup_code = lookup_code     # 42 = VIR_ERR_NO_DOMAIN; anything else is not "absent"
 
     def lookupByUUIDString(self, u):
-        raise _RawErr("Domain not found")
+        raise _RawErr("Domain not found" if self.lookup_code == 42 else "connection reset", self.lookup_code)
 
     def lookupByName(self, n):
         return SimpleDomain(n)
@@ -1367,11 +1600,11 @@ class _Raw:
 
     def storagePoolLookupByName(self, n):
         if n != "default":
-            raise _RawErr("pool not found")
+            raise _RawErr("pool not found", 49)
         return self
 
     def storageVolLookupByName(self, n):
-        raise _RawErr("vol not found")
+        raise _RawErr("vol not found", 50)
 
     def XMLDesc(self, flags):
         return "<pool><target><path>/var/lib/libvirt/images</path></target></pool>"
@@ -1421,8 +1654,82 @@ def test_connection_wrapper_opens_lazily_and_maps_not_found_to_none():
     payload, timeout, flags = raw.agent_calls[0]
     assert json.loads(payload) == {"execute": "guest-exec", "arguments": {"path": "true"}} and (timeout, flags) == (30, 0)
     assert conn.agent_command(SimpleDomain("d"), {"execute": "guest-ping"}, None) == {"return": {"pid": 5}}
-    assert raw.agent_calls[1][1] == -2               # libvirt's "default timeout" sentinel
+    assert raw.agent_calls[1][1] == -1               # VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT (BLOCK is -2)
     assert len(opened) == 1                          # one open per connection
+
+
+def test_a_transport_error_is_not_absence():
+    """A dropped qemu+ssh connection must raise, never read as "not found" --
+    or `destroy_vm` would report a live domain "absent" and leak it."""
+    raw = _Raw(lookup_code=38)                         # VIR_ERR_SYSTEM_ERROR
+    conn = LibvirtConnection(_cfg(), opener=lambda uri: raw, error_type=_RawErr)
+    with pytest.raises(AdapterError) as ei:
+        conn.domain_by_uuid("x")
+    assert ei.value.error_class == "libvirt-transport" and "connection reset" in str(ei.value)
+    rig = Rig()
+    g = naming.guest_handle_for_op(PLAN, "o1")
+    td = LibvirtTeardown(rig.cfg, client=conn, host=rig.host)
+    with pytest.raises(AdapterError) as ei:
+        td.destroy_vm(HOST, g)
+    assert ei.value.error_class == "libvirt-transport"
+    # delete_ovs_bridge / delete_vnet go through network_by_name: same rule
+    raw.networkLookupByName = lambda n: (_ for _ in ()).throw(_RawErr("connection reset", 38))
+    for call in (lambda: td.delete_ovs_bridge(HOST, _vnet()), lambda: td.delete_vnet(_vnet())):
+        with pytest.raises(AdapterError) as ei:
+            call()
+        assert ei.value.error_class == "libvirt-transport"
+    raw.networkLookupByName = lambda n: (_ for _ in ()).throw(_RawErr("no such network", 43))
+    assert td.delete_ovs_bridge(HOST, _vnet()) == "absent"   # a true not-found code still is
+
+
+def test_object_method_failures_map_to_one_adapter_error(monkeypatch):
+    """`dom.create` & co raise the raw `libvirtError`; the adapter surfaces
+    `AdapterError(libvirt-<op>)` (the executor's error classes)."""
+    monkeypatch.setitem(sys.modules, "libvirt", types.SimpleNamespace(libvirtError=_RawErr))
+    rig = Rig()
+    g = rig.clone()
+
+    def boom() -> None:
+        raise _RawErr("cannot acquire state change lock", 55)
+
+    rig.conn.domains[g].create = boom
+    with pytest.raises(AdapterError, match="libvirt domain-create: cannot acquire") as ei:
+        rig.run("start-vm", {"host": "h-a"}, {"vmid": g})
+    assert ei.value.error_class == "libvirt-domain-create"
+    # a non-libvirt exception is not rewritten
+    from axrange.adapter_libvirt.connection import libvirt_call
+    with pytest.raises(KeyError):
+        libvirt_call("x", lambda: {}["k"])
+
+
+def test_the_hand_spelled_constants_match_the_real_libvirt_module():
+    lv = pytest.importorskip("libvirt")
+    from axrange.adapter_libvirt import connection as c
+
+    spelled = {n: getattr(c, n) for n in c.__all__ if n.startswith("VIR_")}
+    assert spelled
+    for name, value in spelled.items():
+        want = getattr(lv, name, None)
+        assert want is not None, f"libvirt has no {name}"
+        assert int(want) == value, f"{name}: spelled {value}, libvirt {int(want)}"
+    qemu = pytest.importorskip("libvirt_qemu")
+    assert c._AGENT_TIMEOUT_DEFAULT == qemu.VIR_DOMAIN_QEMU_AGENT_COMMAND_DEFAULT
+
+
+def test_importing_the_package_and_factory_never_imports_libvirt():
+    """The bindings are a host-side package: nothing at import time (or in
+    constructing the adapter) may pull `libvirt` in."""
+    code = (
+        "import sys\n"
+        "import axrange.adapter_libvirt, axrange.platform.factory\n"
+        "from axrange.adapter_libvirt import LibvirtConfig, LibvirtAdapter, LibvirtTeardown, LibvirtInventory\n"
+        "cfg = LibvirtConfig(libvirt_uri='qemu:///system', storage_pool='p', guest_ssh_pubkey_file='/k', default_node='n')\n"
+        "LibvirtAdapter(cfg); LibvirtTeardown(cfg); LibvirtInventory(cfg)\n"
+        "bad = [m for m in sys.modules if m in ('libvirt', 'libvirt_qemu')]\n"
+        "assert not bad, bad\n"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
 
 
 def test_connection_without_a_uri_or_bindings_fails_by_name():

@@ -7,7 +7,9 @@ factory and the modules that are genuinely Proxmox-only (listed in
 themselves are outside the scan: an adapter may lift another adapter's PURE
 helpers (the libvirt adapter reuses the Proxmox naming shapes, QGA value
 type and gretap command builders), which is platform code calling platform
-code, not the engine binding a platform. The test
+code, not the engine binding a platform -- but it is a debt, so each such
+crossing is pinned by name in `_LIBVIRT_TO_PROXMOX` (any new one fails;
+hoisting the helpers into a neutral `axrange/platform` module is held). The test
 is the counterpart of `discovery/tests/test_acquire_layering.py` and uses the
 same static-AST approach for the same reason: a lazily-imported violation
 inside a function body is exactly as real as a module-level one, and a runtime
@@ -66,6 +68,41 @@ _ALLOWED_IMPORTERS: dict[pathlib.Path, tuple[frozenset[str], str]] = {
         "engine and its phase normalisation; guest-side, not platform-side -- a move candidate; the "
         "two in-guest constants it used to re-export already live here)",
     ),
+}
+
+#: Today's exact `adapter_libvirt -> adapter_proxmox` crossings, per libvirt
+#: module: `{proxmox module (under axrange.adapter_proxmox): names imported}`.
+#: Several are PRIVATE names (`_render_userdata`, `_tc_mirror_cmd`, `_SSH_OPTS`,
+#: `_read_conf_file`, `_parse_external_sensors`) lifted across; the list is the
+#: debt register for the hoist, and it may only shrink -- a new crossing, or a
+#: new name from an already-listed module, fails until it is added here with
+#: the same scrutiny (or, better, routed through a neutral module).
+_LIBVIRT_TO_PROXMOX: dict[str, dict[str, tuple[str, ...]]] = {
+    "adapter.py": {
+        "egress_render": ("EGRESS_INSTALLER", "EGRESS_OK_MARKER", "EgressRenderError", "normalize_egress",
+                          "render_install"),
+        "fabric_render": ("render_routing",),
+        "rest": ("ROUTER_NAT_SCRIPT", "WINDOWS_OSREADY_MARKER", "_render_userdata", "_render_windows_userdata"),
+        "ssh": ("SshBackend", "_tc_mirror_cmd", "apply_vyos_sets", "gretap_add_cmd", "gretap_heal_cmd",
+                "gretap_offload_cmd", "gretap_qdisc_cmd", "gretap_show_cmd", "gretap_up_cmd", "run_ssh_guest"),
+    },
+    "config.py": {
+        "config": ("ExternalSensor", "_parse_external_sensors", "_read_conf_file", "default_adapter_conf_paths"),
+    },
+    "guest.py": {"guest_agent": ("GuestExecResult",)},
+    "host.py": {"ssh": ("_SSH_OPTS",)},
+    "naming.py": {
+        "naming": (
+            "PROTECTED_EXTERNAL_NAMES", "TIER_PREDICATES", "TIER_SHAPE_CHECKS", "bridge_name_for_net", "check_tier",
+            "gre_key_for_bridge_sensor", "gre_port_for_bridge_sensor", "img_vm_name_for_image", "is_exr",
+            "is_exr_bridge", "is_exr_vm_name", "is_img", "is_img_vm_name", "is_o2", "is_o2_bridge", "is_o2_vm_name",
+            "is_protected_external", "is_tap", "is_tap_gretap", "is_te", "is_te_bridge", "is_te_vm_name",
+            "is_te_vnet", "is_te_zone", "is_tfc", "is_tfc_bridge", "is_tfc_vm_name", "mac_for_nic",
+            "tier_predicates", "tier_shape_checks", "underlay_bridge_for_plan", "vm_name_for_host",
+            "vnet_id_for_net", "zone_id_for_plan",
+        ),
+    },
+    "teardown.py": {"ssh": ("gretap_del_cmd", "gretap_show_cmd")},
 }
 
 #: Modules that may spell `DEFAULT_PLATFORM`: the factory that defines it
@@ -200,6 +237,50 @@ def test_the_allowlist_has_not_gone_stale():
             if mod not in reached and not any(d.rsplit(".", 1)[0] == mod for d in reached):
                 idle.append(f"{p.relative_to(_REPO_ROOT)} -> {mod}")
     assert not idle, f"_ALLOWED_IMPORTERS entries no longer used: {idle}"
+
+
+def _libvirt_crossings() -> dict[str, set[str]]:
+    root = _AXRANGE_ROOT / "adapter_libvirt"
+    out: dict[str, set[str]] = {}
+    for path in _module_files(root, exclude_dirs=frozenset()):
+        hits = {
+            d for _, d in _resolved_imports_from_source(path.read_text(), path)
+            if d.split(".")[:2] == ["axrange", "adapter_proxmox"]
+        }
+        if hits:
+            out[path.name] = hits
+    return out
+
+
+def _allowed_libvirt_crossings() -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for fname, mods in _LIBVIRT_TO_PROXMOX.items():
+        names = out.setdefault(fname, set())
+        for mod, imported in mods.items():
+            names.add(f"axrange.adapter_proxmox.{mod}")
+            names.update(f"axrange.adapter_proxmox.{mod}.{n}" for n in imported)
+    return out
+
+
+def test_the_libvirt_adapter_crosses_into_the_proxmox_adapter_only_where_pinned():
+    """Adapter-to-adapter imports are outside the engine scan above, but they
+    are the largest layering debt (private helpers lifted across). Pin every
+    crossing so a new one fails, and an idle one is dropped."""
+    actual, allowed = _libvirt_crossings(), _allowed_libvirt_crossings()
+    new = sorted(f"{f}: {d}" for f, ds in actual.items() for d in ds - allowed.get(f, set()))
+    assert not new, (
+        "adapter_libvirt gained an import of adapter_proxmox; route it through a neutral module "
+        "or add it to _LIBVIRT_TO_PROXMOX with a reason:\n  " + "\n  ".join(new)
+    )
+    stale = sorted(f"{f}: {d}" for f, ds in allowed.items() for d in ds - actual.get(f, set()))
+    assert not stale, f"_LIBVIRT_TO_PROXMOX entries no longer used: {stale}"
+
+
+def test_the_crossing_checker_sees_a_new_private_import():
+    src = "from axrange.adapter_proxmox.rest import _render_something_new\n"
+    got = {d for _, d in _resolved_imports_from_source(src, _AXRANGE_ROOT / "adapter_libvirt" / "adapter.py")}
+    assert "axrange.adapter_proxmox.rest._render_something_new" in got
+    assert "axrange.adapter_proxmox.rest._render_something_new" not in _allowed_libvirt_crossings()["adapter.py"]
 
 
 def test_no_engine_module_names_the_default_platform_outside_the_factory():

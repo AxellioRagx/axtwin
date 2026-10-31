@@ -43,8 +43,8 @@ performs no platform call, the pattern ADAPTER.md §8 already used for SDN.
 |---|---|---|
 | `create-sdn-zone` | logical; `zone_id` from naming | — |
 | `create-ovs-bridge` | define + start an isolated libvirt network backed by a Linux (or OVS) bridge named by `naming` | libvirt |
-| `create-vnet` | Simple-zone analogue: one network per segment; VLAN-zone analogue: a tagged portgroup on the zone's underlay network (needs `LIBVIRT_NETWORK_BACKEND=ovs` -- libvirt applies `<vlan>` tags to Open vSwitch ports only, so a VLAN zone on the `linux` backend fails loud at `create-ovs-bridge`) | libvirt |
-| `create-subnet` | logical (addressing is cloud-init's) | — |
+| `create-vnet` | isolated, logical L2 segments only (no uplink): Simple-zone analogue: one network per segment; VLAN-zone analogue: a tagged portgroup on the zone's underlay network (needs `LIBVIRT_NETWORK_BACKEND=ovs` -- libvirt applies `<vlan>` tags to Open vSwitch ports only, so a VLAN zone on the `linux` backend fails loud at `create-ovs-bridge`). **NAT and DHCP refused:** a `dhcp.enabled` block raises `adapter-unsupported` (not implemented; decision held). The segment's `dns` is carried into the guests' cloud-init network-config | libvirt |
+| `create-subnet` | *logical* (addressing is cloud-init's). **NAT refused:** the planner's `snat` (`bool(net.egress)`) raises `adapter-unsupported` rather than casting a segment with no egress (not implemented; decision held) | — |
 | `apply-sdn-config` | `net-start` / autostart of the networks defined above | libvirt |
 | `clone-vm` | qcow2 overlay in the storage pool with the template volume as backing file; `defineXML` from the binding's domain template | libvirt |
 | `configure-vm-hardware` | domain XML: vcpu, memory, machine, firmware, virtio devices, the `org.qemu.guest_agent.0` channel | libvirt |
@@ -71,7 +71,7 @@ keys fail loud when unrecognized):
 | `LIBVIRT_URI` | yes | `qemu:///system` or `qemu+ssh://user@host/system` |
 | `LIBVIRT_STORAGE_POOL` | yes | pool holding `img-*` template volumes and per-deploy overlays |
 | `LIBVIRT_NETWORK_BACKEND` | no | `linux` (default) or `ovs` |
-| `HOST_SSH_HOST`, `HOST_SSH_USER`, `HOST_SSH_KEY` | when the URI is remote | the host backend's SSH (key *path*) for gretap / `tc` work |
+| `HOST_SSH_HOST`, `HOST_SSH_USER`, `HOST_SSH_KEY` | when the URI is remote | the host backend's SSH (key *path*) for gretap / `tc` work; `HOST_SSH_HOST` defaults to, and must equal, the URI's host; the key is also passed to libvirt's ssh transport as `?keyfile=` when the URI has none |
 | `GUEST_SSH_PUBKEY_FILE` | yes | unchanged |
 | `DEFAULT_NODE` | yes | the host's name as placement records it |
 | `MIRROR_GRETAP_TXQUEUELEN` | no | unchanged |
@@ -114,5 +114,16 @@ sensor with climbing counters.
 - VMware follows the same seams with vSphere in place of libvirt and VMware
   Tools guest operations in place of QGA; nothing here is libvirt-only except
   the backend column.
+- **Open decision (held): the router WAN uplink.** `planner/pass1_emit.py`
+  `ROUTER_WAN_BRIDGE = "vmbr0"` is a Proxmox bridge name, so every router twin
+  fails on libvirt (no such network). The fix is a neutral uplink marker from
+  the planner that each adapter maps to its own uplink, plus a libvirt config
+  key naming the WAN network; neither exists yet.
+- Teardown fails closed: every removal needs a positive match of the
+  teardown's own tier shape (vm / vnet / zone / bridge), so libvirt's own
+  `default` network and hand-made domains are never swept.
+- `apply-sdn-config` touches only the networks this deploy's adapter instance
+  defined or adopted (plus the plan's underlay), never a tier-shape sweep of
+  the host.
 - Not a reason to add a plugin registry: the factory is a closed set and stays
   one until a third platform makes the set open.
