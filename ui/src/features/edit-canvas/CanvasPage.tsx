@@ -24,7 +24,7 @@ import type { Viewport } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { ApiError } from "../../api/client";
+import { ApiError, getWriteToken, onWriteTokenChange } from "../../api/client";
 import { useApi } from "../../api/context";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -174,6 +174,10 @@ export function CanvasPage() {
     return { twin, tree, exportData, topology, cast, deploy, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
   }, [id]);
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
+
+  // The twin-config's `document` -- and with it edit mode -- arrives only on
+  // a bearer-token read, so a token typed after the page loaded reloads it.
+  useEffect(() => onWriteTokenChange(reload), [reload]);
 
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
   // Moves and annotation changes stay on the canvas; the side-car is written
@@ -581,7 +585,7 @@ export function CanvasPage() {
     if (built?.kind === "authored") out.push("authored twin: no observed evidence, no traffic to overlay");
     if (built?.kind === "design") out.push(deployed ? "design view: the working copy" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
-    if (data && !designAvailable) out.push("read-only: the catalog serves no document for this twin");
+    if (data && !designAvailable) out.push(getWriteToken() ? "read-only: the catalog serves no document for this twin" : "read-only: enter the write token to open this twin's document for editing");
     if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} in the layout side-car`);
     return out;
   }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length]);

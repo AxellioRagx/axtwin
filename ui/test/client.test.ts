@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiError, makeRequester, messageFromBody, setWriteToken } from "../src/api/client";
+import { makeApi } from "../src/api/discovery";
 
 function fetchStub(status: number, body: unknown, seen: Array<{ url: string; init: RequestInit }>) {
   return (async (url: string | URL | Request, init?: RequestInit) => {
@@ -39,6 +40,17 @@ describe("the requester", () => {
     expect((seen[2]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
     expect((seen[3]?.init.headers as Record<string, string>).Authorization).toBe("Bearer T");
     expect(seen[3]?.init.body).toBe('{"a":1}');
+    setWriteToken(null);
+  });
+  it("sends the token on a twin-config read, which unlocks the bundle document (the canvas's edit mode)", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const api = makeApi(makeRequester({ fetchImpl: fetchStub(200, { id: "my-lab", document: null }, seen) }));
+    setWriteToken("T");
+    await api.getTwinConfig("my-lab");
+    await api.listTwinConfigs();
+    expect(seen[0]?.url).toBe("/api/twin-configs/my-lab");
+    expect((seen[0]?.init.headers as Record<string, string>).Authorization).toBe("Bearer T");
+    expect((seen[1]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
     setWriteToken(null);
   });
   it("types a refusal by status and keeps the detail", async () => {

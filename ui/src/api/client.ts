@@ -71,7 +71,8 @@ export function onWriteTokenChange(listener: () => void): () => void {
 export interface RequestInit_ {
   query?: Record<string, string>;
   body?: unknown;
-  /** Send the write token (writes only; reads carry nothing). */
+  /** Send the write token: every write, and the reads whose answer the
+   *  server extends for a bearer token (a twin-config's `document`). */
   auth?: boolean;
   signal?: AbortSignal | undefined;
 }

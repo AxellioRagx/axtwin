@@ -138,7 +138,9 @@ export function makeApi(request: Requester): Api {
     putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc, auth: true }),
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
-    getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),
+    // Authorized when a token is set: the server includes the bundle `document`
+    // (the canvas's edit mode) only on a bearer-token read; the summary is open.
+    getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal, auth: true }),
     createTwinConfig: (body) => request("POST", "/api/twin-configs", { body, auth: true }),
     putTwinConfig: (id, body) => request("PUT", `/api/twin-configs/${enc(id)}`, { body, auth: true }),
     listDeploys: (signal) => request("GET", "/api/deploys", { signal }),
