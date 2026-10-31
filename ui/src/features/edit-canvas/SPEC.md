@@ -37,7 +37,7 @@ it); `/twins/:id/canvas` reaches the same page from a twin's page.
 | undeployed config: Save / Save-As | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
 | deployed twin: working copy, Apply / Reset / Persist | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
 | every mutation, before Apply or Save is enabled | `POST /api/validate` |
-| positions and annotations | `PUT` of the layout document, ETag-guarded |
+| positions and annotations | `PUT` of the layout document, ETag-guarded, on an explicit **Save layout** (or with a document Save / Persist) -- never a write per drag |
 
 The twin config never carries presentation. Positions, free text and shapes
 live only in the layout side-car (the pattern containerlab's TopoViewer uses
@@ -128,8 +128,8 @@ open only on a clean answer for the files on screen, the findings shown with
 rule and location; the canvas's structural check stays the instant hint and
 the working-copy PUT's refusal the backstop), and annotations live in the
 layout side-car's `annotations` list (positioned SVG snippets with lock and
-hidden flags, ETag-guarded through the pins' write queue, a set an earlier
-build kept in localStorage migrated once; the server refuses script,
+hidden flags, written with the pins, a set an earlier build kept in
+localStorage migrated once; the server refuses script,
 foreignObject, `on*=` and href by name, and the canvas escapes every typed
 character that could spell one). Promote-to-assertion is keyed by the cast
 roster (`GET /api/twins/{id}/cast`): a twin-config node name is a cast
@@ -140,7 +140,15 @@ roster's `members` (each group's observed entity keys, off the sidecar's
 the records carry, one override per member. A node or segment the roster
 cannot key -- hand-added, synthetic, a router, a cast older than the row --
 shows the promote action disabled with that reason. Fault injection and
-attachment impairments wait for an IR concept.
+attachment impairments wait for an IR concept. **The layout side-car is a
+draft** (user rule 2026-10-31, `edit/useLayoutDraft.ts`): every drag, align,
+placement and annotation change lands on the canvas and counts as unsaved
+(the header says how many); the document is written only by **Save layout**
+-- one PUT of every pin and annotation as they stand, the etag as the
+precondition -- or alongside a document Save / Persist; **Discard** returns
+to the layout as last loaded or saved; a 412 keeps the draft, takes the
+fresh etag and says another console saved meanwhile; leaving the page with
+unsaved moves asks first. An earlier build wrote the side-car on every drag.
 
 ## Config
 

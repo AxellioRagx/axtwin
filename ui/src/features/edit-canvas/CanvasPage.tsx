@@ -26,7 +26,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useApi } from "../../api/context";
-import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutPins, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
+import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -36,13 +36,13 @@ import { castInput } from "./canvas/cast";
 import { place } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
-import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout, type Annotation } from "./edit/annotations";
+import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations } from "./edit/annotations";
 import { sameFiles, type Files } from "./edit/commands";
 import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor } from "./edit/useEditor";
+import { layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
 import { matrix0 } from "./layout/matrix";
-import { NO_PINS, type Pins } from "./layout/pins";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
@@ -68,30 +68,20 @@ interface Loaded {
   paletteNote: string | null;
 }
 
-const LAYOUT_SCHEMA = "axr-layout/1";
 const SYNC_DELAY_MS = 250;
 const VALIDATE_DELAY_MS = 300;
 const POLL_MS = 5000;
 const CATALOG_DETAIL_LIMIT = 12;
 
-/**
- * The PUT body after one drag: the document's pins when they were authored on
- * THIS plane (another plane's coordinates are not re-saved as this drawing's),
- * the dragged element's new absolute top-left, the plane stamp, the etag the
- * document was read under as the precondition, and the annotations the
- * document holds (carried through untouched; `annotationsWrite` replaces them).
- */
+/** The body for one more pin over the document's: the pins of this plane plus
+ *  the moved element's new absolute top-left, the annotations carried through. */
 export function nextLayoutWrite(current: LayoutDoc | null, id: string, key: string, at: { x: number; y: number }): LayoutWrite {
-  const carried: LayoutPins = current && current.plane === CANVAS_PLANE ? current.pins : {};
-  const out: LayoutWrite = { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...carried, [key]: at }, plane: CANVAS_PLANE, etag: current?.etag ?? null };
-  if (current?.annotations?.length) out.annotations = current.annotations;
-  return out;
+  return layoutWrite(current, id, { ...pinsOf(current), [key]: at }, current?.annotations ?? []);
 }
 
-/** The PUT body after an annotation change: the pins as they stand, the new annotation list. */
+/** The body for a new annotation list over the document's pins of this plane. */
 export function annotationsWrite(current: LayoutDoc | null, id: string, annotations: readonly LayoutAnnotation[]): LayoutWrite {
-  const carried: LayoutPins = current && current.plane === CANVAS_PLANE ? current.pins : {};
-  return { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...carried }, plane: CANVAS_PLANE, etag: current?.etag ?? null, annotations: [...annotations] };
+  return { ...layoutWrite(current, id, pinsOf(current), annotations), annotations: [...annotations] };
 }
 
 /** The latest document validate (`POST /api/validate {document}`), tied to the files it judged. */
@@ -185,17 +175,13 @@ export function CanvasPage() {
   }, [id]);
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
 
-  // ---- positions (Phase 1) ----
-  const [doc, setDoc] = useState<LayoutDoc | null>(null);
-  const [pins, setPins] = useState<Pins>(NO_PINS);
-  const [saveError, setSaveError] = useState<unknown>(null);
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  useEffect(() => {
-    if (!layout.data) return;
-    setDoc(layout.data);
-    setPins(layout.data.plane === CANVAS_PLANE ? layout.data.pins : NO_PINS);
-    setAnnotationsState(fromLayoutList(layout.data.annotations));
-  }, [layout.data]);
+  // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
+  // Moves and annotation changes stay on the canvas; the side-car is written
+  // only by "Save layout" (or alongside a document Save / Persist).
+  const draft = useLayoutDraft(api, id, layout.data);
+  const { pins, annotations, onPin, setAnnotations } = draft;
+  const layoutChanges = draft.changes;
+  const saveLayout = draft.save;
   const [expanded, setExpanded] = useState<string[]>([]);
   const [initialViewport] = useState(() => readViewport(id));
 
@@ -213,7 +199,6 @@ export function CanvasPage() {
   const [exitNote, setExitNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [saveAsId, setSaveAsId] = useState("");
-  const [annotations, setAnnotationsState] = useState<Annotation[]>([]);
   const [validation, setValidation] = useState<DocValidation | null>(null);
   const [validating, setValidating] = useState(false);
   const synced = useRef<Files | null>(null);
@@ -236,50 +221,8 @@ export function CanvasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, id]);
 
-  // Writes are chained so two quick drags never race on one etag.
-  const queue = useRef<Promise<void>>(Promise.resolve());
-  const docRef = useRef<LayoutDoc | null>(null);
-  docRef.current = doc;
-  const onPin = useCallback(
-    (key: string, at: { x: number; y: number }) => {
-      setPins((p) => ({ ...p, [key]: at }));
-      queue.current = queue.current.then(async () => {
-        try {
-          const saved = await api.putLayout(id, nextLayoutWrite(docRef.current, id, key, at));
-          setDoc(saved);
-          setSaveError(null);
-          setSavedAt(new Date().toISOString());
-        } catch (e) {
-          setSaveError(e);
-          if (e instanceof ApiError && e.status === 412) layout.reload();
-        }
-      });
-    },
-    [api, id, layout],
-  );
-  // Annotations live in the layout side-car: every change is a PUT through the
-  // pins' chained queue, with the etag as the precondition; the server's
-  // refusal of a snippet (a 400 from its sanitiser) is shown in place.
-  const setAnnotations = useCallback(
-    (list: Annotation[]) => {
-      setAnnotationsState(list);
-      const wire = list.map(toLayout);
-      queue.current = queue.current.then(async () => {
-        try {
-          const saved = await api.putLayout(id, annotationsWrite(docRef.current, id, wire));
-          setDoc(saved);
-          setSaveError(null);
-          setSavedAt(new Date().toISOString());
-        } catch (e) {
-          setSaveError(e);
-          if (e instanceof ApiError && e.status === 412) layout.reload();
-        }
-      });
-    },
-    [api, id, layout],
-  );
-
-  // A set an earlier build kept in this browser is written into the side-car once, then cleared.
+  // A set an earlier build kept in this browser joins the canvas once (as
+  // unsaved changes, for the next "Save layout") and is cleared from the browser.
   const migrated = useRef<string | null>(null);
   useEffect(() => {
     if (!layout.data || migrated.current === id) return;
@@ -517,7 +460,8 @@ export function CanvasPage() {
       const d = await api.putTwinConfig(id, { id, files });
       setDetail(d);
       editor.markSaved(files);
-      return "saved";
+      const layoutSaved = layoutChanges > 0 ? await saveLayout() : null;
+      return layoutSaved === null ? "saved" : layoutSaved ? "saved, layout too" : "saved; the layout was not (see above)";
     });
   const saveAs = () =>
     run("save-as", async () => {
@@ -554,6 +498,7 @@ export function CanvasPage() {
       setDetail(await api.getTwinConfig(id).catch(() => null));
       editor.load({ id: cfg.document.id, teFile: cfg.document.te_file, files: cfg.document.files });
       synced.current = { ...cfg.document.files };
+      if (layoutChanges > 0) await saveLayout();
       return "persisted: the baseline is the working copy";
     });
 
@@ -632,14 +577,14 @@ export function CanvasPage() {
   const notes = useMemo(() => {
     const out: string[] = [];
     if (layout.error) out.push(`positions are not saved for this twin: ${errorText(layout.error)}`);
-    else if (doc && doc.exists && doc.plane !== CANVAS_PLANE) out.push(`the saved positions were drawn on another plane (${doc.plane ?? "unstamped"}) and are not applied; the next drag saves on this one`);
+    else if (draft.doc && draft.doc.exists && draft.doc.plane !== CANVAS_PLANE) out.push(`the saved positions were drawn on another plane (${draft.doc.plane ?? "unstamped"}) and are not applied; the next Save layout saves on this one`);
     if (built?.kind === "authored") out.push("authored twin: no observed evidence, no traffic to overlay");
     if (built?.kind === "design") out.push(deployed ? "design view: the working copy" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push("read-only: the catalog serves no document for this twin");
     if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} in the layout side-car`);
     return out;
-  }, [layout.error, doc, built, data, designAvailable, deployed, annotations.length]);
+  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length]);
 
   const editProps = useMemo<CanvasEditProps | undefined>(() => {
     if (!model || built?.kind !== "design") return undefined;
@@ -686,10 +631,29 @@ export function CanvasPage() {
             </button>
           </span>
         ) : null}
-        {savedAt ? <span className="muted" role="status">positions saved</span> : null}
+        {layout.data ? (
+          <span className="row cv-layout" role="group" aria-label="Layout">
+            {layoutChanges > 0 ? (
+              <span className="cv-dirty" data-testid="layout-dirty" title="moves and annotations are written only by Save layout">
+                ● layout: {layoutChanges} unsaved {layoutChanges === 1 ? "change" : "changes"}
+              </span>
+            ) : draft.savedAt ? (
+              <span className="muted" role="status">
+                layout saved
+              </span>
+            ) : null}
+            <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
+              {draft.saving ? "Saving…" : "Save layout"}
+            </button>
+            <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
+              Discard
+            </button>
+          </span>
+        ) : null}
       </div>
       <ErrorLine error={error} prefix="could not load the twin" />
-      <ErrorLine error={saveError} prefix="could not save the layout" />
+      <ErrorLine error={draft.error} prefix="could not save the layout" />
+      {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
       {loading && !data ? <p className="muted">Loading the twin…</p> : null}
       {designAvailable && data ? (
         <div className="cv-exits" data-testid="exits">

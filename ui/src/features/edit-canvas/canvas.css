@@ -110,7 +110,8 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-side .ok { color: var(--ok); }
 
 .cv-exits { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.cv-exits .cv-dirty { color: var(--warn); font-weight: 600; }
+.cv-exits .cv-dirty, .cv-layout .cv-dirty { color: var(--warn); font-weight: 600; }
+.cv-layout { gap: 8px; }
 .cv-exits .cv-clean { color: var(--ok); }
 .cv-exits .cv-saveas { display: inline-flex; gap: 6px; align-items: center; }
 .cv-exits .cv-saveas input { width: 14em; padding: 4px 6px; }

@@ -539,8 +539,13 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect(screen.queryByTestId("canvas-annotation")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Show annotations" }));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    // Nothing reached the side-car yet: annotations, like moves, wait for "Save layout".
+    expect(state.layouts["corp-live"]).toBeUndefined();
+    expect(screen.getByTestId("layout-dirty").textContent).toMatch(/layout: \d+ unsaved changes/);
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await waitFor(() => expect((state.layouts["corp-live"]?.annotations ?? []).length).toBe(2));
     expect(state.layouts["corp-live"]!.annotations.map((a) => a.kind)).toEqual(["text", "rect"]);
+    expect(screen.queryByTestId("layout-dirty")).toBeNull();
     expect(screen.getByText(/2 annotations in the layout side-car/)).toBeTruthy();
     expect(localStorage.getItem("axr-canvas-annotations:corp-live")).toBeNull();
   });
@@ -581,6 +586,49 @@ describe("the document validate gate and the side-car annotations", () => {
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
   });
 
+  it("layout changes stay on the canvas until Save layout; Discard puts them back; a document Save carries them", async () => {
+    const { api, state } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const layoutWrites = () => state.writes.filter((w) => w.op === "put-layout");
+    expect(screen.getByRole("button", { name: "Save layout" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Discard" }).hasAttribute("disabled")).toBe(true);
+    // Two annotations (the same draft every drag lands in): two changes, nothing written.
+    fireEvent.click(screen.getByRole("button", { name: "text" }));
+    fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    expect(screen.getByTestId("layout-dirty").textContent).toBe("● layout: 2 unsaved changes");
+    expect(layoutWrites()).toEqual([]);
+    expect(state.layouts["corp-auth"]).toBeUndefined();
+    // Discard: back to the layout as loaded, still nothing written.
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByTestId("canvas-annotation")).toBeNull());
+    expect(screen.queryByTestId("layout-dirty")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save layout" }).hasAttribute("disabled")).toBe(true);
+    expect(layoutWrites()).toEqual([]);
+    // Change again and Save layout: ONE write, no etag on a first save.
+    fireEvent.click(screen.getByRole("button", { name: "ellipse" }));
+    await screen.findByTestId("layout-dirty");
+    expect(screen.getByTestId("layout-dirty").textContent).toBe("● layout: 1 unsaved change");
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
+    await waitFor(() => expect(layoutWrites().length).toBe(1));
+    expect((layoutWrites()[0]!.body as { etag: string | null }).etag).toBeNull();
+    expect(state.layouts["corp-auth"]!.annotations.map((a) => a.kind)).toEqual(["ellipse"]);
+    await screen.findByText("layout saved");
+    expect(screen.queryByTestId("layout-dirty")).toBeNull();
+    // A document Save writes a dirty layout alongside, with the saved etag as the precondition.
+    fireEvent.click(screen.getByRole("button", { name: "line" }));
+    await screen.findByTestId("layout-dirty");
+    fireEvent.click(item("segment", "segment"));
+    fireEvent.click(await enabled("Save"));
+    await waitFor(() => expect(screen.getByTestId("exit-note").textContent).toBe("saved, layout too"));
+    expect(layoutWrites().length).toBe(2);
+    expect(String((layoutWrites()[1]!.body as { etag: string | null }).etag)).toMatch(/^layout-etag-\d+$/);
+    expect(state.layouts["corp-auth"]!.annotations.map((a) => a.kind)).toEqual(["ellipse", "line"]);
+    expect(state.writes.filter((w) => w.op === "put-twin-config").length).toBe(1);
+    expect(screen.queryByTestId("layout-dirty")).toBeNull();
+  });
+
   it("annotations round-trip through the layout document with the etag, and survive a reload", async () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");
@@ -588,22 +636,26 @@ describe("the document validate gate and the side-car annotations", () => {
     fireEvent.click(screen.getByRole("button", { name: "text" }));
     await screen.findByTestId("canvas-annotation");
     fireEvent.click(screen.getByRole("button", { name: "ellipse" }));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    expect(state.writes.filter((w) => w.op === "put-layout")).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await waitFor(() => expect(state.layouts["corp-auth"]?.annotations.length).toBe(2));
-    const writes = state.writes.filter((w) => w.op === "put-layout");
-    expect(writes.length).toBe(2);
-    // The second write carried the first's etag as its precondition and both annotations as positioned SVG.
-    expect((writes[0]!.body as { etag: string | null }).etag).toBeNull();
-    expect(String((writes[1]!.body as { etag: string | null }).etag)).toMatch(/^layout-etag-\d+$/);
     const saved = state.layouts["corp-auth"]!.annotations;
     expect(saved[0]).toMatchObject({ kind: "text", locked: false, hidden: false, w: 160, h: 28 });
     expect(saved[0]!.svg).toMatch(/^<text x="-?[\d.]+" y="-?[\d.]+">note<\/text>$/);
     expect(saved[1]!.svg).toMatch(/^<ellipse cx=.* fill="none" stroke="currentColor"\/>$/);
-    // Edit the text and lock it from the panel: each change is a write.
+    // Edit the text and lock it from the panel, then Save layout: the second write carries the first's etag as its precondition.
     fireEvent.click(screen.getAllByTestId("canvas-annotation")[0]!);
     const ap = await panel().findByTestId("annotation-panel");
     fireEvent.change(within(ap).getByLabelText("Annotation text"), { target: { value: "crown jewels <here> & onion = 3" } });
     fireEvent.click(within(ap).getByLabelText("locked"));
+    await screen.findByTestId("layout-dirty");
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await waitFor(() => expect(state.layouts["corp-auth"]!.annotations[0]!.locked).toBe(true));
+    const writes = state.writes.filter((w) => w.op === "put-layout");
+    expect(writes.length).toBe(2);
+    expect((writes[0]!.body as { etag: string | null }).etag).toBeNull();
+    expect(String((writes[1]!.body as { etag: string | null }).etag)).toMatch(/^layout-etag-\d+$/);
     expect(state.layouts["corp-auth"]!.annotations[0]!.svg).toBe(`<text x="${saved[0]!.x}" y="${saved[0]!.y + 14}">crown jewels &lt;here&gt; &amp; onion &#61; 3</text>`);
     r.unmount();
     // A fresh console reads them back from the side-car, text included.
@@ -620,11 +672,15 @@ describe("the document validate gate and the side-car annotations", () => {
     expect(nextLayoutWrite(doc, "corp-auth", "host:ws01", { x: 1, y: 2 }).annotations).toEqual(doc.annotations);
   });
 
-  it("migrates a set an earlier build kept in this browser into the side-car once, then clears it", async () => {
+  it("migrates a set an earlier build kept in this browser onto the canvas once, as unsaved changes, then clears it", async () => {
     const { api, state } = seeded();
     localStorage.setItem("axr-canvas-annotations:corp-auth", JSON.stringify([{ id: "old-1", kind: "rect", x: 10, y: 20, w: 100, h: 50, text: "", locked: true }, { id: "old-2", kind: "text", x: 5, y: 5, w: 160, h: 28, text: "legacy note", locked: false }]));
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    expect(state.layouts["corp-auth"]).toBeUndefined();
+    await screen.findByTestId("layout-dirty");
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await waitFor(() => expect(state.layouts["corp-auth"]?.annotations.map((a) => a.id)).toEqual(["old-1", "old-2"]));
     expect(state.layouts["corp-auth"]!.annotations[0]).toMatchObject({ kind: "rect", x: 10, y: 20, w: 100, h: 50, locked: true, hidden: false });
     expect(state.layouts["corp-auth"]!.annotations[1]!.svg).toBe('<text x="5" y="19">legacy note</text>');
@@ -652,7 +708,11 @@ describe("the document validate gate and the side-car annotations", () => {
     await screen.findAllByTestId("canvas-host");
     state.refuse.layout = new (await import("../src/api/client")).ApiError({ kind: "bad-request", status: 400, message: "layout for 'corp-auth': annotations[1] `svg` carries a <script> element, which a layout annotation may not (the file is served back to browsers)", url: "" });
     fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    await screen.findByTestId("layout-dirty");
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await screen.findByText(/could not save the layout: layout for 'corp-auth': annotations\[1\] `svg` carries a <script> element/);
+    // The refused changes stay on the canvas, unsaved.
+    expect(screen.getByTestId("layout-dirty")).toBeTruthy();
   });
 });
 
