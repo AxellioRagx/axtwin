@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (eighteen commits past
+**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (nineteen commits past
 `wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
 the user pushes. Rule restated 2026-10-31: **commit each track as it lands**.
 
@@ -36,12 +36,19 @@ unreviewed tracks and fixed what the reviews found:
    `GET /api/twins/{id}/cast` publishes `members` per node and `observed_cidr` per segment; the
    canvas writes one override per member and disables promote, with the reason, where the
    roster cannot key it.
+5. `387edc3` **console titled axTwin; Canvas a top-menu area** (user request 2026-10-31): the
+   brand and page title read axTwin (engine, CLI and API keep their names); Canvas joins the
+   top menu with a drop-down of every twin in the catalog plus "New design…", and Designs /
+   New design beneath it. `/canvas` lists the twins and the uncast imprints; `/canvas/new`
+   writes a blank twin-config (one empty segment, no nodes -- the engine refuses a config with
+   no segment; checked through `validate_document`) or a copy of one in the catalog through A3
+   and opens it; `/canvas/:id` is the canvas (`/twins/:id/canvas` still reaches it).
 
 ## Current state
 
-- **Tests at HEAD (`a2240c7`):** engine 4164 passed / 19 skipped / 2 failed (the untracked
+- **Tests at HEAD (`387edc3`):** engine 4164 passed / 19 skipped / 2 failed (the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest —
-  pre-existing, decide commit-or-remove); discovery 2422 passed / 1 skipped; ui 122 passed,
+  pre-existing, decide commit-or-remove); discovery 2422 passed / 1 skipped; ui 141 passed,
   typecheck + build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - The running `axrange serve` (the 2026-10-28 process on `0.0.0.0:8080`) serves `ui/dist` from
@@ -52,7 +59,8 @@ unreviewed tracks and fixed what the reviews found:
 
 ## Next steps (ordered)
 
-1. Eyes on the canvas against the largest cast twin (element budgets are measured, not assumed);
+1. Eyes on the Canvas area and the canvas against the largest cast twin (element budgets are
+   measured, not assumed); create one blank design from `/canvas/new` with the write token;
    re-cast one imprint and exercise promote end to end.
 2. Libvirt end to end is blocked by the confirm-first `vmid` → guest-handle bump (the `int(vmid)`
    readers in `config_exec/backend.py`, `planner/{teardown,inventory,access}.py`,
