@@ -58,6 +58,7 @@ from typing import Iterator, Optional
 
 from aximprint.events import Event, IdentityEvent, SensorHealthEvent, ServiceEvent
 from aximprint.ingest.base import register
+from aximprint.ingest.reorder import is_ip
 from aximprint.ingest.siem import http as _http
 from aximprint.ingest.siem import rows as _rows
 from aximprint.ingest.siem.http import HttpPullPlugin, HttpSourceError, Locator
@@ -82,6 +83,7 @@ LEAF_ROWS_MAX = _http.LEAF_ROWS_MAX
 #: `corelight:conn`), Splunk's Zeek/Bro add-ons (`zeek:conn:json`, `bro:dns:json`,
 #: `zeek_conn`). The captured group is the stem.
 _ZEEK_SOURCETYPE = re.compile(r"^(?:corelight|zeek|bro)[_:]([a-z0-9_]+?)(?::json)?$", re.I)
+_INDEX_OK = re.compile(r"^[A-Za-z0-9_*\-]+$")     # spliced into SPL: nothing else is admitted
 _ZEEK_SOURCETYPE_SPL = ("(sourcetype=corelight_* OR sourcetype=corelight:* OR "
                         "sourcetype=zeek* OR sourcetype=bro*)")
 
@@ -113,7 +115,8 @@ def zeek_stem_of(sourcetype: str) -> Optional[str]:
 
 def _zeek_row(result: dict, ts: float) -> dict:
     """The row the Zeek parser sees: the sensor's verbatim JSON (`_raw`) winning over the
-    extracted fields, with `ts` from `_time` when the raw event carries none."""
+    extracted fields, with `ts` from `_time` when the raw event carries none (an ISO-8601
+    `ts` in the raw JSON is converted by `rows.zeek_events`)."""
     row = {k: v for k, v in result.items() if k not in _SPLUNK_META and not k.startswith("_")}
     raw = _rows.parse_raw_json(result.get("_raw"))
     if raw:
@@ -145,6 +148,8 @@ class SplunkPlugin(HttpPullPlugin):
 
     # -- locator ------------------------------------------------------------------
 
+    empty_index_hint = "omit it to read every non-internal index (index=*)"
+
     def locator(self, source: str) -> Locator:
         loc = super().locator(source)
         dm = loc.options.get("datamodel")
@@ -152,9 +157,10 @@ class SplunkPlugin(HttpPullPlugin):
             raise SplunkError(f"splunk locator datamodel={dm!r} is not one of "
                               f"{list(AGGREGATE_DATAMODELS)} — the aggregate fallback reads "
                               f"only the data model whose fields this build maps")
-        if "index" in loc.options and not loc.options["index"]:
-            raise SplunkError("splunk locator index= is empty; omit it to read every "
-                              "non-internal index (index=*)")
+        idx = loc.options.get("index")
+        if idx is not None and not _INDEX_OK.match(idx):
+            raise SplunkError(f"splunk locator index={idx!r} is not an index name or wildcard "
+                              f"(letters, digits, '_', '-', '*') — it is spliced into the search")
         return loc
 
     @staticmethod
@@ -168,27 +174,33 @@ class SplunkPlugin(HttpPullPlugin):
     # -- transport ----------------------------------------------------------------
 
     def _request(self, base: str, path: str, data: Optional[dict] = None) -> urllib.request.Request:
-        headers = {"Accept": "application/json", **_http.auth_headers(key_scheme="Bearer")}
-        body = urllib.parse.urlencode(data).encode("utf-8") if data is not None else None
-        if body is not None:
-            headers["Content-Type"] = "application/x-www-form-urlencoded"
-        url = f"{base}{path}"
         if data is None:
-            url = f"{url}?output_mode=json"
-        return urllib.request.Request(url, data=body, headers=headers,
-                                      method="POST" if body is not None else "GET")
+            return _http.request(f"{base}{path}?output_mode=json", key_scheme="Bearer")
+        return _http.request(f"{base}{path}", key_scheme="Bearer",
+                             data=urllib.parse.urlencode(data).encode("utf-8"),
+                             content_type="application/x-www-form-urlencoded")
 
-    def _export(self, base: str, spl: str) -> list[dict]:
+    def _export(self, base: str, spl: str,
+                warnings: Optional[list[str]] = None) -> list[dict]:
         """One `search/v2/jobs/export` call: the result rows of a streamed search.
 
         The body is newline-delimited JSON, one object per result (`{"preview": false,
         "offset": n, "result": {...}, "lastrow": true}`); a `preview` object is skipped
         (never final), a `messages` object with an `ERROR`/`FATAL` entry fails the leaf by
-        name — a search that could not run must not read as an empty window.
+        name — a search that could not run must not read as an empty window. A `WARN`
+        message (an unreachable search peer, results that may be incomplete) does not fail the
+        leaf: its text is appended to `warnings` for the caller to turn into a health event
+        once the leaf is consumed.
         """
         req = self._request(base, EXPORT_PATH,
                             {"search": spl, "output_mode": "json", "preview": "false"})
-        body = _http.fetch(req, label="splunk export", base=base, error=SplunkError)
+        try:
+            body = _http.fetch(req, label="splunk export", base=base, error=SplunkError)
+        except SplunkError as exc:
+            if "HTTP 404" in str(exc):
+                raise SplunkError(f"{exc} -- search/v2/jobs/export needs Splunk 9.0.1 or "
+                                  f"later") from exc
+            raise
         rows: list[dict] = []
         for line in body.splitlines():
             if not line.strip():
@@ -200,8 +212,11 @@ class SplunkPlugin(HttpPullPlugin):
             if not isinstance(obj, dict):
                 raise SplunkError(f"splunk export returned {type(obj).__name__}, expected objects")
             for msg in obj.get("messages") or []:
-                if isinstance(msg, dict) and str(msg.get("type", "")).upper() in ("ERROR", "FATAL"):
+                kind = str(msg.get("type", "")).upper() if isinstance(msg, dict) else ""
+                if kind in ("ERROR", "FATAL"):
                     raise SplunkError(f"splunk search failed: {msg.get('text', msg)} :: {spl}")
+                if kind == "WARN" and warnings is not None:
+                    warnings.append(str(msg.get("text", msg)))
             if obj.get("preview"):
                 continue
             result = obj.get("result")
@@ -212,12 +227,14 @@ class SplunkPlugin(HttpPullPlugin):
     # -- SPL ----------------------------------------------------------------------
 
     def _search_spl(self, loc: Locator, clause: str, lo: float, hi: float, limit: int) -> str:
-        return (f"search index={self._index(loc)} {clause} earliest={int(lo)} "
-                f"latest={int(hi)} | head {int(limit)}")
+        a, b = _http.second_bounds(lo, hi)
+        return (f"search index={self._index(loc)} {clause} earliest={a} "
+                f"latest={b} | head {int(limit)}")
 
     def _tstats_spl(self, loc: Locator, lo: float, hi: float, limit: int) -> str:
         """The aggregate fallback: one row per (second, 5-tuple) with summed counters."""
         dm = loc.options["datamodel"]
+        a, b = _http.second_bounds(lo, hi)
         return (f"| tstats count sum(All_Traffic.bytes_in) as bytes_in "
                 f"sum(All_Traffic.bytes_out) as bytes_out "
                 f"sum(All_Traffic.packets_in) as packets_in "
@@ -225,7 +242,7 @@ class SplunkPlugin(HttpPullPlugin):
                 f"max(All_Traffic.duration) as duration values(All_Traffic.action) as action "
                 f"values(All_Traffic.app) as app "
                 f"from datamodel={dm}.All_Traffic "
-                f"where index={self._index(loc)} earliest={int(lo)} latest={int(hi)} "
+                f"where index={self._index(loc)} earliest={a} latest={b} "
                 f"by _time span=1s All_Traffic.src All_Traffic.src_port All_Traffic.dest "
                 f"All_Traffic.dest_port All_Traffic.transport "
                 f"| rename All_Traffic.* as * | head {int(limit)}")
@@ -254,23 +271,10 @@ class SplunkPlugin(HttpPullPlugin):
                 lasts.append(_rows.epoch(r["last_ts"], "tstats.last_ts", SplunkError))
         return (min(firsts) if firsts else None, max(lasts) if lasts else None)
 
-    def probe(self, source: str) -> dict:
-        """`server/info` for reachability, one `tstats` for the span and the indexes the pull
-        will read (under `extra.indexes`, each with its own span and event count). Never an
-        event."""
-        try:
-            loc = self.locator(source)
-            info = _http.fetch_json(self._request(loc.base, INFO_PATH), label="splunk server/info",
-                                    base=loc.base, error=SplunkError)
-            span_rows = self._span_rows(loc)
-        except HttpSourceError as exc:
-            return {"supported": True, "reachable": False, "error": str(exc),
-                    "first_ts": None, "last_ts": None, "vantage": None, "extra": {}}
-        content = {}
-        if isinstance(info, dict):
-            entries = info.get("entry") or []
-            if entries and isinstance(entries[0], dict):
-                content = entries[0].get("content") or {}
+    @staticmethod
+    def _span_index_rows(span_rows: list[dict]) -> list[dict]:
+        """Per-index span rows with their timestamps normalized; a malformed one raises
+        `SplunkError` (the probe answers it, it does not crash)."""
         indexes = []
         for r in span_rows:
             indexes.append({
@@ -281,6 +285,29 @@ class SplunkPlugin(HttpPullPlugin):
                             if r.get("last_ts") not in (None, "") else None),
                 "events": as_int(r.get("events")) or 0,
             })
+        return indexes
+
+    def probe(self, source: str) -> dict:
+        """`server/info` for reachability, one `tstats` for the span and the indexes the pull
+        will read (under `extra.indexes`, each with its own span and event count). Never an
+        event.
+
+        The span is ALL events per index (`tstats ... by index`); Elastic's is filtered to
+        `event.category: network`. Splunk has no portable "network" predicate over raw events
+        (CIM tags are search-time), so the two spans differ by design (SPEC.md Notes)."""
+        try:
+            loc = self.locator(source)
+            info = _http.fetch_json(self._request(loc.base, INFO_PATH), label="splunk server/info",
+                                    base=loc.base, error=SplunkError)
+            span_rows = self._span_rows(loc)
+            indexes = self._span_index_rows(span_rows)
+        except HttpSourceError as exc:
+            return self._unreachable(exc)
+        content = {}
+        if isinstance(info, dict):
+            entries = info.get("entry") or []
+            if entries and isinstance(entries[0], dict):
+                content = entries[0].get("content") or {}
         firsts = [i["first_ts"] for i in indexes if i["first_ts"] is not None]
         lasts = [i["last_ts"] for i in indexes if i["last_ts"] is not None]
         return {
@@ -313,25 +340,41 @@ class SplunkPlugin(HttpPullPlugin):
         clause = self._STREAM_CLAUSES[kind]
 
         def leaf(a: float, b: float, limit: int) -> list[dict]:
-            return self._export(loc.base, self._search_spl(loc, clause, a, b, limit))
+            warnings: list[str] = []
+            rows = self._export(loc.base, self._search_spl(loc, clause, a, b, limit), warnings)
+            if len(rows) < limit:       # only a consumed leaf speaks; a full page is re-read
+                self._warn(kind, a, warnings)
+            return rows
 
         rows = _http.bisected_rows(leaf, lo, hi, self._start, page_rows=PAGE_ROWS,
                                    leaf_rows_max=LEAF_ROWS_MAX, label=f"splunk {kind}",
                                    error=SplunkError)
         return self._leaf_stream(rows, lambda r: self._route(loc, kind, r))
 
+    def _warn(self, label: str, ts: float, warnings: list[str]) -> None:
+        """A `WARN` from a consumed leaf is the server saying its answer may be partial."""
+        for text in dict.fromkeys(warnings):
+            self._health.append(SensorHealthEvent(
+                ts=float(ts), kind="partial_results", value=1.0,
+                detail=f"splunk {label} search warned: {text}"))
+
     def _aggregate_stream(self, loc: Locator, lo: float, hi: float) -> Iterator[Event]:
         dm = loc.options["datamodel"]
 
         def leaf(a: float, b: float, limit: int) -> list[dict]:
-            rows = self._export(loc.base, self._tstats_spl(loc, a, b, limit))
+            warnings: list[str] = []
+            rows = self._export(loc.base, self._tstats_spl(loc, a, b, limit), warnings)
+            if len(rows) < limit:
+                self._warn("tstats", a, warnings)
             if rows and len(rows) < limit:
                 # A short page is the one that gets consumed: label it, once per leaf.
                 self._health.append(SensorHealthEvent(
                     ts=float(a), kind="aggregate_fallback",
                     value=float(sum(as_int(r.get("count")) or 0 for r in rows)),
                     detail=f"splunk tstats over datamodel={dm}: server-side aggregate by "
-                           f"1s/5-tuple ({len(rows)} groups); silences inter-arrival cadence, "
+                           f"1s/5-tuple ({len(rows)} groups); `count` is a FLOW count — one "
+                           f"FlowEvent per (second, 5-tuple) group, so connection counts are "
+                           f"understated; a multi-valued action reads as blocked if any is; silences inter-arrival cadence, "
                            f"per-flow size distribution and per-flow duration; every flow "
                            f"carries counters_imputed"))
             return rows
@@ -341,16 +384,8 @@ class SplunkPlugin(HttpPullPlugin):
                                    error=SplunkError)
         return self._leaf_stream(rows, lambda r: self._cim_flow(r, aggregate=True))
 
-    @staticmethod
-    def _start(r: dict) -> Optional[float]:
-        """The leaf partition key: the row's `_time` — the field `earliest`/`latest` select on."""
-        t = r.get("_time")
-        if t in (None, ""):
-            return None
-        try:
-            return _rows.epoch(t, "_time", SplunkError)
-        except SplunkError:
-            return None
+    # The leaf partition key: the row's `_time` — the field `earliest`/`latest` select on.
+    _start = staticmethod(_rows.start_from("_time", SplunkError))
 
     # -- row routing ----------------------------------------------------------------
 
@@ -370,7 +405,7 @@ class SplunkPlugin(HttpPullPlugin):
             ts = self._start(r)
             if ts is None:
                 return
-            yield from _rows.zeek_events(stem, _zeek_row(r, ts))
+            yield from _rows.zeek_events(stem, _zeek_row(r, ts), ts)
             return
         if kind == "flow":
             yield from self._cim_flow(r)
@@ -389,15 +424,15 @@ class SplunkPlugin(HttpPullPlugin):
         ts = self._start(r)
         if not (src and dst) or ts is None:
             return
+        if not (is_ip(src) and is_ip(dst)):
+            # CIM `src`/`dest` may be hostnames; a flow keyed on a name binds nothing.
+            self._count(self.unrecognized_stems, "(flow src/dest not an IP)")
+            return
         bytes_in, bytes_out = as_int(r.get("bytes_in")), as_int(r.get("bytes_out"))
         pkts_in, pkts_out = as_int(r.get("packets_in")), as_int(r.get("packets_out"))
         b_out, b_in, p_out, p_in, imputed = _rows.netflow_counters(
             bytes_in, bytes_out, pkts_in, pkts_out, as_int(r.get("bytes")), as_int(r.get("packets")))
-        action = as_str(r.get("action"))
-        if action:
-            state, state_class = _rows.firewall_state(action, bytes_in=b_in, pkts_in=p_in)
-        else:
-            state, state_class = "", "unknown"          # unpaired NetFlow/IPFIX
+        state, state_class = _rows.flow_state(r.get("action"), b_in, p_in)
         if aggregate:
             state = f"tstats/{state}" if state else "tstats"
             imputed = True
@@ -425,7 +460,7 @@ class SplunkPlugin(HttpPullPlugin):
         ttl = float(as_int(r.get("ttl")) or 0)
         for a in answers or []:
             a = as_str(a)
-            if _rows.is_ip(a):
+            if is_ip(a):
                 yield IdentityEvent(ts=ts, kind="dns", ip=a, hostname=name, record_ttl=ttl)
 
     def _cim_web(self, r: dict) -> Iterator[Event]:
@@ -434,6 +469,9 @@ class SplunkPlugin(HttpPullPlugin):
         ts = self._start(r)
         ip = as_str(first_of(r, "dest_ip", "dest"))
         if ts is None or not ip:
+            return
+        if not is_ip(ip):
+            self._count(self.unrecognized_stems, "(service dest not an IP)")
             return
         attrs = {k: v for k, v in {
             "method": as_str(r.get("http_method")),
@@ -450,6 +488,9 @@ class SplunkPlugin(HttpPullPlugin):
         ts = self._start(r)
         ip = as_str(first_of(r, "dest_ip", "dest"))
         if ts is None or not ip:
+            return
+        if not is_ip(ip):
+            self._count(self.unrecognized_stems, "(service dest not an IP)")
             return
         attrs = {k: v for k, v in {
             "server_name": as_str(first_of(r, "ssl_name", "ssl_subject_common_name")),

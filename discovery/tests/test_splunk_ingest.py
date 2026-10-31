@@ -13,6 +13,7 @@ import datetime as _dt
 import io
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -100,7 +101,7 @@ def _stream_of(spl: str) -> str:
 
 
 def _server(monkeypatch, tables: dict | None = None, *, span=None, info=None, seen=None,
-            fill=None):
+            fill=None, messages=None):
     """Route every urlopen through a fake Splunk.
 
     `tables` holds authored rows per stream (`flow`, `dns`, `web`, `certs`, `zeek`, `tstats`);
@@ -135,10 +136,14 @@ def _server(monkeypatch, tables: dict | None = None, *, span=None, info=None, se
             else:
                 rows = [r for r in tables.get(kind, [])
                         if lo <= _dt.datetime.fromisoformat(r["_time"]).timestamp() < hi][:limit]
-        body = "\n".join(json.dumps({"preview": False, "offset": i, "result": r,
-                                     "lastrow": i == len(rows) - 1})
-                         for i, r in enumerate(rows))
-        return _Resp(body.encode())
+        lines = [{"preview": False, "offset": i, "result": r, "lastrow": i == len(rows) - 1}
+                 for i, r in enumerate(rows)]
+        if messages and kind == "flow":
+            if lines:
+                lines[0]["messages"] = messages
+            else:
+                lines.append({"preview": False, "messages": messages})
+        return _Resp("\n".join(json.dumps(x) for x in lines).encode())
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     return seen
@@ -593,3 +598,119 @@ def test_probe_unreachable_is_an_answer_not_a_crash(monkeypatch):
 def test_probe_refuses_a_bare_host_like_the_locator_does():
     got = get_plugin("splunk").probe("splunk:10.0.0.1:8089")
     assert got["reachable"] is False and "absolute http(s) base URL" in got["error"]
+
+
+# -- review hardening ------------------------------------------------------------------------------
+
+def _flows(events):
+    return [e for e in events if isinstance(e, FlowEvent)]
+
+
+def test_a_window_that_bisects_to_fractional_bounds_emits_every_row(monkeypatch):
+    """[T0, T0+3) at 10 rows/s with page 8 used to halve at T0+1.5, and `int()` on the bounds
+    cut the half-second off both neighbours — rows silently lost."""
+    monkeypatch.setattr(mod, "PAGE_ROWS", 8)
+    monkeypatch.setattr(mod, "LEAF_ROWS_MAX", 64)
+    _server(monkeypatch, {"flow": [_fw(T0 + i / 10) for i in range(30)]})
+    assert len(_flows(_pull(lo=T0, hi=T0 + 3))) == 30
+    got = _flows(_pull(lo=T0 + 0.5, hi=T0 + 2.5))
+    assert sorted(f.ts for f in got) == [T0 + i / 10 for i in range(5, 25)], \
+        "fractional caller bounds are widened to whole seconds and trimmed by own start"
+
+
+def test_a_newest_first_answer_still_comes_out_ascending(monkeypatch):
+    rows = [_fw(T0 + i) for i in range(5)]
+    _server(monkeypatch, fill=lambda kind, lo, hi, limit: rows[::-1] if kind == "flow" else [])
+    ts = [f.ts for f in _flows(_pull())]
+    assert ts == sorted(ts) and len(ts) == 5
+
+
+def test_a_corelight_row_with_an_iso_ts_is_not_dropped(monkeypatch):
+    row = _corelight(T0 + 1)
+    raw = json.loads(row["_raw"])
+    raw["ts"] = _iso(T0 + 1)
+    row["_raw"] = json.dumps(raw)
+    _server(monkeypatch, {"zeek": [row]})
+    f, = _flows(_pull())
+    assert f.state == "SF" and f.ts == pytest.approx(T0 + 1)
+
+
+def test_a_warn_message_becomes_a_partial_results_health_event(monkeypatch):
+    _server(monkeypatch, {"flow": [_fw(T0 + 1)]}, messages=[
+        {"type": "WARN", "text": "Search peer idx2 timed out; results may be incomplete"}])
+    events = _pull()
+    h, = [e for e in events if isinstance(e, SensorHealthEvent)]
+    assert h.kind == "partial_results" and "idx2" in h.detail
+    assert len(_flows(events)) == 1, "a WARN does not fail the leaf"
+
+
+def test_an_error_message_still_fails_the_leaf(monkeypatch):
+    _server(monkeypatch, {"flow": [_fw(T0 + 1)]}, messages=[{"type": "ERROR", "text": "bad"}])
+    with pytest.raises(SplunkError, match="search failed"):
+        _pull()
+
+
+@pytest.mark.parametrize("bad", ["a b", "a|delete", "x%20OR%20y", "a=b", "a\"b", "i;j"])
+def test_an_index_option_outside_the_name_alphabet_is_refused(bad):
+    with pytest.raises(SplunkError, match="index"):
+        get_plugin("splunk").locator(f"splunk:https://x:8089?index={bad}")
+
+
+def test_wildcard_and_dashed_index_names_are_admitted():
+    for ok in ("fw-*", "corelight_1", "*"):
+        assert get_plugin("splunk").locator(f"splunk:https://x:8089?index={ok}").options["index"] == ok
+
+
+def test_cim_hostnames_in_src_dest_are_counted_not_emitted(monkeypatch):
+    bad = _fw(T0 + 1)
+    bad.pop("src_ip")
+    bad.pop("dest_ip")
+    bad.update(src="host-a.corp", dest="host-b.corp")
+    _server(monkeypatch, {"flow": [bad, _fw(T0 + 2)]})
+    plugin = get_plugin("splunk")
+    flows = _flows(list(plugin.events(BASE, T0, T0 + 3600)))
+    assert len(flows) == 1
+    assert plugin.unrecognized_stems["(flow src/dest not an IP)"] == 1
+
+
+def test_aggregate_names_a_flow_count_and_a_multivalued_action_reads_blocked(monkeypatch):
+    _server(monkeypatch, {"tstats": [
+        {"_time": _iso(T0 + 1), "count": "7", "src": "10.0.0.1", "src_port": "1",
+         "dest": "10.0.0.2", "dest_port": "443", "transport": "tcp", "bytes_in": "9",
+         "bytes_out": "9", "action": ["allowed", "blocked"]}]})
+    events = _pull(AGG)
+    f, = _flows(events)
+    assert f.state == "tstats/blocked" and f.state_class == "unknown"
+    h, = [e for e in events if isinstance(e, SensorHealthEvent)]
+    assert "FLOW count" in h.detail and "blocked if any" in h.detail
+
+
+def test_a_malformed_span_answers_the_probe_instead_of_crashing(monkeypatch):
+    _server(monkeypatch, span=[{"index": "fw", "first_ts": "garbage", "last_ts": "1",
+                                "events": "1"}])
+    got = get_plugin("splunk").probe(BASE)
+    assert got["reachable"] is False and "tstats.first_ts" in got["error"]
+
+
+def test_a_404_on_export_names_the_minimum_splunk_version(monkeypatch):
+    def nf(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 404, "nf", {}, io.BytesIO(b""))
+    monkeypatch.setattr(urllib.request, "urlopen", nf)
+    with pytest.raises(SplunkError, match="9.0.1"):
+        _pull()
+
+
+def test_the_corelight_suricata_alert_sourcetype_is_named_not_unrecognized(monkeypatch):
+    row = _corelight(T0 + 1, stem="suricata_corelight")
+    _server(monkeypatch, {"zeek": [row]})
+    plugin = get_plugin("splunk")
+    list(plugin.events(BASE, T0, T0 + 3600))
+    assert plugin.unparsed_stems["corelight_suricata_corelight"] == 1
+    assert "corelight_suricata_corelight" not in plugin.unrecognized_stems
+
+
+def test_basic_auth_with_an_empty_password_is_refused(monkeypatch):
+    monkeypatch.setenv(ENV_USER, "svc")
+    monkeypatch.setenv(ENV_PASSWORD, "")
+    _server(monkeypatch)
+    assert get_plugin("splunk").probe(BASE)["reachable"] is False

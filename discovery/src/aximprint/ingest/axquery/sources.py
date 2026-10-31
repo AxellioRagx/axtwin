@@ -239,7 +239,8 @@ class AxQuerySource:
         this project treats as a lie (`LES-006`).
         """
         def leaf(lo: float, hi: float, limit: int) -> list[dict]:
-            blob = self.get(path, limit=limit, after=int(lo), before=int(hi), **params)
+            a, b = _http.second_bounds(lo, hi)     # widen to whole seconds, never truncate
+            blob = self.get(path, limit=limit, after=a, before=b, **params)
             return blob.get(key) or []
 
         # The discipline is `siem/http.py::bisected_rows` (lifted from here); the NUMBERS stay

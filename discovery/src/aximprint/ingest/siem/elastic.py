@@ -15,7 +15,7 @@ Credentials: `AXIMPRINT_SOURCE_USER`/`_PASSWORD` -> HTTP Basic; `AXIMPRINT_SOURC
 `Authorization: ApiKey <key>`. Never `argv`, never the locator (`http.py`).
 
 One stream per pull: a bool filter of `@timestamp` in the leaf's `[lo, hi)` AND
-`event.category: network`, sorted by `@timestamp` then `_shard_doc`, walked under ONE
+`event.category: network`, sorted by `@timestamp` then `_shard_doc` (`_id` on OpenSearch, which has no `_shard_doc`), walked under ONE
 point-in-time with `search_after` — never `from`+`size`, whose `index.max_result_window` cap
 is exactly the silent truncation this family refuses. The leaf discipline is the family's:
 a leaf whose rows reach its limit is split; at the floor the limit doubles and the leaf is
@@ -55,8 +55,9 @@ import urllib.parse
 import urllib.request
 from typing import Any, Iterator, Optional
 
-from aximprint.events import Event, IdentityEvent, ServiceEvent
+from aximprint.events import Event, IdentityEvent, SensorHealthEvent, ServiceEvent
 from aximprint.ingest.base import register
+from aximprint.ingest.reorder import is_ip
 from aximprint.ingest.siem import http as _http
 from aximprint.ingest.siem import rows as _rows
 from aximprint.ingest.siem.http import HttpPullPlugin, HttpSourceError, Locator
@@ -79,7 +80,7 @@ LEAF_ROWS_MAX = _http.LEAF_ROWS_MAX
 #: parser sees the names it knows. Keyed by stem, `filebeat leaf -> zeek field`.
 _FILEBEAT_RENAMES: dict[str, dict[str, str]] = {
     "conn": {"state": "conn_state"},
-    "dhcp": {"address.assigned": "assigned_addr", "address.requested": "requested_addr",
+    "dhcp": {"address.mac": "mac", "address.assigned": "assigned_addr", "address.requested": "requested_addr",
              "hostname": "host_name", "lease_time": "lease_time"},
 }
 
@@ -105,15 +106,6 @@ _ECS_TO_ZEEK = {
 
 class ElasticError(HttpSourceError):
     """Elasticsearch was unreachable, refused the pull, or answered with something unreadable."""
-
-
-def _categories(flat: dict) -> set[str]:
-    v = flat.get("event.category")
-    if isinstance(v, str):
-        return {v.lower()}
-    if isinstance(v, (list, tuple)):
-        return {str(x).lower() for x in v}
-    return set()
 
 
 def _listed(value: object) -> list[str]:
@@ -146,15 +138,11 @@ class ElasticPlugin(HttpPullPlugin):
     def __init__(self) -> None:
         super().__init__()
         self._distribution: Optional[str] = None
+        self._pit: Optional[str] = None
 
     # -- locator ------------------------------------------------------------------
 
-    def locator(self, source: str) -> Locator:
-        loc = super().locator(source)
-        if "index" in loc.options and not loc.options["index"]:
-            raise ElasticError(f"elastic locator index= is empty; omit it for the default "
-                               f"pattern ({DEFAULT_INDEX})")
-        return loc
+    empty_index_hint = f"omit it for the default pattern ({DEFAULT_INDEX})"
 
     @staticmethod
     def _index(loc: Locator) -> str:
@@ -164,13 +152,10 @@ class ElasticPlugin(HttpPullPlugin):
 
     def _request(self, base: str, path: str, body: Optional[dict] = None,
                  method: Optional[str] = None) -> urllib.request.Request:
-        headers = {"Accept": "application/json", **_http.auth_headers(key_scheme="ApiKey")}
-        data = None
-        if body is not None:
-            data = json.dumps(body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-        return urllib.request.Request(f"{base}{path}", data=data, headers=headers,
-                                      method=method or ("POST" if data is not None else "GET"))
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        return _http.request(f"{base}{path}", key_scheme="ApiKey", data=data,
+                             content_type="application/json" if data is not None else None,
+                             method=method)
 
     def _json(self, loc: Locator, path: str, body: Optional[dict] = None,
               method: Optional[str] = None, label: str = "elastic") -> Any:
@@ -216,46 +201,77 @@ class ElasticPlugin(HttpPullPlugin):
 
     @staticmethod
     def _query(lo: float, hi: float) -> dict:
+        a, b = _http.second_bounds(lo, hi)
         return {"bool": {"filter": [
-            {"range": {"@timestamp": {"gte": int(lo), "lt": int(hi), "format": "epoch_second"}}},
+            {"range": {"@timestamp": {"gte": a, "lt": b, "format": "epoch_second"}}},
             {"term": {"event.category": "network"}},
         ]}}
 
-    def _leaf(self, loc: Locator, pit: str, lo: float, hi: float, limit: int) -> list[dict]:
+    def _tiebreaker(self) -> dict:
+        """The sort's second key, so `search_after` never skips equal timestamps. Elasticsearch:
+        `_shard_doc`, the PIT-only tiebreaker (7.12+). OpenSearch forked before it existed, so
+        it sorts on `_id` instead — a field every OpenSearch version can sort on (fielddata on
+        `_id` is enabled by default there)."""
+        if self._distribution == "opensearch":
+            return {"_id": "asc"}
+        return {"_shard_doc": "asc"}
+
+    def _leaf(self, loc: Locator, lo: float, hi: float, limit: int) -> list[dict]:
         """One leaf: `search_after` pages of at most `PAGE_ROWS` under the PIT until the leaf
-        has `limit` rows (full -> the caller splits or widens) or a page comes back short."""
+        has `limit` rows (full -> the caller splits or widens) or a page comes back short.
+
+        Health is recorded only when the leaf is CONSUMED (`len(rows) < limit`): a full leaf is
+        re-read narrower and would otherwise report the same failed shard once per re-read."""
         rows: list[dict] = []
+        notes: list[SensorHealthEvent] = []
+        no_source = 0
         after: Optional[list] = None
         while len(rows) < limit:
             size = min(int(PAGE_ROWS), limit - len(rows))
             body: dict = {
                 "size": size, "query": self._query(lo, hi), "track_total_hits": False,
-                "pit": {"id": pit, "keep_alive": PIT_KEEP_ALIVE},
-                "sort": [{"@timestamp": "asc"}, {"_shard_doc": "asc"}],
+                "pit": {"id": self._pit, "keep_alive": PIT_KEEP_ALIVE},
+                "sort": [{"@timestamp": "asc"}, self._tiebreaker()],
             }
             if after is not None:
                 body["search_after"] = after
             blob = self._json(loc, "/_search", body, label="elastic _search")
             if not isinstance(blob, dict):
                 raise ElasticError(f"elastic _search returned {type(blob).__name__}")
+            if blob.get("pit_id"):
+                self._pit = str(blob["pit_id"])       # the server may rotate it; use the latest
+            span = f"[{int(lo)}, {int(hi)})"
             shards = blob.get("_shards") or {}
             total, failed = int(shards.get("total") or 0), int(shards.get("failed") or 0)
             if total and failed:
-                self._health.append(_http.coverage_event(
+                notes.append(_http.coverage_event(
                     float(lo), (total - failed) / total,
                     f"elastic _shards: {total - failed}/{total} shards answered, {failed} "
-                    f"failed for [{int(lo)}, {int(hi)})"))
+                    f"failed for {span}"))
+            if blob.get("timed_out"):
+                notes.append(SensorHealthEvent(
+                    ts=float(lo), kind="partial_results", value=1.0,
+                    detail=f"elastic _search timed_out for {span}: the page may be partial"))
             hits = ((blob.get("hits") or {}).get("hits")) or []
             for h in hits:
                 src = h.get("_source") if isinstance(h, dict) else None
                 if isinstance(src, dict):
                     rows.append(src)
+                else:
+                    # Keeps the leaf's fullness test honest; `_start` places it nowhere.
+                    rows.append({})
+                    no_source += 1
             if len(hits) < size:
                 break
             after = hits[-1].get("sort")
             if after is None:
                 raise ElasticError("elastic _search hit carries no sort values; cannot page "
                                    "with search_after")
+        if len(rows) < limit:
+            self._health.extend(notes)
+            if no_source:
+                self.unrecognized_stems["(hit without _source)"] = (
+                    self.unrecognized_stems.get("(hit without _source)", 0) + no_source)
         return rows
 
     # -- contract -----------------------------------------------------------------
@@ -286,16 +302,18 @@ class ElasticPlugin(HttpPullPlugin):
 
     def probe(self, source: str) -> dict:
         """`GET /` for reachability and the distribution, `_resolve/index` for what the pattern
-        names, one aggregation for the span and the hit count. Never an event."""
+        names, one aggregation for the span and the hit count. Never an event. The span and
+        count are over `event.category: network` documents only; Splunk's span is all events
+        per index (SPEC.md Notes)."""
         try:
             loc = self.locator(source)
             info = self._root(loc)
             index = urllib.parse.quote(self._index(loc), safe="*,-_.")
             resolved = self._json(loc, f"/_resolve/index/{index}", label="elastic _resolve")
             span = self._span_blob(loc)
+            first, last = self._agg_ts(span, "first"), self._agg_ts(span, "last")
         except HttpSourceError as exc:
-            return {"supported": True, "reachable": False, "error": str(exc),
-                    "first_ts": None, "last_ts": None, "vantage": None, "extra": {}}
+            return self._unreachable(exc)
         names: list[str] = []
         if isinstance(resolved, dict):
             for key in ("indices", "data_streams", "aliases"):
@@ -306,7 +324,7 @@ class ElasticPlugin(HttpPullPlugin):
         version = info.get("version") or {}
         return {
             "supported": True, "reachable": True, "error": None,
-            "first_ts": self._agg_ts(span, "first"), "last_ts": self._agg_ts(span, "last"),
+            "first_ts": first, "last_ts": last,
             "vantage": None,
             "extra": {
                 "version": version.get("number"),
@@ -322,26 +340,18 @@ class ElasticPlugin(HttpPullPlugin):
         return [self._stream(loc, lo, hi)]
 
     def _stream(self, loc: Locator, lo: float, hi: float) -> Iterator[Event]:
-        pit = self._open_pit(loc)
+        self._pit = self._open_pit(loc)
         try:
             rows = _http.bisected_rows(
-                lambda a, b, limit: self._leaf(loc, pit, a, b, limit), lo, hi, self._start,
+                lambda a, b, limit: self._leaf(loc, a, b, limit), lo, hi, self._start,
                 page_rows=PAGE_ROWS, leaf_rows_max=LEAF_ROWS_MAX, label="elastic network",
                 error=ElasticError)
             yield from self._leaf_stream(rows, self._route)
         finally:
-            self._close_pit(loc, pit)
+            self._close_pit(loc, self._pit)
 
-    @staticmethod
-    def _start(doc: dict) -> Optional[float]:
-        """The leaf partition key: `@timestamp`, the field the range filter selects on."""
-        t = doc.get("@timestamp")
-        if t in (None, ""):
-            return None
-        try:
-            return _rows.epoch(t, "@timestamp", ElasticError)
-        except ElasticError:
-            return None
+    # The leaf partition key: `@timestamp`, the field the range filter selects on.
+    _start = staticmethod(_rows.start_from("@timestamp", ElasticError))
 
     # -- row routing ----------------------------------------------------------------
 
@@ -364,7 +374,7 @@ class ElasticPlugin(HttpPullPlugin):
             if stem not in _rows.ZEEK_STEMS:
                 self._count(self.unrecognized_stems, dataset)
                 return
-            yield from _rows.zeek_events(stem, self._zeek_row(flat, suffix, stem, ts))
+            yield from _rows.zeek_events(stem, self._zeek_row(flat, suffix, stem, ts), ts)
             return
         emitted = False
         if "dns.question.name" in flat:
@@ -415,8 +425,6 @@ class ElasticPlugin(HttpPullPlugin):
         raw = _rows.parse_raw_json(first_of(flat, "event.original", "message"))
         if raw and ("id.orig_h" in raw or "ts" in raw):
             row.update(_rows.flatten(raw))
-        if isinstance(row.get("ts"), str):
-            row["ts"] = _rows.epoch(row["ts"], "zeek.ts", ElasticError)
         return row
 
     @staticmethod
@@ -436,7 +444,7 @@ class ElasticPlugin(HttpPullPlugin):
             if ip not in {a for a, _ in addrs}:
                 addrs.append((ip, 0.0))
         for ip, ttl in addrs:
-            if _rows.is_ip(ip):
+            if is_ip(ip):
                 yield IdentityEvent(ts=ts, kind="dns", ip=ip, hostname=name, record_ttl=ttl)
 
     @staticmethod
@@ -475,17 +483,9 @@ class ElasticPlugin(HttpPullPlugin):
         b_out, b_in, p_out, p_in, imputed = _rows.netflow_counters(
             bytes_in, bytes_out, pkts_in, pkts_out,
             as_int(flat.get("network.bytes")), as_int(flat.get("network.packets")))
-        verdicts = [t.lower() for t in _listed(flat.get("event.type"))]
-        action = next((t for t in verdicts if t in _rows.ALLOWED_ACTIONS | _rows.BLOCKED_ACTIONS),
-                      "")
-        if not action:
-            candidate = as_str(flat.get("event.action")).lower()
-            if candidate in _rows.ALLOWED_ACTIONS | _rows.BLOCKED_ACTIONS:
-                action = candidate
-        if action:
-            state, state_class = _rows.firewall_state(action, bytes_in=b_in, pkts_in=p_in)
-        else:
-            state, state_class = "", "unknown"          # unpaired NetFlow/IPFIX
+        action = (_rows.pick_action(_listed(flat.get("event.type")))
+                  or _rows.pick_action(as_str(flat.get("event.action"))))
+        state, state_class = _rows.flow_state(action, b_in, p_in)
         ns = as_float(flat.get("event.duration"))
         yield _rows.flow_from(
             ts=ts, src_ip=as_str(flat.get("source.ip")), dst_ip=as_str(flat.get("destination.ip")),

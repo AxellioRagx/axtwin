@@ -88,3 +88,11 @@ contract.
   carry events, not logs.
 - The two auth modes beyond `basic` and `api_key` are a control-plane and
   console change and a separate sign-off.
+- Behaviour notes from the review of the first build. Time bounds reach a second-granular
+  server as `floor(lo)`/`ceil(hi)` and a whole-second window is split on a whole second, so
+  no fractional edge drops rows; a leaf's kept rows are sorted by start before they reach the
+  merge (Splunk answers newest-first). A Zeek row's string `ts` (Corelight and JSON shippers
+  write ISO-8601) is converted to epoch in `rows.zeek_events`, falling back to the leaf's
+  start, never dropped. axquery now refuses a locator carrying `?` options or userinfo, as
+  the shared parser does for every vendor. The Splunk probe span is all events per index; the
+  Elastic one is filtered to `event.category: network`.

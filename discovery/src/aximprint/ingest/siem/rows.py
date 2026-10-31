@@ -21,18 +21,19 @@ and a SIEM's alert table is named into `unparsed_stems` by the vendor module ins
 from __future__ import annotations
 
 import datetime as _dt
-import ipaddress
 import json
 from typing import Any, Callable, Iterator, Optional
 
 from aximprint.events import Event, FlowEvent
+# TODO(layering): private names of the zeek reader; a public re-export (and `http.py` moving to
+# `ingest/http.py`) is a decision held for the user.
 from aximprint.ingest.zeek.plugin import _CONN_STATE_CLASS, _PARSERS
 
 __all__ = [
     "ALLOWED_ACTIONS", "BLOCKED_ACTIONS", "ZEEK_ALERT_STEMS", "ZEEK_CONN_STATE_CLASS",
     "ZEEK_STEMS", "as_float", "as_int", "as_str", "epoch", "first_of", "firewall_state",
-    "flatten", "flow_from", "is_alert_stem", "is_ip", "netflow_counters", "parse_raw_json",
-    "zeek_events",
+    "flatten", "flow_from", "flow_state", "is_alert_stem", "netflow_counters", "parse_raw_json",
+    "pick_action", "start_from", "zeek_events",
 ]
 
 #: The Zeek reader's table, re-exported so a test can assert a Zeek-fed row's class came
@@ -43,7 +44,7 @@ ZEEK_CONN_STATE_CLASS = _CONN_STATE_CLASS
 #: them to `AlertEvent` from a log directory it owns, but a SIEM's notice/weird tables are
 #: alert tables and the SPEC keeps alert tables out of every plugin in this family until
 #: `AlertEvent` has a measured second producer.
-ZEEK_ALERT_STEMS = frozenset({"notice", "weird"})
+ZEEK_ALERT_STEMS = frozenset({"notice", "weird", "suricata_corelight"})
 
 #: Every Zeek stem a SIEM row may be routed to: the reader's own parser table minus the alert
 #: stems. Closed — a Zeek-named row whose stem is not here is COUNTED (`unrecognized_stems`),
@@ -107,12 +108,64 @@ def is_alert_stem(stem: str) -> bool:
     return stem in ZEEK_ALERT_STEMS
 
 
-def zeek_events(stem: str, row: dict) -> Iterator[Event]:
+def zeek_events(stem: str, row: dict, start: float) -> Iterator[Event]:
     """Route a Zeek-shaped row (Zeek's own field names) through the Zeek reader's parser for
     `stem`. The caller has already decided the stem is in `ZEEK_STEMS`; this is the one place
     the SIEM family touches the Zeek table, so a `conn_state` reaches `_CONN_STATE_CLASS`
-    exactly as it would from a log directory."""
+    exactly as it would from a log directory.
+
+    The preflight: the reader's parser wants `ts` as epoch seconds and reads anything else as
+    0.0 (the row is then dropped), but a SIEM hands the sensor's verbatim JSON through, and
+    Corelight/JSON shippers write `ts` as ISO-8601. A string `ts` is converted to epoch; a
+    missing or unreadable one falls back to `start` (the row's leaf-partition time)."""
+    ts = row.get("ts")
+    if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+        try:
+            ts = epoch(ts, "zeek.ts", ValueError)
+        except ValueError:
+            ts = start
+        row = {**row, "ts": ts}
     yield from _PARSERS[stem](row)
+
+
+def start_from(field: str, error: type[Exception]) -> Callable[[dict], Optional[float]]:
+    """The leaf-partition key function for a vendor: the row's `field` as epoch seconds, or
+    `None` when absent/unreadable (such a row is skipped, never placed by guess)."""
+    def start(row: dict) -> Optional[float]:
+        t = row.get(field)
+        if t in (None, ""):
+            return None
+        try:
+            return epoch(t, field, error)
+        except error:
+            return None
+    return start
+
+
+def pick_action(values: object) -> str:
+    """One verdict out of a possibly multi-valued action (`values(action)`, `event.type`):
+    a BLOCKED one if any is blocked (the conservative read — a session with a drop in it was
+    not demonstrably carried), else an ALLOWED one, else `''`."""
+    items = [str(v).strip().lower() for v in (values if isinstance(values, (list, tuple))
+                                              else [values]) if v not in (None, "")]
+    for vocab in (BLOCKED_ACTIONS, ALLOWED_ACTIONS):
+        for v in items:
+            if v in vocab:
+                return v
+    return ""
+
+
+def flow_state(action: object, bytes_in: Optional[int],
+               packets_in: Optional[int]) -> tuple[str, str]:
+    """(state, state_class) for a flow row: a firewall verdict when `action` names one (or any
+    non-empty action, kept verbatim and `unknown`), else the unpaired NetFlow `("", "unknown")`."""
+    verb = pick_action(action)
+    if not verb:
+        items = action if isinstance(action, (list, tuple)) else [action]
+        verb = next((str(v).strip().lower() for v in items if v not in (None, "")), "")
+    if not verb:
+        return "", "unknown"
+    return firewall_state(verb, bytes_in=bytes_in, pkts_in=packets_in)
 
 
 def parse_raw_json(raw: object) -> Optional[dict]:
@@ -206,18 +259,6 @@ def as_float(value: object) -> Optional[float]:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def is_ip(value: str) -> bool:
-    """True only for a real IPv4/IPv6 literal — a DNS answer that is a NAME binds nothing the
-    resolver keys on, so it is dropped rather than coerced (`ingest/zeek/plugin.py::_is_ip`)."""
-    if not value:
-        return False
-    try:
-        ipaddress.ip_address(value)
-    except ValueError:
-        return False
-    return True
 
 
 def as_str(value: object) -> str:

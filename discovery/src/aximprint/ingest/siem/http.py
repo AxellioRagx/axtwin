@@ -34,6 +34,7 @@ from __future__ import annotations
 import base64
 import heapq
 import json
+import math
 import os
 import urllib.error
 import urllib.parse
@@ -49,7 +50,7 @@ __all__ = [
     "ENV_API_KEY", "ENV_PASSWORD", "ENV_USER", "CREDENTIAL_OPTION_KEYS", "LEAF_ROWS_MAX",
     "MIN_BISECT_SECONDS", "PAGE_ROWS", "TIMEOUT_SECONDS", "HttpPullPlugin", "HttpSourceError",
     "Locator", "auth_headers", "bisected_rows", "coverage_event", "fetch", "fetch_json",
-    "parse_locator",
+    "parse_locator", "request", "second_bounds",
 ]
 
 #: How a credential reaches a pull: the ENVIRONMENT (see the module docstring). Basic wins
@@ -103,7 +104,10 @@ def auth_headers(env: Optional[dict] = None, *, key_scheme: str = "Bearer") -> d
     user = env.get(ENV_USER)
     password = env.get(ENV_PASSWORD)
     if user:
-        raw = f"{user}:{password or ''}".encode("utf-8")
+        if not password:
+            raise HttpSourceError(f"{ENV_USER} is set but {ENV_PASSWORD} is empty — refusing "
+                                  f"a Basic credential with no password")
+        raw = f"{user}:{password}".encode("utf-8")
         return {"Authorization": "Basic " + base64.b64encode(raw).decode("ascii")}
     key = env.get(ENV_API_KEY)
     if key:
@@ -158,6 +162,27 @@ def parse_locator(locator: str, prefix: str, *, options: tuple[str, ...] = (),
                 raise error(f"{prefix[:-1]} locator option {key!r} given twice: {locator!r}")
             opts[key] = value
     return Locator(base=base, options=opts)
+
+
+def request(url: str, *, key_scheme: str, data: Optional[bytes] = None,
+            content_type: Optional[str] = None,
+            method: Optional[str] = None) -> urllib.request.Request:
+    """The one request builder: `Accept: application/json`, the environment's credential under
+    `key_scheme`, and a body (with its `Content-Type`) when `data` is given. POST when there is a
+    body, GET otherwise, unless `method` says so."""
+    headers = {"Accept": "application/json", **auth_headers(key_scheme=key_scheme)}
+    if data is not None and content_type:
+        headers["Content-Type"] = content_type
+    return urllib.request.Request(url, data=data, headers=headers,
+                                  method=method or ("POST" if data is not None else "GET"))
+
+
+def second_bounds(lo: float, hi: float) -> tuple[int, int]:
+    """`[lo, hi)` as the whole-second `(floor(lo), ceil(hi))` a second-granular server filters
+    on. Widening, never truncating: `int()` on a fractional bound would silently drop the rows
+    in the cut-off fraction; the extra rows a widened query returns are trimmed by each leaf's
+    own-start filter in `bisected_rows`."""
+    return math.floor(lo), math.ceil(hi)
 
 
 def fetch(request: urllib.request.Request, *, label: str, base: str,
@@ -240,10 +265,16 @@ def bisected_rows(fetch_leaf: Callable[[float, float, int], list[dict]], after: 
         lo, hi, limit = stack.pop()
         rows = fetch_leaf(lo, hi, limit)
         if len(rows) < limit:
+            kept = []
             for r in rows:
                 ts = start_ts(r)
                 if ts is not None and lo <= ts < hi:
-                    yield r
+                    kept.append((ts, r))
+            # A leaf is at most one page. A server may answer in any order (Splunk: newest
+            # first); the merge downstream wants each stream ascending, so sort here.
+            kept.sort(key=lambda t: t[0])
+            for _, r in kept:
+                yield r
             continue
         if hi - lo <= min_bisect_seconds:
             if limit >= leaf_rows_max:
@@ -258,7 +289,12 @@ def bisected_rows(fetch_leaf: Callable[[float, float, int], list[dict]], after: 
             # The same second, asked wider. Only a floor leaf ever escalates.
             stack.append((lo, hi, min(limit * 2, int(leaf_rows_max))))
             continue
-        mid = lo + (hi - lo) / 2.0
+        if lo == int(lo) and hi == int(hi):
+            # Whole-second bounds split on a whole second (`hi - lo >= 2` here), so a leaf
+            # never has a fractional edge a second-granular server would truncate.
+            mid = lo + max(1, (int(hi) - int(lo)) // 2)
+        else:
+            mid = lo + (hi - lo) / 2.0
         # Later half first so the LIFO stack yields in ascending time; the merge downstream
         # tolerates bounded disorder but there is no reason to manufacture any.
         stack.append((mid, hi, int(page_rows)))
@@ -305,9 +341,21 @@ class HttpPullPlugin(IngestPlugin):
     def __init__(self) -> None:
         self._health: list[SensorHealthEvent] = []
 
+    #: What an empty `index=` should have been (the vendor's default, named in the refusal).
+    empty_index_hint: str = ""
+
     def locator(self, source: str) -> Locator:
-        return parse_locator(source, self.prefix, options=self.locator_options,
-                             error=self.error, example=self.example)
+        loc = parse_locator(source, self.prefix, options=self.locator_options,
+                            error=self.error, example=self.example)
+        if "index" in loc.options and not loc.options["index"]:
+            raise self.error(f"{self.name} locator index= is empty; {self.empty_index_hint}")
+        return loc
+
+    @staticmethod
+    def _unreachable(exc: Exception) -> dict:
+        """The `probe` answer for a source that cannot be read: an answer, not a crash."""
+        return {"supported": True, "reachable": False, "error": str(exc),
+                "first_ts": None, "last_ts": None, "vantage": None, "extra": {}}
 
     @abstractmethod
     def _span(self, loc: Locator) -> tuple[Optional[float], Optional[float]]:

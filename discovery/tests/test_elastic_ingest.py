@@ -91,7 +91,7 @@ def _zeek_conn(ts, state="SF", **kw):
 # -- the stubbed cluster --------------------------------------------------------------------
 
 def _server(monkeypatch, docs=None, *, distribution=None, seen=None, fill=None, shards=None,
-            resolved=None, ignore_range=False):
+            resolved=None, ignore_range=False, extra=None, rotate_pit=False, drop_source=()):
     """Route every urlopen through a fake Elasticsearch/OpenSearch.
 
     `docs` are the `_source` documents; `_search` honours the `@timestamp` range, `size` and
@@ -118,9 +118,15 @@ def _server(monkeypatch, docs=None, *, distribution=None, seen=None, fill=None, 
         if after is not None:
             rows = [r for r in rows if (int(r[0] * 1000), r[1]) > (after[0], after[1])]
         page = rows[:body["size"]]
-        return {"_shards": shards, "hits": {"hits": [
+        out = {"_shards": shards, "hits": {"hits": [
             {"_index": "filebeat-8.13.0", "_id": str(i), "_source": d,
-             "sort": [int(t * 1000), i]} for t, i, d in page]}}
+             "sort": [int(t * 1000), i]} for t, i, d in page]}, **(extra or {})}
+        for h in out["hits"]["hits"]:
+            if int(h["_id"]) in drop_source:
+                del h["_source"]
+        if rotate_pit:
+            out["pit_id"] = f"rot-{sum(1 for r in seen if r.full_url.endswith('/_search'))}"
+        return out
 
     def fake_urlopen(req, timeout=None):
         seen.append(req)
@@ -574,3 +580,108 @@ def test_probe_of_an_empty_index_has_no_span(monkeypatch):
     assert got["reachable"] and got["first_ts"] is None and got["last_ts"] is None
     with pytest.raises(ElasticError, match="no data span"):
         list(get_plugin("elastic").events(BASE))
+
+
+# -- review hardening --------------------------------------------------------------------------------
+
+def _flows(events):
+    return [e for e in events if isinstance(e, FlowEvent)]
+
+
+def _hundred(monkeypatch, **kw):
+    """100 one-per-second documents under a page of 100: the root leaf is FULL (split), each
+    half is short (consumed) — three searches, two consumed leaves."""
+    _small_pages(monkeypatch)
+    return _server(monkeypatch, [_fw(T0 + i) for i in range(100)], **kw)
+
+
+def test_a_window_that_bisects_to_fractional_bounds_emits_every_row(monkeypatch):
+    monkeypatch.setattr(mod, "PAGE_ROWS", 8)
+    monkeypatch.setattr(mod, "LEAF_ROWS_MAX", 64)
+    _server(monkeypatch, [_fw(T0 + i / 10) for i in range(30)])
+    assert len(_flows(_pull(hi=T0 + 3))) == 30
+    got = _flows(_pull(lo=T0 + 0.5, hi=T0 + 2.5))
+    assert sorted(f.ts for f in got) == [T0 + i / 10 for i in range(5, 25)]
+
+
+def test_opensearch_sorts_on_id_not_shard_doc_and_elasticsearch_keeps_shard_doc(monkeypatch):
+    seen = _server(monkeypatch, [_fw(T0 + 1)], distribution="opensearch")
+    _pull()
+    assert all(b["sort"] == [{"@timestamp": "asc"}, {"_id": "asc"}] for b in _searches(seen))
+    seen = _server(monkeypatch, [_fw(T0 + 1)])
+    _pull()
+    assert all(b["sort"] == [{"@timestamp": "asc"}, {"_shard_doc": "asc"}]
+               for b in _searches(seen))
+
+
+def test_a_failed_shard_is_reported_once_per_consumed_leaf_not_per_re_read(monkeypatch):
+    seen = _hundred(monkeypatch, shards={"total": 4, "successful": 3, "skipped": 0, "failed": 1})
+    events = _pull(hi=T0 + 100)
+    assert len(_searches(seen)) == 3, "the full root leaf was read, then split"
+    assert len([e for e in events if isinstance(e, SensorHealthEvent)]) == 2
+
+
+def test_timed_out_is_partial_and_becomes_a_health_event(monkeypatch):
+    _server(monkeypatch, [_fw(T0 + 1)], extra={"timed_out": True})
+    h, = [e for e in _pull() if isinstance(e, SensorHealthEvent)]
+    assert h.kind == "partial_results" and "timed_out" in h.detail
+
+
+def test_the_latest_returned_pit_id_is_used_on_the_next_page_and_to_close(monkeypatch):
+    seen = _hundred(monkeypatch, rotate_pit=True)
+    _pull(hi=T0 + 100)
+    ids = [b["pit"]["id"] for b in _searches(seen)]
+    assert ids[0] == "pit-1" and ids[1] == "rot-1" and ids[2] == "rot-2"
+    close, = [r for r in seen if r.get_method() == "DELETE"]
+    assert json.loads(close.data) == {"id": "rot-3"}
+
+
+def test_filebeat_zeek_dhcp_keeps_the_mac_from_address_mac(monkeypatch):
+    dhcp = {"@timestamp": _iso(T0 + 3), "event": {"category": ["network"],
+                                                   "dataset": "zeek.dhcp"},
+            "zeek": {"dhcp": {"address": {"assigned": "10.0.0.77", "mac": "aa:bb:cc:00:11:22"},
+                              "hostname": "laptop-7"}}}
+    _server(monkeypatch, [dhcp])
+    i, = [e for e in _pull() if isinstance(e, IdentityEvent)]
+    assert (i.kind, i.ip, i.mac) == ("dhcp", "10.0.0.77", "aa:bb:cc:00:11:22")
+
+
+def test_a_zeek_document_with_an_iso_ts_in_its_verbatim_json_is_not_dropped(monkeypatch):
+    raw = {"ts": _iso(T0 + 1), "uid": "C1", "id.orig_h": "10.0.0.1", "id.orig_p": 5,
+           "id.resp_h": "10.0.0.2", "id.resp_p": 443, "proto": "tcp", "conn_state": "S0"}
+    doc = _zeek_conn(T0 + 1)
+    doc["event"]["original"] = json.dumps(raw)
+    _server(monkeypatch, [doc])
+    f, = _flows(_pull())
+    assert f.state == "S0" and f.ts == pytest.approx(T0 + 1)
+
+
+def test_hits_without_a_source_are_counted_and_keep_the_leaf_honest(monkeypatch):
+    _server(monkeypatch, [_fw(T0 + 1), _fw(T0 + 2)], drop_source=(0,))
+    plugin = get_plugin("elastic")
+    assert len(_flows(list(plugin.events(BASE, T0, T0 + 3600)))) == 1
+    assert plugin.unrecognized_stems["(hit without _source)"] == 1
+
+
+def test_a_malformed_span_answers_the_probe_instead_of_crashing(monkeypatch):
+    seen = _server(monkeypatch, [_fw(T0 + 1)])
+    real = urllib.request.urlopen
+
+    def bad_span(req, timeout=None):
+        if req.data and b'"aggs"' in req.data:
+            return _Resp(json.dumps({"hits": {"total": {"value": 1}},
+                                     "aggregations": {"first": {"value": "garbage"},
+                                                      "last": {"value": 1}}}).encode())
+        return real(req, timeout=timeout)
+
+    monkeypatch.setattr(urllib.request, "urlopen", bad_span)
+    got = get_plugin("elastic").probe(BASE)
+    assert got["reachable"] is False and "aggregations.first" in got["error"]
+    assert seen is not None
+
+
+def test_basic_auth_with_an_empty_password_is_refused(monkeypatch):
+    monkeypatch.setenv(ENV_USER, "svc")
+    monkeypatch.setenv(ENV_PASSWORD, "")
+    _server(monkeypatch, [_fw(T0 + 1)])
+    assert get_plugin("elastic").probe(BASE)["reachable"] is False

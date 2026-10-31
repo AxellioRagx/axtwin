@@ -212,6 +212,22 @@ def test_a_full_page_splits_the_interval_instead_of_asking_for_more(monkeypatch)
     assert all(f.ts is not None for f in flows)
 
 
+def test_a_window_that_bisects_to_fractional_bounds_loses_no_row(monkeypatch):
+    """The lifted bisection halved [T0, T0+3) at T0+1.5 and `int()` cut the half second off both
+    neighbours; whole-second splits and widened bounds close it."""
+    _small_pages(monkeypatch, page=8, ceiling=64)
+    pool = [_conn(T0 + i // 10, tsNsec=(i % 10) * 100_000_000) for i in range(30)]
+
+    def handler(path, p):
+        lo, hi, limit = int(p["after"]), int(p["before"]), int(p["limit"])
+        rows = [c for c in pool if lo <= c["tsSec"] < hi][:limit]
+        return {"connections": rows, "coverage": {"complete": True}}
+
+    _stub(monkeypatch, handler)
+    flows = [e for e in get_plugin("axquery").events(BASE, T0, T0 + 3) if isinstance(e, FlowEvent)]
+    assert len(flows) == 30
+
+
 def _small_pages(monkeypatch, page=100, ceiling=400):
     """Shrink the page and the leaf ceiling so a stub can fill them without 200,000-row bodies."""
     from aximprint.ingest.axquery import sources as mod
