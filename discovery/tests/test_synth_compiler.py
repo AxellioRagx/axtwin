@@ -2105,3 +2105,37 @@ def test_a_second_domain_controller_on_one_segment_is_clamped_to_one_forest_root
     assert prow["observed"] == 2 and prow["emitted"] == 1
     assert prow["capped_by"] == "single_forest_root"
     assert any("forest root" in c and dc["name"] in c for c in out["caveats"])
+
+
+# -- the count row names the group's observed members ---------------------------
+
+def test_the_count_row_names_each_groups_observed_entity_keys(tmp_path):
+    """A twin-config node is a GROUP named `role-band-segment-rung`, which the assertions seam
+    cannot address: its keys are the IR's `<key_kind>:<value>` entity keys (D10). The sidecar's
+    `count` row therefore carries `members`, the sorted entity keys the group collapsed, so a
+    consumer (the design canvas's promote-to-assertion) can assert on one host of a group by
+    the key the compiler joins on. The members partition the placed set: every observed node's
+    members are placed entities, no key sits in two groups, and the count is their number."""
+    out = _compiled(tmp_path)
+    tc = _tc(out)
+    fields = out["provenance"]["fields"]
+    seen: set[str] = set()
+    observed_rows = 0
+    for i, node in enumerate(tc["nodes"]):
+        row = fields.get(f"twin_config.nodes[{i}].count")
+        if row is None:
+            # A router or a synthetic sink group has no observed count row at all.
+            assert "observation" not in node, f"nodes[{i}]: an observed group has a count row"
+            continue
+        members = row["members"]
+        assert members == sorted(members), f"nodes[{i}]: members are sorted"
+        assert len(members) == row["hosts_observed"], f"nodes[{i}]: one key per observed host"
+        assert all(m.split(":", 1)[0] in {"address", "hostname", "mac"} for m in members), members
+        assert not (set(members) & seen), f"nodes[{i}]: a key in two groups"
+        seen.update(members)
+        if "observation" in node:
+            observed_rows += 1
+            assert members, f"nodes[{i}]: an observed group has members"
+        else:
+            assert members == [], f"nodes[{i}]: a synthetic group observed no one"
+    assert observed_rows, "the fixture must place at least one observed group"

@@ -5830,9 +5830,9 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     # R5 (GAP-079): one roster entry, under its WIRE name `from`.
     "ConduitDTO": {"from", "to"},
     # Unified Console: the node roster behind `node_specs` (declared-design map).
-    "CastNodeDTO": {"count", "kind", "name", "node_ids", "role", "segments"},
+    "CastNodeDTO": {"count", "kind", "name", "node_ids", "role", "segments", "members"},
     # Console S5.1.a: one segment-roster entry (`CastSegment` in types.ts).
-    "CastSegmentDTO": {"cidr", "name", "zone_type"},
+    "CastSegmentDTO": {"cidr", "name", "zone_type", "observed_cidr"},
     # R5, per router since the GAP-082 review (S5): `CastRouter` in types.ts.
     "RouterDTO": {"name", "segments"},
     # R7 (GAP-082) made the summary route serve cast bundles; its mirror
@@ -6174,10 +6174,12 @@ def test_a_real_cast_publishes_its_segment_roster_as_written(tmp_path, bundle):
         {"name": x["name"], "cidr": x["cidr"], "zone_type": x.get("zone_type")}
         for x in raw["segments"]
     ]
-    assert j["segment_roster"] == expected
+    written = [{k: x[k] for k in ("name", "cidr", "zone_type")} for x in j["segment_roster"]]
+    assert written == expected
     assert len(j["segment_roster"]) == j["segments"]
-    # Every entry is exactly the three published fields.
-    assert all(set(x) == {"name", "cidr", "zone_type"} for x in j["segment_roster"])
+    # Every entry is exactly the four published fields; `observed_cidr` is the
+    # sidecar's reading, not the config's, and is checked on its own below.
+    assert all(set(x) == {"name", "cidr", "zone_type", "observed_cidr"} for x in j["segment_roster"])
 
     # The cast's own sink is carried and observed by nothing.
     names = [x["name"] for x in j["segment_roster"]]
@@ -6301,7 +6303,8 @@ def test_the_segment_roster_agrees_with_the_segment_count_on_every_listed_bundle
         j = c.get(f"/api/twins/{e['id']}/cast").json()
         assert len(j["segment_roster"]) == j["segments"], e["id"]
         for x in j["segment_roster"]:
-            assert set(x) == {"name", "cidr", "zone_type"}, e["id"]
+            assert set(x) == {"name", "cidr", "zone_type", "observed_cidr"}, e["id"]
+            assert x["observed_cidr"] is None or isinstance(x["observed_cidr"], str), e["id"]
             assert isinstance(x["name"], str) and x["name"], e["id"]
             assert isinstance(x["cidr"], str) and x["cidr"], e["id"]
             assert x["zone_type"] is None or isinstance(x["zone_type"], str), e["id"]
@@ -6324,8 +6327,8 @@ def test_a_bare_config_publishes_a_null_zone_type_as_null_not_the_effective_zone
     j = _client(_settings(root, tmp_path)).get("/api/twins/bare/cast").json()
     assert j["segments"] == 2
     assert j["segment_roster"] == [
-        {"name": "lan", "cidr": "10.5.0.0/24", "zone_type": None},
-        {"name": "ot", "cidr": "10.6.0.0/24", "zone_type": "vlan"},
+        {"name": "lan", "cidr": "10.5.0.0/24", "zone_type": None, "observed_cidr": None},
+        {"name": "ot", "cidr": "10.6.0.0/24", "zone_type": "vlan", "observed_cidr": None},
     ]
 
 
@@ -6597,7 +6600,7 @@ def test_cast_summary_publishes_the_node_roster_behind_node_specs_and_vms(tmp_pa
     assert len(roster) == j["node_specs"]
     assert sum(n["count"] for n in roster) == j["vms"]
     for n in roster:
-        assert set(n) == {"name", "kind", "role", "count", "segments", "node_ids"}
+        assert set(n) == {"name", "kind", "role", "count", "segments", "node_ids", "members"}
         assert len(n["node_ids"]) == n["count"]
         assert all(s in {g["name"] for g in j["segment_roster"]} for s in n["segments"])
 
@@ -6626,3 +6629,64 @@ def test_imprint_list_says_which_bundles_carry_a_topology_export(tmp_path):
     assert items["corp-twin"]["has_provenance"] is False
     for cast in ("corpapcn-golden", "corpapcn-twin"):
         assert items[cast]["has_topology_export"] is True, cast
+
+
+# ---------------------------------------------------------------------------
+# The rosters carry the sidecar's observed keys: `members` per node group and
+# `observed_cidr` per segment -- what the design canvas's promote-to-assertion
+# addresses the assertions seam by (a node NAME is a group name and joins
+# against nothing there).
+# ---------------------------------------------------------------------------
+def _prov_bundle(tmp_path, patch):
+    """A private copy of the `mini-cast-prov` fixture with its sidecar edited by
+    `patch(fields)` -- the checked-in fixture predates the `members` row."""
+    import json
+    import shutil
+
+    root = tmp_path / "bundles"
+    shutil.copytree(CAST_FIXTURES / "mini-cast-prov", root / "mini-cast-prov")
+    path = root / "mini-cast-prov" / "mini-cast-prov.provenance.json"
+    doc = json.loads(path.read_text())
+    patch(doc["fields"])
+    path.write_text(json.dumps(doc))
+    return root
+
+
+def test_cast_roster_publishes_the_sidecars_members_and_observed_cidrs(tmp_path):
+    def patch(fields):
+        fields["twin_config.nodes[1].count"]["members"] = ["hostname:web-b", "address:10.0.0.7", "hostname:web-a"]
+        fields["twin_config.nodes[2].count"]["members"] = "not-a-list"
+        fields["twin_config.segments[0].cidr"] = {
+            "evidence_class": "compiler", "signal": "synth/compiler.py --relocate",
+            "transformation": {"kind": "relocate", "replaced": {"class": "observed", "value": "192.168.7.0/24"},
+                               "to": "10.90.0.0/24"},
+        }
+        fields["twin_config.segments[1].cidr"] = {"evidence_class": "observed", "signal": "ir_segment.cidr"}
+        fields["twin_config.segments[2].cidr"] = {"evidence_class": "asserted", "signal": "assertions"}
+        fields["twin_config.segments[3].cidr"] = {"evidence_class": "compiler", "signal": "SINK_CIDR"}
+
+    c = _client(_settings(_prov_bundle(tmp_path, patch), tmp_path))
+    j = c.get("/api/twins/mini-cast-prov/cast").json()
+    by_name = {n["name"]: n for n in j["node_roster"]}
+    # Sorted, strings only; a malformed row and a row without the key are empty, never guessed.
+    assert by_name["web-tier"]["members"] == ["address:10.0.0.7", "hostname:web-a", "hostname:web-b"]
+    assert by_name["db-tier"]["members"] == []
+    assert by_name["gw"]["members"] == [] and by_name["sink"]["members"] == []
+    segs = {s["name"]: s["observed_cidr"] for s in j["segment_roster"]}
+    assert segs == {"seg-corp": "192.168.7.0/24", "seg-data": "10.90.1.0/24",
+                    "seg-thin": "10.90.2.0/24", "internet-sink": None}
+
+
+def test_cast_roster_reads_no_members_off_a_sidecar_of_another_shape(tmp_path):
+    """An unrecognized sidecar is never read as the canonical one (the
+    reference loader's rule): its rows are present but contribute nothing."""
+    import json
+
+    root = _prov_bundle(tmp_path, lambda f: f["twin_config.nodes[1].count"].update(members=["hostname:x"]))
+    path = root / "mini-cast-prov" / "mini-cast-prov.provenance.json"
+    doc = json.loads(path.read_text())
+    doc["schema"] = "something-else/9"
+    path.write_text(json.dumps(doc))
+    j = _client(_settings(root, tmp_path)).get("/api/twins/mini-cast-prov/cast").json()
+    assert all(n["members"] == [] for n in j["node_roster"])
+    assert all(s["observed_cidr"] is None for s in j["segment_roster"])

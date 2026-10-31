@@ -126,8 +126,16 @@ layout side-car's `annotations` list (positioned SVG snippets with lock and
 hidden flags, ETag-guarded through the pins' write queue, a set an earlier
 build kept in localStorage migrated once; the server refuses script,
 foreignObject, `on*=` and href by name, and the canvas escapes every typed
-character that could spell one). Fault injection and attachment impairments
-wait for an IR concept.
+character that could spell one). Promote-to-assertion is keyed by the cast
+roster (`GET /api/twins/{id}/cast`): a twin-config node name is a cast
+*group* name (`role-band-segment-rung`) and a segment's `cidr` the deployed,
+possibly relocated network, and the assertions seam resolves neither; the
+roster's `members` (each group's observed entity keys, off the sidecar's
+`count` row) and `observed_cidr` (the relocation's replaced value) are what
+the records carry, one override per member. A node or segment the roster
+cannot key -- hand-added, synthetic, a router, a cast older than the row --
+shows the promote action disabled with that reason. Fault injection and
+attachment impairments wait for an IR concept.
 
 ## Config
 

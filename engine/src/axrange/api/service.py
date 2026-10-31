@@ -4581,7 +4581,8 @@ def _cast_summary_dto(
         # deployed CIDR and zone type per segment, and (by name) which
         # observed segments the cast pruned.
         segment_roster=[
-            dtos.CastSegmentDTO(name=g.name, cidr=g.cidr, zone_type=g.zone_type)
+            dtos.CastSegmentDTO(name=g.name, cidr=g.cidr, zone_type=g.zone_type,
+                                observed_cidr=g.observed_cidr)
             for g in s.segment_roster
         ],
         # Unified Console: the node specs, for the declared-design map.
@@ -4589,6 +4590,7 @@ def _cast_summary_dto(
             dtos.CastNodeDTO(
                 name=n.name, kind=n.kind, role=n.role, count=n.count,
                 segments=list(n.segments), node_ids=list(n.node_ids),
+                members=list(n.members),
             )
             for n in s.node_roster
         ],

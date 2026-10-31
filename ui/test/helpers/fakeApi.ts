@@ -28,6 +28,7 @@ import type {
   Topology,
   TopologyExport,
   TwinConfigSummary,
+  CastRoster,
 } from "../../src/api/types";
 import { mergeSegments, readDoc } from "../../src/features/edit-canvas/edit/document";
 import { readTe, setNodeField } from "../../src/features/edit-canvas/edit/te";
@@ -116,6 +117,8 @@ export interface FakeState {
   topologies: Record<string, Topology>;
   /** Cast graphs with evidence by twin id; a twin without one answers 404 (no export yet). */
   exports: Record<string, TopologyExport>;
+  /** Cast rosters (`GET /api/twins/{id}/cast`) by twin id; a twin without one answers 404. */
+  casts: Record<string, CastRoster>;
   /** Layout side-cars by twin id, once saved. */
   layouts: Record<string, LayoutDoc>;
   twinConfigs: TwinConfigSummary[];
@@ -151,6 +154,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     assertions: {},
     topologies: {},
     exports: {},
+    casts: {},
     layouts: {},
     twinConfigs: [],
     personas: [],
@@ -378,15 +382,23 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       if (docu && asserted) {
         let files = { ...docu.files };
         const te = () => readTe(files[docu.te_file] ?? "");
+        // The real compiler joins an assertion on the IR's entity keys, never on a node
+        // name: the roster says which group a key belongs to and which observed network a
+        // segment was. Without a roster the fake resolves nothing, as the compiler would.
+        const roster = state.casts[body.twin_id];
+        const groupOf = (key: string) => roster?.node_roster.find((n) => n.members.includes(key))?.name;
+        const segmentOf = (observed: string) => {
+          const name = roster?.segment_roster.find((x) => x.observed_cidr === observed)?.name;
+          return name ? te().segments.find((x) => x.name === name) : undefined;
+        };
         for (const o of asserted.override) {
-          const key = String(o["key"] ?? "");
-          if (o["field"] === "role" && key.startsWith("hostname:")) files[docu.te_file] = setNodeField(files[docu.te_file]!, key.slice("hostname:".length), "role", String(o["value"]));
+          const node = groupOf(String(o["key"] ?? ""));
+          if (o["field"] === "role" && node && te().nodes.some((n) => n.name === node)) files[docu.te_file] = setNodeField(files[docu.te_file]!, node, "role", String(o["value"]));
         }
         for (const sup of asserted.suppress) {
-          const cidr = String(sup["key"] ?? "");
-          const from = te().segments.find((x) => x.cidr === cidr);
+          const from = segmentOf(String(sup["key"] ?? ""));
           const into = asserted.override.find((o) => o["field"] === "segment");
-          const to = into ? te().segments.find((x) => x.cidr === String(into["value"])) : undefined;
+          const to = into ? segmentOf(String(into["value"])) : undefined;
           if (from && to) files = mergeSegments({ id: body.twin_id, teFile: docu.te_file, files }, readDoc({ id: body.twin_id, teFile: docu.te_file, files }), from.name, to.name);
         }
         state.documents[body.twin_id] = { ...docu, files };
@@ -419,6 +431,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const t = state.twins[id];
       if (!t) throw notFound(`imprint '${id}'`);
       return t;
+    },
+    async getCast(id) {
+      const c = state.casts[id];
+      if (!c) throw notFound(`cast bundle '${id}'`);
+      return c;
     },
     async getTwinTree(id) {
       const t = state.twins[id];

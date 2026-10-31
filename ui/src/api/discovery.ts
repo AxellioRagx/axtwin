@@ -3,6 +3,7 @@ import type {
   AssertionsDoc,
   CastRequest,
   CastResponse,
+  CastRoster,
   DeployConfig,
   DeployConfigApply,
   DeployConfigReset,
@@ -66,6 +67,8 @@ export interface Api {
   getTwin(id: string, signal?: AbortSignal): Promise<TwinSummary>;
   /** The bundle as segment -> node group -> intent and personas. */
   getTwinTree(id: string, signal?: AbortSignal): Promise<TwinTree>;
+  /** The compiled bundle's rosters: each node group's observed members, each segment's observed CIDR. */
+  getCast(id: string, signal?: AbortSignal): Promise<CastRoster>;
   /** Remove the twin from the catalog; refused under a live deploy. */
   deleteTwin(id: string): Promise<void>;
   // The design canvas (`features/edit-canvas/SPEC.md`): graphs, positions, the palette's sources.
@@ -127,6 +130,7 @@ export function makeApi(request: Requester): Api {
     listTwins: (signal) => request("GET", "/api/twins", { signal }),
     getTwin: (id, signal) => request("GET", `/api/twins/${enc(id)}`, { signal }),
     getTwinTree: (id, signal) => request("GET", `/api/twins/${enc(id)}/tree`, { signal }),
+    getCast: (id, signal) => request("GET", `/api/twins/${enc(id)}/cast`, { signal }),
     deleteTwin: (id) => request("DELETE", `/api/twins/${enc(id)}`, { auth: true }),
     getScenarioTopology: (id, signal) => request("GET", `/api/scenarios/${enc(id)}/topology`, { signal }),
     getTwinTopology: (id, signal) => request("GET", `/api/twins/${enc(id)}/topology`, { signal }),

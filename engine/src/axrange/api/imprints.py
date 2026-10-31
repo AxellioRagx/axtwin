@@ -430,6 +430,13 @@ class CastSegment:
     name: str
     cidr: str
     zone_type: Optional[str]
+    # The OBSERVED network behind `cidr`, off the canonical provenance
+    # sidecar: the `--relocate` transformation's replaced value, or `cidr`
+    # itself when the row is `observed`/`asserted`. `None` on a synthetic
+    # segment, a hand-authored bundle or a sidecar of another shape. It is
+    # the key the assertions seam addresses a segment by (D10), which is
+    # why the design canvas's promote-to-assertion reads it from here.
+    observed_cidr: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -460,6 +467,13 @@ class CastNode:
     count: int
     segments: tuple[str, ...]
     node_ids: tuple[str, ...]
+    # The observed entity keys this group collapsed (`hostname:…`,
+    # `address:…`, `mac:…`), off the canonical sidecar's `count` row, sorted.
+    # A node NAME is a group name and joins against nothing in the
+    # assertions seam; these are what an assertion on one of its hosts is
+    # keyed by. Empty on a synthetic or hand-authored group, on a router, and
+    # on a sidecar older than the row (2026-10-31).
+    members: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1373,6 +1387,7 @@ def cast_summary_from_bundle(bundle: Any, imprint_id: str) -> CastSummary:
 
     prov_path = _artifact_path(bundle.bundle_dir, f"{imprint_id}.provenance.json")
     has_provenance = bundle.provenance_sidecar == PRESENT
+    prov_fields = _canonical_fields(bundle)
     warnings = [console_warning(w) for w in bundle.warnings]
     if not has_provenance and console_warning(SIDECAR_ABSENT_WARNING) not in warnings:
         warnings.append(console_warning(SIDECAR_ABSENT_WARNING))
@@ -1416,17 +1431,63 @@ def cast_summary_from_bundle(bundle: Any, imprint_id: str) -> CastSummary:
         # twin config -- `bundle.twin_segments` is built from `tc.segments`
         # too, but drops `zone_type`, so the config itself is read.
         segment_roster=[
-            CastSegment(name=seg.name, cidr=seg.cidr, zone_type=seg.zone_type)
-            for seg in (tc.segments or [])
+            CastSegment(name=seg.name, cidr=seg.cidr, zone_type=seg.zone_type,
+                        observed_cidr=_observed_cidr(prov_fields, i, seg.cidr))
+            for i, seg in enumerate(tc.segments or [])
         ],
         node_roster=[
             CastNode(
                 name=g.name, kind=g.kind, role=g.role, count=g.count,
                 segments=tuple(g.segments), node_ids=tuple(g.node_ids),
+                members=_group_members(prov_fields, i),
             )
-            for g in bundle.groups
+            for i, g in enumerate(bundle.groups)
         ],
     )
+
+
+def _canonical_fields(bundle: Any) -> dict[str, Any]:
+    """The sidecar's `fields` when it IS the canonical shape, else `{}`: an
+    unrecognized sidecar is never read as the canonical one (the reference
+    loader's own rule), so its rows contribute nothing to the rosters."""
+    from axrange.fidelity.reference import CAST_PROVENANCE_SCHEMA
+
+    if bundle.provenance_schema != CAST_PROVENANCE_SCHEMA:
+        return {}
+    doc = getattr(bundle, "provenance", None)
+    fields = doc.get("fields") if isinstance(doc, dict) else None
+    return fields if isinstance(fields, dict) else {}
+
+
+def _group_members(fields: dict[str, Any], index: int) -> tuple[str, ...]:
+    """`CastNode.members` for `nodes[index]`: the sorted string entity keys of
+    the `count` row's `members`, or `()` when the row or the key is absent or
+    not a list of strings (an older sidecar; never guessed from a name)."""
+    row = fields.get(f"twin_config.nodes[{index}].count")
+    members = row.get("members") if isinstance(row, dict) else None
+    if not isinstance(members, list):
+        return ()
+    return tuple(sorted(m for m in members if isinstance(m, str) and m))
+
+
+def _observed_cidr(fields: dict[str, Any], index: int, cidr: str) -> Optional[str]:
+    """`CastSegment.observed_cidr` for `segments[index]` off its `.cidr` row:
+    a relocation's `transformation.replaced.value` (the network as observed,
+    before the compiler moved it), else `cidr` itself when the row's class is
+    `observed` or `asserted`, else `None` (synthetic, or no canonical row)."""
+    row = fields.get(f"twin_config.segments[{index}].cidr")
+    if not isinstance(row, dict):
+        return None
+    transformation = row.get("transformation")
+    if isinstance(transformation, dict):
+        replaced = transformation.get("replaced")
+        value = replaced.get("value") if isinstance(replaced, dict) else None
+        if isinstance(value, str) and value:
+            return value
+        return None
+    if row.get("evidence_class") in ("observed", "asserted"):
+        return cidr
+    return None
 
 
 def _routers(groups: Any) -> list[CastRouter]:

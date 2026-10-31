@@ -1524,12 +1524,20 @@ class CastSegmentDTO(BaseModel):
     name: str
     cidr: str
     zone_type: Optional[str] = None
+    # The network as OBSERVED (the relocation's pre-transformation value, or
+    # `cidr` when the sidecar's row is observed/asserted): the key the
+    # assertions seam addresses this segment by. `null` on a synthetic
+    # segment or a bundle without a canonical sidecar.
+    observed_cidr: Optional[str] = None
 
 
 class CastNodeDTO(BaseModel):
     """One `nodes[]` spec of the cast's twin config (Unified Console,
     declared-design map): name, kind, role, the resolved `count`, every leg's
-    segment NAME and the node ids the expander fans it out to."""
+    segment NAME, the node ids the expander fans it out to, and `members`,
+    the observed entity keys the group collapsed (sorted; empty on a
+    synthetic or hand-authored group and on a sidecar older than the row) --
+    what an assertion on one host of the group is keyed by."""
 
     name: str
     kind: str = "host"
@@ -1537,6 +1545,7 @@ class CastNodeDTO(BaseModel):
     count: int = 0
     segments: list[str] = []
     node_ids: list[str] = []
+    members: list[str] = []
 
 
 class CastSummaryDTO(BaseModel):

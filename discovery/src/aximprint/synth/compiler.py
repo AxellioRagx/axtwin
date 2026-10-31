@@ -1604,8 +1604,15 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                      f"{ASSERTIONS_SCHEMA} host.segment", segment=cidr,
                      **_asserted_prov(net_record[1], "segment", source=aview.source,
                                       beaten=beaten))
+            # `members` names the group's observed entity keys (D10's `<key_kind>:<value>`
+            # form), sorted, so a consumer that wants to assert on ONE host of this group --
+            # the design canvas's promote-to-assertion -- can address it by the key the
+            # assertions seam joins on. A twin-config node NAME is a group name
+            # (`role-band-segment-rung`) and joins against nothing. Empty for a synthetic
+            # group: it observed no one.
             prov(f"twin_config.nodes[{idx}].count", "observed", "ir_entity (placed members)",
-                 hosts_observed=len(members))
+                 hosts_observed=len(members),
+                 members=sorted(str(m["entity_key"]) for m in members))
             if "listen" in node:
                 # `observed` on an ordinary group, `asserted` on one an operator declared into
                 # existence (`_asserted_entity` carries the record's own `listen:` through

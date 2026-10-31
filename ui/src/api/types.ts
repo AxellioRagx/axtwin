@@ -258,6 +258,40 @@ export interface TwinSummary {
 /** The old name of `TwinSummary`. */
 export type ImprintSummary = TwinSummary;
 
+// --- GET /api/twins/{id}/cast: the compiled bundle's rosters ---
+
+/** One `nodes[]` spec of the cast's twin config. `members` are the observed entity keys
+ *  (`hostname:…`, `address:…`, `mac:…`) the group collapsed, sorted: what an assertion on
+ *  one of its hosts is keyed by. Empty on a synthetic or hand-authored group, a router,
+ *  and a bundle whose sidecar predates the row. */
+export interface CastRosterNode {
+  name: string;
+  kind: string;
+  role: string | null;
+  count: number;
+  segments: string[];
+  node_ids: string[];
+  members: string[];
+}
+
+/** One `segments[]` entry: `cidr` is the DEPLOYED network, `observed_cidr` the network as
+ *  the capture saw it (the key the assertions seam addresses a segment by); null on a
+ *  synthetic segment or a bundle without a canonical sidecar. */
+export interface CastRosterSegment {
+  name: string;
+  cidr: string;
+  zone_type: string | null;
+  observed_cidr: string | null;
+}
+
+export interface CastRoster {
+  id: string;
+  pit_id?: string | null;
+  node_roster: CastRosterNode[];
+  segment_roster: CastRosterSegment[];
+  [k: string]: unknown;
+}
+
 // --- GET /api/twins/{id}/tree: the bundle as segment -> node group -> intent ---
 
 export interface TreeObservation {

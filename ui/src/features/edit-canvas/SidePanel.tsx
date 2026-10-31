@@ -6,7 +6,7 @@
  * API classified it with (*live* or *re-plan*). Every field writes through
  * the editor's `apply`, which blocks an invalid edit with its reason.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -49,6 +49,8 @@ export interface SidePanelProps {
   personas: Persona[];
   /** The twin was cast from an imprint: a correction can be promoted to an assertion. */
   canPromote: boolean;
+  /** Why this node or merge cannot be promoted (no observed members or network in the cast), or null. */
+  promoteBlock(what: { node: string } | { from: string; to: string }): string | null;
   apply(label: string, fn: (doc: WorkingDoc, model: DocModel) => Files): string | null;
   onPromoteRole(node: string, role: string): void;
   onPromoteMerge(from: string, to: string): void;
@@ -241,9 +243,9 @@ function NodePanel(p: SidePanelProps & { name: string }) {
         <Text ariaLabel="Role" value={n.role ?? ""} disabled={ro} onCommit={(v) => p.apply(`role of ${n.name}`, (d) => setNodeField(d, n.name, "role", v.trim() || null))} />
       </Field>
       {p.canPromote && roleChanged ? (
-        <button type="button" onClick={() => p.onPromoteRole(n.name, n.role!)} disabled={ro} data-testid="promote-role">
+        <PromoteButton testId="promote-role" block={p.promoteBlock({ node: n.name })} disabled={ro} onClick={() => p.onPromoteRole(n.name, n.role!)}>
           Promote to assertion: {n.name} is a {n.role}
-        </button>
+        </PromoteButton>
       ) : null}
       <Field label="Image" hint="an image the catalog names, or any ref; the API validates it against the manifests">
         <Text ariaLabel="Image" value={n.image} disabled={ro} mono list="cv-images" onCommit={(v) => { if (v.trim()) p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v.trim())); }} />
@@ -430,9 +432,9 @@ function SegmentsPanel(p: SidePanelProps & { names: string[] }) {
             Merge {from} into {to}
           </button>
           {p.canPromote ? (
-            <button type="button" disabled={p.locked} onClick={() => p.onPromoteMerge(from, to)} data-testid="promote-merge">
+            <PromoteButton testId="promote-merge" block={p.promoteBlock({ from, to })} disabled={p.locked} onClick={() => p.onPromoteMerge(from, to)}>
               Promote to assertion: {from} and {to} are one segment
-            </button>
+            </PromoteButton>
           ) : null}
         </>
       ) : null}
@@ -486,5 +488,21 @@ function AnnotationPanel(p: SidePanelProps & { id: string }) {
       </button>
       <p className="muted">Stored as a positioned SVG snippet in the layout side-car, beside the positions.</p>
     </section>
+  );
+}
+
+/** A promote action: disabled, with its reason beside it, when the cast cannot key the assertion. */
+function PromoteButton(p: { testId: string; block: string | null; disabled: boolean; onClick(): void; children: ReactNode }) {
+  return (
+    <>
+      <button type="button" onClick={p.onClick} disabled={p.disabled || p.block !== null} title={p.block ?? undefined} data-testid={p.testId}>
+        {p.children}
+      </button>
+      {p.block !== null ? (
+        <p className="hint" data-testid={`${p.testId}-block`}>
+          {p.block}
+        </p>
+      ) : null}
+    </>
   );
 }

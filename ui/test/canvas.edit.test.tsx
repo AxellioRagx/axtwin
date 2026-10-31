@@ -11,7 +11,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { DeploySummary, Imprint, Persona, TopologyExport, TwinConfigDocument } from "../src/api/types";
+import type { DeploySummary, Imprint, Persona, TopologyExport, TwinConfigDocument, CastRoster } from "../src/api/types";
 import { segmentAt, connectionToAttach } from "../src/features/edit-canvas/Canvas";
 import { paletteItems, standingDeploy } from "../src/features/edit-canvas/CanvasPage";
 import { readTe } from "../src/features/edit-canvas/edit/te";
@@ -76,6 +76,21 @@ const CAST_EXPORT: TopologyExport = {
   edges: [], census: { entities_total: 1, with_role: 1, placed: 1, local: 1 },
 };
 
+/** The cast roster of `corp-cast`: the group `ws01` collapsed two observed hosts, `web01` one;
+ *  `net-lan` was relocated from the observed 10.80.20.0/24, `net-dmz` observed as deployed. */
+const CAST_ROSTER: CastRoster = {
+  id: "corp-cast", pit_id: "pit-1",
+  node_roster: [
+    { name: "gw", kind: "router", role: "gw", count: 1, segments: ["net-lan", "net-dmz"], node_ids: ["gw"], members: [] },
+    { name: "ws01", kind: "host", role: "corp-workstation", count: 1, segments: ["net-lan"], node_ids: ["ws01"], members: ["address:10.80.20.4", "hostname:fin-ws"] },
+    { name: "web01", kind: "host", role: "web-tier", count: 1, segments: ["net-dmz"], node_ids: ["web01"], members: ["hostname:web-a"] },
+  ],
+  segment_roster: [
+    { name: "net-lan", cidr: "10.1.0.0/24", zone_type: "vlan", observed_cidr: "10.80.20.0/24" },
+    { name: "net-dmz", cidr: "10.1.1.0/24", zone_type: "vlan", observed_cidr: "10.1.1.0/24" },
+  ],
+};
+
 function seeded(over: Partial<FakeState> = {}) {
   return fakeApi({
     twins: { "corp-auth": twin("corp-auth", { hosts: 2, segments: 2 }), "corp-live": twin("corp-live", { hosts: 2, segments: 2 }), "corp-cast": twin("corp-cast", { hosts: 2, segments: 2, pit_id: "pit-1" }) },
@@ -88,6 +103,7 @@ function seeded(over: Partial<FakeState> = {}) {
     personas: PERSONAS,
     imprints: [IMPRINT],
     exports: { "corp-cast": CAST_EXPORT },
+    casts: { "corp-cast": CAST_ROSTER },
     ...over,
   });
 }
@@ -373,13 +389,49 @@ describe("the design canvas, phase 2 (C3)", () => {
     await screen.findByText(/promoted: ws01 is a domain-controller; the twin was re-cast and the working copy re-opened/);
     const put = state.writes.find((w) => w.op === "put-assertions")!;
     expect(put.id).toBe("pit-1");
-    expect((put.body as { override: unknown[] }).override).toEqual([{ key: "hostname:ws01", field: "role", value: "domain-controller", note: "promoted from the design canvas: ws01 is a domain-controller" }]);
+    // Keyed by the group's OBSERVED members off the cast roster, one record each -- never by the
+    // node name, which is a cast group name the assertions seam cannot resolve.
+    const note = "promoted from the design canvas: ws01 is a domain-controller";
+    expect((put.body as { override: unknown[] }).override).toEqual([
+      { key: "address:10.80.20.4", field: "role", value: "domain-controller", note },
+      { key: "hostname:fin-ws", field: "role", value: "domain-controller", note },
+    ]);
     expect(state.writes.some((w) => w.op === "cast" && (w.body as { replace: boolean }).replace === true)).toBe(true);
     // The baseline now carries the role, and the re-opened working copy has nothing pending.
     expect(readTe(state.documents["corp-cast"]!.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("domain-controller");
     await waitFor(() => expect(screen.getByTestId("clean-marker")).toBeTruthy());
     expect(screen.getByTestId("pending-changes").textContent).toContain("none");
     // An authored twin has no imprint and no promote action.
+  });
+
+  it("promote is refused, with the reason, for a node the cast roster has no members for; a merge asserts observed networks", async () => {
+    const roster: CastRoster = { ...CAST_ROSTER, node_roster: CAST_ROSTER.node_roster.map((n) => (n.name === "ws01" ? { ...n, members: [] } : n)) };
+    const { api, state } = seeded({ deploys: [], casts: { "corp-cast": roster } });
+    renderAt(api, "/twins/corp-cast/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(host("ws01"));
+    commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "domain-controller");
+    const promote = await panel().findByTestId("promote-role");
+    expect(promote.hasAttribute("disabled")).toBe(true);
+    expect(panel().getByTestId("promote-role-block").textContent).toContain("ws01 has no observed members in the cast");
+    fireEvent.click(promote);
+    expect(state.writes.some((w) => w.op === "put-assertions")).toBe(false);
+
+    // A merge of net-dmz into net-lan: web01's observed member moves to net-lan's OBSERVED
+    // network (10.80.20.0/24, not the deployed 10.1.0.0/24) and net-dmz's observed key is suppressed.
+    fireEvent.click(segment("net-lan"));
+    fireEvent.click(segment("net-dmz"), { shiftKey: true });
+    const sp = await panel().findByTestId("segments-panel");
+    fireEvent.change(within(sp).getByLabelText("Segment to merge away"), { target: { value: "net-dmz" } });
+    const merge = await panel().findByTestId("promote-merge");
+    expect(merge.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(merge);
+    await screen.findByText(/promoted: net-dmz is net-lan/);
+    const put = state.writes.find((w) => w.op === "put-assertions")!;
+    const body = put.body as { override: Record<string, unknown>[]; suppress: Record<string, unknown>[] };
+    const note = "promoted from the design canvas: net-dmz and net-lan are one segment";
+    expect(body.override).toEqual([{ key: "hostname:web-a", field: "segment", value: "10.80.20.0/24", note }]);
+    expect(body.suppress).toEqual([{ key: "10.1.1.0/24", note }]);
   });
 
   it("a twin with no imprint has no promote action; two selected segments offer a merge", async () => {

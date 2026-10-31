@@ -243,6 +243,9 @@ export interface CastSegment {
   name: string;
   cidr: string;
   zone_type: string | null;
+  /** The network as observed (2026-10-31): the relocation's replaced value, or `cidr`
+   *  when the sidecar's row is observed/asserted; null on a synthetic segment. */
+  observed_cidr?: string | null;
 }
 
 /** One `nodes[]` spec of the twin config (the declared-design map): its role,
@@ -254,6 +257,9 @@ export interface CastNode {
   count: number;
   segments: string[];
   node_ids: string[];
+  /** The observed entity keys the group collapsed (2026-10-31), sorted; empty on a
+   *  synthetic or hand-authored group, a router, or an older sidecar. */
+  members?: string[];
 }
 
 export interface CastSummary {

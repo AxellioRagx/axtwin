@@ -25,7 +25,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useApi } from "../../api/context";
-import type { DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutPins, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
+import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutPins, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -52,6 +52,9 @@ interface Loaded {
   tree: TwinTree | null;
   exportData: TopologyExport | null;
   topology: Topology | null;
+  /** The cast's rosters: each node group's observed member keys and each segment's observed
+   *  CIDR, what a promote-to-assertion is keyed by. Null when the twin was not cast. */
+  cast: CastRoster | null;
   /** The twin's standing `te` deploy, newest first, or null when undeployed. */
   deploy: DeploySummary | null;
   /** The deploy's working copy (A2), when deployed. */
@@ -155,6 +158,7 @@ export function CanvasPage() {
       if (!(e instanceof ApiError && e.kind === "not-found")) throw e;
       topology = await api.getScenarioTopology(id, signal).catch(() => null);
     }
+    const cast = twin.pit_id ? await api.getCast(id, signal).catch(() => null) : null;
     const deploys = await api.listDeploys(signal).catch(() => ({ deploys: [], warnings: [] }));
     const deploy = standingDeploy(deploys.deploys, id);
     const config = deploy ? await api.getDeployConfig(deploy.deploy_id, signal) : null;
@@ -176,7 +180,7 @@ export function CanvasPage() {
       paletteNotes.push(`personas not listed: ${errorText(e)}`);
       return { twin: null, personas: [], warnings: [] };
     });
-    return { twin, tree, exportData, topology, deploy, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
+    return { twin, tree, exportData, topology, cast, deploy, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
   }, [id]);
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
 
@@ -581,21 +585,45 @@ export function CanvasPage() {
       }),
     [api, pit, id, deployId, files, reload, run],
   );
+  // A twin-config node NAME is a cast group name (`role-band-segment-rung`) and a segment's
+  // `cidr` the deployed (possibly relocated) network; neither is a key the assertions seam
+  // resolves. The cast roster carries what is: each group's observed member keys and each
+  // segment's observed CIDR. A node or segment the roster cannot key is not promotable.
+  const cast = data?.cast ?? null;
+  const membersOf = useCallback((node: string): string[] => cast?.node_roster.find((n) => n.name === node)?.members ?? [], [cast]);
+  const observedCidrOf = useCallback((segment: string): string | null => cast?.segment_roster.find((s) => s.name === segment)?.observed_cidr ?? null, [cast]);
+  const promoteBlock = useCallback(
+    (what: { node: string } | { from: string; to: string }): string | null => {
+      if (pit === null) return "this twin was not cast from an imprint; there is nothing to assert on";
+      if (!cast) return "the cast roster could not be read; nothing to key an assertion by";
+      if ("node" in what) {
+        return membersOf(what.node).length ? null : `${what.node} has no observed members in the cast (added by hand, synthetic, or an older cast); nothing to assert on`;
+      }
+      if (observedCidrOf(what.from) === null || observedCidrOf(what.to) === null) return `${what.from} or ${what.to} has no observed network in the cast; nothing to assert on`;
+      const hosts = model?.te.nodes.filter((n) => n.nets.some((l) => l.segment === what.from)) ?? [];
+      return hosts.some((n) => membersOf(n.name).length) ? null : `no host on ${what.from} has observed members in the cast; nothing to assert on`;
+    },
+    [pit, cast, membersOf, observedCidrOf, model],
+  );
   const onPromoteRole = useCallback(
-    (node: string, role: string) => void promote({ override: [{ key: `hostname:${node}`, field: "role", value: role, note: `promoted from the design canvas: ${node} is a ${role}` }], suppress: [] }, `${node} is a ${role}`),
-    [promote],
+    (node: string, role: string) => {
+      const note = `promoted from the design canvas: ${node} is a ${role}`;
+      const override = membersOf(node).map((key) => ({ key, field: "role", value: role, note }));
+      void promote({ override, suppress: [] }, `${node} is a ${role}`);
+    },
+    [membersOf, promote],
   );
   const onPromoteMerge = useCallback(
     (from: string, to: string) => {
       if (!model) return;
-      const a = model.te.segments.find((s) => s.name === from);
-      const b = model.te.segments.find((s) => s.name === to);
-      if (!a || !b) return;
+      const fromCidr = observedCidrOf(from);
+      const toCidr = observedCidrOf(to);
+      if (fromCidr === null || toCidr === null) return;
       const note = `promoted from the design canvas: ${from} and ${to} are one segment`;
-      const hosts = model.te.nodes.filter((n) => n.nets.some((l) => l.segment === from)).map((n) => ({ key: `hostname:${n.name}`, field: "segment", value: b.cidr, note }));
-      void promote({ override: hosts, suppress: [{ key: a.cidr, note }] }, `${from} is ${to}`);
+      const hosts = model.te.nodes.filter((n) => n.nets.some((l) => l.segment === from)).flatMap((n) => membersOf(n.name).map((key) => ({ key, field: "segment", value: toCidr, note })));
+      void promote({ override: hosts, suppress: [{ key: fromCidr, note }] }, `${from} is ${to}`);
     },
-    [model, promote],
+    [model, observedCidrOf, membersOf, promote],
   );
 
   const baselineModel = useMemo<DocModel | null>(() => (detail?.document ? readDoc({ id: detail.document.id, teFile: detail.document.te_file, files: detail.document.files }) : null), [detail]);
@@ -741,6 +769,7 @@ export function CanvasPage() {
           images={[...new Set(items.filter((i) => i.kind === "image").map((i) => i.id))]}
           personas={data?.personas ?? []}
           canPromote={pit !== null}
+          promoteBlock={promoteBlock}
           apply={edit}
           onPromoteRole={onPromoteRole}
           onPromoteMerge={onPromoteMerge}
