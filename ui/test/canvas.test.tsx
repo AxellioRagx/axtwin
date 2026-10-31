@@ -98,7 +98,7 @@ const CAST_TREE: TwinTree = {
 };
 
 function layoutDoc(id: string, pins: LayoutDoc["pins"], plane: string | null = CANVAS_PLANE): LayoutDoc {
-  return { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: "etag-1", schema: "axr-layout/1", imprint: id, pins, plane };
+  return { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: "etag-1", schema: "axr-layout/1", imprint: id, pins, plane, annotations: [] };
 }
 
 function seeded(over: Parameters<typeof fakeApi>[0] = {}) {

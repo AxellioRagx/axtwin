@@ -434,6 +434,23 @@ export interface TopologyExport {
 /** `site:<prefix>` / `segment:<cidr>` / `host:<name>` -> an absolute top-left on the plane. */
 export type LayoutPins = Record<string, { x: number; y: number }>;
 
+/** One canvas annotation in the layout side-car: a positioned SVG snippet.
+ *  `id` is 1-64 chars of `[A-Za-z0-9._:-]`, unique; `svg` at most 8 KiB and
+ *  refused when it carries script, a foreignObject, an `on*=` attribute or
+ *  an href; at most 200 per document. */
+export interface LayoutAnnotation {
+  id: string;
+  /** `text` | `rect` | `ellipse` | `line`. */
+  kind: string;
+  x: number;
+  y: number;
+  w?: number | null;
+  h?: number | null;
+  svg: string;
+  locked: boolean;
+  hidden: boolean;
+}
+
 export interface LayoutDoc {
   imprint_id: string;
   path: string;
@@ -445,6 +462,8 @@ export interface LayoutDoc {
   pins: LayoutPins;
   /** The drawing plane the pins were authored on -- an opaque stamp the server round-trips. */
   plane: string | null;
+  /** `[]` for a document without the key; an empty list PUT back writes no key. */
+  annotations: LayoutAnnotation[];
   warnings?: string[];
 }
 
@@ -455,6 +474,12 @@ export interface LayoutWrite {
   pins: LayoutPins;
   plane: string;
   etag: string | null;
+  annotations?: LayoutAnnotation[];
+}
+
+/** `POST /api/validate {document}`: a twin-config bundle validated through the Save / Persist path, nothing written. */
+export interface ValidateDocumentRequest {
+  document: { id: string; files: Record<string, string> };
 }
 
 // --- GET /api/twin-configs and GET /api/personas: the palette's sources (Phase 2 of the canvas) ---

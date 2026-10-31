@@ -117,10 +117,17 @@ assertion (a cast twin's role change or segment merge through
 rect, ellipse, line, per-item lock, hide-all). Not in Phase 2: the layout
 menu's hierarchical / force / radial presets, helper lines while dragging,
 per-attachment styles, icon sets and node resize, Ctrl+C/V/D, PNG/SVG
-export, the run-time row, and -- because `axr-layout/1` is a closed key set
-whose pins are strictly `{x, y}` -- annotations in the side-car: they are
-kept per browser (localStorage) until the schema gains an `annotations`
-key. Fault injection and attachment impairments wait for an IR concept.
+export, the run-time row. **2026-10-31:** every mutation is validated by
+`POST /api/validate {document}` (debounced; Save, Save-As, Persist and Apply
+open only on a clean answer for the files on screen, the findings shown with
+rule and location; the canvas's structural check stays the instant hint and
+the working-copy PUT's refusal the backstop), and annotations live in the
+layout side-car's `annotations` list (positioned SVG snippets with lock and
+hidden flags, ETag-guarded through the pins' write queue, a set an earlier
+build kept in localStorage migrated once; the server refuses script,
+foreignObject, `on*=` and href by name, and the canvas escapes every typed
+character that could spell one). Fault injection and attachment impairments
+wait for an IR concept.
 
 ## Config
 

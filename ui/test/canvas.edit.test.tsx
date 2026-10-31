@@ -103,6 +103,10 @@ const commit = (input: HTMLElement, value: string) => {
   fireEvent.keyDown(input, { key: "Enter" });
 };
 const settle = () => act(() => new Promise((r) => setTimeout(r, 350)));
+const enabled = async (name: string) => {
+  await waitFor(() => expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(false));
+  return screen.getByRole("button", { name });
+};
 
 afterEach(() => {
   localStorage.clear();
@@ -128,11 +132,9 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(item("group", "corp-auth/web01"));
     await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
     expect(within(host("web01-1")).getByTestId("chip-address").textContent).toBe("10.1.2.10");
-    expect(screen.getByTestId("validation-state").textContent).toBe("valid");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
 
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(save);
+    fireEvent.click(await enabled("Save"));
     await screen.findByTestId("clean-marker");
     const write = state.writes.find((w) => w.op === "put-twin-config")!;
     expect(write.id).toBe("corp-auth");
@@ -155,7 +157,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(p).getByRole("button", { name: "Duplicate" }));
     await waitFor(() => expect(hosts()).toEqual(["web01", "ws01", "ws01-1"]));
     expect(within(host("ws01-1")).getByTestId("chip-address").textContent).toBe("10.1.1.10");
-    expect(screen.getByTestId("validation-state").textContent).toBe("valid");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
     // Again: the next free address, not the same one.
     fireEvent.click(host("ws01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Duplicate onto segment"), { target: { value: "net-dmz" } });
@@ -171,7 +173,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(item("segment", "segment"));
     await waitFor(() => expect(segments().length).toBe(3));
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "corp-auth-2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save as" }));
+    fireEvent.click(await enabled("Save as"));
     await waitFor(() => expect(state.writes.some((w) => w.op === "create-twin-config")).toBe(true));
     expect((await api.listTwinConfigs()).twin_configs.map((c) => c.id)).toContain("corp-auth-2");
     const created = state.documents["corp-auth-2"]!;
@@ -187,7 +189,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const r2 = renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "corp-live" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save as" }));
+    fireEvent.click(await enabled("Save as"));
     await screen.findByText(/twin-config 'corp-live' already exists; Save-As never overwrites/);
     expect(readTe(state.documents["corp-live"]!.files["te.yaml"]!).segments.length).toBe(2);
     r2.unmount();
@@ -199,7 +201,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect(segments().length).toBe(3));
     await settle();
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "corp-live-copy" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save as" }));
+    fireEvent.click(await enabled("Save as"));
     await waitFor(() => expect(state.documents["corp-live-copy"]).toBeTruthy());
     expect(readTe(state.documents["corp-live-copy"]!.files["te.yaml"]!).segments.length).toBe(3);
     // The baseline, the deploy and its working copy are untouched by a Save-As.
@@ -219,7 +221,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(blocked.textContent).toContain("'10.1.1.5/24' is not an IPv4 network address");
     expect(segment("net-dmz").dataset["cidr"]).toBe("10.1.1.0/24");
     expect(screen.getByTestId("clean-marker")).toBeTruthy();
-    expect(screen.getByTestId("validation-state").textContent).toBe("valid");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
     // A node attached to a segment that is not there: the panel's attach list only offers real segments,
     // so the check is the removal of a segment with a pinned address elsewhere -- still valid; and a bad address.
     fireEvent.click(host("web01"));
@@ -255,7 +257,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]).toBe(teText("corp-live"));
     expect(readTe((await api.getDeployConfig("dep-1")).document.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
     // Persist: the baseline becomes the working copy and the copy is clean.
-    fireEvent.click(screen.getByRole("button", { name: "Persist" }));
+    fireEvent.click(await enabled("Persist"));
     await screen.findByText("working copy equals the baseline");
     expect(readTe((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
     expect((await api.getDeployConfig("dep-1")).dirty).toBe(false);
@@ -280,7 +282,7 @@ describe("the design canvas, phase 2 (C3)", () => {
 
     fireEvent.click(within(canvasA).getByRole("button", { name: "Reset" }));
     await within(canvasA).findByText("working copy equals the baseline");
-    expect(within(canvasA).getAllByTestId("canvas-segment").length).toBe(2);
+    await waitFor(() => expect(within(canvasA).getAllByTestId("canvas-segment").length).toBe(2));
     expect(within(canvasA).getByTestId("exit-note").textContent).toContain("reset to baseline");
     fireEvent.click(within(canvasB).getByRole("button", { name: "Refresh" }));
     await within(canvasB).findByText("working copy equals the baseline");
@@ -303,7 +305,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("clean-marker").textContent).toBe("saved");
     fireEvent.keyDown(window, { key: "y", ctrlKey: true });
     await waitFor(() => expect(segments().length).toBe(3));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(await enabled("Save"));
     await waitFor(() => expect(state.writes.some((w) => w.op === "put-twin-config")).toBe(true));
     const files = (state.writes.find((w) => w.op === "put-twin-config")!.body as { files: Record<string, string> }).files;
     expect(files["te.yaml"]).toBe(teText("corp-auth").replace("    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n", "    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n    - { name: segment-3, cidr: 10.1.2.0/24, zone_type: vlan }\n"));
@@ -344,10 +346,10 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(change.dataset["kind"]).toBe("topology");
     expect(change.textContent).toContain("re-plan");
     expect(change.textContent).toContain("the twin must be re-planned");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Persist" }).hasAttribute("disabled")).toBe(false));
+    await enabled("Persist");
     expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "x" } });
-    expect(screen.getByRole("button", { name: "Save as" }).hasAttribute("disabled")).toBe(false);
+    await enabled("Save as");
     expect(screen.getByTestId("redeploy-link").getAttribute("href")).toBe("/twins/corp-live");
   });
 
@@ -395,7 +397,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(sp).getByTestId("merge-segments"));
     await waitFor(() => expect(segments()).toEqual(["net-lan"]));
     expect(hosts()).toEqual(["web01", "ws01"]);
-    expect(screen.getByTestId("validation-state").textContent).toBe("valid");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
   });
 
   it("the palette places N copies named {name}-{n}, each on the next free address; a persona item binds the selected group", async () => {
@@ -462,8 +464,8 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(connectionToAttach({ source: "seg:net-dmz", target: "host:ws01" })).toBeNull();
   });
 
-  it("view mode while the deploy is running: locked except annotations; annotations are kept in this browser", async () => {
-    const { api } = seeded({ deploys: [{ ...DEPLOY, status: "running" }] });
+  it("view mode while the deploy is running: locked except annotations, which go to the side-car", async () => {
+    const { api, state } = seeded({ deploys: [{ ...DEPLOY, status: "running" }] });
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     expect(screen.getByTestId("mode").textContent).toContain("view mode · deploy dep-1 running");
@@ -485,8 +487,120 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect(screen.queryByTestId("canvas-annotation")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Show annotations" }));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
-    expect(JSON.parse(localStorage.getItem("axr-canvas-annotations:corp-live")!).length).toBe(2);
-    expect(screen.getByText(/2 annotations kept in this browser/)).toBeTruthy();
+    await waitFor(() => expect((state.layouts["corp-live"]?.annotations ?? []).length).toBe(2));
+    expect(state.layouts["corp-live"]!.annotations.map((a) => a.kind)).toEqual(["text", "rect"]);
+    expect(screen.getByText(/2 annotations in the layout side-car/)).toBeTruthy();
+    expect(localStorage.getItem("axr-canvas-annotations:corp-live")).toBeNull();
+  });
+});
+
+describe("the document validate gate and the side-car annotations", () => {
+  it("every mutation is validated through POST /api/validate {document}: an error finding disables Save and is shown with its rule and place; a clean answer enables it", async () => {
+    const { api, state } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    expect(screen.getByTestId("validation-api").textContent).toBe("API: pass · 0 errors, 0 warnings");
+    // An image the manifests do not know passes the canvas's own check and fails the API's.
+    fireEvent.click(host("web01"));
+    const p = await panel().findByTestId("node-panel");
+    fireEvent.change(within(p).getByLabelText("Image"), { target: { value: "ubuntu-server-99@v1" } });
+    fireEvent.blur(within(p).getByLabelText("Image"));
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("invalid"));
+    const finding = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "IMG-010")!;
+    expect(finding.textContent).toContain("image 'ubuntu-server-99@v1' has no manifest");
+    expect(finding.textContent).toContain("twin_config.nodes[web01].image");
+    expect(screen.getByTestId("validation-api").textContent).toBe("API: fail · 1 error, 0 warnings");
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "x" } });
+    expect(screen.getByRole("button", { name: "Save as" }).hasAttribute("disabled")).toBe(true);
+    const validated = state.writes.filter((w) => w.op === "validate");
+    expect((validated.at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]).toContain("ubuntu-server-99@v1");
+    // Another known image: the next answer is clean and the exits open (the document still differs from the saved one).
+    commit(within(panel().getByTestId("node-panel")).getByLabelText("Image"), "debian-12-cloud@v1");
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    fireEvent.click(await enabled("Save"));
+    await screen.findByTestId("clean-marker");
+    // The API's answer is tied to the files it judged: until the next answer lands the state is "validating", never a stale "valid".
+    fireEvent.click(item("segment", "segment"));
+    expect(screen.getByTestId("validation-state").textContent).toBe("validating");
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+  });
+
+  it("annotations round-trip through the layout document with the etag, and survive a reload", async () => {
+    const { api, state } = seeded();
+    const r = renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getByRole("button", { name: "text" }));
+    await screen.findByTestId("canvas-annotation");
+    fireEvent.click(screen.getByRole("button", { name: "ellipse" }));
+    await waitFor(() => expect(state.layouts["corp-auth"]?.annotations.length).toBe(2));
+    const writes = state.writes.filter((w) => w.op === "put-layout");
+    expect(writes.length).toBe(2);
+    // The second write carried the first's etag as its precondition and both annotations as positioned SVG.
+    expect((writes[0]!.body as { etag: string | null }).etag).toBeNull();
+    expect(String((writes[1]!.body as { etag: string | null }).etag)).toMatch(/^layout-etag-\d+$/);
+    const saved = state.layouts["corp-auth"]!.annotations;
+    expect(saved[0]).toMatchObject({ kind: "text", locked: false, hidden: false, w: 160, h: 28 });
+    expect(saved[0]!.svg).toMatch(/^<text x="-?[\d.]+" y="-?[\d.]+">note<\/text>$/);
+    expect(saved[1]!.svg).toMatch(/^<ellipse cx=.* fill="none" stroke="currentColor"\/>$/);
+    // Edit the text and lock it from the panel: each change is a write.
+    fireEvent.click(screen.getAllByTestId("canvas-annotation")[0]!);
+    const ap = await panel().findByTestId("annotation-panel");
+    fireEvent.change(within(ap).getByLabelText("Annotation text"), { target: { value: "crown jewels <here> & onion = 3" } });
+    fireEvent.click(within(ap).getByLabelText("locked"));
+    await waitFor(() => expect(state.layouts["corp-auth"]!.annotations[0]!.locked).toBe(true));
+    expect(state.layouts["corp-auth"]!.annotations[0]!.svg).toBe(`<text x="${saved[0]!.x}" y="${saved[0]!.y + 14}">crown jewels &lt;here&gt; &amp; onion &#61; 3</text>`);
+    r.unmount();
+    // A fresh console reads them back from the side-car, text included.
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    const back = screen.getAllByTestId("canvas-annotation").find((a) => a.dataset["annKind"] === "text")!;
+    expect(back.textContent).toContain("crown jewels <here> & onion = 3");
+    expect(back.className).toContain("locked");
+    expect(screen.getByText(/2 annotations in the layout side-car/)).toBeTruthy();
+    // A pin write carries the annotations through untouched.
+    const { nextLayoutWrite } = await import("../src/features/edit-canvas/CanvasPage");
+    const doc = await api.getLayout("corp-auth");
+    expect(nextLayoutWrite(doc, "corp-auth", "host:ws01", { x: 1, y: 2 }).annotations).toEqual(doc.annotations);
+  });
+
+  it("migrates a set an earlier build kept in this browser into the side-car once, then clears it", async () => {
+    const { api, state } = seeded();
+    localStorage.setItem("axr-canvas-annotations:corp-auth", JSON.stringify([{ id: "old-1", kind: "rect", x: 10, y: 20, w: 100, h: 50, text: "", locked: true }, { id: "old-2", kind: "text", x: 5, y: 5, w: 160, h: 28, text: "legacy note", locked: false }]));
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    await waitFor(() => expect(state.layouts["corp-auth"]?.annotations.map((a) => a.id)).toEqual(["old-1", "old-2"]));
+    expect(state.layouts["corp-auth"]!.annotations[0]).toMatchObject({ kind: "rect", x: 10, y: 20, w: 100, h: 50, locked: true, hidden: false });
+    expect(state.layouts["corp-auth"]!.annotations[1]!.svg).toBe('<text x="5" y="19">legacy note</text>');
+    expect(localStorage.getItem("axr-canvas-annotations:corp-auth")).toBeNull();
+    await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
+    expect(state.writes.filter((w) => w.op === "put-layout").length).toBe(1);
+  });
+
+  it("a snippet the server's sanitiser refuses shows the 400 in place; what the canvas emits never trips it", async () => {
+    const { api, state } = seeded();
+    // The fake applies the server's rules: these are refused by name, nothing stripped.
+    const base = { schema: "axr-layout/1", imprint: "corp-auth", pins: {}, plane: "l0-1-test", etag: null };
+    for (const [svg, what] of [["<rect onclick=\"x()\"/>", "an on*= event-handler attribute"], ["<a href=\"j\"><text>x</text></a>", "an href / xlink:href attribute"], ["<script>1</script>", "a <script> element"], ["<foreignObject/>", "a <foreignObject> element"]] as const) {
+      await expect(api.putLayout("corp-auth", { ...base, annotations: [{ id: "a", kind: "rect", x: 0, y: 0, svg, locked: false, hidden: false }] })).rejects.toMatchObject({ status: 400, message: expect.stringContaining(what) });
+    }
+    await expect(api.putLayout("corp-auth", { ...base, annotations: [{ id: "bad id", kind: "rect", x: 0, y: 0, svg: "<rect/>", locked: false, hidden: false }] })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("`id` must be 1-64 characters") });
+    expect(state.layouts["corp-auth"]).toBeUndefined();
+    // The canvas escapes every character that could spell one of them.
+    const { toSvg } = await import("../src/features/edit-canvas/edit/annotations");
+    const hostile = toSvg({ id: "t", kind: "text", x: 0, y: 0, w: 1, h: 1, text: "<script>onload=1 href=x</script>", locked: false, hidden: false });
+    await api.putLayout("corp-auth", { ...base, annotations: [{ id: "t", kind: "text", x: 0, y: 0, svg: hostile, locked: false, hidden: false }] });
+    expect(state.layouts["corp-auth"]!.annotations[0]!.svg).toBe('<text x="0" y="14">&lt;script&gt;onload&#61;1 href&#61;x&lt;/script&gt;</text>');
+    // A refusal the server makes is surfaced on the page.
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    state.refuse.layout = new (await import("../src/api/client")).ApiError({ kind: "bad-request", status: 400, message: "layout for 'corp-auth': annotations[1] `svg` carries a <script> element, which a layout annotation may not (the file is served back to browsers)", url: "" });
+    fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    await screen.findByText(/could not save the layout: layout for 'corp-auth': annotations\[1\] `svg` carries a <script> element/);
   });
 });
 

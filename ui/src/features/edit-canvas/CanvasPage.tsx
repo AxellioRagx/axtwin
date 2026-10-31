@@ -25,7 +25,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useApi } from "../../api/context";
-import type { DeployConfig, DeploySummary, LayoutDoc, LayoutPins, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree } from "../../api/types";
+import type { DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutPins, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -35,7 +35,7 @@ import { castInput } from "./canvas/cast";
 import { place } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
-import { loadAnnotations, saveAnnotations, type Annotation } from "./edit/annotations";
+import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout, type Annotation } from "./edit/annotations";
 import { sameFiles, type Files } from "./edit/commands";
 import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
 import type { PaletteItem } from "./edit/EditContext";
@@ -66,18 +66,35 @@ interface Loaded {
 
 const LAYOUT_SCHEMA = "axr-layout/1";
 const SYNC_DELAY_MS = 250;
+const VALIDATE_DELAY_MS = 300;
 const POLL_MS = 5000;
 const CATALOG_DETAIL_LIMIT = 12;
 
 /**
  * The PUT body after one drag: the document's pins when they were authored on
  * THIS plane (another plane's coordinates are not re-saved as this drawing's),
- * the dragged element's new absolute top-left, the plane stamp, and the etag
- * the document was read under as the precondition.
+ * the dragged element's new absolute top-left, the plane stamp, the etag the
+ * document was read under as the precondition, and the annotations the
+ * document holds (carried through untouched; `annotationsWrite` replaces them).
  */
 export function nextLayoutWrite(current: LayoutDoc | null, id: string, key: string, at: { x: number; y: number }): LayoutWrite {
   const carried: LayoutPins = current && current.plane === CANVAS_PLANE ? current.pins : {};
-  return { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...carried, [key]: at }, plane: CANVAS_PLANE, etag: current?.etag ?? null };
+  const out: LayoutWrite = { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...carried, [key]: at }, plane: CANVAS_PLANE, etag: current?.etag ?? null };
+  if (current?.annotations?.length) out.annotations = current.annotations;
+  return out;
+}
+
+/** The PUT body after an annotation change: the pins as they stand, the new annotation list. */
+export function annotationsWrite(current: LayoutDoc | null, id: string, annotations: readonly LayoutAnnotation[]): LayoutWrite {
+  const carried: LayoutPins = current && current.plane === CANVAS_PLANE ? current.pins : {};
+  return { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...carried }, plane: CANVAS_PLANE, etag: current?.etag ?? null, annotations: [...annotations] };
+}
+
+/** The latest document validate (`POST /api/validate {document}`), tied to the files it judged. */
+export interface DocValidation {
+  files: Files;
+  result: ValidateResult | null;
+  error: unknown;
 }
 
 /** The twin's standing deploy: its newest `te` deploy that is running or completed. */
@@ -172,6 +189,7 @@ export function CanvasPage() {
     if (!layout.data) return;
     setDoc(layout.data);
     setPins(layout.data.plane === CANVAS_PLANE ? layout.data.pins : NO_PINS);
+    setAnnotationsState(fromLayoutList(layout.data.annotations));
   }, [layout.data]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [initialViewport] = useState(() => readViewport(id));
@@ -191,6 +209,8 @@ export function CanvasPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [saveAsId, setSaveAsId] = useState("");
   const [annotations, setAnnotationsState] = useState<Annotation[]>([]);
+  const [validation, setValidation] = useState<DocValidation | null>(null);
+  const [validating, setValidating] = useState(false);
   const synced = useRef<Files | null>(null);
   const deployed = Boolean(data?.deploy);
   const deployId = data?.deploy?.deploy_id ?? null;
@@ -205,20 +225,95 @@ export function CanvasPage() {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
       synced.current = { ...document.files };
     }
-    setAnnotationsState(loadAnnotations(id));
     setSelection({ kind: "none" });
     setServerReason(null);
     setBlocked(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, id]);
 
+  // Writes are chained so two quick drags never race on one etag.
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const docRef = useRef<LayoutDoc | null>(null);
+  docRef.current = doc;
+  const onPin = useCallback(
+    (key: string, at: { x: number; y: number }) => {
+      setPins((p) => ({ ...p, [key]: at }));
+      queue.current = queue.current.then(async () => {
+        try {
+          const saved = await api.putLayout(id, nextLayoutWrite(docRef.current, id, key, at));
+          setDoc(saved);
+          setSaveError(null);
+          setSavedAt(new Date().toISOString());
+        } catch (e) {
+          setSaveError(e);
+          if (e instanceof ApiError && e.status === 412) layout.reload();
+        }
+      });
+    },
+    [api, id, layout],
+  );
+  // Annotations live in the layout side-car: every change is a PUT through the
+  // pins' chained queue, with the etag as the precondition; the server's
+  // refusal of a snippet (a 400 from its sanitiser) is shown in place.
   const setAnnotations = useCallback(
     (list: Annotation[]) => {
       setAnnotationsState(list);
-      saveAnnotations(id, list);
+      const wire = list.map(toLayout);
+      queue.current = queue.current.then(async () => {
+        try {
+          const saved = await api.putLayout(id, annotationsWrite(docRef.current, id, wire));
+          setDoc(saved);
+          setSaveError(null);
+          setSavedAt(new Date().toISOString());
+        } catch (e) {
+          setSaveError(e);
+          if (e instanceof ApiError && e.status === 412) layout.reload();
+        }
+      });
     },
-    [id],
+    [api, id, layout],
   );
+
+  // A set an earlier build kept in this browser is written into the side-car once, then cleared.
+  const migrated = useRef<string | null>(null);
+  useEffect(() => {
+    if (!layout.data || migrated.current === id) return;
+    migrated.current = id;
+    const legacy = readLegacyAnnotations(id);
+    if (!legacy.length) return;
+    const merged = [...fromLayoutList(layout.data.annotations), ...legacy.filter((a) => !layout.data!.annotations.some((x) => x.id === a.id))];
+    setAnnotations(merged);
+    clearLegacyAnnotations(id);
+  }, [layout.data, id, setAnnotations]);
+
+  // Every mutation is validated by the API through the document route after a
+  // short quiet spell; the exits are enabled only on a clean answer for the
+  // files as they stand. The structural check stays the instant hint.
+  useEffect(() => {
+    if (!editor.files || !editor.doc) return;
+    const files = editor.files;
+    const docId = editor.doc.id;
+    const ctl = new AbortController();
+    setValidating(true);
+    const t = setTimeout(() => {
+      api.validateDocument({ id: docId, files }, ctl.signal).then(
+        (result) => {
+          if (ctl.signal.aborted) return;
+          setValidation({ files, result, error: null });
+          setValidating(false);
+        },
+        (e: unknown) => {
+          if (ctl.signal.aborted) return;
+          setValidation({ files, result: null, error: e });
+          setValidating(false);
+        },
+      );
+    }, VALIDATE_DELAY_MS);
+    return () => {
+      clearTimeout(t);
+      ctl.abort();
+    };
+  }, [editor.files, editor.doc, api]);
 
   // One mutation: the editor validates and records it; the reason it was blocked is shown in place.
   const edit = useCallback(
@@ -327,27 +422,6 @@ export function CanvasPage() {
 
   const placement = useMemo(() => (built ? place(built.graph, pins, { expanded, extraLegs: built.extraLegs }) : null), [built, pins, expanded]);
 
-  // Writes are chained so two quick drags never race on one etag.
-  const queue = useRef<Promise<void>>(Promise.resolve());
-  const docRef = useRef<LayoutDoc | null>(null);
-  docRef.current = doc;
-  const onPin = useCallback(
-    (key: string, at: { x: number; y: number }) => {
-      setPins((p) => ({ ...p, [key]: at }));
-      queue.current = queue.current.then(async () => {
-        try {
-          const saved = await api.putLayout(id, nextLayoutWrite(docRef.current, id, key, at));
-          setDoc(saved);
-          setSaveError(null);
-          setSavedAt(new Date().toISOString());
-        } catch (e) {
-          setSaveError(e);
-          if (e instanceof ApiError && e.status === 412) layout.reload();
-        }
-      });
-    },
-    [api, id, layout],
-  );
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
     (v: Viewport) => {
@@ -410,7 +484,10 @@ export function CanvasPage() {
   // ---- exits ----
   const files = editor.files;
   const dirty = deployed ? Boolean(config?.dirty) || editor.dirty : editor.dirty;
-  const valid = model ? !model.findings.some((f) => f.severity === "error") : false;
+  const structurallyValid = model ? !model.findings.some((f) => f.severity === "error") : false;
+  // The gate: the API's latest answer, for exactly the files on screen, with no error.
+  const apiValid = Boolean(files && validation && validation.result && validation.result.errors === 0 && sameFiles(validation.files, files));
+  const valid = structurallyValid && apiValid;
   const unsynced = deployed && Boolean(files && synced.current && !sameFiles(files, synced.current));
   const topologyPending = (config?.changes ?? []).some((c) => c.kind === "topology");
   const run = useCallback(
@@ -531,7 +608,7 @@ export function CanvasPage() {
     if (built?.kind === "design") out.push(deployed ? "design view: the working copy" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push("read-only: the catalog serves no document for this twin");
-    if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} kept in this browser (the layout schema has no annotations key yet)`);
+    if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} in the layout side-car`);
     return out;
   }, [layout.error, doc, built, data, designAvailable, deployed, annotations.length]);
 
@@ -583,7 +660,7 @@ export function CanvasPage() {
         {savedAt ? <span className="muted" role="status">positions saved</span> : null}
       </div>
       <ErrorLine error={error} prefix="could not load the twin" />
-      <ErrorLine error={saveError} prefix="could not save the positions" />
+      <ErrorLine error={saveError} prefix="could not save the layout" />
       {loading && !data ? <p className="muted">Loading the twin…</p> : null}
       {designAvailable && data ? (
         <div className="cv-exits" data-testid="exits">
@@ -608,7 +685,7 @@ export function CanvasPage() {
             </button>
           ) : (
             <>
-              <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || busy !== null || Boolean(locked)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
+              <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
                 Apply
               </button>
               <button type="button" onClick={resetExit} disabled={!config?.dirty || busy !== null || Boolean(locked)}>
@@ -674,6 +751,8 @@ export function CanvasPage() {
             setSelection({ kind: "none" });
           }}
           serverReason={serverReason}
+          validation={validation && files && sameFiles(validation.files, files) ? validation : null}
+          validating={validating || !(validation && files && sameFiles(validation.files, files))}
           changes={deployed ? (config?.changes ?? []) : null}
           blocked={blocked}
         />

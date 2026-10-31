@@ -29,6 +29,7 @@ import type {
   TwinList,
   TwinSummary,
   TwinTree,
+  ValidateResult,
 } from "./types";
 
 /** The typed calls this console makes. Writes carry the token; reads do not. */
@@ -95,6 +96,8 @@ export interface Api {
   applyDeployConfig(deployId: string): Promise<DeployConfigApply>;
   /** Discard the working copy and revert what Apply pushed. */
   resetDeployConfig(deployId: string): Promise<DeployConfigReset>;
+  /** Validate a document (`{id, files}`) through the Save / Persist path without writing; a FAIL is a 200 with the findings. */
+  validateDocument(document: { id: string; files: Record<string, string> }, signal?: AbortSignal): Promise<ValidateResult>;
 }
 
 const enc = encodeURIComponent;
@@ -139,5 +142,6 @@ export function makeApi(request: Requester): Api {
     putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files }, auth: true }),
     applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {}, auth: true }),
     resetDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: {}, auth: true }),
+    validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
   };
 }

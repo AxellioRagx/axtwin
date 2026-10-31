@@ -8,8 +8,8 @@
  */
 import { useEffect, useState } from "react";
 
-import type { PendingChange, Persona, ValidationFinding } from "../../api/types";
-import { ErrorLine } from "../../areas/shell/parts";
+import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "../../api/types";
+import { ErrorLine, errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
 import {
   attach,
@@ -57,6 +57,10 @@ export interface SidePanelProps {
   onRemoveAnnotation(id: string): void;
   /** The API's refusal of the last write, verbatim, or null. */
   serverReason: string | null;
+  /** The API's latest document validate for the files on screen, or null while none has answered. */
+  validation: { result: ValidateResult | null; error: unknown } | null;
+  /** A validate is in flight or owed for the files on screen. */
+  validating: boolean;
   /** On a deployed twin: the API's classification of every pending change. */
   changes: PendingChange[] | null;
   /** The reason the last edit was blocked, shown until the next edit. */
@@ -82,7 +86,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
-      <Validation findings={model.findings} serverReason={p.serverReason} />
+      <Validation findings={model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
       {p.changes ? <Changes changes={p.changes} /> : null}
     </aside>
   );
@@ -102,7 +106,7 @@ function Field({ label, children, hint }: { label: string; children: React.React
 }
 
 /** A text field that commits on blur or Enter, so a half-typed value is not an edit. */
-function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono }: { value: string; onCommit(v: string): void; disabled: boolean; ariaLabel: string; placeholder?: string; mono?: boolean }) {
+function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono, list }: { value: string; onCommit(v: string): void; disabled: boolean; ariaLabel: string; placeholder?: string; mono?: boolean; list?: string }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (
@@ -110,6 +114,7 @@ function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono }: { val
       type="text"
       className={mono ? "mono" : undefined}
       aria-label={ariaLabel}
+      list={list}
       value={v}
       placeholder={placeholder}
       disabled={disabled}
@@ -127,22 +132,36 @@ function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono }: { val
   );
 }
 
-function Validation({ findings, serverReason }: { findings: ValidationFinding[]; serverReason: string | null }) {
-  const errors = findings.filter((f) => f.severity === "error");
+/** The validation state: the canvas's structural findings (instant) and the
+ *  API's document validate (the gate), each finding with its rule and place. */
+function Validation({ findings, serverReason, validation, validating }: { findings: ValidationFinding[]; serverReason: string | null; validation: SidePanelProps["validation"]; validating: boolean }) {
+  const local = findings.filter((f) => f.severity === "error");
+  const api = validation?.result?.findings ?? [];
+  const apiErrors = api.filter((f) => f.severity === "error");
+  const apiFailed = validation !== null && (validation.error !== null || apiErrors.length > 0);
+  const state = local.length || serverReason || apiFailed ? "invalid" : validating ? "validating" : "valid";
   return (
     <section className="cv-side-section" data-testid="validation">
       <h3>Validation</h3>
-      {errors.length === 0 && !serverReason ? (
-        <p className="ok" role="status" data-testid="validation-state">valid</p>
-      ) : (
-        <p className="error" role="status" data-testid="validation-state">
-          invalid
+      <p className={state === "valid" ? "ok" : state === "invalid" ? "error" : "muted"} role="status" data-testid="validation-state">
+        {state}
+      </p>
+      {validation?.error ? <p className="error">the API could not validate: {errorText(validation.error)}</p> : null}
+      {validation?.result && !validating ? (
+        <p className="muted" data-testid="validation-api">
+          API: {validation.result.disposition.toLowerCase()} · {validation.result.errors} error{validation.result.errors === 1 ? "" : "s"}, {validation.result.warnings} warning{validation.result.warnings === 1 ? "" : "s"}
         </p>
-      )}
-      <ul className="cv-findings">
-        {errors.map((f, i) => (
-          <li key={i}>
+      ) : null}
+      <ul className="cv-findings" data-testid="findings">
+        {local.map((f, i) => (
+          <li key={`l${i}`} data-testid="finding" data-rule={f.rule_id}>
             <span className="mono">{f.rule_id}</span> {f.message}
+            {f.location ? <span className="muted"> · {f.location}</span> : null}
+          </li>
+        ))}
+        {api.filter((f) => !local.some((l) => l.rule_id === f.rule_id && l.message === f.message)).map((f, i) => (
+          <li key={`a${i}`} data-testid="finding" data-rule={f.rule_id} data-severity={f.severity}>
+            <span className="mono">{f.rule_id}</span> <span className="badge">{f.severity}</span> {f.message}
             {f.location ? <span className="muted"> · {f.location}</span> : null}
           </li>
         ))}
@@ -226,22 +245,8 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           Promote to assertion: {n.name} is a {n.role}
         </button>
       ) : null}
-      <Field label="Image">
-        <input
-          type="text"
-          aria-label="Image"
-          list="cv-images"
-          value={n.image}
-          disabled={ro}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (p.images.includes(v) || !p.images.length) p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v));
-          }}
-          onBlur={(e) => {
-            const v = e.target.value.trim();
-            if (v && v !== n.image) p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v));
-          }}
-        />
+      <Field label="Image" hint="an image the catalog names, or any ref; the API validates it against the manifests">
+        <Text ariaLabel="Image" value={n.image} disabled={ro} mono list="cv-images" onCommit={(v) => { if (v.trim()) p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v.trim())); }} />
         <datalist id="cv-images">
           {p.images.map((i) => (
             <option key={i} value={i} />
@@ -473,10 +478,13 @@ function AnnotationPanel(p: SidePanelProps & { id: string }) {
       <label className="cv-check">
         <input type="checkbox" checked={a.locked} onChange={(e) => p.onAnnotation(a.id, { locked: e.target.checked })} /> locked
       </label>
+      <label className="cv-check">
+        <input type="checkbox" checked={a.hidden} onChange={(e) => p.onAnnotation(a.id, { hidden: e.target.checked })} /> hidden
+      </label>
       <button type="button" className="danger" onClick={() => p.onRemoveAnnotation(a.id)}>
         Remove annotation
       </button>
-      <p className="muted">Annotations are kept in this browser: the layout side-car's schema has no annotations key yet.</p>
+      <p className="muted">Stored as a positioned SVG snippet in the layout side-car, beside the positions.</p>
     </section>
   );
 }

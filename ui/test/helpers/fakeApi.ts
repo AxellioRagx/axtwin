@@ -18,6 +18,8 @@ import type {
   ProbeResult,
   TwinConfigDetail,
   TwinConfigDocument,
+  ValidateResult,
+  ValidationFinding,
   TwinSummary,
   TwinTree,
   SourceRunRequest,
@@ -122,6 +124,8 @@ export interface FakeState {
   documents: Record<string, TwinConfigDocument>;
   /** What `GET /api/deploys` lists. */
   deploys: DeploySummary[];
+  /** The images the fake's manifests know; an image outside it is an error finding (default: every image a seeded document names). */
+  images: string[] | null;
   /** Each deploy's working copy (A2), by deploy id, once first PUT; absent = the baseline, clean. */
   workingCopies: Record<string, { files: Record<string, string>; applied: DeployConfig["applied"]; updated_at: string }>;
   /** Catalog folders the listing reports as unreadable. */
@@ -152,6 +156,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     personas: [],
     documents: {},
     deploys: [],
+    images: null,
     workingCopies: {},
     skippedTwins: [],
     imprintWarnings: [],
@@ -439,7 +444,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async getLayout(id) {
       if (!state.twins[id]) throw notFound(`imprint '${id}'`);
-      return state.layouts[id] ?? { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: false, etag: null, schema: "axr-layout/1", imprint: id, pins: {}, plane: null };
+      return state.layouts[id] ?? { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: false, etag: null, schema: "axr-layout/1", imprint: id, pins: {}, plane: null, annotations: [] };
     },
     async putLayout(id, doc) {
       state.writes.push({ op: "put-layout", id, body: doc });
@@ -450,7 +455,8 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         throw new ApiError({ kind: "http", status: 412, message: `layout for '${id}' changed since it was read; reload and retry`, detail: { etag: current.etag }, url: "" });
       }
       if (doc.imprint !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `request body: document declares imprint '${doc.imprint}' but is being written for '${id}'`, url: "" });
-      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane };
+      const annotations = checkAnnotations(doc.annotations ?? [], `layout for '${id}'`);
+      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane, annotations };
       state.layouts[id] = saved;
       return saved;
     },
@@ -521,6 +527,10 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       if (wc) wc.applied = { at: "2026-10-30T00:01:00Z", tiers, roles };
       return { deploy_id: deployId, twin_id: cfg.twin_id, applied: tiers, roles, warnings: [], config: configOf(deployId) };
     },
+    async validateDocument(document) {
+      state.writes.push({ op: "validate", id: document.id, body: document });
+      return validateResult(document.id, teFileOf(document.files), document.files);
+    },
     async resetDeployConfig(deployId) {
       state.writes.push({ op: "reset-deploy-config", id: deployId });
       const cfg = configOf(deployId);
@@ -540,15 +550,32 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     return "te.yaml";
   }
 
+  /** The fake validator: the canvas's structural rules plus an image the
+   *  (fake) manifests do not know, as `POST /api/validate {document}` answers
+   *  them -- a FAIL is a result with the error findings, never a throw. */
+  function validateResult(id: string, teFile: string, files: Record<string, string>): ValidateResult {
+    const text = files[teFile];
+    const findings: ValidationFinding[] = [];
+    if (text === undefined) findings.push({ rule_id: "DOC-001", severity: "error", message: `document for '${id}' has no twin config file`, location: teFile });
+    else {
+      const te = readTe(text);
+      if (te.id !== id) findings.push({ rule_id: "DOC-002", severity: "error", message: `document declares twin_config.id '${te.id}' but is validated as '${id}'`, location: "twin_config.id" });
+      findings.push(...validateTe(te));
+      const known = new Set(state.images ?? Object.values(state.documents).flatMap((d) => readTe(d.files[d.te_file] ?? "").nodes.map((n) => n.image)));
+      for (const n of te.nodes) if (n.image && !known.has(n.image)) findings.push({ rule_id: "IMG-010", severity: "error", message: `node '${n.name}': image '${n.image}' has no manifest under the images root`, location: `twin_config.nodes[${n.name}].image` });
+    }
+    const errors = findings.filter((f) => f.severity === "error").length;
+    return { disposition: errors ? "FAIL" : "PASS", exit_code: errors ? 1 : 0, passes_run: [1, 2, 3], errors, warnings: 0, findings };
+  }
+
   /** The server's refusal shape for an invalid document (A2.3 / A3): the validator's findings, nothing written. */
   function validateDocument(id: string, teFile: string, files: Record<string, string>): void {
-    const text = files[teFile];
-    if (text === undefined) throw new ApiError({ kind: "bad-request", status: 400, message: `document for '${id}' has no twin config file`, url: "" });
-    const te = readTe(text);
-    if (te.id !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `document declares twin_config.id '${te.id}' but is being written as '${id}'`, url: "" });
-    const findings = validateTe(te);
-    if (findings.length) {
-      throw new ApiError({ kind: "unprocessable", status: 422, message: `twin-config '${id}' fails validation (${findings.length} error(s)): ${findings[0]!.rule_id} ${findings[0]!.message}`, detail: { code: "invalid", findings }, url: "" });
+    const r = validateResult(id, teFile, files);
+    const bad = r.findings.filter((f) => f.severity === "error");
+    const shape = bad.find((f) => f.rule_id.startsWith("DOC-"));
+    if (shape) throw new ApiError({ kind: "bad-request", status: 400, message: shape.message, url: "" });
+    if (bad.length) {
+      throw new ApiError({ kind: "unprocessable", status: 422, message: `twin-config '${id}' fails validation (${bad.length} error(s)): ${bad[0]!.rule_id} ${bad[0]!.message}`, detail: { code: "invalid", findings: bad }, url: "" });
     }
   }
 
@@ -583,6 +610,37 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
   }
 
   return { api, state };
+}
+
+const ANNOTATION_KINDS = ["text", "rect", "ellipse", "line"];
+const SVG_REFUSED: Array<[RegExp, string]> = [
+  [/<\s*script/i, "a <script> element"],
+  [/<\s*foreignObject/i, "a <foreignObject> element"],
+  [/\bon[a-z]+\s*=/i, "an on*= event-handler attribute"],
+  [/\b(?:xlink:)?href\s*=/i, "an href / xlink:href attribute"],
+];
+
+/** `console_files._canonical_annotations` as the fake applies it on a layout PUT: a 400 naming the item and the rule. */
+export function checkAnnotations(raw: unknown, where: string): LayoutDoc["annotations"] {
+  const bad = (msg: string) => new ApiError({ kind: "bad-request", status: 400, message: `${where}: ${msg}`, url: "" });
+  if (!Array.isArray(raw)) throw bad("`annotations` must be a list");
+  if (raw.length > 200) throw bad(`${raw.length} annotations; at most 200`);
+  const seen = new Set<string>();
+  return raw.map((item: Record<string, unknown>, i) => {
+    const label = `annotations[${i}]`;
+    const id = item["id"];
+    if (typeof id !== "string" || !/^[A-Za-z0-9._:-]{1,64}$/.test(id)) throw bad(`${label} \`id\` must be 1-64 characters from [A-Za-z0-9._:-], got ${JSON.stringify(id)}`);
+    if (seen.has(id)) throw bad(`${label} \`id\` '${id}' is used twice`);
+    seen.add(id);
+    if (!ANNOTATION_KINDS.includes(String(item["kind"]))) throw bad(`${label} \`kind\` ${JSON.stringify(item["kind"])} is not one of ${JSON.stringify(ANNOTATION_KINDS)}`);
+    for (const axis of ["x", "y"]) if (typeof item[axis] !== "number") throw bad(`${label} \`${axis}\` must be a number`);
+    for (const size of ["w", "h"]) if (item[size] !== undefined && item[size] !== null && (typeof item[size] !== "number" || (item[size] as number) < 0)) throw bad(`${label} \`${size}\` must be a non-negative number`);
+    const svg = item["svg"];
+    if (typeof svg !== "string" || !svg.trim()) throw bad(`${label} \`svg\` must be a non-empty string`);
+    if (new TextEncoder().encode(svg).length > 8192) throw bad(`${label} \`svg\` is over 8192 bytes`);
+    for (const [re, what] of SVG_REFUSED) if (re.test(svg)) throw bad(`${label} \`svg\` carries ${what}, which a layout annotation may not (the file is served back to browsers)`);
+    return { id, kind: String(item["kind"]), x: item["x"] as number, y: item["y"] as number, w: (item["w"] as number | undefined) ?? null, h: (item["h"] as number | undefined) ?? null, svg, locked: Boolean(item["locked"]), hidden: Boolean(item["hidden"]) };
+  });
 }
 
 /** `api/Spec.md`'s apply classification, by the tier file a change touches

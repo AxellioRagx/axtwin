@@ -143,7 +143,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
   const annotationNodes = useMemo<CanvasNode[]>(() => {
     if (!edit || !showAnnotations) return [];
-    return edit.annotations.map((a) => ({
+    return edit.annotations.filter((a) => !a.hidden).map((a) => ({
       id: `ann:${a.id}`,
       type: "annotation",
       position: { x: a.x, y: a.y },
