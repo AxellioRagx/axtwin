@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 
+from axrange.api import auth as _auth
 from axrange.api import discovery_sources as _ds
 from axrange.api import recompile as _rc
 
@@ -113,6 +114,23 @@ class ApiSettings:
     api_token: str = field(
         default_factory=lambda: os.environ.get("AXRANGE_API_TOKEN", "")
     )
+    # Who may write (`api/Spec.md` A8, `axrange.api.auth`): `none` | `proxy` |
+    # `token`, comma-combinable. Empty -> `token` when `api_token` is set,
+    # else `none`. Resolved and validated ONCE by `create_app`
+    # (`auth_policy()`), never per request.
+    auth: str = field(default_factory=lambda: os.environ.get(_auth.SETTING_AUTH, ""))
+    # The upstreams whose identity header `proxy` mode believes
+    # (`AXRANGE_TRUSTED_PROXY_CIDRS`, comma-separated networks; default the
+    # loopback addresses). The TCP peer is checked, so `axrange serve` runs
+    # uvicorn with `proxy_headers=False` -- a forwarded-for rewrite would
+    # otherwise make every peer look like the end user.
+    trusted_proxy_cidrs: str = field(
+        default_factory=lambda: os.environ.get(_auth.SETTING_TRUSTED_PROXY_CIDRS, "")
+    )
+    # Where the console sends an operator a write answered 401
+    # (`AXRANGE_SIGNIN_URL`, e.g. `/oauth2/start?rd=`); served by
+    # `GET /api/whoami`. Empty -> a bare "sign in required".
+    signin_url: str = field(default_factory=lambda: os.environ.get(_auth.SETTING_SIGNIN_URL, ""))
 
     # Optional SPA directory (Phase 4 co-serve). Empty → headless (the AI core /
     # CI use it this way; `docs/design/11-api-ui.md`).
@@ -208,6 +226,18 @@ class ApiSettings:
     protected_deploys: str = field(
         default_factory=lambda: os.environ.get("AXRANGE_PROTECTED_DEPLOYS", "")
     )
+
+    def auth_policy(self) -> "_auth.AuthPolicy":
+        """The resolved write policy; a bad `AXRANGE_AUTH` /
+        `AXRANGE_TRUSTED_PROXY_CIDRS` is an `ApiSettingsError` so `axrange
+        serve` names the key and exits instead of refusing every write."""
+        try:
+            return _auth.resolve_policy(
+                auth=self.auth, api_token=self.api_token,
+                trusted_proxy_cidrs=self.trusted_proxy_cidrs, signin_url=self.signin_url,
+            )
+        except _auth.AuthConfigError as e:
+            raise ApiSettingsError(str(e)) from e
 
     def scenario_path(self, scenario_id: str) -> Path | None:
         """Resolve a scenario id to its `scenario.yaml`, or None.

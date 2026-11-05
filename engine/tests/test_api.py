@@ -1166,15 +1166,21 @@ def test_write_token_constant_time_compare(tmp_path):
 
     from axrange.api.app import _require_write_token
 
+    from types import SimpleNamespace
+
     settings = _settings(tmp_path)
     settings.api_token = "s3cret"
-    dep = _require_write_token(settings)
+    dep = _require_write_token(settings)  # the A8 dispatcher, in token mode
 
-    dep(authorization="Bearer s3cret")  # correct -> no exception
+    def _request(authorization):
+        headers = {} if authorization is None else {"authorization": authorization}
+        return SimpleNamespace(client=SimpleNamespace(host="10.0.0.5"), headers=headers, state=SimpleNamespace())
+
+    dep(_request("Bearer s3cret"))  # correct -> no exception
 
     for bad in (None, "", "Bearer", "Bearer wrong", "Bearer s3cre", "Bearer s3crets"):
         with pytest.raises(HTTPException) as exc_info:
-            dep(authorization=bad)
+            dep(_request(bad))
         assert exc_info.value.status_code == 401
 
 
@@ -1456,10 +1462,12 @@ def test_o2_tap_get_verbose_masks_external_sensor_password(tmp_path):
         '"transport_ip":"10.255.250.20"}]\n'
     )
     settings = _settings(tmp_path, adapter_config=str(conf))
-    # Apply the tap FIRST (a write), then enable the token so it gates only the
-    # `?secrets=true` read below -- write_token reads settings.api_token live.
-    c, te = _seed_and_apply_tap(settings, tmp_path)
+    # Apply the tap FIRST (a write, open in `none` mode), then a second app
+    # over the same store WITH the token: the write policy is resolved once,
+    # at `create_app` (A8), so it gates only the `?secrets=true` read below.
+    _c0, te = _seed_and_apply_tap(settings, tmp_path)
     settings.api_token = "s3cret"
+    c, _ = _tap_client(settings)
 
     # masked by default
     rv = c.get("/api/taps", params={"target": te, "verbose": "true"})

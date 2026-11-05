@@ -4,9 +4,10 @@ Thin HTTP layer over `service.py`: routes parse/validate request shapes, call th
 service (which wraps the engine), and let `ApiError` map to HTTP status. No engine
 logic lives here.
 
-Auth posture (§6): WRITE endpoints (deploy/run/destroy) require the bearer token
-when `settings.api_token` is set; reads are open on a trusted bind. Default bind
-is `127.0.0.1` (set by `axrange serve`).
+Auth posture (`api/Spec.md` A8, `axrange.api.auth`): WRITE endpoints go through
+one dependency that dispatches on `AXRANGE_AUTH` (`none` | `proxy` | `token`);
+reads are open on a trusted bind. Default bind is `127.0.0.1` (set by
+`axrange serve`).
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from typing import Optional
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
+from axrange.api import auth as _auth
 from axrange.api import console_files as _console_files  # noqa: F401 -- see below
 from axrange.api import discovery as _discovery
 from axrange.api import dtos, service
@@ -42,30 +44,41 @@ DIFF_SINCE_DESCRIPTION = (
 )
 
 
-def _is_authorized(settings: ApiSettings, authorization: Optional[str]) -> bool:
-    """The SAME bearer-token check `_require_write_token`'s dependency
-    enforces, factored out so a READ endpoint that only needs auth
-    CONDITIONALLY (the access-facts `?secrets=true` gate below) can reuse it
-    without pulling in the whole write-endpoint dependency (which would
-    require the token unconditionally, even for the masked/default read).
+def _identity(policy: _auth.AuthPolicy, request: Request) -> Optional[_auth.Identity]:
+    """Who this request is under the deployment's policy, or None."""
+    return _auth.identify(
+        policy, client_host=request.client.host if request.client else None,
+        headers=request.headers,
+    )
+
+
+def _is_authorized(policy: _auth.AuthPolicy, request: Request) -> bool:
+    """The SAME check `_require_write_token`'s dependency enforces, factored
+    out so a READ endpoint that only needs auth CONDITIONALLY (the
+    access-facts `?secrets=true` gate, a twin-config's `document`) can reuse
+    it without pulling in the whole write-endpoint dependency (which would
+    require an identity unconditionally, even for the masked/default read).
     """
-    if not settings.api_token:
-        return True  # open (dev / trusted bind)
-    expected = f"Bearer {settings.api_token}"
-    # Constant-time compare (code-review finding #4, 2026-07-07): a plain
-    # `!=` short-circuits on the first mismatched byte, leaking a timing
-    # side-channel an attacker could use to brute-force the token
-    # character-by-character.
-    return secrets.compare_digest(authorization or "", expected)
+    return _identity(policy, request) is not None
 
 
 def _require_write_token(settings: ApiSettings):
-    """Dependency factory: enforce the API token on write endpoints when set."""
+    """Dependency factory: the mode dispatcher for every write (A8). Resolves
+    the policy ONCE; a request that no mode accepts is 401 with the text
+    naming what the deployment expects. The accepted identity is left on
+    `request.state.user` / `request.state.auth_mode` for a write that
+    records provenance.
+    """
+    policy = settings.auth_policy()
 
-    def _dep(authorization: Optional[str] = Header(default=None)) -> None:
-        if not _is_authorized(settings, authorization):
-            raise HTTPException(status_code=401, detail="missing or invalid API token")
+    def _dep(request: Request) -> None:
+        identity = _identity(policy, request)
+        if identity is None:
+            raise HTTPException(status_code=401, detail=_auth.refusal(policy))
+        request.state.user = identity.user
+        request.state.auth_mode = identity.mode
 
+    _dep.policy = policy  # type: ignore[attr-defined]
     return _dep
 
 
@@ -157,7 +170,9 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # first `PUT .../assertions`, hours after `axrange serve` reported ready.
     assert _console_files.ASSERTIONS_SCHEMA
 
-    write_token = _require_write_token(settings)
+    write_token = _require_write_token(settings)  # ApiSettingsError on a bad AXRANGE_AUTH
+    policy: _auth.AuthPolicy = write_token.policy
+    app.state.auth_policy = policy
 
     # Unified Console ruling §3.1: every deploy-scoped route takes
     # `?target=<cluster target name>` (default: the default target) and runs
@@ -210,6 +225,19 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @_ro
     def health() -> dtos.HealthDTO:
         return service.health(settings)
+
+    @app.get("/api/whoami", response_model=dtos.WhoamiDTO)
+    def whoami(request: Request) -> dtos.WhoamiDTO:
+        """Who the caller is under this deployment's write policy (A8), so
+        the console shows its read-only state and a name without probing a
+        write. Open like every read."""
+        identity = _identity(policy, request)
+        return dtos.WhoamiDTO(
+            user=identity.user if identity else None,
+            can_write=identity is not None,
+            mode=identity.mode if identity else policy.mode_label,
+            signin_url=policy.signin_url,
+        )
 
     @app.get("/api/scenarios", response_model=dtos.ScenarioListDTO)
     @_ro
@@ -293,13 +321,11 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         "/api/twin-configs/{config_id}", response_model=dtos.TwinConfigDetailDTO,
     )
     @_ro
-    def twin_config_detail(
-        config_id: str, authorization: Optional[str] = Header(default=None),
-    ) -> dtos.TwinConfigDetailDTO:
-        # The bundle `document` (lab passwords inside) only with the bearer
-        # token -- the `?secrets=true` rule; the summary stays open.
+    def twin_config_detail(config_id: str, request: Request) -> dtos.TwinConfigDetailDTO:
+        # The bundle `document` (lab passwords inside) only for an identity
+        # the policy accepts -- the `?secrets=true` rule; the summary stays open.
         return service.twin_config_detail(
-            settings, config_id, include_document=_is_authorized(settings, authorization),
+            settings, config_id, include_document=_is_authorized(policy, request),
         )
 
     # ---- twin-config write (`api/Spec.md` A3): Save-As and Persist/Save.
@@ -854,19 +880,19 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @app.get("/api/deploys/{deploy_id}/access", response_model=dtos.AccessFactsDTO)
     @_ro
     def deploy_access(
+        request: Request,
         deploy_id: str,
         reveal_secrets: bool = Query(
             False, alias="secrets",
             description="Reveal real passwords instead of masking them. "
             "Requires the bearer token when one is configured.",
         ),
-        authorization: Optional[str] = Header(default=None),
         target: Optional[str] = _TARGET_QUERY,
     ) -> dtos.AccessFactsDTO:
-        if reveal_secrets and not _is_authorized(settings, authorization):
+        if reveal_secrets and not _is_authorized(policy, request):
             raise HTTPException(
                 status_code=401,
-                detail="missing or invalid API token for ?secrets=true",
+                detail=f"{_auth.refusal(policy)} (for ?secrets=true)",
             )
         return service.deploy_access_facts(
             _for_deploy(target, deploy_id), deploy_id, reveal_secrets=reveal_secrets,
@@ -934,17 +960,17 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @app.get("/api/o2/info", response_model=dtos.O2InfoDTO)
     @_ro
     def o2_info(
+        request: Request,
         reveal_secrets: bool = Query(
             False, alias="secrets",
             description="Reveal real external-sensor passwords instead of "
             "masking them. Requires the bearer token when one is configured.",
         ),
-        authorization: Optional[str] = Header(default=None),
     ) -> dtos.O2InfoDTO:
-        if reveal_secrets and not _is_authorized(settings, authorization):
+        if reveal_secrets and not _is_authorized(policy, request):
             raise HTTPException(
                 status_code=401,
-                detail="missing or invalid API token for ?secrets=true",
+                detail=f"{_auth.refusal(policy)} (for ?secrets=true)",
             )
         return service.o2_info(settings, reveal_secrets=reveal_secrets)
 
@@ -1002,6 +1028,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @app.get("/api/taps", response_model=None)
     @_ro
     def o2_tap_get(
+        request: Request,
         target: Optional[str] = Query(default=None),
         deploy_id: Optional[str] = Query(default=None),
         verbose: bool = Query(
@@ -1014,16 +1041,15 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             description="Reveal external-sensor passwords (verbose only). "
             "Requires the bearer token when one is configured.",
         ),
-        authorization: Optional[str] = Header(default=None),
     ):
         if not verbose:
             return service.o2_tap_status(
                 _for_twin(deploy_id=deploy_id, twin=target), target=target, deploy_id=deploy_id,
             )
-        if reveal_secrets and not _is_authorized(settings, authorization):
+        if reveal_secrets and not _is_authorized(policy, request):
             raise HTTPException(
                 status_code=401,
-                detail="missing or invalid API token for ?secrets=true",
+                detail=f"{_auth.refusal(policy)} (for ?secrets=true)",
             )
         return service.o2_tap_info(
             _for_twin(deploy_id=deploy_id, twin=target), target=target, deploy_id=deploy_id,

@@ -1,7 +1,7 @@
 # Console shell, canvas chrome, and where auth lives
 
-**Status:** decided 2026-11-05 (user) on `wip/design-platforms-canvas`. Not
-built. Lands on `ui/` (the shell and `features/edit-canvas`) and the API auth
+**Status:** decided 2026-11-05 (user) on `wip/design-platforms-canvas`;
+built the same day track by track (A8 first). Lands on `ui/` (the shell and `features/edit-canvas`) and the API auth
 dependency; no engine seam beyond one setting and one read route.
 **Supersedes:** the "Write token" field in the console shell
 (`ui/src/areas/shell/AppFrame.tsx`) and the console-held bearer token

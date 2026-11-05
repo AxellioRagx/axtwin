@@ -22,6 +22,21 @@ class HealthDTO(BaseModel):
     state_db: bool
 
 
+class WhoamiDTO(BaseModel):
+    """`GET /api/whoami` (`api/Spec.md` A8): the caller under the write policy."""
+    # The name a write would be recorded under: a proxy's header value,
+    # `token` for a bearer, `anonymous` in `none`; None when no mode accepts
+    # this caller (a write would be 401).
+    user: Optional[str]
+    can_write: bool
+    # The mode that accepted the caller, else the deployment's configured
+    # mode(s), comma-joined (`proxy,token`).
+    mode: str
+    # Where the console sends the operator on a 401 (`AXRANGE_SIGNIN_URL`);
+    # empty when the deployment has none.
+    signin_url: str
+
+
 class ScenarioSummaryDTO(BaseModel):
     id: str
     path: str

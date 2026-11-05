@@ -41,7 +41,8 @@ Environment variables the API and CLI read:
 | `AXRANGE_IMAGES_ROOT`, `AXRANGE_SCENARIOS_DIR`, `AXRANGE_TWINS_DIR`, `AXRANGE_TWIN_CONFIGS_DIR`, `AXRANGE_PERSONAS_DIR` | content roots; unset defaults come from `axrange.paths` (`catalog/...`) |
 | `AXRANGE_IMPRINTS_DIR` | where installed casts live and where a discovery run writes; must be set for a run so it never writes into the package fixtures |
 | `AXRANGE_AXIMPRINT_BIN`, `AXRANGE_AXIMPRINT_STORE`, `AXRANGE_AXIMPRINT_TIMEOUT_S` | the `aximprint` executable, the IR store the API bakes PITs into and casts from, the per-verb timeout |
-| `AXRANGE_API_TOKEN`, `AXRANGE_PROTECTED_DEPLOYS`, `AXRANGE_SPA_DIR` | the write token, deploy ids no write may touch without `override_protection`, the console bundle to co-serve |
+| `AXRANGE_AUTH`, `AXRANGE_API_TOKEN`, `AXRANGE_TRUSTED_PROXY_CIDRS`, `AXRANGE_SIGNIN_URL` | who may write (`api/Spec.md` A8): `none` (every write accepted; the default without a token, warned at startup), `proxy` (an `X-Forwarded-User` / `X-Auth-Request-Email` header from a peer in the trusted networks, default loopback only), `token` (`Authorization: Bearer <AXRANGE_API_TOKEN>`; the default once the token is set); comma-combine `proxy,token`. `GET /api/whoami` reports the caller; `AXRANGE_SIGNIN_URL` is where the console sends a 401 (e.g. `/oauth2/start?rd=`) |
+| `AXRANGE_PROTECTED_DEPLOYS`, `AXRANGE_SPA_DIR` | deploy ids no write may touch without `override_protection`, the console bundle to co-serve |
 | `AXRANGE_DISCOVERY_DB`, `AXRANGE_DISCOVERY_TIMEOUT_S` | the discovery-sources store (`~/.axrange/discovery.db`, 0600; holds endpoints, access and credentials) and the per-stage budget of a source-driven run (default 6 h) |
 | `AXIMPRINT_SOURCE_USER`, `AXIMPRINT_SOURCE_PASSWORD`, `AXIMPRINT_SOURCE_API_KEY` | read by `aximprint`'s HTTP transport (axquery): the credential for a run by hand. `axrange serve` sets them for the subprocess from the source record; never put a secret in `argv` or the locator |
 
@@ -105,7 +106,11 @@ AXRANGE_API_TOKEN=<token> axrange serve --host 0.0.0.0 --port 8080 \
   --imprints-dir <imprints dir> --spa-dir <console bundle>
 ```
 
-Reads are open on the bind; every POST, PUT and DELETE needs the token. For
+Reads are open on the bind; every POST, PUT and DELETE goes through the one
+write policy `AXRANGE_AUTH` selects (above): with a token set, as here, the
+bearer; behind a reverse proxy that signs operators in, `AXRANGE_AUTH=proxy`
+and the proxy's address in `AXRANGE_TRUSTED_PROXY_CIDRS` (the TCP peer is
+checked, so `axrange serve` ignores `X-Forwarded-For`). For
 discovery runs the environment must also carry `AXRANGE_AXIMPRINT_BIN`,
 `AXRANGE_AXIMPRINT_STORE` and `AXRANGE_IMPRINTS_DIR`:
 

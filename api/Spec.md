@@ -268,7 +268,8 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   polling are for.
 
 **A8 — auth modes** (decided 2026-11-05, `docs/design/ui-shell-and-auth.md`;
-not built). The console holds no credential; the API decides, per deployment,
+**built 2026-11-05**: `api/auth.py` holds the policy, `_require_write_token`
+in `api/app.py` dispatches on it, `tests/test_api_auth.py`). The console holds no credential; the API decides, per deployment,
 whom to trust. `AXRANGE_AUTH` names one or more modes, comma-separated:
 - `none` — every write accepted. The **dev default** when `AXRANGE_API_TOKEN`
   is unset; `axrange serve` warns at startup that writes are unauthenticated.
@@ -281,8 +282,14 @@ whom to trust. `AXRANGE_AUTH` names one or more modes, comma-separated:
 - `token` — the existing `Authorization: Bearer <AXRANGE_API_TOKEN>` check,
   unchanged, for the CLI, automation and a directly exposed engine. Setting
   `AXRANGE_API_TOKEN` implies this mode, as today.
-- `GET /api/whoami` → `{user, can_write, mode}` (`anonymous`, `true`, `none`
-  in dev) so the console shows its read-only state and a name without probing.
+- `GET /api/whoami` → `{user, can_write, mode, signin_url}` (`anonymous`,
+  `true`, `none`, `""` in dev) so the console shows its read-only state and
+  a name without probing; `signin_url` is `AXRANGE_SIGNIN_URL`, carried here
+  because the API serves no other config object. `user` is the header's
+  value in `proxy`, `token` for a bearer, `null` when no mode accepts the
+  caller; `mode` is then the configured modes (`proxy,token`).
+- The peer check is on the TCP peer: `axrange serve` runs uvicorn with
+  `proxy_headers=False`, so `X-Forwarded-For` never rewrites it.
 Reads stay open on the bind; CORS stays same-origin / explicit allowlist. Built
 as one change to `_require_write_token` in `api/app.py` plus the route; no
 session store, no cookie minted here, no accounts.

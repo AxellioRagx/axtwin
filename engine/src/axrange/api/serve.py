@@ -90,12 +90,21 @@ def serve(
         )
         return 2
 
-    if not settings.api_token and host != "127.0.0.1":
+    policy = settings.auth_policy()  # validated by create_app above
+    if policy.open:
+        # Loud on every bind (`api/Spec.md` A8): the dev default is open,
+        # and a lab network reaching this port can write.
         log(
-            "WARNING: binding to a non-loopback host with NO API token — write "
-            "endpoints (deploy/run/destroy) are unauthenticated. Set "
-            "AXRANGE_API_TOKEN or --api-token before exposing."
+            "WARNING: AXRANGE_AUTH=none -- every write (deploy/run/destroy, "
+            "saves) is accepted without any identity"
+            + (" on a non-loopback bind" if host != "127.0.0.1" else "")
+            + ". Set AXRANGE_API_TOKEN (token mode) or put a reverse proxy in "
+            "front and set AXRANGE_AUTH=proxy before exposing."
         )
+    else:
+        log(f"  writes: AXRANGE_AUTH={policy.mode_label}"
+            + (f" (trusted proxies {', '.join(str(n) for n in policy.trusted_proxies)})"
+               if "proxy" in policy.modes else ""))
 
     log(f"axrange serve: http://{host}:{port}  (db={settings.db_path})")
     for t in settings.targets:
@@ -108,5 +117,10 @@ def serve(
     else:
         log("  headless (no SPA); set --spa-dir / AXRANGE_SPA_DIR to co-serve a UI")
 
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    # `proxy_headers=False`: `request.client` must be the TCP peer, because
+    # proxy mode trusts the identity header by WHO SENT IT
+    # (`AXRANGE_TRUSTED_PROXY_CIDRS`). uvicorn's default rewrites the peer
+    # from X-Forwarded-For when the peer is loopback -- exactly the hop the
+    # check is about.
+    uvicorn.run(app, host=host, port=port, log_level="info", proxy_headers=False)
     return 0
