@@ -49,20 +49,25 @@ one commit each, ui gate + engine tests after each:
    `data-role`, routers and the chrome as icon nodes, arc labels off when compact. The
    mockup's other questions were taken as drawn: icon + name chips (address on hover), the
    router keeps its leg count at full detail only, ghosts are one faded glyph.
+6. **The basics** (user: "do the basics"): Delete/Backspace removes the selection (nodes,
+   segments, a leg; an annotation even in view mode; not from a field, not when locked);
+   double-click a segment or site fits the view to it (`data-zoom-target` on the shell);
+   right-click on the empty pane: Zoom to fit, Lock/Unlock all, Find a node, and in edit
+   mode Add a segment / Annotate here. Four tests; SPEC "Basics" marked built.
 
 ## Current state
 
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (the same pre-existing two:
   the untracked `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without
-  a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **167 tests**,
-  build clean; `ui/dist` rebuilt from HEAD (`assets/index-DXKnrjC9.js`, served live by :8080).
+  a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **171 tests**,
+  build clean; `ui/dist` rebuilt from HEAD (`assets/index-CvQb5g-m.js`, served live by :8080).
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **The `axrange serve` on :8080 was restarted on the user's request (2026-11-05 21:27, pid
   1008702) in `none` mode**: same command and `AXRANGE_*` environment as pid 828079 minus
   `AXRANGE_API_TOKEN` (saved as `serve.env` in this session's scratchpad; log
   `~/.axrange/serve-8080.log`, which carries the loud `AXRANGE_AUTH=none` warning). Verified:
   58 paths incl. `/api/whoami` → `{anonymous, true, none}`; a twin-config's `document` comes
-  with no header; the served bundle is now `index-DXKnrjC9.js` (rebuilt after step 5). The CLI's bearer is now ignored
+  with no header; the served bundle is the one `ui/dist` holds (rebuilt after each track). The CLI's bearer is now ignored
   (nothing to check); set the token again, or `AXRANGE_AUTH=proxy`, before exposing further.
 - Not looked at in a browser this session (no browser tool here): the chrome is verified by
   jsdom tests and the build only. First thing to do with eyes: `/canvas/<twin>` at 1622 px.
@@ -70,11 +75,11 @@ one commit each, ui gate + engine tests after each:
 
 ## Next steps (ordered)
 
-0. Eyes on the new shell and the two detail levels at :8080 (`/canvas/<twin>`, zoom across
-   0.5/0.6, the D toggle); nothing of this session was seen in a browser. Then the basics
-   still open from the design: Delete key, double-click a segment to zoom, right-click on
-   the pane (node menus exist). A router's node box is still DEVICE_W × DEVICE_H around a
-   34 px icon, so its legs meet the invisible box edge, not the icon: a geometry follow-up.
+0. Eyes on the new shell, the two detail levels and the basics at :8080 (`/canvas/<twin>`,
+   zoom across 0.5/0.6, D, Delete, double-click a tile, right-click the pane); nothing of
+   this session was seen in a browser. A router's node box is still DEVICE_W × DEVICE_H
+   around a 34 px icon, so its legs meet the invisible box edge, not the icon: a geometry
+   follow-up. In select mode the middle button pans (the right button is the pane menu).
 1. Eyes on the Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.
