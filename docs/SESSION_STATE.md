@@ -67,9 +67,9 @@ Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canv
 ## Next steps (ordered)
 
 0. Eyes on the shell (above); fix what the first look finds. Likely candidates: glyph-row
-   and chip sizes (tuned from the mockup, not a screen), the chrome nodes' handle position
-   (the trunk meets the Internet/WAN bar's centre, not its icon), the inspector's 300 px on
-   a dense Checks tab.
+   and chip sizes (tuned from the mockup, not a screen), the chrome labels that hang right
+   of the Internet/WAN icon (they overflow the slot on a long egress note), the inspector's
+   300 px on a dense Checks tab.
 1. The Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.

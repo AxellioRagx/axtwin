@@ -245,7 +245,10 @@ page, not a card in one:
   moves. Role glyphs are `RoleIcon` in `icons.tsx`, keyed by the badge label.
   A router keeps its `DEVICE_W × DEVICE_H` slot (the band's spacing and the
   saved pins depend on it); the icon sits on the slot's bottom edge, where the
-  legs' source handle is, with the name and leg count above it.
+  legs' source handle is, with the name and leg count above it. The Internet
+  pill and the WAN edge keep their slots too: the icon box is the slot's
+  full-height centre, so the trunk's handles touch it, and the label hangs to
+  its right.
 - **Surface.** One accent for selection, one for lit traffic; UI text
   12–13 px; mini-map styled like the rail. **Started 2026-11-05**: the
   armed state and selection share `--accent`, routers lose the ink border,
