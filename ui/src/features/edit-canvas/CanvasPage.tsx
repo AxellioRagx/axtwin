@@ -106,10 +106,14 @@ export function paletteItems(catalog: readonly TwinConfigDetail[], personas: rea
   const items: PaletteItem[] = [{ kind: "segment", id: "segment", label: "Segment", summary: "a new L2 segment with the next free /24" }];
   const images = new Set<string>();
   const ordered = [...catalog].sort((a, b) => (a.id === ownId ? -1 : b.id === ownId ? 1 : a.id.localeCompare(b.id)));
+  // A router joins segments: it places anywhere, with the image the catalog's
+  // routers use (this twin's first), and gets its legs by attaching.
+  const routerImage = ordered.flatMap((d) => d.nodes).find((n) => n.kind === "router" && n.image)?.image ?? null;
+  items.push({ kind: "router", id: "router", label: "Router", image: routerImage ?? "router", summary: routerImage ? `a router with image ${routerImage}; attach it to each segment it joins` : "a router; no twin in the catalog names a router image, so pick one in the inspector" });
   for (const d of ordered) {
     for (const n of d.nodes) {
       const count = typeof n.count === "number" ? n.count : typeof n.count === "string" && /^\d+$/.test(n.count) ? Number(n.count) : typeof n.count === "string" ? (Number(/:(\d+)\}/.exec(n.count)?.[1]) || 1) : 1;
-      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, role: n.role ?? null, image: n.image, count, summary: `${n.kind} · ${n.image}${n.role ? ` · ${n.role}` : ""}` });
+      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : "host", role: n.role ?? null, image: n.image, count, summary: `${n.kind} · ${n.image}${n.role ? ` · ${n.role}` : ""}` });
       if (n.image) images.add(n.image);
     }
   }
@@ -416,14 +420,15 @@ export function CanvasPage() {
         edit(`persona ${item.id} on ${names.join(", ")}`, (d) => names.reduce((files, n) => setPersona({ ...d, files }, readDoc({ ...d, files }), "node", n, { persona: item.id }), d.files));
         return;
       }
-      if (!segment) {
+      const nodeKind = item.kind === "router" || item.nodeKind === "router" ? "router" : "host";
+      if (!segment && nodeKind !== "router") {
         setBlocked("drop the item onto a segment (or select a segment and click the item)");
         return;
       }
       const name = item.kind === "group" ? item.id.split("/").pop()! : item.id.replace(/@.*$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
       let placed: string[] = [];
-      const reason = edit(`place ${item.label} ×${count} on ${segment}`, (d, m) => {
-        const r = placeNodes(d, m, { name, count, image: item.image ?? item.id, role: item.role ?? null, kind: "host", segment, fanOut: item.kind === "group" && item.count && item.count > 1 ? item.count : undefined });
+      const reason = edit(`place ${item.label} ×${count}${segment ? ` on ${segment}` : ""}`, (d, m) => {
+        const r = placeNodes(d, m, { name, count, image: item.image ?? item.id, role: item.role ?? null, kind: nodeKind, segment, fanOut: item.kind === "group" && item.count && item.count > 1 ? item.count : undefined });
         placed = r.names;
         return r.files;
       });

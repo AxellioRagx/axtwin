@@ -43,7 +43,7 @@ import type { DocModel } from "./edit/document";
 import { invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
-import { PALETTE_MIME } from "./Palette";
+import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
 import { DetailContext, edgeTypes, GlowContext, legParts, NO_GLOW, nodeTypes, type Glow } from "./nodes";
 import "./canvas.css";
@@ -595,6 +595,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
+        if (edit.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, null, edit.placing!.count ?? 1, t.at) });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment() });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
         items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
@@ -671,8 +672,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
                 e.dataTransfer.dropEffect = "copy";
               }
             }}
-            onPaneClick={() => {
+            onPaneClick={(e) => {
               setMenu(null);
+              // An armed router lands where the pane is clicked, with no leg yet.
+              if (editing && edit?.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") {
+                edit.onPlace(edit.placing, null, edit.placing.count ?? 1, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+                return;
+              }
               select({ kind: "none" }, []);
             }}
             onPaneContextMenu={onPaneContextMenu}

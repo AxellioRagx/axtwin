@@ -17,6 +17,7 @@ const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export function validateTe(model: TeModel): ValidationFinding[] {
   const out: ValidationFinding[] = [];
   const err = (rule: string, message: string, location?: string) => out.push({ rule_id: rule, severity: "error", message, location: location ?? null });
+  const warn = (rule: string, message: string, location?: string) => out.push({ rule_id: rule, severity: "warning", message, location: location ?? null });
   for (const p of model.problems) err("CV-000", p, "te.yaml");
   if (!model.id) err("CV-001", "the twin config has no id", "twin_config.id");
   const segNames = new Set<string>();
@@ -38,7 +39,10 @@ export function validateTe(model: TeModel): ValidationFinding[] {
     if (typeof n.count === "number" ? !(Number.isInteger(n.count) && n.count >= 1) : !/^\$\{[A-Za-z_][A-Za-z0-9_]*(:\d+)?\}$/.test(n.count)) {
       err("CV-023", `node '${n.name}': count must be a whole number of 1 or more, or a \${PARAM:default} reference, got ${JSON.stringify(n.count)}`, `${loc}.count`);
     }
-    if (n.nets.length === 0 && n.kind === "router") err("CV-024", `router '${n.name}' joins no segment`, `${loc}.nets`);
+    // A warning, not an error: a router is placed first and attached after
+    // (every edit must leave the document free of errors, so an error here
+    // would make a router impossible to place at all).
+    if (n.nets.length === 0 && n.kind === "router") warn("CV-024", `router '${n.name}' joins no segment yet: attach it to each segment it routes`, `${loc}.nets`);
     const seen = new Set<string>();
     for (const leg of n.nets) {
       if (!segNames.has(leg.segment)) err("CV-025", `node '${n.name}' attaches to '${leg.segment}', which is not a segment of this twin`, `${loc}.net`);

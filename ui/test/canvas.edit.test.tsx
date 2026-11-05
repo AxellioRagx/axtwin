@@ -770,9 +770,10 @@ describe("pure pieces of the edit canvas", () => {
     const own = { id: "a", description: null, cluster: null, params: [], segments: [], nodes: [{ name: "ws", kind: "host", image: "img-1", count: "${N:5}", role: "r" }], document: null, warnings: [] };
     const other = { ...own, id: "b", nodes: [{ name: "db", kind: "host", image: "img-1", count: 2, role: null }] };
     const items = paletteItems([other, own], PERSONAS, "a");
-    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(["segment:segment", "group:a/ws", "group:b/db", "image:img-1", "persona:corp-workstation", "persona:generic-endpoint"]);
-    expect(items[1]).toMatchObject({ label: "ws", count: 5, role: "r" });
-    expect(items[2]).toMatchObject({ label: "db (b)", count: 2 });
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(["segment:segment", "router:router", "group:a/ws", "group:b/db", "image:img-1", "persona:corp-workstation", "persona:generic-endpoint"]);
+    expect(items[2]).toMatchObject({ label: "ws", count: 5, role: "r" });
+    expect(items[1]).toMatchObject({ kind: "router", id: "router", label: "Router" });
+    expect(items[3]).toMatchObject({ label: "db (b)", count: 2 });
   });
 
   it("the fake control plane classifies by the tier file touched, as the API does", () => {
@@ -871,5 +872,58 @@ describe("the basics: Delete, double-click to zoom, the pane menu", () => {
     expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(["Zoom to fit", "Lock all", "Find a node…"]);
     fireEvent.click(within(menu).getByRole("button", { name: "Lock all" }));
     expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
+  });
+});
+
+describe("a router joins segments: it places without one", () => {
+  it("the palette's Router lands on the pane with no leg, is invalid until a leg is attached, and a selected segment becomes its first leg", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
+    expect(routers()).toEqual(["gw"]);
+    // Nothing selected: a click on Router places it at once, unattached.
+    const r = item("router", "router");
+    expect(r.title).toContain("attach it to each segment it joins");
+    fireEvent.click(r);
+    await waitFor(() => expect(routers()).toEqual(["gw", "router"]));
+    expect(screen.queryByTestId("blocked-reason")).toBeNull();
+    // Unattached is a WARNING (an error would have blocked the placement): the document stays saveable, the Checks tab says what is missing.
+    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    tab("Checks");
+    const cv024 = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-024")!;
+    expect(cv024.textContent).toContain("router 'router' joins no segment yet");
+    expect(cv024.dataset["severity"] ?? "warning").toBe("warning");
+    // Its legs are attachments: from the node panel, then it is valid.
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router")!);
+    const p = await panel().findByTestId("node-panel");
+    expect((within(p).getByLabelText("Kind") as HTMLSelectElement).value).toBe("router");
+    fireEvent.change(within(p).getByLabelText("Attach to segment"), { target: { value: "net-lan" } });
+    fireEvent.click(within(p).getByRole("button", { name: "Attach" }));
+    await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-lan"]));
+    tab("Checks");
+    await waitFor(() => expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false));
+    // With a segment selected, Router places with that segment as its first leg.
+    fireEvent.click(segment("net-dmz"));
+    await panel().findByTestId("segment-panel");
+    fireEvent.click(item("router", "router"));
+    await waitFor(() => expect(routers()).toEqual(["gw", "router", "router-1"]));
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
+    await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-dmz"]));
+  });
+
+  it("a group copied from a router stays a router; an armed host image gets no 'Place here' on the pane", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
+    fireEvent.click(item("group", "corp-auth/gw"));
+    await waitFor(() => expect(routers()).toEqual(["gw", "gw-1"]));
+    expect(screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"])).not.toContain("gw-1");
+    fireEvent.click(item("image", "debian-12-cloud@v1"));
+    expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
+    fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 700 });
+    const menu = await screen.findByTestId("context-menu");
+    expect(within(menu).queryByRole("button", { name: /^Place / })).toBeNull();
   });
 });

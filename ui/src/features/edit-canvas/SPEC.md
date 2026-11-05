@@ -176,6 +176,19 @@ criteria of its own beyond them.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 
+## Routers
+
+A router joins segments rather than living on one (user, 2026-11-05), so it
+places without a segment: the palette's **Router** item (image: what the
+catalog's routers use, this twin's first; otherwise `router`, to be picked in
+the inspector) lands on the pane with a click or a drop, or with a selected
+or dropped-on segment as its first leg; the pane menu offers *Place Router
+here* while one is armed. A group copied from a router stays a router
+(`PaletteItem.nodeKind`). Its legs are the attach gesture or the node
+panel's *Attach to segment*. An unattached router is a **warning** (CV-024,
+`validate.ts`), not an error, because every edit must leave the document
+free of errors and an error here would make a router impossible to place.
+
 ## Shell and chrome
 
 Decided 2026-11-05 after measuring the live canvas against GNS3's web UI

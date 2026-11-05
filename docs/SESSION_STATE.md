@@ -43,7 +43,12 @@ track, ui gate (typecheck + vitest) after each, engine suites after the engine t
    (`data-zoom-target`); right-click the pane: Zoom to fit, Lock all, Find, and in edit mode
    Add a segment / Annotate here. Select mode pans with the middle button only.
 7. `cc73511` a router keeps its `DEVICE_W × DEVICE_H` slot (pins and band spacing depend on
-   it) with the icon on the slot's bottom edge, so the legs meet the icon.
+   it) with the icon on the slot's bottom edge, so the legs meet the icon. Then, with eyes
+   (Playwright, below): chrome labels, inspector width, size tune, the look's fixes.
+8. **Routers place without a segment** (user: "a router connects multiple segments"): the
+   palette's Router item lands on the pane or on a selected segment as its first leg; a
+   copied `gw` stays a router; CV-024 (unattached router) is a warning, since an error
+   would block the placement. SPEC "Routers".
 
 Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canvas `SPEC.md`
 "Shell and chrome" (each bullet marked built), `docs/OPERATIONS.md` §2/§5.
@@ -52,7 +57,7 @@ Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canv
 
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (pre-existing: the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest);
-  ui typecheck clean, **176 tests**, build clean; `ui/dist` rebuilt from HEAD.
+  ui typecheck clean, **178 tests**, build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **:8080 serve restarted on request 2026-11-05 21:27 in `none` mode** (pid 1008702; same
   command and `AXRANGE_*` env as before minus `AXRANGE_API_TOKEN`; log

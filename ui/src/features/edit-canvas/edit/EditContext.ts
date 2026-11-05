@@ -9,13 +9,15 @@ import { createContext, useContext } from "react";
 
 import type { DocModel } from "./document";
 
-export type PaletteKind = "image" | "persona" | "segment" | "group";
+export type PaletteKind = "image" | "persona" | "segment" | "group" | "router";
 
 export interface PaletteItem {
   kind: PaletteKind;
   /** The image ref, the persona id, or the group's name. */
   id: string;
   label: string;
+  /** For a group: the node kind it was copied from, so a copied router stays a router. */
+  nodeKind?: "host" | "router";
   /** For a group: the role and image to place with. */
   role?: string | null;
   image?: string;

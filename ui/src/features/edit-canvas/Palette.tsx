@@ -27,8 +27,14 @@ export interface PaletteProps {
 
 export const PALETTE_MIME = "application/x-axr-palette";
 
-const CATEGORY_LABEL: Record<PaletteItem["kind"], string> = { group: "Node groups", image: "Images", persona: "Personas", segment: "Segments" };
-const CATEGORY_ORDER: PaletteItem["kind"][] = ["segment", "group", "image", "persona"];
+const CATEGORY_LABEL: Record<PaletteItem["kind"], string> = { segment: "Segments", router: "Routers", group: "Node groups", image: "Images", persona: "Personas" };
+const CATEGORY_ORDER: PaletteItem["kind"][] = ["segment", "router", "group", "image", "persona"];
+
+/** A router joins segments rather than living on one: it places anywhere
+ *  (a selected or dropped-on segment becomes its first leg). */
+export function placesWithoutSegment(item: PaletteItem): boolean {
+  return item.kind === "segment" || item.kind === "persona" || item.kind === "router" || item.nodeKind === "router";
+}
 
 export function Palette({ items, placing, onArm, onPlace, count, onCount, selectedSegment, disabled, note }: PaletteProps) {
   const [query, setQuery] = useState("");
@@ -51,7 +57,7 @@ export function Palette({ items, placing, onArm, onPlace, count, onCount, select
         </label>
       </div>
       <p className="muted cv-palette-hint">
-        {disabled ? "view mode: the palette is read-only" : placing ? `armed: ${placing.label} — click a segment to place, Esc to disarm` : selectedSegment ? `drag onto a segment, or click to place on ${selectedSegment}` : "drag onto a segment, or select a segment and click an item"}
+        {disabled ? "view mode: the palette is read-only" : placing ? `armed: ${placing.label} — click a segment to place, Esc to disarm` : selectedSegment ? `drag onto a segment, or click to place on ${selectedSegment}` : "drag onto a segment, or select a segment and click an item; a router places anywhere and gets its legs by attaching"}
       </p>
       {note ? <p className="muted cv-palette-hint">{note}</p> : null}
       {shown.length === 0 ? <p className="muted cv-palette-hint">{items.length ? "nothing matches" : "the API lists nothing to place"}</p> : null}
@@ -78,7 +84,7 @@ export function Palette({ items, placing, onArm, onPlace, count, onCount, select
                   onClick={(e) => {
                     if (disabled) return;
                     if (e.shiftKey) onPlace(item, 1);
-                    else if (selectedSegment || item.kind === "segment" || item.kind === "persona") onPlace(item, count);
+                    else if (selectedSegment || placesWithoutSegment(item)) onPlace(item, count);
                     else onArm(placing && placing.id === item.id && placing.kind === item.kind ? null : item);
                   }}
                 >
