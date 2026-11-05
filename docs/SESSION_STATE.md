@@ -61,10 +61,11 @@ Specs follow each track: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the ca
 
 ## Next steps (ordered)
 
-0. Open from the look: the top bar wraps to two rows on a cast twin (title + pills +
-   Design/Evidence + layout + exits in one slot); a fitView of the wide flat plane uses the
-   middle third of the window's height; single-host 156 px tiles ellipsize their name at
-   compact; site labels sit on the tiles' top edge. Then eyes on the unseen list above.
+0. Open from the look: a fitView of the wide flat plane uses the middle third of the
+   window's height; single-host 156 px tiles ellipsize their name at compact; site labels
+   sit on the tiles' top edge. (The bar is one row at 1622 px now: one origin+mode pill,
+   Undo/Redo glyphs, an 8 em Save-as; it wraps below ~1500 px.) Then eyes on the unseen
+   list above.
 1. The Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end; place a Router and attach it, live.

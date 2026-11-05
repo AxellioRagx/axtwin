@@ -209,7 +209,11 @@ page, not a card in one:
   them into the bar's middle through `areas/shell/topbar.tsx`
   (`TopbarPortal`); the title is the twin id, linking its summary page.
   Load / save errors and notes float as a strip over the drawing's top edge
-  (`.cv-strip`).
+  (`.cv-strip`). The bar is one row at 1622 px on a cast twin's long id
+  (measured headless): one pill carries origin and mode, Undo / Redo are
+  glyph buttons, Save-as is an 8 em field, the title ellipsizes past 240 px;
+  below about 1500 px the exits wrap to a second row and the drawing
+  shrinks by it.
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which

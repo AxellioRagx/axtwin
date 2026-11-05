@@ -629,10 +629,12 @@ export function CanvasPage() {
             {id}
           </Link>
         </h1>
-        {built ? <span className="badge">{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
-        {data ? (
-          <span className={`badge${mode === "read-only" ? " read-only" : ""}`} data-testid="mode" title={data.deploy ? `deploy ${data.deploy.deploy_id} is ${data.deploy.status}` : "no deploy stands on this twin"}>
-            {mode} mode{data.deploy ? ` · deploy ${data.deploy.deploy_id} ${data.deploy.status}` : " · undeployed"}
+        {/* One pill: the origin and the mode together (the bar must not wrap at 1622 px on a cast twin's long id). */}
+        {built || data ? (
+          <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}`} title={data?.deploy ? `deploy ${data.deploy.deploy_id} is ${data.deploy.status}` : "no deploy stands on this twin"}>
+            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
+            {built && data ? " · " : null}
+            {data ? <span data-testid="mode">{mode} mode{data.deploy ? ` · deploy ${data.deploy.deploy_id} ${data.deploy.status}` : " · undeployed"}</span> : null}
           </span>
         ) : null}
         {data?.exportData && designAvailable ? (
@@ -676,11 +678,11 @@ export function CanvasPage() {
                 {deployed ? "working copy equals the baseline" : "saved"}
               </span>
             )}
-            <button type="button" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
-              Undo
+            <button type="button" className="cv-iconbtn" aria-label="Undo" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
+              ↶
             </button>
-            <button type="button" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)}>
-              Redo
+            <button type="button" className="cv-iconbtn" aria-label="Redo" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)} title="redo (Ctrl+Y)">
+              ↷
             </button>
             {!deployed ? (
               <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
@@ -714,7 +716,7 @@ export function CanvasPage() {
                 void saveAs();
               }}
             >
-              <input type="text" aria-label="Save as id" placeholder="new twin-config id" value={saveAsId} onChange={(e) => setSaveAsId(e.target.value)} disabled={busy !== null} />
+              <input type="text" aria-label="Save as id" placeholder="save as id" value={saveAsId} onChange={(e) => setSaveAsId(e.target.value)} disabled={busy !== null} />
               <button type="submit" disabled={!saveAsId.trim() || !valid || busy !== null}>
                 Save as
               </button>

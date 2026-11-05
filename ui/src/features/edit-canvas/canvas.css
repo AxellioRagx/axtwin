@@ -231,7 +231,7 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-layout { gap: 6px; }
 .cv-exits .cv-clean { color: var(--ok); white-space: nowrap; }
 .cv-exits .cv-saveas { display: inline-flex; gap: 6px; align-items: center; }
-.cv-exits .cv-saveas input { width: 11em; }
+.cv-exits .cv-saveas input { width: 8em; }
 
 .cv-edit-tools { gap: 6px; }
 /* Edit mode: the handles work (a host's bottom dot drags a leg onto a

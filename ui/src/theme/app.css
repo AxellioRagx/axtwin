@@ -62,12 +62,13 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; }
 }
 /* The bar's middle: a page that is the window renders its title, pills and
    exits here (`areas/shell/topbar.tsx`); otherwise it is the spacer. */
-.topbar-slot { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.topbar-slot { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .topbar-slot .topbar-spacer { flex: 1; }
-.topbar-slot .cv-title { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
+.topbar-slot .cv-title { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.topbar-slot .cv-iconbtn { padding: 2px 7px; font-size: 15px; line-height: 1.2; }
 .topbar-slot .cv-title a { color: var(--ink); text-decoration: none; }
 .topbar-slot .cv-title a:hover { text-decoration: underline; }
-.topbar-slot button, .topbar-slot input[type="text"] { padding: 3px 9px; font-size: 12.5px; }
+.topbar-slot button, .topbar-slot input[type="text"] { padding: 3px 8px; font-size: 12.5px; }
 .topbar-slot .badge { white-space: nowrap; }
 .topbar-slot .badge.read-only { color: var(--warn); border-color: var(--warn); }
 .topbar-slot .row { gap: 6px; flex-wrap: nowrap; }
