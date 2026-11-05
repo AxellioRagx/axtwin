@@ -1,7 +1,7 @@
 /** `model/detail.ts`: the zoom hysteresis and the chip's short name, pure. */
 import { describe, expect, it } from "vitest";
 
-import { DETAIL_COLLAPSE, DETAIL_EXPAND, nextLevel, nextMode, shortName, zoomBucket } from "../src/features/edit-canvas/model/detail";
+import { DETAIL_COLLAPSE, DETAIL_EXPAND, nextLevel, nextMode, shortBytes, shortName, zoomBucket } from "../src/features/edit-canvas/model/detail";
 
 describe("the level of detail follows the zoom with hysteresis", () => {
   it("expands at 0.6 and collapses below 0.5; between the two it holds", () => {
@@ -47,5 +47,16 @@ describe("the inspector's width", () => {
     expect(inspectorWidth("checks", 100, 1600)).toBe(INSPECTOR_MIN);
     expect(inspectorWidth("checks", 2000, 1600)).toBe(960);
     expect(inspectorWidth("checks", null, 400)).toBe(INSPECTOR_MIN);
+  });
+});
+
+describe("bytes on a chrome label", () => {
+  it("reads in short units", () => {
+    expect(shortBytes(0)).toBe("0 B");
+    expect(shortBytes(512)).toBe("512 B");
+    expect(shortBytes(15_300)).toBe("15.3 kB");
+    expect(shortBytes(310_000_000)).toBe("310 MB");
+    expect(shortBytes(1_234_567_890)).toBe("1.2 GB");
+    expect(shortBytes(15_494_524_704_945)).toBe("15.5 TB");
   });
 });

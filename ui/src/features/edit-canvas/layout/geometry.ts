@@ -99,8 +99,8 @@ export const BADGE_H = 13;
 export const BADGE_GAP_X = 4;
 
 /** The Internet pill and the WAN-edge box. */
-export const INTERNET_W = 220;
-export const WAN_W = 260;
+export const INTERNET_W = 300;
+export const WAN_W = 360;
 
 /** The capture-tap badge on the Internet→WAN trunk (R2). Sized for the word
  *  `TAP`; the vantage string is drawn BESIDE it, never inside, because it is

@@ -249,9 +249,12 @@ page, not a card in one:
   A router keeps its `DEVICE_W × DEVICE_H` slot (the band's spacing and the
   saved pins depend on it); the icon sits on the slot's bottom edge, where the
   legs' source handle is, with the name and leg count above it. The Internet
-  pill and the WAN edge keep their slots too: the icon box is the slot's
-  full-height centre, so the trunk's handles touch it, and the label hangs to
-  its right.
+  pill and the WAN edge keep their slots (widened to 300 / 360 px; they are
+  centred over the content and pin nothing): the icon box is the slot's
+  full-height centre, so the trunk's handles touch it, and a short label
+  hangs to its right (`Gateway gw01` / `Egress (inferred)`, `12 crossing ·
+  1.2 GB`, `41 non-local`), ellipsized at the slot's edge with the full
+  wording in the node's title.
 - **Surface.** One accent for selection, one for lit traffic; UI text
   12–13 px; mini-map styled like the rail. **Started 2026-11-05**: the
   armed state and selection share `--accent`, routers lose the ink border,

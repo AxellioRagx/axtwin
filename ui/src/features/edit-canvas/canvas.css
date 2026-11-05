@@ -151,8 +151,8 @@
    touch the icon; the label hangs off its right side, outside the centring. */
 .cv-chrome { position: relative; display: flex; justify-content: center; align-items: stretch; color: var(--ink); font-size: 12.5px; line-height: 1.25; }
 .cv-chrome .cv-icon-box { width: 40px; height: 100%; border-radius: 10px; }
-.cv-chrome .cv-icon-text { position: absolute; left: calc(50% + 26px); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; white-space: nowrap; text-align: left; }
-.cv-chrome .cv-icon-sub { white-space: nowrap; }
+.cv-chrome .cv-icon-text { position: absolute; left: calc(50% + 26px); max-width: calc(50% - 30px); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; white-space: nowrap; text-align: left; }
+.cv-chrome .cv-icon-name, .cv-chrome .cv-icon-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-shell.compact .cv-chrome .cv-icon-sub { display: none; }
 
 .react-flow__edge-path.cv-arc { stroke: var(--muted); fill: none; }

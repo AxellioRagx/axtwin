@@ -268,7 +268,7 @@ export function ChromeNode(p: P) {
   const d = p.data;
   if (d.kind !== "internet" && d.kind !== "wan") return null;
   return (
-    <div className={`cv-chrome cv-${d.kind}`} data-testid={`canvas-${d.kind}`} style={{ width: p.width, height: p.height }}>
+    <div className={`cv-chrome cv-${d.kind}`} data-testid={`canvas-${d.kind}`} style={{ width: p.width, height: p.height }} title={d.title}>
       <span className="cv-icon-box" aria-hidden="true">{d.kind === "internet" ? <Icon.globe /> : <Icon.cloud />}</span>
       <span className="cv-icon-text">
         <span className="cv-icon-name">{d.label}</span>

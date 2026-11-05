@@ -50,3 +50,17 @@ function lastOctets(ip: string): string {
   const parts = ip.split(".");
   return parts.length === 4 ? `.${parts[2]}.${parts[3]}` : ip;
 }
+
+/** Bytes as a chrome label reads them: `1.2 GB`, `310 MB`, `0 B`. */
+export function shortBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "kB", "MB", "GB", "TB", "PB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i += 1;
+  }
+  const text = i === 0 ? String(Math.round(v)) : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1).replace(/\.0$/, "") : v.toFixed(1).replace(/\.0$/, "");
+  return `${text} ${units[i]}`;
+}

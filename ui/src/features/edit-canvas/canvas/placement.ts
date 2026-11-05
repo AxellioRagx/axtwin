@@ -59,7 +59,7 @@ import { strokeForBytes, volumeRange } from "../layout/scale";
 import { stackBands } from "../layout/tiers";
 import { BUDGET_LEVEL0, BUDGET_LEVEL1_BANDS, type RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
-import { shortName } from "../model/detail";
+import { shortBytes, shortName } from "../model/detail";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
 import type { Annotation } from "../edit/annotations";
 import type { ExtraLeg } from "./authored";
@@ -102,7 +102,10 @@ export type HostData = {
 export type RungsData = { kind: "rungs"; role: string; roleLabel: string; count: number; rungs: RungTally[] };
 export type RouterData = { kind: "router"; name: string; segments: string[]; drawnLegs: number };
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
-export type ChromeData = { kind: "internet" | "wan"; label: string; sub: string };
+/** The Internet pill and the WAN edge: short label and sub-line beside the
+ *  icon (the slot has room for about twenty glyphs each), the full wording
+ *  in `title`. */
+export type ChromeData = { kind: "internet" | "wan"; label: string; sub: string; title: string };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };
@@ -427,7 +430,7 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       height: TIER_INTERNET_H - 12,
       draggable: false,
       ...common,
-      data: { kind: "internet", label: "Internet", sub: `${graph.nonLocal.length} non-local entities` },
+      data: { kind: "internet", label: "Internet", sub: `${graph.nonLocal.length} non-local`, title: `Internet · ${graph.nonLocal.length} non-local entities (outside every segment)` },
     });
   }
   if (graph.wanEdge) {
@@ -442,8 +445,9 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       ...common,
       data: {
         kind: "wan",
-        label: we.inferred ? "Egress (inferred from observed traffic)" : graph.routers.length === 1 ? `Gateway ${graph.routers[0]?.name ?? ""}` : "Gateway",
-        sub: `${we.crossingEdges} crossing edges · ${we.bytes.toLocaleString()} bytes`,
+        label: we.inferred ? "Egress (inferred)" : graph.routers.length === 1 ? `Gateway ${graph.routers[0]?.name ?? ""}` : "Gateway",
+        sub: `${we.crossingEdges} crossing · ${shortBytes(we.bytes)}`,
+        title: `${we.inferred ? "Egress, inferred from observed traffic" : graph.routers.length === 1 ? `Gateway ${graph.routers[0]?.name ?? ""}` : "Gateway"} · ${we.crossingEdges} crossing edges · ${we.bytes.toLocaleString()} bytes`,
       },
     });
   }
