@@ -243,6 +243,9 @@ page, not a card in one:
   group name); the address and role ride as `data-address` / `data-role` and
   on the hover card. A tile keeps its layout size at both levels, so no pin
   moves. Role glyphs are `RoleIcon` in `icons.tsx`, keyed by the badge label.
+  A router keeps its `DEVICE_W × DEVICE_H` slot (the band's spacing and the
+  saved pins depend on it); the icon sits on the slot's bottom edge, where the
+  legs' source handle is, with the name and leg count above it.
 - **Surface.** One accent for selection, one for lit traffic; UI text
   12–13 px; mini-map styled like the rail. **Started 2026-11-05**: the
   armed state and selection share `--accent`, routers lose the ink border,

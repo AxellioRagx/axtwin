@@ -222,9 +222,11 @@ export function RouterNode(p: P) {
       title={`${d.name} joins ${d.segments.join(", ") || "no segment"}`}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "router", name: d.name }) : undefined}
     >
-      <span className="cv-icon-box" aria-hidden="true"><Icon.router /></span>
+      {/* Name and leg count above, the icon flush with the box's bottom edge:
+          the legs leave from the bottom-centre handle, so they meet the icon. */}
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
+      <span className="cv-icon-box" aria-hidden="true"><Icon.router /></span>
       <Handles role="host" />
     </div>
   );

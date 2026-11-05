@@ -60,7 +60,7 @@ one commit each, ui gate + engine tests after each:
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (the same pre-existing two:
   the untracked `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without
   a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **171 tests**,
-  build clean; `ui/dist` rebuilt from HEAD (`assets/index-CvQb5g-m.js`, served live by :8080).
+  build clean; `ui/dist` rebuilt from HEAD (`assets/index-BlDEou58.js`, served live by :8080).
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **The `axrange serve` on :8080 was restarted on the user's request (2026-11-05 21:27, pid
   1008702) in `none` mode**: same command and `AXRANGE_*` environment as pid 828079 minus
@@ -77,9 +77,9 @@ one commit each, ui gate + engine tests after each:
 
 0. Eyes on the new shell, the two detail levels and the basics at :8080 (`/canvas/<twin>`,
    zoom across 0.5/0.6, D, Delete, double-click a tile, right-click the pane); nothing of
-   this session was seen in a browser. A router's node box is still DEVICE_W × DEVICE_H
-   around a 34 px icon, so its legs meet the invisible box edge, not the icon: a geometry
-   follow-up. In select mode the middle button pans (the right button is the pane menu).
+   this session was seen in a browser. In select mode the middle button pans (the right
+   button is the pane menu). A router keeps its DEVICE_W × DEVICE_H slot with the icon on
+   the slot's bottom edge, so its legs meet the icon (fixed after the basics).
 1. Eyes on the Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.
