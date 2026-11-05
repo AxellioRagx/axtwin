@@ -38,7 +38,9 @@ import {
 } from "../layout/geometry";
 import { SITE_BUDGET } from "../model/budgets";
 
-export const CANVAS_PLANE_EPOCH = 1;
+// Epoch 2 (2026-11-05): a site's tile columns are chosen for the plane's
+// shape (`placement.ts` `chooseSiteCols`), no longer the engine's count.
+export const CANVAS_PLANE_EPOCH = 2;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],

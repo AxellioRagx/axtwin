@@ -209,7 +209,13 @@ page, not a card in one:
   them into the bar's middle through `areas/shell/topbar.tsx`
   (`TopbarPortal`); the title is the twin id, linking its summary page.
   Load / save errors and notes float as a strip over the drawing's top edge
-  (`.cv-strip`). The bar is one row at 1622 px on a cast twin's long id
+  (`.cv-strip`). The plane meets a window's shape: a site's tile columns are
+  the engine's count at most and otherwise chosen so the one row of sites
+  comes nearest `PLANE_ASPECT_TARGET` 1.8 (`placement.ts` `chooseSiteCols`;
+  the chip-sized tiles are twice the engine's width, and at three across a
+  five-site cast was 4.5 : 1 with a fitView in the middle third of the
+  window). Plane epoch 2: pins saved before 2026-11-05 are read but not
+  applied, and the page says so. The bar is one row at 1622 px on a cast twin's long id
   (measured headless): one pill carries origin and mode, Undo / Redo are
   glyph buttons, Save-as is an 8 em field, the title ellipsizes past 240 px;
   below about 1500 px the exits wrap to a second row and the drawing

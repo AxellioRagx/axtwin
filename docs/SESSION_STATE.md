@@ -46,7 +46,7 @@ Specs follow each track: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the ca
 
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (pre-existing: the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest);
-  ui typecheck clean, **178 tests**, build clean; `ui/dist` rebuilt from HEAD.
+  ui typecheck clean, **179 tests**, build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **:8080 serve restarted on request 2026-11-05 21:27 in `none` mode** (pid 1008702; same
   command and `AXRANGE_*` env minus `AXRANGE_API_TOKEN`; log `~/.axrange/serve-8080.log`).
@@ -61,11 +61,12 @@ Specs follow each track: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the ca
 
 ## Next steps (ordered)
 
-0. Open from the look: a fitView of the wide flat plane uses the middle third of the
-   window's height; single-host 156 px tiles ellipsize their name at compact; site labels
-   sit on the tiles' top edge. (The bar is one row at 1622 px now: one origin+mode pill,
-   Undo/Redo glyphs, an 8 em Save-as; it wraps below ~1500 px.) Then eyes on the unseen
-   list above.
+0. Open from the look: single-host 156 px tiles ellipsize their name at compact; site labels
+   sit on the tiles' top edge; corp-twin still fits at zoom 0.5 (its 42-host segments make
+   tall tiles that are empty when compact). Fixed: the bar is one row at 1622 px (wraps
+   below ~1500); a site's tile columns follow the plane's shape (`chooseSiteCols`, plane
+   epoch 2, so pins saved before today are not applied): corp-apcn-reader fits at 0.70 in
+   full detail, corpapcn-golden at 1.05. Then eyes on the unseen list above.
 1. The Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end; place a Router and attach it, live.

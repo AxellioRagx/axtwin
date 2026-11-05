@@ -208,6 +208,65 @@ function chipsOf(graph: ConsoleGraph, cidr: string): { chips: ChipSpec[]; bands:
   return { chips, bands: l1.bands.length };
 }
 
+/** Row-major packing of a site's boxes at `cols` across, each column as wide
+ *  as its widest box and each row as tall as its tallest; sets every box's
+ *  `rel` and returns the site's size. */
+function packSiteBoxes(boxes: Array<{ w: number; h: number; rel: Point }>, colsWanted: number): { w: number; h: number } {
+  const cols = Math.max(1, Math.min(colsWanted, boxes.length || 1));
+  const rows = Math.max(1, Math.ceil(boxes.length / cols));
+  const colW = Array.from({ length: cols }, () => 0);
+  const rowH = Array.from({ length: rows }, () => 0);
+  boxes.forEach((b, i) => {
+    colW[i % cols] = Math.max(colW[i % cols] ?? 0, b.w);
+    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)] ?? 0, b.h);
+  });
+  const colX = colW.map((_, c) => SITE_PAD + colW.slice(0, c).reduce((a, w) => a + w, 0) + c * TILE_GAP_X);
+  const rowY = rowH.map((_, r) => SITE_HEADER_H + SITE_PAD + rowH.slice(0, r).reduce((a, h) => a + h, 0) + r * TILE_GAP_Y);
+  boxes.forEach((b, i) => {
+    b.rel = { x: colX[i % cols] ?? SITE_PAD, y: rowY[Math.floor(i / cols)] ?? SITE_HEADER_H + SITE_PAD };
+  });
+  const w = 2 * SITE_PAD + colW.reduce((a, x) => a + x, 0) + (cols - 1) * TILE_GAP_X;
+  const h = boxes.length ? SITE_HEADER_H + 2 * SITE_PAD + rowH.reduce((a, x) => a + x, 0) + (rows - 1) * TILE_GAP_Y : SITE_HEADER_H + 2 * SITE_PAD;
+  return { w, h };
+}
+
+/** The shape a fitView should meet: a window is about this wide for its
+ *  height, and the plane is judged with the tiers above the sites counted. */
+export const PLANE_ASPECT_TARGET = 1.8;
+const TIERS_H_ESTIMATE = TIER_INTERNET_H + TIER_WAN_H + 96 + 3 * TIER_GAP_Y;
+
+/**
+ * How many tile columns a site may use (the engine's count at most, the
+ * same cap for every site) so that the sites in their one row make a plane
+ * near `PLANE_ASPECT_TARGET`. The lifted engine packs 156 px tiles three
+ * across; the canvas's chip-sized tiles are twice as wide, and at three
+ * across a five-site cast was 4.5 : 1 -- a fitView used the middle third
+ * of the window. Pure: the choice with the aspect nearest the target wins,
+ * so a small twin stays two across and a wide one goes to one.
+ */
+export function chooseSiteCols(sites: ReadonlyArray<{ boxes: ReadonlyArray<{ w: number; h: number }>; engineCols: number }>): number {
+  if (!sites.length) return 1;
+  const most = Math.max(1, ...sites.map((s) => s.engineCols));
+  let best = most;
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (let k = most; k >= 1; k--) {
+    let width = 2 * CANVAS_PAD + Math.max(0, sites.length - 1) * SITE_GAP_X;
+    let tallest = 0;
+    for (const s of sites) {
+      const size = packSiteBoxes(s.boxes.map((b) => ({ w: b.w, h: b.h, rel: { x: 0, y: 0 } })), Math.min(k, s.engineCols));
+      width += size.w;
+      tallest = Math.max(tallest, size.h);
+    }
+    const aspect = width / (TIERS_H_ESTIMATE + tallest);
+    const score = Math.abs(Math.log(aspect) - Math.log(PLANE_ASPECT_TARGET));
+    if (score < bestScore) {
+      bestScore = score;
+      best = k;
+    }
+  }
+  return best;
+}
+
 function gridFor(count: number): { cols: number; rows: number; w: number; h: number } {
   const cols = Math.max(1, Math.min(CHIPS_PER_ROW, count));
   const rows = Math.ceil(count / cols);
@@ -297,7 +356,7 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   // ---- sites: the engine's grouping and order, re-packed at content sizes ----
   const sites: PlacedSite[] = [];
   const anchorByName: Record<string, string> = {};
-  let cursorX = CANVAS_PAD;
+  const pending: Array<{ key: string; sp: (typeof l0.sites)[number]; tiles: typeof l0.tiles; boxes: PlacedBox[]; engineCols: number }> = [];
   for (const sp of l0.sites) {
     const key = sp.site.key;
     const tiles = l0.tiles.filter((t) => t.siteKey === key);
@@ -346,25 +405,17 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         children: [],
       });
     }
-    // The engine's grid: row-major at the column count it chose (distinct x
-    // slots among its tile boxes), so a tile keeps the slot the engine gave it.
+    // The engine's grid is row-major at the column count it chose (distinct
+    // x slots among its tile boxes); the canvas may use fewer columns, never
+    // more, so a tile keeps its order and the plane keeps a window's shape.
     const slotX = new Set<number>(tiles.map((t) => t.box.x));
     if (overflow) slotX.add(overflow.box.x);
-    const cols = Math.max(1, slotX.size);
-    const rows = Math.max(1, Math.ceil(boxes.length / cols));
-    const colW = Array.from({ length: cols }, () => 0);
-    const rowH = Array.from({ length: rows }, () => 0);
-    boxes.forEach((b, i) => {
-      colW[i % cols] = Math.max(colW[i % cols] ?? 0, b.w);
-      rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)] ?? 0, b.h);
-    });
-    const colX = colW.map((_, c) => SITE_PAD + colW.slice(0, c).reduce((a, w) => a + w, 0) + c * TILE_GAP_X);
-    const rowY = rowH.map((_, r) => SITE_HEADER_H + SITE_PAD + rowH.slice(0, r).reduce((a, h) => a + h, 0) + r * TILE_GAP_Y);
-    boxes.forEach((b, i) => {
-      b.rel = { x: colX[i % cols] ?? SITE_PAD, y: rowY[Math.floor(i / cols)] ?? SITE_HEADER_H + SITE_PAD };
-    });
-    const w = 2 * SITE_PAD + colW.reduce((a, x) => a + x, 0) + (cols - 1) * TILE_GAP_X;
-    const h = boxes.length ? SITE_HEADER_H + 2 * SITE_PAD + rowH.reduce((a, x) => a + x, 0) + (rows - 1) * TILE_GAP_Y : SITE_HEADER_H + 2 * SITE_PAD;
+    pending.push({ key, sp, tiles, boxes, engineCols: Math.max(1, slotX.size) });
+  }
+  const maxCols = chooseSiteCols(pending.map((p) => ({ boxes: p.boxes.map((b) => ({ w: b.w, h: b.h })), engineCols: p.engineCols })));
+  let cursorX = CANVAS_PAD;
+  for (const { key, sp, tiles, boxes, engineCols } of pending) {
+    const { w, h } = packSiteBoxes(boxes, Math.min(engineCols, maxCols));
     sites.push({
       key,
       data: { kind: "site", key, label: sp.site.label, shown: tiles.length, total: sp.site.segments.length, northSouthBytes: sp.site.northSouth.bytes },

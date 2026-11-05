@@ -76,3 +76,16 @@ describe("a compact tile's sizes", () => {
     expect(glyphCapacity(290, 60)).toBe(0);
   });
 });
+
+describe("a site's tile columns follow the plane's shape", () => {
+  it("a five-site cast with six 290 x 96 tiles each goes to one column; a small twin keeps two", async () => {
+    const { chooseSiteCols, PLANE_ASPECT_TARGET } = await import("../src/features/edit-canvas/canvas/placement");
+    const tile = { w: 290, h: 96 };
+    const six = Array.from({ length: 6 }, () => tile);
+    expect(PLANE_ASPECT_TARGET).toBe(1.8);
+    expect(chooseSiteCols(Array.from({ length: 5 }, () => ({ boxes: six, engineCols: 3 })))).toBe(1);
+    expect(chooseSiteCols([{ boxes: [tile, tile], engineCols: 2 }])).toBe(2);
+    expect(chooseSiteCols([{ boxes: [tile, tile, tile, tile], engineCols: 2 }, { boxes: [tile, tile], engineCols: 2 }])).toBe(2);
+    expect(chooseSiteCols([])).toBe(1);
+  });
+});
