@@ -13,11 +13,11 @@
  */
 import {
   Background,
-  Controls,
   MiniMap,
   Panel,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useNodesState,
   useReactFlow,
   type Connection,
@@ -27,16 +27,18 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { TopologyExport } from "../../api/types";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
+import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
+import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
-import type { ConsoleGraph } from "./model/graph";
+import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME } from "./Palette";
 import type { Selection } from "./SidePanel";
@@ -77,9 +79,15 @@ export interface CanvasProps {
   onViewport: (v: Viewport) => void;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
   locked?: boolean;
+  /** What the inspector's Notes tab says about this twin. */
   notes: string[];
   /** Phase 2: the editing gestures. Absent = Phase 1's read-only canvas. */
   edit?: CanvasEditProps;
+  /** Edit mode: the palette, shown as a popover off the rail's `+`. */
+  palette?: ReactNode;
+  /** Edit mode: the inspector's Selection tab (the property panels) and its
+   *  Checks tab (validation + pending changes), with the badge the tab wears. */
+  inspector?: { selection: ReactNode; checks: ReactNode | null; checksBadge: string | null };
 }
 
 const DEFAULT_GLOW_SECONDS = 8;
@@ -114,11 +122,21 @@ export function connectionToAttach(c: Pick<Connection, "source" | "target">): { 
 
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
 
-function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, edit }: CanvasProps) {
+type Popover = "find" | "traffic" | "palette" | "annotate";
+
+function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
   const [lockedAll, setLockedAll] = useState(lockedAtStart);
+  // ---- the chrome (`SPEC.md` "Shell and chrome"): the rail's tool, which
+  // popover is open, which inspector tab is open (null = the tab strip only;
+  // a click on a node opens Selection), and the read-only selection.
+  const [tool, setTool] = useState<"select" | "pan">("select");
+  const [popover, setPopover] = useState<Popover | null>(null);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
+  const [roSel, setRoSel] = useState<{ kind: "host" | "router" | "segment"; id: string } | null>(null);
+  const togglePopover = useCallback((which: Popover) => setPopover((cur) => (cur === which ? null : which)), []);
   const locked = lockedAll || Boolean(edit?.locked);
   const [query, setQuery] = useState("");
   const [findNote, setFindNote] = useState<string | null>(null);
@@ -213,6 +231,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       if (key !== lastSel.current) {
         lastSel.current = key;
         edit.onSelection(next);
+        if (next.kind !== "none") setInspectorTab("selection");
       }
       setNodes((ns) => ns.map((n) => (n.selected === ids.includes(n.id) ? n : { ...n, selected: ids.includes(n.id) })));
     },
@@ -222,7 +241,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const selectionRef = useRef<Selection>({ kind: "none" });
   if (edit) selectionRef.current = edit.selection;
 
-  // Alt bypasses snap while held; Esc leaves the attach mode and disarms the palette.
+  // Alt bypasses snap while held; Esc leaves the attach mode, disarms the
+  // palette and closes a popover.
   useEffect(() => {
     if (!edit) return;
     const down = (e: KeyboardEvent) => {
@@ -232,6 +252,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         setAttachFrom(null);
         edit.onPlacing(null);
         setMenu(null);
+        setPopover(null);
         select({ kind: "none" }, []);
       }
     };
@@ -249,7 +270,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
-      if (!edit) return;
+      if (!edit) {
+        const d = node.data;
+        if (d.kind === "host") setRoSel({ kind: "host", id: d.nodeId });
+        else if (d.kind === "router") setRoSel({ kind: "router", id: d.name });
+        else if (d.kind === "segment") setRoSel({ kind: "segment", id: d.name });
+        else return;
+        setInspectorTab("selection");
+        return;
+      }
       const d = node.data;
       const cur = selectionRef.current;
       if (d.kind === "host" || d.kind === "router") {
@@ -432,8 +461,55 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     const parts: string[] = [];
     if (placement.hiddenSegments) parts.push(`${placement.hiddenSegments} segments behind "+N more" tiles`);
     if (placement.hiddenPairs) parts.push(`${placement.hiddenPairs} observed pairs not drawn (the top ${placement.edges.filter((e) => e.type === "arc").length} by volume are)`);
-    return [...parts, ...notes];
-  }, [placement, notes]);
+    return parts;
+  }, [placement]);
+
+  // The rail's shortcuts: only when the keyboard is on the canvas, never in a field.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      switch (e.key) {
+        case "v": setTool("select"); break;
+        case "h": setTool("pan"); break;
+        case "f": void rf.fitView({ duration: 300 }); break;
+        case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
+        case "-": void rf.zoomOut({ duration: 200 }); break;
+        case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
+        case "/": e.preventDefault(); togglePopover("find"); break;
+        case "t": togglePopover("traffic"); break;
+        case "a": if (edit) togglePopover("palette"); break;
+        default: return;
+      }
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [rf, edit, locked, togglePopover]);
+
+  const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
+
+  const viewTools: RailButton[] = [
+    { name: "Select", key: "V", icon: <Icon.select />, pressed: tool === "select", onClick: () => setTool("select") },
+    { name: "Pan", key: "H", icon: <Icon.pan />, pressed: tool === "pan", onClick: () => setTool("pan") },
+    { name: "Zoom in", key: "+", icon: <Icon.zoomIn />, onClick: () => void rf.zoomIn({ duration: 200 }) },
+    { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
+    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
+    { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
+    { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
+    { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
+  ];
+  const editTools: RailButton[] | null = edit
+    ? [
+        { name: "Add to the design", key: "A", icon: <Icon.plus />, pressed: popover === "palette", onClick: () => togglePopover("palette"), testId: "rail-add" },
+        { name: attachArmed ? (attachFrom ? `Attach ${attachFrom} → click a segment` : "Attach: click a host") : "Attach", icon: <Icon.attach />, pressed: attachArmed, disabled: !editing, onClick: () => { setAttachArmed((a) => !a); setAttachFrom(null); }, testId: "rail-attach" },
+        { name: "Snap to grid", icon: <Icon.snap />, pressed: snap, onClick: () => setSnap((v) => !v), testId: "rail-snap" },
+        { name: "Show grid", icon: <Icon.grid />, pressed: grid, onClick: () => setGrid((g) => !g), testId: "rail-grid" },
+        { name: "Align horizontally", icon: <Icon.alignH />, disabled: !editing, onClick: () => align("h"), testId: "rail-align-h" },
+        { name: "Align vertically", icon: <Icon.alignV />, disabled: !editing, onClick: () => align("v"), testId: "rail-align-v" },
+        { name: "Annotate", icon: <Icon.annotate />, pressed: popover === "annotate", onClick: () => togglePopover("annotate"), testId: "rail-annotate" },
+      ]
+    : null;
 
   const viewportProps = initialViewport ? { defaultViewport: initialViewport } : { fitView: true };
 
@@ -484,6 +560,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             nodesDraggable={!locked}
             nodesConnectable={editing}
             elementsSelectable
+            panOnDrag={tool === "pan" ? true : [1, 2]}
+            selectionOnDrag={tool === "select"}
+            selectionMode={SelectionMode.Partial}
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
             minZoom={0.1}
@@ -511,68 +590,89 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             {...viewportProps}
           >
             {grid ? <Background gap={GRID} /> : null}
-            <Controls showInteractive={false} />
-            <MiniMap pannable zoomable nodeStrokeWidth={2} />
-            <Panel position="top-left" className="cv-toolbar">
-              <form
-                className="row"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  find();
-                }}
-              >
-                <input type="text" aria-label="Find node" placeholder="name, address, role or CIDR" value={query} onChange={(e) => setQuery(e.target.value)} />
-                <button type="submit">Find</button>
-                <button type="button" onClick={() => void rf.fitView({ duration: 300 })}>
-                  Zoom to fit
-                </button>
-                <button type="button" aria-pressed={lockedAll} onClick={() => setLockedAll((l) => !l)} disabled={Boolean(edit?.locked)}>
-                  {lockedAll ? "Unlock all" : "Lock all"}
-                </button>
-                {findNote ? <span className="muted" role="status">{findNote}</span> : null}
-              </form>
-              {edit ? (
-                <div className="row cv-edit-tools" aria-label="Edit tools">
-                  <button type="button" aria-pressed={attachArmed} disabled={!editing} onClick={() => { setAttachArmed((a) => !a); setAttachFrom(null); }} title="click a host, then a segment; stays on until Esc">
-                    {attachArmed ? (attachFrom ? `Attach ${attachFrom} → click a segment` : "Attach: click a host") : "Attach"}
-                  </button>
-                  <button type="button" aria-pressed={snap} onClick={() => setSnap((s) => !s)} title="hold Alt to bypass">Snap</button>
-                  <button type="button" aria-pressed={grid} onClick={() => setGrid((g) => !g)}>Grid</button>
-                  <button type="button" disabled={!editing} onClick={() => align("h")}>Align H</button>
-                  <button type="button" disabled={!editing} onClick={() => align("v")}>Align V</button>
-                  <span className="muted">Annotate:</span>
-                  <button type="button" onClick={() => addAnnotation("text")}>text</button>
-                  <button type="button" onClick={() => addAnnotation("rect")}>rect</button>
-                  <button type="button" onClick={() => addAnnotation("ellipse")}>ellipse</button>
-                  <button type="button" onClick={() => addAnnotation("line")}>line</button>
-                  <button type="button" aria-pressed={!showAnnotations} onClick={() => setShowAnnotations((s) => !s)}>
-                    {showAnnotations ? "Hide all" : "Show annotations"}
-                  </button>
-                </div>
-              ) : null}
-              <form
-                className="row cv-overlay"
-                aria-label="Traffic overlay"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  applyOverlay();
-                }}
-              >
-                <span className="muted">Traffic</span>
-                <input type="text" aria-label="Protocol" placeholder="proto" value={filter.proto} onChange={(e) => setFilter({ ...filter, proto: e.target.value })} />
-                <input type="text" aria-label="Port" placeholder="port" value={filter.port} onChange={(e) => setFilter({ ...filter, port: e.target.value })} />
-                <input type="text" aria-label="Minimum bytes" placeholder="bytes ≥" value={filter.minBytes} onChange={(e) => setFilter({ ...filter, minBytes: e.target.value })} />
-                <input type="text" aria-label="Peer" placeholder="peer" value={filter.peer} onChange={(e) => setFilter({ ...filter, peer: e.target.value })} />
-                <input type="text" aria-label="Glow seconds" value={glowSeconds} onChange={(e) => setGlowSeconds(e.target.value)} className="cv-seconds" />
-                <button type="submit">Light up</button>
-                {overlayNote ? <span className="muted" role="status" data-testid="overlay-note">{overlayNote}</span> : null}
-              </form>
+            <MiniMap pannable zoomable nodeStrokeWidth={2} position="bottom-right" />
+            <Panel position="top-left" className="cv-chrome-left">
+              <Rail view={viewTools} edit={editTools}>
+                {popover === "find" ? (
+                  <Popover title="Find a node" onClose={() => setPopover(null)} testId="popover-find">
+                    <form
+                      className="row"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        find();
+                      }}
+                    >
+                      <input type="text" aria-label="Find node" placeholder="name, address, role or CIDR" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
+                      <button type="submit">Find</button>
+                    </form>
+                    {findNote ? <p className="muted" role="status">{findNote}</p> : null}
+                  </Popover>
+                ) : null}
+                {popover === "traffic" ? (
+                  <Popover title="Light up traffic" onClose={() => setPopover(null)} testId="popover-traffic">
+                    <form
+                      className="cv-overlay"
+                      aria-label="Traffic overlay"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        applyOverlay();
+                      }}
+                    >
+                      <label className="cv-field"><span className="cv-field-label">Protocol</span><input type="text" aria-label="Protocol" placeholder="tcp, udp…" value={filter.proto} onChange={(e) => setFilter({ ...filter, proto: e.target.value })} /></label>
+                      <label className="cv-field"><span className="cv-field-label">Port</span><input type="text" aria-label="Port" placeholder="443" value={filter.port} onChange={(e) => setFilter({ ...filter, port: e.target.value })} /></label>
+                      <label className="cv-field"><span className="cv-field-label">Minimum bytes</span><input type="text" aria-label="Minimum bytes" placeholder="bytes ≥" value={filter.minBytes} onChange={(e) => setFilter({ ...filter, minBytes: e.target.value })} /></label>
+                      <label className="cv-field"><span className="cv-field-label">Peer</span><input type="text" aria-label="Peer" placeholder="address or prefix" value={filter.peer} onChange={(e) => setFilter({ ...filter, peer: e.target.value })} /></label>
+                      <div className="row">
+                        <label className="cv-count">
+                          for
+                          <input type="text" aria-label="Glow seconds" value={glowSeconds} onChange={(e) => setGlowSeconds(e.target.value)} className="cv-seconds" />
+                          s
+                        </label>
+                        <button type="submit" className="primary">Light up</button>
+                      </div>
+                    </form>
+                    {overlayNote ? <p className="muted" role="status" data-testid="overlay-note">{overlayNote}</p> : null}
+                  </Popover>
+                ) : null}
+                {popover === "palette" && palette ? (
+                  <Popover title="Add to the design" onClose={() => setPopover(null)} wide testId="popover-palette">
+                    {palette}
+                  </Popover>
+                ) : null}
+                {popover === "annotate" && edit ? (
+                  <Popover title="Annotate" onClose={() => setPopover(null)} testId="popover-annotate">
+                    <div className="row" aria-label="Annotations">
+                      <button type="button" onClick={() => addAnnotation("text")}>text</button>
+                      <button type="button" onClick={() => addAnnotation("rect")}>rect</button>
+                      <button type="button" onClick={() => addAnnotation("ellipse")}>ellipse</button>
+                      <button type="button" onClick={() => addAnnotation("line")}>line</button>
+                    </div>
+                    <div className="row">
+                      <button type="button" aria-pressed={!showAnnotations} onClick={() => setShowAnnotations((v) => !v)}>
+                        {showAnnotations ? "Hide all" : "Show annotations"}
+                      </button>
+                    </div>
+                    <p className="muted">a new annotation lands at the viewport's centre; drag it, resize it, and edit its text in the inspector</p>
+                  </Popover>
+                ) : null}
+              </Rail>
+            </Panel>
+            <Panel position="top-right" className="cv-chrome-right">
+              <Inspector
+                open={inspectorTab}
+                onOpen={setInspectorTab}
+                selection={inspector ? inspector.selection : <ReadOnlySelection graph={graph} sel={roSel} />}
+                graph={graph}
+                onCentre={centreOnListed}
+                notes={notes}
+                checks={inspector?.checks ?? null}
+                checksBadge={inspector?.checksBadge ?? null}
+                hasSelection={edit ? edit.selection.kind !== "none" : roSel !== null}
+              />
             </Panel>
             {status.length ? (
-              <Panel position="bottom-left" className="cv-status">
-                {status.map((s, i) => (
-                  <div key={i} className="muted">{s}</div>
-                ))}
+              <Panel position="bottom-left" className="cv-chrome-bottom">
+                <StatusStrip lines={status} />
               </Panel>
             ) : null}
           </ReactFlow>
@@ -598,5 +698,52 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         </div>
       </EditContext.Provider>
     </GlowContext.Provider>
+  );
+}
+
+/** The inspector's Selection tab without an editor (a cast or authored
+ *  twin): the clicked host's or segment's facts, read from the graph. */
+function ReadOnlySelection({ graph, sel }: { graph: ConsoleGraph; sel: { kind: "host" | "router" | "segment"; id: string } | null }) {
+  if (!sel) return <p className="muted">click a host, a router or a segment</p>;
+  if (sel.kind === "segment") {
+    const seg = graph.segmentByName.get(sel.id);
+    if (!seg) return <p className="muted">segment {sel.id} is not in the graph</p>;
+    return (
+      <div className="cv-ro" data-testid="ro-segment">
+        <h3 className="mono">{seg.name}</h3>
+        <dl className="facts">
+          <dt>observed</dt><dd className="mono">{seg.observedCidr}</dd>
+          {seg.deployedCidr ? <><dt>deployed</dt><dd className="mono">{seg.deployedCidr}</dd></> : null}
+          <dt>hosts</dt><dd>{seg.hostCount}{seg.ghostCount ? ` (${seg.ghostCount} ghosts)` : ""}</dd>
+          {seg.zoneType ? <><dt>zone</dt><dd>{seg.zoneType}</dd></> : null}
+        </dl>
+      </div>
+    );
+  }
+  if (sel.kind === "router") {
+    const r = graph.routers.find((x) => x.name === sel.id);
+    return (
+      <div className="cv-ro" data-testid="ro-router">
+        <h3 className="mono">{sel.id}</h3>
+        <dl className="facts">
+          <dt>legs</dt><dd>{r ? r.segments.join(", ") : "none"}</dd>
+        </dl>
+      </div>
+    );
+  }
+  const n: GraphNode | undefined = graph.nodeById.get(sel.id);
+  if (!n) return <p className="muted">{sel.id} is not in the graph</p>;
+  return (
+    <div className="cv-ro" data-testid="ro-host">
+      <h3 className="mono">{n.address ?? n.id}</h3>
+      <dl className="facts">
+        <dt>key</dt><dd className="mono">{n.id}</dd>
+        <dt>segment</dt><dd className="mono">{n.segment ?? "unplaced"}</dd>
+        <dt>role</dt><dd>{n.role ?? <span className="muted">not discovered</span>}{n.roleEvidenceClass ? <span className="muted"> · {n.roleEvidenceClass}</span> : null}</dd>
+        {n.listenPorts.length ? <><dt>listens</dt><dd className="mono">{n.listenPorts.join(", ")}</dd></> : null}
+        {n.occupancy !== null ? <><dt>occupancy</dt><dd>{Math.round(n.occupancy * 100)}%</dd></> : null}
+        {n.isGhost ? <><dt>ghost</dt><dd>{n.ghostReasons.join(", ")}</dd></> : null}
+      </dl>
+    </div>
   );
 }

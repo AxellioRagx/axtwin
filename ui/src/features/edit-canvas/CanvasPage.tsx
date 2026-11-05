@@ -48,7 +48,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
-import { SidePanel, type Selection } from "./SidePanel";
+import { Checks, SidePanel, checksBadge, type Selection } from "./SidePanel";
 
 interface Loaded {
   twin: TwinSummary;
@@ -722,46 +722,82 @@ export function CanvasPage() {
         <ErrorLine error={error} prefix="could not load the twin" />
         <ErrorLine error={draft.error} prefix="could not save the layout" />
         <ErrorLine error={exitError} />
+        {editProps && blocked ? (
+          <div className="error" role="alert" data-testid="blocked-reason">
+            blocked: {blocked}
+          </div>
+        ) : null}
+        {editProps ? <ErrorLine error={serverReason} prefix="the API refused the document" /> : null}
         {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
         {exitNote ? <p className="notice" role="status" data-testid="exit-note">{exitNote}</p> : null}
         {loading && !data ? <p className="muted">Loading the twin…</p> : null}
       </div>
-      {editProps && data ? (
-        <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, selectedSegment, n, null)} count={copies} onCount={setCopies} selectedSegment={selectedSegment} disabled={Boolean(locked)} note={data.paletteNote} />
-      ) : null}
       {built && placement ? (
         placement.overBudget ? (
           <Fallback id={id} kind={built.kind} graph={built.graph} reason={placement.overBudget} />
         ) : (
-          <Canvas graph={built.graph} exportData={built.exportData} placement={placement} onPin={onPin} onToggleSite={onToggleSite} initialViewport={initialViewport} onViewport={onViewport} notes={notes} locked={Boolean(locked)} {...(editProps ? { edit: editProps } : {})} />
+          <Canvas
+            graph={built.graph}
+            exportData={built.exportData}
+            placement={placement}
+            onPin={onPin}
+            onToggleSite={onToggleSite}
+            initialViewport={initialViewport}
+            onViewport={onViewport}
+            notes={notes}
+            locked={Boolean(locked)}
+            {...(editProps ? { edit: editProps } : {})}
+            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, selectedSegment, n, null)} count={copies} onCount={setCopies} selectedSegment={selectedSegment} disabled={Boolean(locked)} note={data.paletteNote} /> } : {})}
+            {...(editProps && model
+              ? {
+                  inspector: {
+                    selection: (
+                      <SidePanel
+                        twinId={id}
+                        model={model}
+                        baseline={baselineModel}
+                        selection={selection}
+                        locked={Boolean(locked)}
+                        images={[...new Set(items.filter((i) => i.kind === "image").map((i) => i.id))]}
+                        personas={data?.personas ?? []}
+                        canPromote={pit !== null}
+                        promoteBlock={promoteBlock}
+                        apply={edit}
+                        onPromoteRole={onPromoteRole}
+                        onPromoteMerge={onPromoteMerge}
+                        annotations={annotations}
+                        onAnnotation={(aid, patch) => setAnnotations(annotations.map((a) => (a.id === aid ? { ...a, ...patch } : a)))}
+                        onRemoveAnnotation={(aid) => {
+                          setAnnotations(annotations.filter((a) => a.id !== aid));
+                          setSelection({ kind: "none" });
+                        }}
+                        serverReason={serverReason}
+                        validation={validation && files && sameFiles(validation.files, files) ? validation : null}
+                        validating={validating || !(validation && files && sameFiles(validation.files, files))}
+                        changes={deployed ? (config?.changes ?? []) : null}
+                        blocked={blocked}
+                      />
+                    ),
+                    checks: (
+                      <Checks
+                        model={model}
+                        serverReason={serverReason}
+                        validation={validation && files && sameFiles(validation.files, files) ? validation : null}
+                        validating={validating || !(validation && files && sameFiles(validation.files, files))}
+                        changes={deployed ? (config?.changes ?? []) : null}
+                      />
+                    ),
+                    checksBadge: checksBadge({
+                      model,
+                      serverReason,
+                      validation: validation && files && sameFiles(validation.files, files) ? validation : null,
+                      validating: validating || !(validation && files && sameFiles(validation.files, files)),
+                    }),
+                  },
+                }
+              : {})}
+          />
         )
-      ) : null}
-      {editProps && model ? (
-        <SidePanel
-          twinId={id}
-          model={model}
-          baseline={baselineModel}
-          selection={selection}
-          locked={Boolean(locked)}
-          images={[...new Set(items.filter((i) => i.kind === "image").map((i) => i.id))]}
-          personas={data?.personas ?? []}
-          canPromote={pit !== null}
-          promoteBlock={promoteBlock}
-          apply={edit}
-          onPromoteRole={onPromoteRole}
-          onPromoteMerge={onPromoteMerge}
-          annotations={annotations}
-          onAnnotation={(aid, patch) => setAnnotations(annotations.map((a) => (a.id === aid ? { ...a, ...patch } : a)))}
-          onRemoveAnnotation={(aid) => {
-            setAnnotations(annotations.filter((a) => a.id !== aid));
-            setSelection({ kind: "none" });
-          }}
-          serverReason={serverReason}
-          validation={validation && files && sameFiles(validation.files, files) ? validation : null}
-          validating={validating || !(validation && files && sameFiles(validation.files, files))}
-          changes={deployed ? (config?.changes ?? []) : null}
-          blocked={blocked}
-        />
       ) : null}
     </div>
   );

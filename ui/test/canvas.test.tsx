@@ -140,6 +140,8 @@ describe("the design canvas (C2, read-only)", () => {
     expect(web.textContent).toContain("10.1.1.20");
     expect(web.textContent).toContain("WEB");
     expect(screen.getByText("authored")).toBeTruthy();
+    // What there is to say about the twin sits in the inspector's Notes tab.
+    fireEvent.click(screen.getByRole("tab", { name: /^Notes/ }));
     expect(screen.getByText(/no observed evidence, no traffic to overlay/)).toBeTruthy();
   });
 
@@ -196,6 +198,8 @@ describe("the design canvas (C2, read-only)", () => {
 
     const foreign = seeded({ layouts: { "corp-cast": layoutDoc("corp-cast", { "host:address:10.80.20.4": { x: 333, y: 444 } }, "l0-3-deadbeef") } });
     renderAt(foreign.api, "/twins/corp-cast/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getByRole("tab", { name: /^Notes/ }));
     await screen.findByText(/drawn on another plane \(l0-3-deadbeef\) and are not applied/);
     expect(positions()["host:address:10.80.20.4"]).not.toEqual([333, 444]);
   });
@@ -205,6 +209,7 @@ describe("the design canvas (C2, read-only)", () => {
     renderAt(api, "/twins/corp-cast/canvas");
     await screen.findAllByTestId("canvas-host");
     vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Light up traffic" }));
     fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "tcp" } });
     fireEvent.change(screen.getByLabelText("Glow seconds"), { target: { value: "5" } });
     fireEvent.submit(screen.getByRole("form", { name: "Traffic overlay" }));
@@ -233,6 +238,7 @@ describe("the design canvas (C2, read-only)", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-cast/canvas");
     await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getByRole("button", { name: "Find a node" }));
     fireEvent.change(screen.getByLabelText("Find node"), { target: { value: "10.80.30.7" } });
     fireEvent.click(screen.getByRole("button", { name: "Find" }));
     expect(screen.getByText("host address:10.80.30.7")).toBeTruthy();

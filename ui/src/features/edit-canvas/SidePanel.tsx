@@ -1,15 +1,17 @@
 /**
- * The persistent property side panel (`SPEC.md`: "a side panel instead of
- * modals"): the selected node group, segment, attachment or annotation, the
- * twin's own properties when nothing is selected, the validation state, and
- * -- on a deployed twin -- every pending change with the blast radius the
- * API classified it with (*live* or *re-plan*). Every field writes through
- * the editor's `apply`, which blocks an invalid edit with its reason.
+ * The inspector's property panels (`SPEC.md`: "a side panel instead of
+ * modals", now the floating inspector's Selection tab): the selected node
+ * group, segment, attachment or annotation, or the twin's own properties
+ * when nothing is selected. `Checks` is the inspector's other tab: the
+ * validation state and -- on a deployed twin -- every pending change with
+ * the blast radius the API classified it with (*live* or *re-plan*). Every
+ * field writes through the editor's `apply`, which blocks an invalid edit
+ * with its reason (shown on the canvas's strip, not here).
  */
 import { useEffect, useState, type ReactNode } from "react";
 
 import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "../../api/types";
-import { ErrorLine, errorText } from "../../areas/shell/parts";
+import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
 import {
   attach,
@@ -72,15 +74,9 @@ export interface SidePanelProps {
 const ZONE_TYPES = ["", "vlan", "simple", "dmz", "mgmt", "ot"];
 
 export function SidePanel(p: SidePanelProps) {
-  const { selection, model } = p;
+  const { selection } = p;
   return (
     <aside className="cv-side" aria-label="Properties" data-testid="side-panel">
-      {p.blocked ? (
-        <div className="error" role="alert" data-testid="blocked-reason">
-          blocked: {p.blocked}
-        </div>
-      ) : null}
-      <ErrorLine error={p.serverReason} prefix="the API refused the document" />
       {selection.kind === "node" && selection.names.length === 1 ? <NodePanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "node" && selection.names.length > 1 ? <NodesPanel {...p} names={selection.names} /> : null}
       {selection.kind === "segment" && selection.names.length === 1 ? <SegmentPanel {...p} name={selection.names[0]!} /> : null}
@@ -88,10 +84,33 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
-      <Validation findings={model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
-      {p.changes ? <Changes changes={p.changes} /> : null}
     </aside>
   );
+}
+
+/** The inspector's Checks tab. */
+export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes">) {
+  return (
+    <div className="cv-side cv-checks" data-testid="checks">
+      <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
+      {p.changes ? <Changes changes={p.changes} /> : null}
+    </div>
+  );
+}
+
+/** The validation state word: the canvas's structural findings, the API's
+ *  refusal and the API's document validate, folded into one of three. */
+export function validationState(p: Pick<SidePanelProps, "serverReason" | "validation" | "validating"> & { findings: ValidationFinding[] }): "invalid" | "validating" | "valid" {
+  const local = p.findings.filter((f) => f.severity === "error");
+  const apiErrors = (p.validation?.result?.findings ?? []).filter((f) => f.severity === "error");
+  const apiFailed = p.validation !== null && (p.validation.error !== null || apiErrors.length > 0);
+  return local.length || p.serverReason || apiFailed ? "invalid" : p.validating ? "validating" : "valid";
+}
+
+/** What the Checks tab wears on its strip: the validation state word (the
+ *  gate's answer at a glance, without opening the tab). */
+export function checksBadge(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating">): string {
+  return validationState({ findings: p.model.findings, serverReason: p.serverReason, validation: p.validation, validating: p.validating });
 }
 
 // ---------------------------------------------------------------------------
@@ -139,13 +158,11 @@ function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono, list }:
 function Validation({ findings, serverReason, validation, validating }: { findings: ValidationFinding[]; serverReason: string | null; validation: SidePanelProps["validation"]; validating: boolean }) {
   const local = findings.filter((f) => f.severity === "error");
   const api = validation?.result?.findings ?? [];
-  const apiErrors = api.filter((f) => f.severity === "error");
-  const apiFailed = validation !== null && (validation.error !== null || apiErrors.length > 0);
-  const state = local.length || serverReason || apiFailed ? "invalid" : validating ? "validating" : "valid";
+  const state = validationState({ findings, serverReason, validation, validating });
   return (
     <section className="cv-side-section" data-testid="validation">
       <h3>Validation</h3>
-      <p className={state === "valid" ? "ok" : state === "invalid" ? "error" : "muted"} role="status" data-testid="validation-state">
+      <p className={state === "valid" ? "ok" : state === "invalid" ? "error" : "muted"} role="status" data-testid="validation-word">
         {state}
       </p>
       {validation?.error ? <p className="error">the API could not validate: {errorText(validation.error)}</p> : null}

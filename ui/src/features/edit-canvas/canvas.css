@@ -26,12 +26,63 @@
 .canvas-shell .react-flow { background: var(--bg); }
 .canvas-shell .react-flow__handle { opacity: 0; width: 6px; height: 6px; min-width: 0; min-height: 0; pointer-events: none; }
 
-.cv-toolbar, .cv-status { display: flex; flex-direction: column; gap: 6px; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: calc(100% - 24px); box-shadow: var(--float-shadow); backdrop-filter: blur(6px); }
-.cv-toolbar .row { gap: 6px; }
-.cv-toolbar input[type="text"] { width: 9em; padding: 3px 6px; font-size: 12.5px; }
-.cv-toolbar input.cv-seconds { width: 3.5em; }
-.cv-toolbar button { padding: 3px 9px; font-size: 12.5px; }
-.cv-status { font-size: 12.5px; }
+/* ---- the floating chrome (SPEC.md "Shell and chrome"): one translucent
+   treatment for the rail, its popovers, the inspector, the strip, the
+   mini-map. React Flow's panels carry no size of their own. ---- */
+.canvas-shell .react-flow__panel { margin: 10px; }
+.cv-float { background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); }
+
+.cv-chrome-left { display: flex; align-items: flex-start; }
+.cv-rail-wrap { display: flex; gap: 8px; align-items: flex-start; }
+.cv-rail { display: flex; flex-direction: column; gap: 2px; padding: 4px; width: 40px; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); }
+.cv-rail-group { display: flex; flex-direction: column; gap: 2px; }
+.cv-rail-sep { height: 1px; margin: 3px 2px; background: var(--line); }
+.cv-rail-btn { width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: none; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.cv-rail-btn:hover { background: var(--line); color: var(--ink); }
+.cv-rail-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.cv-rail-btn:disabled { opacity: 0.4; cursor: default; background: none; color: var(--muted); }
+.cv-rail-btn.small { width: 24px; height: 24px; }
+
+.cv-popover { width: 280px; max-height: calc(100vh - 110px); overflow: auto; padding: 8px 10px 10px; font-size: 13px; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); }
+.cv-popover.wide { width: 320px; }
+.cv-popover-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+.cv-popover .row { gap: 6px; }
+.cv-popover input[type="text"], .cv-popover input[type="search"] { width: 100%; padding: 4px 6px; font-size: 12.5px; }
+.cv-popover .row input[type="text"] { flex: 1; min-width: 0; width: auto; }
+.cv-popover input.cv-seconds { width: 3.5em; }
+.cv-popover button { padding: 3px 9px; font-size: 12.5px; }
+.cv-popover p { margin: 6px 0 0; font-size: 12.5px; }
+.cv-popover .cv-field { margin: 4px 0; }
+.cv-popover .cv-palette { position: static; width: auto; max-height: none; border: none; background: none; box-shadow: none; padding: 0; backdrop-filter: none; }
+
+.cv-chrome-right { display: flex; justify-content: flex-end; }
+.cv-inspector { width: 300px; max-height: calc(100vh - 90px); display: flex; flex-direction: column; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); font-size: 13px; }
+.cv-inspector:not(.open) { width: auto; }
+.cv-tabs { display: flex; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid transparent; }
+.cv-inspector.open .cv-tabs { border-bottom-color: var(--line); }
+.cv-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 8px; border: none; border-radius: 6px; background: none; color: var(--muted); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.cv-tab:hover { background: var(--line); color: var(--ink); }
+.cv-tab.active { background: var(--accent); color: var(--accent-ink); }
+.cv-tab-badge.invalid { background: var(--bad); color: #fff; }
+.cv-tab-badge.valid { background: var(--ok); color: #fff; }
+.cv-tab-badge { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 8px; font-size: 11px; line-height: 16px; text-align: center; background: color-mix(in srgb, currentColor 18%, transparent); }
+.cv-inspector-body { overflow: auto; padding: 10px; }
+.cv-inspector .cv-side { position: static; width: auto; max-height: none; border: none; background: none; box-shadow: none; padding: 0; backdrop-filter: none; }
+.cv-hosts input[type="search"] { width: 100%; padding: 4px 6px; font-size: 12.5px; margin-bottom: 6px; }
+.cv-hosts-list { list-style: none; margin: 0; padding: 0; }
+.cv-hosts-row { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; padding: 4px 6px; border: none; border-radius: 6px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.cv-hosts-row:hover { background: var(--line); }
+.cv-hosts-row.ghost { opacity: 0.6; }
+.cv-hosts-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-hosts-where { font-size: 11.5px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-notes { margin: 0; padding-left: 18px; }
+.cv-notes li { margin: 4px 0; }
+.cv-ro h3 { margin: 0 0 6px; font-size: 13px; }
+
+.cv-chrome-bottom { max-width: calc(100% - 20px); }
+.cv-status { display: flex; align-items: flex-start; gap: 6px; padding: 6px 6px 6px 10px; font-size: 12.5px; max-width: 520px; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); }
+.cv-status-lines { display: flex; flex-direction: column; gap: 2px; }
+
 .canvas-shell .react-flow__minimap { background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); }
 .canvas-shell .react-flow__controls { box-shadow: var(--float-shadow); border-radius: 8px; overflow: hidden; }
 .canvas-shell .react-flow__controls button { background: var(--float-bg); border-bottom: 1px solid var(--line); color: var(--ink); fill: var(--ink); }
@@ -89,12 +140,8 @@ table.cv-matrix td, table.cv-matrix th { text-align: right; padding: 3px 6px; fo
 table.cv-matrix th:first-child { text-align: left; }
 
 /* ---- Phase 2: editing ---- */
-/* The palette and the side panel float over the drawing (the rail popover
-   and the tabbed inspector of SPEC.md "Shell and chrome" reshape them next);
-   no column grid: the drawing keeps the whole window. */
-.canvas-page .cv-palette, .canvas-page .cv-side { position: absolute; z-index: 6; overflow: auto; background: var(--float-bg); backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); padding: 10px; font-size: 13px; }
-.canvas-page .cv-palette { top: 136px; bottom: 12px; left: 12px; width: 240px; }
-.canvas-page .cv-side { top: 12px; right: 12px; width: 300px; max-height: calc(100% - 24px); }
+/* The palette lives in the rail's "+" popover, the property panels in the
+   inspector's Selection tab (above); no column grid, no permanent sidebar. */
 .cv-palette-head { display: flex; flex-direction: column; gap: 6px; }
 .cv-palette-head input[type="search"] { width: 100%; padding: 4px 6px; }
 .cv-count { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }

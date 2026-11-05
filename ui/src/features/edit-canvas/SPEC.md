@@ -201,13 +201,31 @@ page, not a card in one:
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
   opens `Palette.tsx` as a popover, never a permanent sidebar; the
-  `220px 1fr 320px` grid in `canvas.css` goes.
+  `220px 1fr 320px` grid in `canvas.css` goes. **Built 2026-11-05**
+  (`chrome.tsx`, `icons.tsx`): the rail's view tools (V/H select or pan —
+  select drags a marquee, pan drags the plane; +/−/F zoom; L lock; T
+  light-up; / find) and, in edit mode, the "Edit tools" group (+ palette,
+  attach, snap, grid, align H/V, annotate). Find, traffic, the palette and
+  the annotation tools are popovers beside the rail, one open at a time,
+  Esc closes. React Flow's `<Controls>` is gone; the mini-map sits
+  bottom-right in the rail's treatment.
 - **Right inspector.** `SidePanel.tsx` becomes one floating, collapsible,
   tabbed card (~280 px):
   *Selection* (the clicked node's address, role, image, persona, evidence —
   where C3's property editing lives), *Hosts* (filterable list, click to
   centre), *Notes*. Collapsed to a tab strip until a node is clicked. The
-  run-time warnings become a dismissible status strip.
+  run-time warnings become a dismissible status strip. **Built 2026-11-05**:
+  `Inspector` in `chrome.tsx`, 300 px, `top-right`; a node click opens
+  *Selection* (in read-only mode the graph's facts for the host, router or
+  segment; in edit mode `SidePanel.tsx`'s panels). A fourth tab, *Checks*,
+  holds what the old panel also carried — the validation state and, on a
+  deployed twin, the pending changes — and wears the validation word
+  (`valid` / `invalid` / `validating`) as its badge so the gate reads at a
+  glance. The blocked-edit reason and the API's refusal of the document
+  moved to the canvas's message strip. The placement warnings (segments
+  behind "+N more", pairs not drawn) are the dismissible strip bottom-left;
+  the page's notes (authored twin, cast omissions, layout on another plane,
+  annotation count) are the *Notes* tab.
 - **Level of detail.** Switched on `useViewport().zoom`. Below ~0.6 a segment
   is a tile with CIDR, host count and up to ~6 role glyphs, and edge byte
   labels are hidden; above it the tile expands to host chips (icon + short
@@ -223,8 +241,8 @@ page, not a card in one:
   segment to zoom to it, right-click menus. Undo/redo waits for the command
   stack.
 
-Order: frame + surface, then rail + inspector, then level of detail (mockups
-first).
+Order: frame + surface, then rail + inspector (both built 2026-11-05), then
+level of detail (mockups first).
 
 ## Notes
 

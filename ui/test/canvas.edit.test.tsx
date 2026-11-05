@@ -113,7 +113,24 @@ const segments = () => screen.getAllByTestId("canvas-segment").map((s) => s.data
 const host = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
 const segment = (name: string) => screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === name)!;
 const panel = () => within(screen.getByTestId("side-panel"));
-const item = (kind: string, id: string) => screen.getAllByTestId("palette-item").find((i) => i.dataset["kind"] === kind && i.dataset["id"] === id)!;
+/** The inspector's tabs (one open at a time; a node click opens Selection). */
+const tab = (name: string) => {
+  const t = screen.getByRole("tab", { name: new RegExp(`^${name}`) });
+  if (t.getAttribute("aria-selected") !== "true") fireEvent.click(t);
+};
+/** The palette is the rail's "+" popover; open it when closed. */
+const openPalette = () => {
+  if (!screen.queryByTestId("popover-palette")) fireEvent.click(screen.getByTestId("rail-add"));
+};
+const item = (kind: string, id: string) => {
+  openPalette();
+  return screen.getAllByTestId("palette-item").find((i) => i.dataset["kind"] === kind && i.dataset["id"] === id)!;
+};
+/** A button of the rail's Annotate popover, opened when closed. */
+const ann = (name: string) => {
+  if (!screen.queryByTestId("popover-annotate")) fireEvent.click(screen.getByTestId("rail-annotate"));
+  return within(screen.getByTestId("popover-annotate")).getByRole("button", { name });
+};
 const commit = (input: HTMLElement, value: string) => {
   fireEvent.change(input, { target: { value } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -284,6 +301,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const a = renderAt(api, "/twins/corp-live/canvas");
     const canvasA = a.container;
     await within(canvasA).findAllByTestId("canvas-host");
+    fireEvent.click(within(canvasA).getByTestId("rail-add"));
     fireEvent.click(within(canvasA).getAllByTestId("palette-item").find((i) => i.dataset["kind"] === "segment")!);
     await waitFor(() => expect(within(canvasA).getByTestId("dirty-marker")).toBeTruthy());
     await settle();
@@ -334,6 +352,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
+    tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
     expect(change.dataset["kind"]).toBe("attribute");
@@ -348,6 +367,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     // A role change with the image unchanged is live as well, naming the role.
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
+    tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(2));
     expect(screen.getAllByTestId("pending-change").find((c) => c.textContent!.includes("te.yaml"))!.textContent).toContain("ws01 → finance-ws");
   });
@@ -357,6 +377,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(item("segment", "segment"));
+    tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
     expect(change.dataset["kind"]).toBe("topology");
@@ -382,7 +403,9 @@ describe("the design canvas, phase 2 (C3)", () => {
 
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "domain-controller");
+    tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
+    tab("Selection");
     const promote = await panel().findByTestId("promote-role");
     expect(promote.textContent).toBe("Promote to assertion: ws01 is a domain-controller");
     fireEvent.click(promote);
@@ -400,6 +423,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     // The baseline now carries the role, and the re-opened working copy has nothing pending.
     expect(readTe(state.documents["corp-cast"]!.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("domain-controller");
     await waitFor(() => expect(screen.getByTestId("clean-marker")).toBeTruthy());
+    tab("Checks");
     expect(screen.getByTestId("pending-changes").textContent).toContain("none");
     // An authored twin has no imprint and no promote action.
   });
@@ -456,6 +480,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
+    openPalette();
     fireEvent.change(screen.getByLabelText("Copies"), { target: { value: "3" } });
     fireEvent.click(segment("net-dmz"));
     await panel().findByTestId("segment-panel");
@@ -469,7 +494,8 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText(/armed:/)).toBeNull());
-    // A persona needs a selected group. (The category starts folded.)
+    // A persona needs a selected group. (The category starts folded; Esc closed the popover.)
+    openPalette();
     fireEvent.click(screen.getByRole("button", { name: /Personas/ }));
     fireEvent.click(item("persona", "generic-endpoint"));
     expect((await screen.findByTestId("blocked-reason")).textContent).toContain("select a node group first");
@@ -523,21 +549,22 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("mode").textContent).toContain("view mode · deploy dep-1 running");
     expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
     expect(screen.getByTestId("canvas").dataset["mode"]).toBe("view");
+    openPalette();
     expect(screen.getByText(/view mode: the palette is read-only/)).toBeTruthy();
     fireEvent.click(host("ws01"));
     const p = await panel().findByTestId("node-panel");
     expect((within(p).getByLabelText("Role") as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByRole("button", { name: "Apply" }).hasAttribute("disabled")).toBe(true);
     // Annotations still work.
-    fireEvent.click(screen.getByRole("button", { name: "text" }));
-    const ann = await screen.findByTestId("canvas-annotation");
-    expect(ann.dataset["annKind"]).toBe("text");
-    expect(ann.textContent).toContain("note");
-    fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    fireEvent.click(ann("text"));
+    const first = await screen.findByTestId("canvas-annotation");
+    expect(first.dataset["annKind"]).toBe("text");
+    expect(first.textContent).toContain("note");
+    fireEvent.click(ann("rect"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
-    fireEvent.click(screen.getByRole("button", { name: "Hide all" }));
+    fireEvent.click(ann("Hide all"));
     await waitFor(() => expect(screen.queryByTestId("canvas-annotation")).toBeNull());
-    fireEvent.click(screen.getByRole("button", { name: "Show annotations" }));
+    fireEvent.click(ann("Show annotations"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
     // Nothing reached the side-car yet: annotations, like moves, wait for "Save layout".
     expect(state.layouts["corp-live"]).toBeUndefined();
@@ -546,6 +573,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect((state.layouts["corp-live"]?.annotations ?? []).length).toBe(2));
     expect(state.layouts["corp-live"]!.annotations.map((a) => a.kind)).toEqual(["text", "rect"]);
     expect(screen.queryByTestId("layout-dirty")).toBeNull();
+    tab("Notes");
     expect(screen.getByText(/2 annotations in the layout side-car/)).toBeTruthy();
     expect(localStorage.getItem("axr-canvas-annotations:corp-live")).toBeNull();
   });
@@ -558,6 +586,7 @@ describe("the document validate gate and the side-car annotations", () => {
     await screen.findAllByTestId("canvas-host");
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
     expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    tab("Checks");
     expect(screen.getByTestId("validation-api").textContent).toBe("API: pass · 0 errors, 0 warnings");
     // An image the manifests do not know passes the canvas's own check and fails the API's.
     fireEvent.click(host("web01"));
@@ -565,6 +594,7 @@ describe("the document validate gate and the side-car annotations", () => {
     fireEvent.change(within(p).getByLabelText("Image"), { target: { value: "ubuntu-server-99@v1" } });
     fireEvent.blur(within(p).getByLabelText("Image"));
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("invalid"));
+    tab("Checks");
     const finding = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "IMG-010")!;
     expect(finding.textContent).toContain("image 'ubuntu-server-99@v1' has no manifest");
     expect(finding.textContent).toContain("twin_config.nodes[web01].image");
@@ -575,6 +605,7 @@ describe("the document validate gate and the side-car annotations", () => {
     const validated = state.writes.filter((w) => w.op === "validate");
     expect((validated.at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]).toContain("ubuntu-server-99@v1");
     // Another known image: the next answer is clean and the exits open (the document still differs from the saved one).
+    tab("Selection");
     commit(within(panel().getByTestId("node-panel")).getByLabelText("Image"), "debian-12-cloud@v1");
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
     fireEvent.click(await enabled("Save"));
@@ -594,8 +625,8 @@ describe("the document validate gate and the side-car annotations", () => {
     expect(screen.getByRole("button", { name: "Save layout" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByRole("button", { name: "Discard" }).hasAttribute("disabled")).toBe(true);
     // Two annotations (the same draft every drag lands in): two changes, nothing written.
-    fireEvent.click(screen.getByRole("button", { name: "text" }));
-    fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    fireEvent.click(ann("text"));
+    fireEvent.click(ann("rect"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
     expect(screen.getByTestId("layout-dirty").textContent).toBe("● layout: 2 unsaved changes");
     expect(layoutWrites()).toEqual([]);
@@ -607,7 +638,7 @@ describe("the document validate gate and the side-car annotations", () => {
     expect(screen.getByRole("button", { name: "Save layout" }).hasAttribute("disabled")).toBe(true);
     expect(layoutWrites()).toEqual([]);
     // Change again and Save layout: ONE write, no etag on a first save.
-    fireEvent.click(screen.getByRole("button", { name: "ellipse" }));
+    fireEvent.click(ann("ellipse"));
     await screen.findByTestId("layout-dirty");
     expect(screen.getByTestId("layout-dirty").textContent).toBe("● layout: 1 unsaved change");
     fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
@@ -617,7 +648,7 @@ describe("the document validate gate and the side-car annotations", () => {
     await screen.findByText("layout saved");
     expect(screen.queryByTestId("layout-dirty")).toBeNull();
     // A document Save writes a dirty layout alongside, with the saved etag as the precondition.
-    fireEvent.click(screen.getByRole("button", { name: "line" }));
+    fireEvent.click(ann("line"));
     await screen.findByTestId("layout-dirty");
     fireEvent.click(item("segment", "segment"));
     fireEvent.click(await enabled("Save"));
@@ -633,9 +664,9 @@ describe("the document validate gate and the side-car annotations", () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(screen.getByRole("button", { name: "text" }));
+    fireEvent.click(ann("text"));
     await screen.findByTestId("canvas-annotation");
-    fireEvent.click(screen.getByRole("button", { name: "ellipse" }));
+    fireEvent.click(ann("ellipse"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-annotation").length).toBe(2));
     expect(state.writes.filter((w) => w.op === "put-layout")).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
@@ -665,6 +696,7 @@ describe("the document validate gate and the side-car annotations", () => {
     const back = screen.getAllByTestId("canvas-annotation").find((a) => a.dataset["annKind"] === "text")!;
     expect(back.textContent).toContain("crown jewels <here> & onion = 3");
     expect(back.className).toContain("locked");
+    tab("Notes");
     expect(screen.getByText(/2 annotations in the layout side-car/)).toBeTruthy();
     // A pin write carries the annotations through untouched.
     const { nextLayoutWrite } = await import("../src/features/edit-canvas/CanvasPage");
@@ -707,7 +739,7 @@ describe("the document validate gate and the side-car annotations", () => {
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     state.refuse.layout = new (await import("../src/api/client")).ApiError({ kind: "bad-request", status: 400, message: "layout for 'corp-auth': annotations[1] `svg` carries a <script> element, which a layout annotation may not (the file is served back to browsers)", url: "" });
-    fireEvent.click(screen.getByRole("button", { name: "rect" }));
+    fireEvent.click(ann("rect"));
     await screen.findByTestId("layout-dirty");
     fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
     await screen.findByText(/could not save the layout: layout for 'corp-auth': annotations\[1\] `svg` carries a <script> element/);
