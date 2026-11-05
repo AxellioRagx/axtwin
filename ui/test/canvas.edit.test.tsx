@@ -164,7 +164,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect(panel().getByTestId("segment-panel")).toBeTruthy());
     fireEvent.click(item("group", "corp-auth/web01"));
     await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
-    expect(within(host("web01-1")).getByTestId("chip-address").textContent).toBe("10.1.2.10");
+    expect(host("web01-1").dataset["address"]).toBe("10.1.2.10");
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
 
     fireEvent.click(await enabled("Save"));
@@ -189,14 +189,14 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.change(within(p).getByLabelText("Duplicate onto segment"), { target: { value: "net-dmz" } });
     fireEvent.click(within(p).getByRole("button", { name: "Duplicate" }));
     await waitFor(() => expect(hosts()).toEqual(["web01", "ws01", "ws01-1"]));
-    expect(within(host("ws01-1")).getByTestId("chip-address").textContent).toBe("10.1.1.10");
+    expect(host("ws01-1").dataset["address"]).toBe("10.1.1.10");
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
     // Again: the next free address, not the same one.
     fireEvent.click(host("ws01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Duplicate onto segment"), { target: { value: "net-dmz" } });
     fireEvent.click(within(panel().getByTestId("node-panel")).getByRole("button", { name: "Duplicate" }));
     await waitFor(() => expect(hosts()).toEqual(["web01", "ws01", "ws01-1", "ws01-2"]));
-    expect(within(host("ws01-2")).getByTestId("chip-address").textContent).toBe("10.1.1.11");
+    expect(host("ws01-2").dataset["address"]).toBe("10.1.1.11");
   });
 
   it("C3.3: Save-As from an undeployed config and from a working copy appears in the list and reopens identical; a taken name is refused", async () => {
@@ -486,7 +486,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await panel().findByTestId("segment-panel");
     fireEvent.click(item("image", "debian-12-cloud@v1"));
     await waitFor(() => expect(hosts()).toEqual(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3", "web01", "ws01"]));
-    expect(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3"].map((n) => within(host(n)).getByTestId("chip-address").textContent)).toEqual(["10.1.1.10", "10.1.1.11", "10.1.1.12"]);
+    expect(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3"].map((n) => host(n).dataset["address"])).toEqual(["10.1.1.10", "10.1.1.11", "10.1.1.12"]);
     // Without a selected segment an item arms click-to-place; Esc disarms (and Esc clears the selection).
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(panel().queryByTestId("segment-panel")).toBeNull());

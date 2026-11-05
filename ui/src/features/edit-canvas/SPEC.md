@@ -230,7 +230,19 @@ page, not a card in one:
   is a tile with CIDR, host count and up to ~6 role glyphs, and edge byte
   labels are hidden; above it the tile expands to host chips (icon + short
   name; address and role on hover; detail in the inspector). Routers and the
-  gateway are icon nodes.
+  gateway are icon nodes. **Built 2026-11-05** (`model/detail.ts`, user
+  decision: 0.6 with a rail toggle): expand at zoom ≥ 0.6, collapse below
+  0.5, hold between (hysteresis); the rail's **Node detail** button (D)
+  cycles auto → full → compact. Compact: the chips and rungs are React Flow
+  `hidden` nodes (state keeps them, so a selection survives a zoom), the
+  tile's header grows and a glyph row (`segment-glyphs`, up to six role
+  glyphs by count, a `+N` fold, a ghost glyph) sits beneath it, arc labels
+  are off, routers and the chrome drop their sub-line. Full: a chip is the
+  role glyph inside the evidence ring plus the short name (`shortName`: a
+  `hostname:` key's first label, an `address:` key's `.c.d`, a design node's
+  group name); the address and role ride as `data-address` / `data-role` and
+  on the hover card. A tile keeps its layout size at both levels, so no pin
+  moves. Role glyphs are `RoleIcon` in `icons.tsx`, keyed by the badge label.
 - **Surface.** One accent for selection, one for lit traffic; UI text
   12–13 px; mini-map styled like the rail. **Started 2026-11-05**: the
   armed state and selection share `--accent`, routers lose the ink border,
@@ -241,8 +253,9 @@ page, not a card in one:
   segment to zoom to it, right-click menus. Undo/redo waits for the command
   stack.
 
-Order: frame + surface, then rail + inspector (both built 2026-11-05), then
-level of detail (mockups first).
+Order: frame + surface, then rail + inspector, then level of detail (mockups
+first) — all three built 2026-11-05. Still open from the table: Delete key,
+double-click a segment to zoom to it, a right-click menu on the pane.
 
 ## Notes
 

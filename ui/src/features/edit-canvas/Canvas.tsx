@@ -20,6 +20,7 @@ import {
   SelectionMode,
   useNodesState,
   useReactFlow,
+  useStore,
   type Connection,
   type Edge,
   type Node,
@@ -38,11 +39,12 @@ import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
+import { nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { edgeTypes, GlowContext, legParts, NO_GLOW, nodeTypes, type Glow } from "./nodes";
+import { DetailContext, edgeTypes, GlowContext, legParts, NO_GLOW, nodeTypes, type Glow } from "./nodes";
 import "./canvas.css";
 
 export interface CanvasEditProps {
@@ -137,6 +139,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
   const [roSel, setRoSel] = useState<{ kind: "host" | "router" | "segment"; id: string } | null>(null);
   const togglePopover = useCallback((which: Popover) => setPopover((cur) => (cur === which ? null : which)), []);
+  // ---- node level of detail (`model/detail.ts`): the zoom's bucket from the
+  // store (re-renders only on a crossing), hysteresis in state, and the
+  // rail's toggle that pins a level or lets the zoom decide.
+  const bucket = useStore((st) => zoomBucket(st.transform[2]));
+  const [autoLevel, setAutoLevel] = useState<DetailLevel>("full");
+  const [detailMode, setDetailMode] = useState<DetailMode>("auto");
+  useEffect(() => {
+    if (bucket === "mid") return;
+    setAutoLevel((prev) => nextLevel(prev, bucket === "hi" ? 1 : 0));
+  }, [bucket]);
+  const detail: DetailLevel = detailMode === "auto" ? autoLevel : detailMode;
   const locked = lockedAll || Boolean(edit?.locked);
   const [query, setQuery] = useState("");
   const [findNote, setFindNote] = useState<string | null>(null);
@@ -477,6 +490,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
+        case "d": setDetailMode(nextMode); break;
         case "/": e.preventDefault(); togglePopover("find"); break;
         case "t": togglePopover("traffic"); break;
         case "a": if (edit) togglePopover("palette"); break;
@@ -496,6 +510,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
     { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
+    { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];
@@ -512,6 +527,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     : null;
 
   const viewportProps = initialViewport ? { defaultViewport: initialViewport } : { fitView: true };
+
+  // Compact: the chips (and a segment's rungs) leave the DOM; React Flow hides
+  // their edges with them. State keeps them, so a selection survives a zoom.
+  const shownNodes = useMemo(() => (detail === "compact" ? nodes.map((n) => (n.type === "host" || n.type === "rungs" ? { ...n, hidden: true } : n)) : nodes), [nodes, detail]);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
     if (!menu || !edit) return [];
@@ -542,16 +561,19 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   return (
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
+      <DetailContext.Provider value={detail}>
         <div
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}`}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${detail === "compact" ? " compact" : ""}`}
           data-testid="canvas"
+          data-detail={detail}
+          data-detail-mode={detailMode}
           data-locked={locked ? "true" : "false"}
           data-color-mode={colorMode}
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
           onClick={() => setMenu(null)}
         >
           <ReactFlow<CanvasNode>
-            nodes={nodes}
+            nodes={shownNodes}
             edges={placement.edges}
             onNodesChange={onNodesChange}
             nodeTypes={nodeTypes}
@@ -696,6 +718,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             </ul>
           ) : null}
         </div>
+      </DetailContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
   );

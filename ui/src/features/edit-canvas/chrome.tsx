@@ -35,8 +35,8 @@ export function Rail({ view, edit, children }: { view: RailButton[]; edit: RailB
   return (
     <div className="cv-rail-wrap">
       <div className="cv-rail" role="toolbar" aria-label="Canvas tools" data-testid="rail">
-        {view.map((b) => (
-          <RailButtonView key={b.name} b={b} />
+        {view.map((b, i) => (
+          <RailButtonView key={b.testId ?? i} b={b} />
         ))}
         {edit ? (
           <>

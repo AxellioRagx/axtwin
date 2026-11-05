@@ -10,8 +10,20 @@ import { createContext, useContext, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
+import type { DetailLevel } from "./model/detail";
+import { roleBadgeLabel } from "./model/roles";
 import { HANDLE, type CanvasEdge, type CanvasNode } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
+import { Icon, RoleIcon } from "./icons";
+
+/** The level of detail (`model/detail.ts`), read by the nodes and edges
+ *  through context so a zoom crossing never rebuilds the node array. At
+ *  `compact` a segment is a glyph tile (its chips are hidden by the canvas),
+ *  routers and the chrome are icons, arc labels are off. */
+export const DetailContext = createContext<DetailLevel>("full");
+
+/** How many role glyphs a compact tile carries before folding the rest. */
+export const TILE_GLYPH_MAX = 6;
 
 /** What the traffic overlay lit: host chip ids and arc keys, read by the
  *  nodes through context so a highlight never rebuilds the node array. */
@@ -69,26 +81,50 @@ export function SiteNode(p: P) {
 export function SegmentNode(p: P) {
   const d = p.data;
   const edit = useEdit();
+  const detail = useContext(DetailContext);
   if (d.kind !== "segment") return null;
   const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
   const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing));
+  const glyphs = [...d.roleBadges].sort((a, b) => b.count - a.count);
+  const shown = glyphs.slice(0, TILE_GLYPH_MAX);
+  const folded = glyphs.slice(TILE_GLYPH_MAX).reduce((n, g) => n + g.count, 0);
+  const legend = glyphs.map((g) => `${g.role} ${g.count}`).join(" · ");
   return (
     <div
-      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}`}
+      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}`}
       data-testid="canvas-segment"
       data-cidr={d.cidr}
       data-name={d.name}
+      data-detail={detail}
       {...posAttrs(p, `segment:${d.cidr}`)}
       style={{ width: p.width, height: p.height }}
-      title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}`}
+      title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}${legend ? `\n${legend}` : ""}`}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "segment", name: d.name }) : undefined}
     >
       <div className="cv-segment-header">
-        <span className="mono">{d.cidr}</span>
-        <span className="muted"> {d.hosts} host{d.hosts === 1 ? "" : "s"}{d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}</span>
+        <span className="mono cv-segment-name">{d.name}</span>
+        <span className="mono muted cv-segment-cidr">{d.cidr}</span>
+        <span className="muted cv-segment-count">{d.hosts} host{d.hosts === 1 ? "" : "s"}{d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}</span>
         {d.hasRouterLeg ? <span className="badge" title="a router has a leg here">gw</span> : null}
       </div>
-      {d.hosts === 0 ? <p className="muted cv-empty">No hosts on this segment.</p> : null}
+      {detail === "compact" ? (
+        <div className="cv-glyphs" data-testid="segment-glyphs" aria-label={legend || "no roles"}>
+          {shown.map((g) => (
+            <span key={g.role} className="cv-glyph" title={`${g.role} · ${g.count}`} data-role={roleBadgeLabel(g.role)}>
+              <RoleIcon label={roleBadgeLabel(g.role)} />
+              <span className="cv-glyph-count">{g.count}</span>
+            </span>
+          ))}
+          {folded ? <span className="cv-glyph" title={glyphs.slice(TILE_GLYPH_MAX).map((g) => `${g.role} ${g.count}`).join(" · ")}>+{folded}</span> : null}
+          {d.ghosts ? (
+            <span className="cv-glyph ghost" title={`${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}: under the occupancy gate`}>
+              <RoleIcon label="GHOST" />
+              <span className="cv-glyph-count">{d.ghosts}</span>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {d.hosts === 0 && detail === "full" ? <p className="muted cv-empty">No hosts on this segment.</p> : null}
       <Handles role="segment" />
     </div>
   );
@@ -111,23 +147,25 @@ export function HostNode(p: P) {
       className={`cv-host ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}`}
       data-testid="canvas-host"
       data-node-id={d.nodeId}
+      data-role={d.roleLabel}
+      data-address={pinned ?? d.address ?? undefined}
       {...posAttrs(p, `host:${d.nodeId}`)}
       style={{ width: p.width, height: p.height }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "host", name: d.nodeId }) : undefined}
     >
-      <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} aria-hidden="true" />
-      <span className="cv-host-label mono">{d.label}</span>
+      <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
+        <RoleIcon label={d.roleLabel} />
+      </span>
+      <span className="cv-host-label mono" title={d.label}>{d.short}</span>
       {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
-      {pinned ? <span className="mono muted cv-addr" data-testid="chip-address">{pinned}</span> : null}
-      <span className="badge cv-role" title={d.role ?? "no role discovered"}>{d.roleLabel}</span>
       {hover ? (
         <div className="cv-card" role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.nodeId}</div>
           <dl className="facts">
             <dt>Address</dt>
-            <dd className="mono">{d.address ?? "none"}</dd>
+            <dd className="mono">{pinned ?? d.address ?? "none"}</dd>
             <dt>Role</dt>
             <dd>
               {d.role ?? <span className="muted">not discovered</span>}
@@ -162,8 +200,8 @@ export function RungsNode(p: P) {
   const words = d.rungs.map((r) => `${r.count} ${r.rung}`).join(" · ");
   return (
     <div className="cv-host cv-rungs" data-testid="canvas-rungs" style={{ width: p.width, height: p.height }} title={`${d.count} ${d.role} hosts, over the band budget: ${words}`}>
-      <span className="cv-host-label">{d.count} × {d.role}</span>
-      <span className="badge cv-role">{d.roleLabel}</span>
+      <span className="cv-ring" data-role={d.roleLabel}><RoleIcon label={d.roleLabel} /></span>
+      <span className="cv-host-label">{d.count} × {d.roleLabel}</span>
       <Handles />
     </div>
   );
@@ -184,8 +222,9 @@ export function RouterNode(p: P) {
       title={`${d.name} joins ${d.segments.join(", ") || "no segment"}`}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "router", name: d.name }) : undefined}
     >
-      <span className="mono">{d.name}</span>
-      <span className="badge">router · {d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
+      <span className="cv-icon-box" aria-hidden="true"><Icon.router /></span>
+      <span className="mono cv-icon-name">{d.name}</span>
+      <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
       <Handles role="host" />
     </div>
   );
@@ -228,8 +267,11 @@ export function ChromeNode(p: P) {
   if (d.kind !== "internet" && d.kind !== "wan") return null;
   return (
     <div className={`cv-chrome cv-${d.kind}`} data-testid={`canvas-${d.kind}`} style={{ width: p.width, height: p.height }}>
-      <span>{d.label}</span>
-      <span className="muted">{d.sub}</span>
+      <span className="cv-icon-box" aria-hidden="true">{d.kind === "internet" ? <Icon.globe /> : <Icon.cloud />}</span>
+      <span className="cv-icon-text">
+        <span className="cv-icon-name">{d.label}</span>
+        <span className="muted cv-icon-sub">{d.sub}</span>
+      </span>
       <Handles />
     </div>
   );
@@ -271,6 +313,7 @@ type E = EdgeProps<CanvasEdge>;
  *  depth rule), with the engine's log-scaled stroke. */
 export function ArcEdge(e: E) {
   const glow = useContext(GlowContext);
+  const detail = useContext(DetailContext);
   const d = e.data;
   if (!d || d.kind !== "arc") return null;
   const dx = Math.abs(e.targetX - e.sourceX);
@@ -280,7 +323,7 @@ export function ArcEdge(e: E) {
   const lit = glow.arcs.has(d.key);
   return (
     <g data-testid="canvas-arc" data-key={d.key} className={lit ? "glow" : ""}>
-      <BaseEdge id={e.id} path={path} style={e.style} className={`cv-arc cv-arc-${d.arcKind}${lit ? " glow" : ""}`} label={d.label} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg />
+      <BaseEdge id={e.id} path={path} style={e.style} className={`cv-arc cv-arc-${d.arcKind}${lit ? " glow" : ""}`} label={detail === "full" ? d.label : undefined} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg />
     </g>
   );
 }
@@ -295,7 +338,7 @@ export function LegEdge(e: E) {
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
   const label = edit && parts ? (leg?.ip ?? parts.segment) : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} className={e.selected ? "selected" : ""} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
+    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} className={e.selected ? "selected" : ""} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
       <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
     </g>
   );

@@ -59,6 +59,7 @@ import { strokeForBytes, volumeRange } from "../layout/scale";
 import { stackBands } from "../layout/tiers";
 import { BUDGET_LEVEL0, BUDGET_LEVEL1_BANDS, type RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
+import { shortName } from "../model/detail";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
 import type { Annotation } from "../edit/annotations";
 import type { ExtraLeg } from "./authored";
@@ -84,6 +85,8 @@ export type HostData = {
   kind: "host";
   nodeId: string;
   label: string;
+  /** The chip's name at full detail (`model/detail.ts` `shortName`). */
+  short: string;
   address: string | null;
   role: string | null;
   roleLabel: string;
@@ -107,7 +110,7 @@ export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterD
 export type CanvasNode = Node<CanvasData, string>;
 
 export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
-export type LegData = { kind: "leg"; label: string };
+export type LegData = { kind: "leg"; label: string; from: "router" | "host" };
 export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
 export type CanvasEdgeData = ArcData | LegData | TrunkData;
 export type CanvasEdge = Edge<CanvasEdgeData, string>;
@@ -223,6 +226,7 @@ function hostData(n: GraphNode): HostData {
     kind: "host",
     nodeId: n.id,
     label: n.address ?? n.id,
+    short: shortName(n.id, n.address),
     address: n.address,
     role: n.role,
     roleLabel: roleBadgeLabel(role),
@@ -525,14 +529,14 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       const anchor = anchorByName[name];
       if (!anchor) continue;
       const target = anchor === name ? ID.segment(name) : anchor;
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: name } });
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: name, from: "router" } });
     }
   }
   for (const leg of options.extraLegs ?? []) {
     const anchor = anchorByName[leg.segment];
     if (!anchor) continue;
     const target = anchor === leg.segment ? ID.segment(leg.segment) : anchor;
-    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: leg.ip ?? leg.segment } });
+    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
   }
   for (const arc of l0.arcs) {
     const src = anchorByName[arc.a] === arc.a ? ID.segment(arc.a) : arc.a;

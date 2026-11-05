@@ -8,7 +8,7 @@
  * jsdom measures nothing, so every position assertion reads the placement
  * the nodes carry (`data-x` / `data-y`), never a pixel.
  */
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { LayoutDoc, Topology, TopologyExport, TwinTree } from "../src/api/types";
@@ -135,10 +135,12 @@ describe("the design canvas (C2, read-only)", () => {
     expect(hosts.map((h) => h.dataset["nodeId"]).sort()).toEqual(["db01", "web01", "ws01"]);
     expect(screen.getByTestId("canvas-router").textContent).toContain("gw");
     expect(screen.getByTestId("canvas-router").textContent).toContain("2 legs");
-    // The multi-homed host sits in its FIRST segment with the address it holds there.
+    // The multi-homed host sits in its FIRST segment with the address it holds there;
+    // the chip reads icon + short name, the address and role ride as data for the hover card.
     const web = hosts.find((h) => h.dataset["nodeId"] === "web01")!;
-    expect(web.textContent).toContain("10.1.1.20");
-    expect(web.textContent).toContain("WEB");
+    expect(web.textContent).toContain("web01");
+    expect(web.dataset["address"]).toBe("10.1.1.20");
+    expect(web.dataset["role"]).toBe("WEB");
     expect(screen.getByText("authored")).toBeTruthy();
     // What there is to say about the twin sits in the inspector's Notes tab.
     fireEvent.click(screen.getByRole("tab", { name: /^Notes/ }));
@@ -154,7 +156,8 @@ describe("the design canvas (C2, read-only)", () => {
     expect(hosts.length).toBe(4);
     const dc = hosts.find((h) => h.dataset["nodeId"] === "address:10.80.20.4")!;
     expect(dc.className).toContain("ev-observed");
-    expect(dc.textContent).toContain("DC");
+    expect(dc.dataset["role"]).toBe("DC");
+    expect(dc.textContent).toContain(".20.4"); // an address key's short name
     const ws = hosts.find((h) => h.dataset["nodeId"] === "address:10.80.20.9")!;
     expect(ws.className).toContain("ev-imputed");
     expect(screen.getByTestId("canvas-router").textContent).toContain("gw01");
@@ -232,6 +235,37 @@ describe("the design canvas (C2, read-only)", () => {
     fireEvent.change(screen.getByLabelText("Peer"), { target: { value: "10.20.5" } });
     fireEvent.submit(screen.getByRole("form", { name: "Traffic overlay" }));
     expect(lit()).toEqual(["address:10.20.5.3", "address:10.80.20.4"]);
+  });
+
+  it("node detail: the rail toggle pins compact (glyph tiles, no chips, no arc labels) or full, and back to auto", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-cast/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const shell = () => screen.getByTestId("canvas");
+    expect(shell().dataset["detail"]).toBe("full"); // jsdom's viewport zoom is 1
+    expect(shell().dataset["detailMode"]).toBe("auto");
+    expect(screen.queryByTestId("segment-glyphs")).toBeNull();
+    const detail = () => screen.getByTestId("rail-detail");
+    fireEvent.click(detail()); // auto -> full (pinned)
+    expect(shell().dataset["detailMode"]).toBe("full");
+    expect(detail().getAttribute("aria-label")).toBe("Node detail: full");
+    fireEvent.click(detail()); // full -> compact
+    expect(shell().dataset["detail"]).toBe("compact");
+    expect(screen.queryAllByTestId("canvas-host")).toEqual([]);
+    const tiles = screen.getAllByTestId("canvas-segment");
+    expect(tiles.every((t) => t.dataset["detail"] === "compact")).toBe(true);
+    const lan = tiles.find((t) => t.dataset["cidr"] === "10.80.20.0/24")!;
+    const glyphs = within(lan).getByTestId("segment-glyphs");
+    expect(within(glyphs).getAllByTitle(/domain-controller · 1|corp-workstation · 1/).length).toBe(2);
+    expect(lan.textContent).toContain("2 hosts");
+    expect(screen.queryByText(/bytes · .* flows/)).toBeNull(); // arc labels are off
+    fireEvent.click(detail()); // compact -> auto, which the zoom (1) resolves to full
+    expect(shell().dataset["detailMode"]).toBe("auto");
+    expect(shell().dataset["detail"]).toBe("full");
+    expect(screen.getAllByTestId("canvas-host").length).toBe(4);
+    // The keyboard does the same.
+    fireEvent.keyDown(window, { key: "d" });
+    expect(shell().dataset["detailMode"]).toBe("full");
   });
 
   it("finds a node by address and centres on it; the hover card names address, role and evidence", async () => {
