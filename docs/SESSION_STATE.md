@@ -41,24 +41,28 @@ one commit each, ui gate + engine tests after each:
    warnings as a dismissible strip bottom-left; the blocked reason and the API's refusal on
    the message strip.
 
-**Step 5 (node level of detail) was NOT started**: mockups first, as asked. They are at
-https://claude.ai/artifact/9FrccaEjWLRPobc5xAhDoQ (two zooms of one twin, the glyph set per
-`model/roles.ts`, the rules assumed, four open questions: threshold / rail toggle, chip
-width, router badge when zoomed out, ghosts in the glyph row).
+5. **Step 5, node level of detail, built after the mockup round**
+   (https://claude.ai/artifact/9FrccaEjWLRPobc5xAhDoQ; user: "0.6 threshold with a rail
+   toggle"): `model/detail.ts` (expand ≥ 0.6, collapse < 0.5, `shortName`), the rail's
+   **Node detail** button (D: auto → full → compact), compact tiles with a glyph row
+   (`RoleIcon` in `icons.tsx`), chips as glyph-in-ring + short name with `data-address` /
+   `data-role`, routers and the chrome as icon nodes, arc labels off when compact. The
+   mockup's other questions were taken as drawn: icon + name chips (address on hover), the
+   router keeps its leg count at full detail only, ghosts are one faded glyph.
 
 ## Current state
 
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (the same pre-existing two:
   the untracked `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without
-  a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **162 tests**,
-  build clean; `ui/dist` rebuilt from HEAD (`assets/index-LH7v8HmD.js`).
+  a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **167 tests**,
+  build clean; `ui/dist` rebuilt from HEAD (`assets/index-DXKnrjC9.js`, served live by :8080).
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **The `axrange serve` on :8080 was restarted on the user's request (2026-11-05 21:27, pid
   1008702) in `none` mode**: same command and `AXRANGE_*` environment as pid 828079 minus
   `AXRANGE_API_TOKEN` (saved as `serve.env` in this session's scratchpad; log
   `~/.axrange/serve-8080.log`, which carries the loud `AXRANGE_AUTH=none` warning). Verified:
   58 paths incl. `/api/whoami` → `{anonymous, true, none}`; a twin-config's `document` comes
-  with no header; the served bundle is `index-LH7v8HmD.js`. The CLI's bearer is now ignored
+  with no header; the served bundle is now `index-DXKnrjC9.js` (rebuilt after step 5). The CLI's bearer is now ignored
   (nothing to check); set the token again, or `AXRANGE_AUTH=proxy`, before exposing further.
 - Not looked at in a browser this session (no browser tool here): the chrome is verified by
   jsdom tests and the build only. First thing to do with eyes: `/canvas/<twin>` at 1622 px.
@@ -66,11 +70,11 @@ width, router badge when zoomed out, ghosts in the glyph row).
 
 ## Next steps (ordered)
 
-0. Eyes on the new shell at :8080 (after the serve restart decision above), then the step-5
-   mockup review: answer the four questions, then build node LOD (`useViewport().zoom`,
-   hysteresis 0.5/0.6, tile keeps its layout size, chips icon + short name, router icon
-   nodes, edge labels hidden zoomed out). Basics still open from the design: Delete key,
-   double-click a segment to zoom, right-click on the pane (node menus exist).
+0. Eyes on the new shell and the two detail levels at :8080 (`/canvas/<twin>`, zoom across
+   0.5/0.6, the D toggle); nothing of this session was seen in a browser. Then the basics
+   still open from the design: Delete key, double-click a segment to zoom, right-click on
+   the pane (node menus exist). A router's node box is still DEVICE_W × DEVICE_H around a
+   34 px icon, so its legs meet the invisible box edge, not the icon: a geometry follow-up.
 1. Eyes on the Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.
