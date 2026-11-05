@@ -53,16 +53,13 @@ width, router badge when zoomed out, ghosts in the glyph row).
   a manifest); the API suites re-run after track 4, green. ui: typecheck clean, **162 tests**,
   build clean; `ui/dist` rebuilt from HEAD (`assets/index-LH7v8HmD.js`).
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
-- **The running `axrange serve` on :8080 (pid 828079, started 2026-10-31 20:20, `--spa-dir
-  ui/dist`, env from `serve.env` in that session's scratchpad, log `~/.axrange/serve-8080.log`)
-  predates every commit of this session.** It is in token mode (`AXRANGE_API_TOKEN` is in its
-  environment) and has no `/api/whoami`. Because it serves `ui/dist` live, the new console is
-  already what :8080 shows: no token field, so **every write there is 401 "sign in required:
-  missing or invalid API token" until the serve is restarted** (not done: restart only on
-  request). On restart the user must choose: drop `AXRANGE_API_TOKEN` from `serve.env` for
-  `none` (dev, loud warning), or put a proxy in front and set `AXRANGE_AUTH=proxy` (+
-  `AXRANGE_TRUSTED_PROXY_CIDRS` if it is not on loopback). Keeping the token keeps the CLI
-  working and the console read-only.
+- **The `axrange serve` on :8080 was restarted on the user's request (2026-11-05 21:27, pid
+  1008702) in `none` mode**: same command and `AXRANGE_*` environment as pid 828079 minus
+  `AXRANGE_API_TOKEN` (saved as `serve.env` in this session's scratchpad; log
+  `~/.axrange/serve-8080.log`, which carries the loud `AXRANGE_AUTH=none` warning). Verified:
+  58 paths incl. `/api/whoami` → `{anonymous, true, none}`; a twin-config's `document` comes
+  with no header; the served bundle is `index-LH7v8HmD.js`. The CLI's bearer is now ignored
+  (nothing to check); set the token again, or `AXRANGE_AUTH=proxy`, before exposing further.
 - Not looked at in a browser this session (no browser tool here): the chrome is verified by
   jsdom tests and the build only. First thing to do with eyes: `/canvas/<twin>` at 1622 px.
 - **Existing cast bundles predate the `members` row**: promote shows disabled until re-cast.
