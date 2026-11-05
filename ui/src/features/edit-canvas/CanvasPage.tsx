@@ -26,6 +26,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useWhoami } from "../../api/whoami";
+import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -610,21 +611,27 @@ export function CanvasPage() {
   }, [model, built, locked, selection, placing, onPlace, edit, onAddSegment, annotations, setAnnotations]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
+  const overBudget = Boolean(built && placement && placement.overBudget);
 
+  // The canvas is the page: the title, the pills and the exits live in the
+  // one top bar (`TopbarPortal`); messages float as a strip over the drawing;
+  // the drawing itself fills the window.
   return (
-    <div className={`canvas-page${editProps ? " editing" : ""}`}>
-      <div className="row">
-        <h1 style={{ flex: 1 }}>
-          <Link to={`/twins/${encodeURIComponent(id)}`}>Twin {id}</Link> · canvas
+    <div className={`canvas-page${editProps ? " editing" : ""}${overBudget ? " fallback" : ""}`}>
+      <TopbarPortal>
+        <h1 className="cv-title">
+          <Link to={`/twins/${encodeURIComponent(id)}`} title={`Twin ${id}: the summary page`}>
+            {id}
+          </Link>
         </h1>
-        {built ? <span className="badge">{built.kind === "cast" ? "cast twin · observed evidence" : built.kind === "authored" ? "authored twin" : deployed ? "working copy" : "twin config"}</span> : null}
+        {built ? <span className="badge">{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
         {data ? (
-          <span className="badge" data-testid="mode" title={data.deploy ? `deploy ${data.deploy.deploy_id} is ${data.deploy.status}` : "no deploy stands on this twin"}>
+          <span className={`badge${mode === "read-only" ? " read-only" : ""}`} data-testid="mode" title={data.deploy ? `deploy ${data.deploy.deploy_id} is ${data.deploy.status}` : "no deploy stands on this twin"}>
             {mode} mode{data.deploy ? ` · deploy ${data.deploy.deploy_id} ${data.deploy.status}` : " · undeployed"}
           </span>
         ) : null}
         {data?.exportData && designAvailable ? (
-          <span className="row" role="group" aria-label="View">
+          <span className="row cv-view" role="group" aria-label="View">
             <button type="button" aria-pressed={view === "design"} onClick={() => setView("design")}>
               Design
             </button>
@@ -633,6 +640,7 @@ export function CanvasPage() {
             </button>
           </span>
         ) : null}
+        <span className="topbar-spacer" />
         {layout.data ? (
           <span className="row cv-layout" role="group" aria-label="Layout">
             {layoutChanges > 0 ? (
@@ -652,70 +660,72 @@ export function CanvasPage() {
             </button>
           </span>
         ) : null}
+        {designAvailable && data ? (
+          <div className="cv-exits" data-testid="exits">
+            {dirty ? (
+              <span className="cv-dirty" data-testid="dirty-marker" title={deployed ? "the working copy differs from the baseline" : "unsaved changes"}>
+                ● {deployed ? (unsynced ? "editing… (syncing to the working copy)" : "working copy dirty") : "unsaved changes"}
+              </span>
+            ) : (
+              <span className="cv-clean" data-testid="clean-marker">
+                {deployed ? "working copy equals the baseline" : "saved"}
+              </span>
+            )}
+            <button type="button" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
+              Undo
+            </button>
+            <button type="button" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)}>
+              Redo
+            </button>
+            {!deployed ? (
+              <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
+                Save
+              </button>
+            ) : (
+              <>
+                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
+                  Apply
+                </button>
+                <button type="button" onClick={resetExit} disabled={!config?.dirty || busy !== null || Boolean(locked)}>
+                  Reset
+                </button>
+                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked)}>
+                  Persist
+                </button>
+                <button type="button" onClick={() => void refresh()} disabled={busy !== null}>
+                  Refresh
+                </button>
+                {topologyPending ? (
+                  <Link to={`/twins/${encodeURIComponent(id)}`} data-testid="redeploy-link" title="a topology change needs a new plan: persist it, then deploy the baseline again">
+                    Redeploy from baseline
+                  </Link>
+                ) : null}
+              </>
+            )}
+            <form
+              className="cv-saveas"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveAs();
+              }}
+            >
+              <input type="text" aria-label="Save as id" placeholder="new twin-config id" value={saveAsId} onChange={(e) => setSaveAsId(e.target.value)} disabled={busy !== null} />
+              <button type="submit" disabled={!saveAsId.trim() || !valid || busy !== null}>
+                Save as
+              </button>
+            </form>
+            {busy ? <span className="muted">{busy}…</span> : null}
+          </div>
+        ) : null}
+      </TopbarPortal>
+      <div className="cv-strip" data-testid="canvas-strip">
+        <ErrorLine error={error} prefix="could not load the twin" />
+        <ErrorLine error={draft.error} prefix="could not save the layout" />
+        <ErrorLine error={exitError} />
+        {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
+        {exitNote ? <p className="notice" role="status" data-testid="exit-note">{exitNote}</p> : null}
+        {loading && !data ? <p className="muted">Loading the twin…</p> : null}
       </div>
-      <ErrorLine error={error} prefix="could not load the twin" />
-      <ErrorLine error={draft.error} prefix="could not save the layout" />
-      {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
-      {loading && !data ? <p className="muted">Loading the twin…</p> : null}
-      {designAvailable && data ? (
-        <div className="cv-exits" data-testid="exits">
-          {dirty ? (
-            <span className="cv-dirty" data-testid="dirty-marker" title={deployed ? "the working copy differs from the baseline" : "unsaved changes"}>
-              ● {deployed ? (unsynced ? "editing… (syncing to the working copy)" : "working copy dirty") : "unsaved changes"}
-            </span>
-          ) : (
-            <span className="cv-clean" data-testid="clean-marker">
-              {deployed ? "working copy equals the baseline" : "saved"}
-            </span>
-          )}
-          <button type="button" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
-            Undo
-          </button>
-          <button type="button" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)}>
-            Redo
-          </button>
-          {!deployed ? (
-            <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
-              Save
-            </button>
-          ) : (
-            <>
-              <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
-                Apply
-              </button>
-              <button type="button" onClick={resetExit} disabled={!config?.dirty || busy !== null || Boolean(locked)}>
-                Reset
-              </button>
-              <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked)}>
-                Persist
-              </button>
-              <button type="button" onClick={() => void refresh()} disabled={busy !== null}>
-                Refresh
-              </button>
-              {topologyPending ? (
-                <Link to={`/twins/${encodeURIComponent(id)}`} data-testid="redeploy-link" title="a topology change needs a new plan: persist it, then deploy the baseline again">
-                  Redeploy from baseline
-                </Link>
-              ) : null}
-            </>
-          )}
-          <form
-            className="cv-saveas"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void saveAs();
-            }}
-          >
-            <input type="text" aria-label="Save as id" placeholder="new twin-config id" value={saveAsId} onChange={(e) => setSaveAsId(e.target.value)} disabled={busy !== null} />
-            <button type="submit" disabled={!saveAsId.trim() || !valid || busy !== null}>
-              Save as
-            </button>
-          </form>
-          {busy ? <span className="muted">{busy}…</span> : null}
-          {exitNote ? <span className="muted" role="status" data-testid="exit-note">{exitNote}</span> : null}
-          <ErrorLine error={exitError} />
-        </div>
-      ) : null}
       {editProps && data ? (
         <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, selectedSegment, n, null)} count={copies} onCount={setCopies} selectedSegment={selectedSegment} disabled={Boolean(locked)} note={data.paletteNote} />
       ) : null}

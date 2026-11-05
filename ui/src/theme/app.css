@@ -52,15 +52,29 @@ a { color: var(--accent); }
 code, .mono { font-family: var(--mono); font-size: 12.5px; }
 
 .frame { min-height: 100vh; display: flex; flex-direction: column; }
+/* A canvas route is the page: the frame is exactly the window and the
+   drawing takes everything under the one bar (ui/Spec.md "Shell"). */
+.frame.canvas-frame { height: 100vh; min-height: 0; overflow: hidden; }
+.canvas-main { flex: 1; position: relative; min-height: 0; }
 .topbar {
-  display: flex; align-items: center; gap: 20px; padding: 10px 16px;
+  display: flex; align-items: center; gap: 16px; padding: 6px 16px; min-height: 46px; flex-wrap: wrap;
   background: var(--panel); border-bottom: 1px solid var(--line);
 }
+/* The bar's middle: a page that is the window renders its title, pills and
+   exits here (`areas/shell/topbar.tsx`); otherwise it is the spacer. */
+.topbar-slot { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.topbar-slot .topbar-spacer { flex: 1; }
+.topbar-slot .cv-title { font-size: 14px; font-weight: 600; margin: 0; white-space: nowrap; }
+.topbar-slot .cv-title a { color: var(--ink); text-decoration: none; }
+.topbar-slot .cv-title a:hover { text-decoration: underline; }
+.topbar-slot button, .topbar-slot input[type="text"] { padding: 3px 9px; font-size: 12.5px; }
+.topbar-slot .badge { white-space: nowrap; }
+.topbar-slot .badge.read-only { color: var(--warn); border-color: var(--warn); }
+.topbar-slot .row { gap: 6px; flex-wrap: nowrap; }
 .topbar .brand { font-weight: 700; letter-spacing: 0.02em; margin-right: 8px; }
 .topbar nav { display: flex; gap: 14px; }
 .topbar nav a { color: var(--muted); text-decoration: none; padding: 4px 0; border-bottom: 2px solid transparent; }
 .topbar nav a.active { color: var(--ink); border-bottom-color: var(--accent); }
-.topbar .spacer { flex: 1; }
 .topbar .area-menu { position: relative; display: flex; align-items: center; gap: 2px; }
 .topbar .area-menu .caret { padding: 0 4px; line-height: 20px; min-width: 0; border: none; background: none; color: var(--muted); font-size: 12px; }
 .topbar .area-menu .caret:hover, .topbar .area-menu .caret[aria-expanded="true"] { color: var(--ink); }

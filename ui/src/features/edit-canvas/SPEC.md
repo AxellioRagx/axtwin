@@ -185,11 +185,18 @@ page, not a card in one:
 - **Frame.** `/canvas/:id` opts out of `.main`'s 1100 px column. The React
   Flow container is fixed to the viewport under the top bar; no subbar, no
   page heading, no card border or padding; the dot grid runs edge to edge;
-  `fitView` on load.
+  `fitView` on load. **Built 2026-11-05**: `AppFrame` renders a canvas
+  route into `main.canvas-main` (the frame is exactly the window) and the
+  page is `position: absolute; inset: 0`; a saved viewport is restored,
+  otherwise `fitView`.
 - **Top bar.** One bar carries the twin name, the origin pill (cast /
   authored), the state pill (read-only / dirty) and the exits (Save layout,
   Discard; in edit mode Apply / Reset / Persist / Save-As). Nothing
-  twin-specific sits below it.
+  twin-specific sits below it. **Built 2026-11-05**: `CanvasPage` renders
+  them into the bar's middle through `areas/shell/topbar.tsx`
+  (`TopbarPortal`); the title is the twin id, linking its summary page.
+  Load / save errors and notes float as a strip over the drawing's top edge
+  (`.cv-strip`).
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
@@ -207,7 +214,11 @@ page, not a card in one:
   name; address and role on hover; detail in the inspector). Routers and the
   gateway are icon nodes.
 - **Surface.** One accent for selection, one for lit traffic; UI text
-  12–13 px; mini-map styled like the rail.
+  12–13 px; mini-map styled like the rail. **Started 2026-11-05**: the
+  armed state and selection share `--accent`, routers lose the ink border,
+  no in-chip text under 11 px, every floating box shares one translucent
+  treatment (`--float-bg`, `--float-shadow`); the tiles' own sizes wait for
+  the level-of-detail step.
 - **Basics now, not Phase 2.** Marquee select, Delete, Esc, double-click a
   segment to zoom to it, right-click menus. Undo/redo waits for the command
   stack.

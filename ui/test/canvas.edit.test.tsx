@@ -196,7 +196,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(readTe(created.files["te.yaml"]!).id).toBe("corp-auth-2");
     expect(readTe(created.files["te.yaml"]!).segments.length).toBe(3);
     // It reopens as its own canvas, identical.
-    await screen.findByText(/Twin corp-auth-2/);
+    await screen.findByRole("heading", { name: "corp-auth-2" });
     await waitFor(() => expect(segments().length).toBe(3));
     expect(screen.getByTestId("clean-marker")).toBeTruthy();
     r.unmount();

@@ -57,12 +57,12 @@ describe("the brand and the Canvas entry of the top menu", () => {
     expect(items[1]!.textContent).toBe("corp-authauthored");
     expect(items[2]!.textContent).toContain("corp-cast");
     expect(items[2]!.textContent).toContain("cast from");
-    // Picking one closes the menu and opens it on the canvas; the sub-bar names the open design.
+    // Picking one closes the menu and opens it on the canvas: the canvas is the
+    // page, so the bar names the open design and there is no sub-bar.
     fireEvent.click(items[1]!);
-    await screen.findByRole("heading", { name: /Twin corp-auth · canvas/ });
+    await screen.findByRole("heading", { name: "corp-auth" });
     expect(screen.queryByRole("menu", { name: "Designs" })).toBeNull();
-    const sub = screen.getByRole("navigation", { name: "Canvas" });
-    expect(sub.textContent).toBe("DesignsNew designcorp-auth");
+    expect(screen.queryByRole("navigation", { name: "Canvas" })).toBeNull();
     expect(within(areas).getByRole("link", { name: "Canvas" }).className).toContain("active");
   });
 
@@ -147,7 +147,7 @@ describe("the new-design page", () => {
     fireEvent.change(screen.getByLabelText("Its network"), { target: { value: "10.9.0.0/24" } });
     await waitFor(() => expect(create.disabled).toBe(false));
     fireEvent.click(create);
-    await screen.findByRole("heading", { name: /Twin my-lab · canvas/ });
+    await screen.findByRole("heading", { name: "my-lab" });
     const write = state.writes.find((w) => w.op === "create-twin-config");
     expect(write?.id).toBe("my-lab");
     const files = (write!.body as { files: Record<string, string> }).files;
@@ -156,8 +156,8 @@ describe("the new-design page", () => {
     expect(te.segments.map((s) => [s.name, s.cidr])).toEqual([["office", "10.9.0.0/24"]]);
     expect(te.nodes).toEqual([]);
     expect(state.documents["my-lab"]).toBeTruthy();
-    // The sub-bar names it, and the design is now in the catalog the menu lists.
-    expect(screen.getByRole("navigation", { name: "Canvas" }).textContent).toBe("DesignsNew designmy-lab");
+    // The bar names it (the canvas has no sub-bar), and the design is now in the catalog the menu lists.
+    expect(screen.queryByRole("navigation", { name: "Canvas" })).toBeNull();
   });
 
   it("copies an existing twin-config under the new id", async () => {
@@ -168,7 +168,7 @@ describe("the new-design page", () => {
     expect(screen.queryByLabelText("First segment")).toBeNull();
     fireEvent.change(screen.getByLabelText("Id"), { target: { value: "corp-two" } });
     fireEvent.click(screen.getByRole("button", { name: "Create and open" }));
-    await screen.findByRole("heading", { name: /Twin corp-two · canvas/ });
+    await screen.findByRole("heading", { name: "corp-two" });
     const write = state.writes.find((w) => w.op === "create-twin-config");
     const files = (write!.body as { files: Record<string, string> }).files;
     expect(readTe(files["te.yaml"]!).id).toBe("corp-two");
@@ -191,11 +191,16 @@ describe("the canvas routes", () => {
   it("opens the same canvas at /canvas/:id and at /twins/:id/canvas", async () => {
     const { api } = seeded();
     const a = renderAt(api, "/canvas/corp-auth");
-    await screen.findByRole("heading", { name: /Twin corp-auth · canvas/ });
-    expect(screen.getByRole("navigation", { name: "Canvas" }).textContent).toBe("DesignsNew designcorp-auth");
+    await screen.findByRole("heading", { name: "corp-auth" });
+    // The canvas is the page: no sub-bar, no centred column; the title links the twin's summary page.
+    expect(screen.queryByRole("navigation", { name: "Canvas" })).toBeNull();
+    expect(document.querySelector("main.main")).toBeNull();
+    expect(document.querySelector("main.canvas-main")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "corp-auth" }).closest("header.topbar")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "corp-auth" }).getAttribute("href")).toBe("/twins/corp-auth");
     a.unmount();
     renderAt(api, "/twins/corp-auth/canvas");
-    await screen.findByRole("heading", { name: /Twin corp-auth · canvas/ });
+    await screen.findByRole("heading", { name: "corp-auth" });
     expect(screen.getByRole("link", { name: "Canvas" }).className).toContain("active");
   });
 });

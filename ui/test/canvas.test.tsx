@@ -139,7 +139,7 @@ describe("the design canvas (C2, read-only)", () => {
     const web = hosts.find((h) => h.dataset["nodeId"] === "web01")!;
     expect(web.textContent).toContain("10.1.1.20");
     expect(web.textContent).toContain("WEB");
-    expect(screen.getByText("authored twin")).toBeTruthy();
+    expect(screen.getByText("authored")).toBeTruthy();
     expect(screen.getByText(/no observed evidence, no traffic to overlay/)).toBeTruthy();
   });
 
@@ -159,7 +159,7 @@ describe("the design canvas (C2, read-only)", () => {
     expect(screen.getByTestId("canvas-internet").textContent).toContain("1 non-local");
     expect(screen.getByTestId("canvas-wan").textContent).toContain("Gateway gw01");
     expect(screen.getAllByTestId("canvas-site").length).toBe(2);
-    expect(screen.getByText("cast twin · observed evidence")).toBeTruthy();
+    expect(screen.getByText("cast · observed evidence")).toBeTruthy();
   });
 
   it("places a cast twin identically across two renders of the same layout document", async () => {
