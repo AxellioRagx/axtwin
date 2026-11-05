@@ -785,6 +785,27 @@ describe("pure pieces of the edit canvas", () => {
   });
 });
 
+describe("the inspector widens for Checks and can be dragged", () => {
+  it("opens Checks at its own width, follows a drag of its left edge, and a double-click restores the tab's width", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    tab("Checks");
+    const inspector = () => screen.getByTestId("inspector");
+    expect(inspector().dataset["width"]).toBe("460");
+    tab("Selection");
+    expect(inspector().dataset["width"]).toBe("300");
+    const grip = screen.getByRole("separator", { name: "Resize the inspector" });
+    fireEvent.pointerDown(grip, { clientX: 1300 });
+    fireEvent.pointerMove(window, { clientX: 1200 });
+    fireEvent.pointerUp(window);
+    // jsdom's boxes are at 0, so the right edge is 0 and the width clamps to the minimum.
+    expect(inspector().dataset["width"]).toBe("240");
+    fireEvent.doubleClick(grip);
+    expect(inspector().dataset["width"]).toBe("300");
+  });
+});
+
 describe("the basics: Delete, double-click to zoom, the pane menu", () => {
   it("Delete removes the selected node, segment or leg; not from a field, not in view mode", async () => {
     const { api } = seeded();

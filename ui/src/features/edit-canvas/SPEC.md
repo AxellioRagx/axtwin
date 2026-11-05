@@ -225,7 +225,10 @@ page, not a card in one:
   moved to the canvas's message strip. The placement warnings (segments
   behind "+N more", pairs not drawn) are the dismissible strip bottom-left;
   the page's notes (authored twin, cast omissions, layout on another plane,
-  annotation count) are the *Notes* tab.
+  annotation count) are the *Notes* tab. The inspector's width is per tab
+  (300 px; Checks 460 px, whose rule ids, locations and change paths wrap
+  into noise narrower) until the operator drags its left edge; a double-click
+  on the edge restores the tab's width; clamped to 240 px … 60 % of the window.
 - **Level of detail.** Switched on `useViewport().zoom`. Below ~0.6 a segment
   is a tile with CIDR, host count and up to ~6 role glyphs, and edge byte
   labels are hidden; above it the tile expands to host chips (icon + short

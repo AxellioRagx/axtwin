@@ -52,7 +52,7 @@ Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canv
 
 - **Tests at HEAD:** engine 4180 passed / 19 skipped / 2 failed (pre-existing: the untracked
   `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028}` folders without a manifest);
-  ui typecheck clean, **171 tests**, build clean; `ui/dist` rebuilt from HEAD.
+  ui typecheck clean, **173 tests**, build clean; `ui/dist` rebuilt from HEAD.
 - **Working tree clean** apart from the three untracked catalog folders. No agents running.
 - **:8080 serve restarted on request 2026-11-05 21:27 in `none` mode** (pid 1008702; same
   command and `AXRANGE_*` env as before minus `AXRANGE_API_TOKEN`; log
@@ -68,8 +68,8 @@ Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canv
 
 0. Eyes on the shell (above); fix what the first look finds. Likely candidates: glyph-row
    and chip sizes (tuned from the mockup, not a screen), the chrome labels that hang right
-   of the Internet/WAN icon (they overflow the slot on a long egress note), the inspector's
-   300 px on a dense Checks tab.
+   of the Internet/WAN icon (they overflow the slot on a long egress note). The inspector
+   is 460 px on Checks and drag-resizable on its left edge (double-click resets).
 1. The Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.

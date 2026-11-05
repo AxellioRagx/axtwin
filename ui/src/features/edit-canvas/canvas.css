@@ -56,8 +56,10 @@
 .cv-popover .cv-palette { position: static; width: auto; max-height: none; border: none; background: none; box-shadow: none; padding: 0; backdrop-filter: none; }
 
 .cv-chrome-right { display: flex; justify-content: flex-end; }
-.cv-inspector { width: 300px; max-height: calc(100vh - 90px); display: flex; flex-direction: column; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); font-size: 13px; }
+.cv-inspector { position: relative; width: 300px; max-height: calc(100vh - 90px); display: flex; flex-direction: column; background: var(--float-bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--float-shadow); backdrop-filter: blur(6px); font-size: 13px; }
 .cv-inspector:not(.open) { width: auto; }
+.cv-resize { position: absolute; top: 0; bottom: 0; left: -4px; width: 9px; cursor: ew-resize; border-radius: 4px; }
+.cv-resize:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .cv-tabs { display: flex; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid transparent; }
 .cv-inspector.open .cv-tabs { border-bottom-color: var(--line); }
 .cv-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 4px 8px; border: none; border-radius: 6px; background: none; color: var(--muted); font-size: 12.5px; cursor: pointer; white-space: nowrap; }
@@ -194,8 +196,8 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-inline { gap: 6px; margin: 6px 0; }
 .cv-inline select { flex: 1; min-width: 0; }
 .cv-findings, .cv-changes { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
-.cv-findings li, .cv-changes li { margin: 4px 0; }
-.cv-change-reason, .cv-change-paths { font-size: 12px; margin-left: 4px; }
+.cv-findings li, .cv-changes li { margin: 4px 0; overflow-wrap: anywhere; }
+.cv-change-reason, .cv-change-paths { font-size: 12px; margin-left: 4px; overflow-wrap: anywhere; }
 .cv-check { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
 .cv-side button.danger, .cv-menu button.danger { color: var(--bad); }
 .cv-side .ok { color: var(--ok); }

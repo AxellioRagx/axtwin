@@ -4,7 +4,7 @@
  * Presentation only -- every handler and every piece of state is the
  * canvas's (`Canvas.tsx`), passed in; nothing here reads the document.
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { Icon } from "./icons";
 import type { ConsoleGraph } from "./model/graph";
@@ -96,10 +96,40 @@ const TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "checks", label: "Checks" },
 ];
 
+/** The inspector's width per tab until the operator drags its left edge:
+ *  the Checks tab lists rule ids, locations and pending-change paths, which
+ *  wrap into noise at the Selection tab's width. */
+export const INSPECTOR_WIDTH: Record<InspectorTab, number> = { selection: 300, hosts: 320, notes: 300, checks: 460 };
+export const INSPECTOR_MIN = 240;
+
+export function inspectorWidth(tab: InspectorTab, dragged: number | null, windowWidth: number): number {
+  const max = Math.max(INSPECTOR_MIN, Math.floor(windowWidth * 0.6));
+  return Math.min(max, Math.max(INSPECTOR_MIN, dragged ?? INSPECTOR_WIDTH[tab]));
+}
+
 export function Inspector(p: InspectorProps) {
   const tabs = TABS.filter((t) => t.id !== "checks" || p.checks !== null);
+  const [dragged, setDragged] = useState<number | null>(null);
+  const width = p.open ? inspectorWidth(p.open, dragged, typeof window === "undefined" ? 1600 : window.innerWidth) : undefined;
+  // Drag the left edge: the width is the pointer's distance from the right edge.
+  const onResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const box = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+      const right = box.right;
+      const move = (ev: PointerEvent) => setDragged(Math.round(right - ev.clientX));
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [],
+  );
   return (
-    <div className={`cv-inspector${p.open ? " open" : ""}`} data-testid="inspector">
+    <div className={`cv-inspector${p.open ? " open" : ""}`} data-testid="inspector" style={width ? { width } : undefined} data-width={width}>
+      {p.open ? <div className="cv-resize" role="separator" aria-label="Resize the inspector" aria-orientation="vertical" title="drag to resize; double-click for the tab's own width" onPointerDown={onResizeStart} onDoubleClick={() => setDragged(null)} /> : null}
       <div className="cv-tabs" role="tablist" aria-label="Inspector">
         {tabs.map((t) => {
           const badge = t.id === "checks" ? p.checksBadge : t.id === "notes" && p.notes.length ? String(p.notes.length) : t.id === "selection" && p.hasSelection ? "●" : null;

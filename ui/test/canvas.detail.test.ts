@@ -37,3 +37,15 @@ describe("a chip's short name is derived, never stored", () => {
     expect(shortName("", "10.1.1.20")).toBe(".1.20");
   });
 });
+
+describe("the inspector's width", () => {
+  it("is per tab until dragged, and clamped to the window", async () => {
+    const { inspectorWidth, INSPECTOR_MIN } = await import("../src/features/edit-canvas/chrome");
+    expect(inspectorWidth("selection", null, 1600)).toBe(300);
+    expect(inspectorWidth("checks", null, 1600)).toBe(460);
+    expect(inspectorWidth("checks", 380, 1600)).toBe(380);
+    expect(inspectorWidth("checks", 100, 1600)).toBe(INSPECTOR_MIN);
+    expect(inspectorWidth("checks", 2000, 1600)).toBe(960);
+    expect(inspectorWidth("checks", null, 400)).toBe(INSPECTOR_MIN);
+  });
+});
