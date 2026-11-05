@@ -82,8 +82,10 @@ a.button.primary { background: var(--accent); color: var(--accent-ink); border-c
 }
 .subbar a { color: var(--muted); text-decoration: none; padding: 2px 0; border-bottom: 2px solid transparent; }
 .subbar a.active { color: var(--ink); border-bottom-color: var(--accent); }
-.token { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-.token input { width: 180px; }
+.who { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.who .who-name { color: var(--ink); }
+.who .badge.read-only { color: var(--warn); border-color: var(--warn); }
+.who .who-signin { font-weight: 600; }
 .main { padding: 20px 16px 40px; max-width: 1100px; width: 100%; margin: 0 auto; }
 
 h1 { font-size: 20px; margin: 0 0 12px; }

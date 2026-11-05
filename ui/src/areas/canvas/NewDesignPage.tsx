@@ -35,7 +35,7 @@ export function NewDesignPage() {
       if (from === BLANK) files = blankDesignFiles({ id, description, segment, cidr });
       else {
         const source = await api.getTwinConfig(from);
-        if (!source.document) throw new ApiError({ kind: "unauthorized", status: 401, message: `twin-config '${from}' served no document; the write token is needed to read one`, url: "" });
+        if (!source.document) throw new ApiError({ kind: "unauthorized", status: 401, message: `twin-config '${from}' served no document; the API serves one only to a caller that may write`, url: "" });
         files = copiedDesignFiles(source.document, id);
       }
       await api.createTwinConfig({ id, files });
@@ -49,7 +49,7 @@ export function NewDesignPage() {
   return (
     <>
       <h1>New design</h1>
-      <p className="muted">A new twin-config in the catalog, opened on the canvas. Writing it needs the write token.</p>
+      <p className="muted">A new twin-config in the catalog, opened on the canvas.</p>
       <form onSubmit={(e) => void submit(e)} className="panel" aria-label="New design">
         <div className="fields-2">
           <div className="field">

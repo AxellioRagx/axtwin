@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError, makeRequester, messageFromBody, setWriteToken } from "../src/api/client";
+import { ApiError, makeRequester, messageFromBody } from "../src/api/client";
 import { makeApi } from "../src/api/discovery";
 
 function fetchStub(status: number, body: unknown, seen: Array<{ url: string; init: RequestInit }>) {
@@ -26,32 +26,31 @@ describe("the server's refusal, in its own words", () => {
 });
 
 describe("the requester", () => {
-  it("sends the token on writes only, and omits the header when unset", async () => {
+  it("holds no credential: no Authorization header on any call, credentials included for a proxy's cookie", async () => {
     const seen: Array<{ url: string; init: RequestInit }> = [];
     const request = makeRequester({ fetchImpl: fetchStub(200, { ok: true }, seen) });
-    setWriteToken(null);
     await request("GET", "/api/discovery/sources");
-    await request("POST", "/api/discovery/sources", { body: { a: 1 }, auth: true });
-    expect((seen[0]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
-    expect((seen[1]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
-    setWriteToken("T");
-    await request("GET", "/api/discovery/sources");
-    await request("POST", "/api/discovery/sources", { body: { a: 1 }, auth: true });
-    expect((seen[2]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
-    expect((seen[3]?.init.headers as Record<string, string>).Authorization).toBe("Bearer T");
-    expect(seen[3]?.init.body).toBe('{"a":1}');
-    setWriteToken(null);
+    await request("POST", "/api/discovery/sources", { body: { a: 1 } });
+    for (const call of seen) {
+      expect((call.init.headers as Record<string, string>).Authorization).toBeUndefined();
+      expect(call.init.credentials).toBe("include");
+    }
+    expect(seen[1]?.init.body).toBe('{"a":1}');
   });
-  it("sends the token on a twin-config read, which unlocks the bundle document (the canvas's edit mode)", async () => {
+  it("asks who it is, and reads a twin-config without any header (the server decides whether the document comes)", async () => {
     const seen: Array<{ url: string; init: RequestInit }> = [];
-    const api = makeApi(makeRequester({ fetchImpl: fetchStub(200, { id: "my-lab", document: null }, seen) }));
-    setWriteToken("T");
+    const api = makeApi(makeRequester({ fetchImpl: fetchStub(200, { user: "ann", can_write: true, mode: "proxy", signin_url: "" }, seen) }));
+    await api.whoami();
     await api.getTwinConfig("my-lab");
-    await api.listTwinConfigs();
-    expect(seen[0]?.url).toBe("/api/twin-configs/my-lab");
-    expect((seen[0]?.init.headers as Record<string, string>).Authorization).toBe("Bearer T");
+    expect(seen[0]?.url).toBe("/api/whoami");
+    expect(seen[1]?.url).toBe("/api/twin-configs/my-lab");
     expect((seen[1]?.init.headers as Record<string, string>).Authorization).toBeUndefined();
-    setWriteToken(null);
+  });
+  it("types a 401 as sign-in and a 403 as read-only", async () => {
+    const e401 = await makeRequester({ fetchImpl: fetchStub(401, { detail: "sign in required: no identity header from a trusted proxy" }, []) })("POST", "/api/x").catch((e: unknown) => e);
+    expect((e401 as ApiError).kind).toBe("unauthorized");
+    const e403 = await makeRequester({ fetchImpl: fetchStub(403, { detail: "forbidden" }, []) })("POST", "/api/x").catch((e: unknown) => e);
+    expect((e403 as ApiError).kind).toBe("forbidden");
   });
   it("types a refusal by status and keeps the detail", async () => {
     const request = makeRequester({ fetchImpl: fetchStub(409, { error: "already exists", detail: { runs: ["disc-1"] } }, []) });
@@ -69,6 +68,6 @@ describe("the requester", () => {
   });
   it("treats 204 as done", async () => {
     const request = makeRequester({ fetchImpl: fetchStub(204, undefined, []) });
-    await expect(request("DELETE", "/api/discovery/sources/x", { auth: true })).resolves.toBeUndefined();
+    await expect(request("DELETE", "/api/discovery/sources/x")).resolves.toBeUndefined();
   });
 });

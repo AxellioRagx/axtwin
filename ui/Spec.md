@@ -136,8 +136,11 @@ its listed tests pass. T0.x is the release gate for UI v0.
   served `signin_url` when set) and a `403` as "read-only for this account";
   neither is confused with a source's own credential failure, which keeps its
   own wording. The console has no credential field and sends no
-  `Authorization` header. *(`source.page.test.tsx`; rewritten 2026-11-05 for
-  A8 — the old test asserted the write-token wording.)*
+  `Authorization` header. *(`source.page.test.tsx`, `client.test.ts`;
+  rewritten 2026-11-05 for A8 — the old test asserted the write-token
+  wording.)* **Built 2026-11-05**: the frame reads `whoami` on load and shows
+  the name, a read-only pill and the sign-in link; `ErrorLine` links the
+  sign-in URL on a 401 (`api/whoami.ts` holds the context and `signinHref`).
 - C1.7 (auto) The census reads as figures (`16.9 G (16,893,421,675)`,
   `15.5 TB`), the sensor's sites as a table, never as raw JSON; the access line
   carries the credential state (`password stored` / `no password stored`).

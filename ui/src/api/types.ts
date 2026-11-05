@@ -1,4 +1,15 @@
-/** Mirrors of the control-plane DTOs this console reads (`api/Spec.md` A1, A7). */
+/** Mirrors of the control-plane DTOs this console reads (`api/Spec.md` A1, A7, A8). */
+
+/** `GET /api/whoami` (A8): the caller under the deployment's write policy. */
+export interface Whoami {
+  /** A proxy's header value, `token` for a bearer, `anonymous` in `none`; null when no mode accepts this caller. */
+  user: string | null;
+  can_write: boolean;
+  /** The mode that accepted the caller, else the configured modes (`proxy,token`). */
+  mode: string;
+  /** `AXRANGE_SIGNIN_URL`; empty when the deployment has none. */
+  signin_url: string;
+}
 
 export interface JsonSchemaProperty {
   type?: string;

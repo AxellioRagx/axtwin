@@ -31,10 +31,13 @@ import type {
   TwinSummary,
   TwinTree,
   ValidateResult,
+  Whoami,
 } from "./types";
 
-/** The typed calls this console makes. Writes carry the token; reads do not. */
+/** The typed calls this console makes. No call carries a credential (A8). */
 export interface Api {
+  /** Who this caller is under the deployment's write policy, and where to sign in. */
+  whoami(signal?: AbortSignal): Promise<Whoami>;
   listPlugins(signal?: AbortSignal): Promise<DiscoveryPluginList>;
   listSources(signal?: AbortSignal): Promise<DiscoverySourceList>;
   getSource(id: string, signal?: AbortSignal): Promise<DiscoverySource>;
@@ -107,47 +110,48 @@ const enc = encodeURIComponent;
 
 export function makeApi(request: Requester): Api {
   return {
+    whoami: (signal) => request("GET", "/api/whoami", { signal }),
     listPlugins: (signal) => request("GET", "/api/discovery/plugins", { signal }),
     listSources: (signal) => request("GET", "/api/discovery/sources", { signal }),
     getSource: (id, signal) => request("GET", `/api/discovery/sources/${enc(id)}`, { signal }),
-    createSource: (body) => request("POST", "/api/discovery/sources", { body, auth: true }),
-    updateSource: (id, body) => request("PUT", `/api/discovery/sources/${enc(id)}`, { body, auth: true }),
-    deleteSource: (id) => request("DELETE", `/api/discovery/sources/${enc(id)}`, { auth: true }),
-    probeSource: (id) => request("POST", `/api/discovery/sources/${enc(id)}/probe`, { auth: true }),
-    startRun: (sourceId, body) => request("POST", `/api/discovery/sources/${enc(sourceId)}/runs`, { body, auth: true }),
+    createSource: (body) => request("POST", "/api/discovery/sources", { body }),
+    updateSource: (id, body) => request("PUT", `/api/discovery/sources/${enc(id)}`, { body }),
+    deleteSource: (id) => request("DELETE", `/api/discovery/sources/${enc(id)}`, {}),
+    probeSource: (id) => request("POST", `/api/discovery/sources/${enc(id)}/probe`, {}),
+    startRun: (sourceId, body) => request("POST", `/api/discovery/sources/${enc(sourceId)}/runs`, { body }),
     listRuns: (signal) => request("GET", "/api/discovery/runs", { signal }),
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),
-    cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, { auth: true }),
-    deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, { auth: true }),
+    cancelRun: (id) => request("POST", `/api/discovery/runs/${enc(id)}/cancel`, {}),
+    deleteRun: (id) => request("DELETE", `/api/discovery/runs/${enc(id)}`, {}),
     listImprints: (signal) => request("GET", "/api/imprints", { signal }),
     getImprint: (pit, signal) => request("GET", `/api/imprints/${enc(pit)}`, { signal }),
-    renameImprint: (pit, name) => request("PATCH", `/api/imprints/${enc(pit)}`, { body: { name }, auth: true }),
-    copyImprint: (pit, name) => request("POST", `/api/imprints/${enc(pit)}/copy`, { body: { name }, auth: true }),
-    deleteImprint: (pit) => request("DELETE", `/api/imprints/${enc(pit)}`, { auth: true }),
+    renameImprint: (pit, name) => request("PATCH", `/api/imprints/${enc(pit)}`, { body: { name } }),
+    copyImprint: (pit, name) => request("POST", `/api/imprints/${enc(pit)}/copy`, { body: { name } }),
+    deleteImprint: (pit) => request("DELETE", `/api/imprints/${enc(pit)}`, {}),
     getAssertions: (pit, signal) => request("GET", `/api/imprints/${enc(pit)}/assertions`, { signal }),
-    putAssertions: (pit, doc) => request("PUT", `/api/imprints/${enc(pit)}/assertions`, { body: doc, auth: true }),
-    castImprint: (pit, body) => request("POST", `/api/imprints/${enc(pit)}/cast`, { body, auth: true }),
+    putAssertions: (pit, doc) => request("PUT", `/api/imprints/${enc(pit)}/assertions`, { body: doc }),
+    castImprint: (pit, body) => request("POST", `/api/imprints/${enc(pit)}/cast`, { body }),
     listTwins: (signal) => request("GET", "/api/twins", { signal }),
     getTwin: (id, signal) => request("GET", `/api/twins/${enc(id)}`, { signal }),
     getTwinTree: (id, signal) => request("GET", `/api/twins/${enc(id)}/tree`, { signal }),
     getCast: (id, signal) => request("GET", `/api/twins/${enc(id)}/cast`, { signal }),
-    deleteTwin: (id) => request("DELETE", `/api/twins/${enc(id)}`, { auth: true }),
+    deleteTwin: (id) => request("DELETE", `/api/twins/${enc(id)}`, {}),
     getScenarioTopology: (id, signal) => request("GET", `/api/scenarios/${enc(id)}/topology`, { signal }),
     getTwinTopology: (id, signal) => request("GET", `/api/twins/${enc(id)}/topology`, { signal }),
     getLayout: (id, signal) => request("GET", `/api/twins/${enc(id)}/layout`, { signal }),
-    putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc, auth: true }),
+    putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc }),
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
-    // Authorized when a token is set: the server includes the bundle `document`
-    // (the canvas's edit mode) only on a bearer-token read; the summary is open.
-    getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal, auth: true }),
-    createTwinConfig: (body) => request("POST", "/api/twin-configs", { body, auth: true }),
-    putTwinConfig: (id, body) => request("PUT", `/api/twin-configs/${enc(id)}`, { body, auth: true }),
+    // The server includes the bundle `document` (the canvas's edit mode) only
+    // for a caller its write policy accepts; the summary is open.
+    getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),
+    createTwinConfig: (body) => request("POST", "/api/twin-configs", { body }),
+    putTwinConfig: (id, body) => request("PUT", `/api/twin-configs/${enc(id)}`, { body }),
     listDeploys: (signal) => request("GET", "/api/deploys", { signal }),
     getDeployConfig: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/config`, { signal }),
-    putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files }, auth: true }),
-    applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {}, auth: true }),
-    resetDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: {}, auth: true }),
+    putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files } }),
+    applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {} }),
+    resetDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
   };
 }

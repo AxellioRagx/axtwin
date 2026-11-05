@@ -1,18 +1,20 @@
 /**
- * One fetch wrapper, one error vocabulary, no state beyond the write token.
+ * One fetch wrapper, one error vocabulary, no state.
  *
  * Same-origin by default: `axrange serve --spa-dir ui/dist` co-serves this
  * bundle beside `/api`, and `npm run dev` proxies `/api` to it. Nothing is
  * compiled in (ui/Spec.md "Config").
  *
- * The write token lives in a module variable for the life of the tab. It is
- * never persisted (no localStorage, no cookie) and the header is OMITTED, not
- * sent empty, when none is set -- a deployment behind a same-origin session
- * supplies nothing and its writes still work.
+ * The console holds no credential (ui/Spec.md "Seam", `api/Spec.md` A8):
+ * every request goes with `credentials: "include"` so a reverse proxy's
+ * session cookie rides along, and the API decides, per deployment, whom to
+ * trust. A write is attempted, never pre-judged; a `401` means sign in, a
+ * `403` means this account is read-only here.
  */
 export type ApiErrorKind =
   | "bad-request" // 400 -- the message names the field and the accepted set
-  | "unauthorized" // 401 -- no/invalid write token
+  | "unauthorized" // 401 -- sign in required (the deployment's auth mode found no identity)
+  | "forbidden" // 403 -- signed in, but this account may not write here
   | "not-found" // 404
   | "conflict" // 409 -- a duplicate name, an existing bundle, a run in progress
   | "unprocessable" // 422 -- FastAPI validation
@@ -25,6 +27,7 @@ export type ApiErrorKind =
 const KIND_BY_STATUS: Readonly<Record<number, ApiErrorKind>> = {
   400: "bad-request",
   401: "unauthorized",
+  403: "forbidden",
   404: "not-found",
   409: "conflict",
   422: "unprocessable",
@@ -49,31 +52,9 @@ export class ApiError extends Error {
   }
 }
 
-let writeToken: string | null = null;
-const tokenListeners = new Set<() => void>();
-
-export function setWriteToken(token: string | null): void {
-  writeToken = token && token.trim() ? token.trim() : null;
-  for (const listener of tokenListeners) listener();
-}
-
-export function getWriteToken(): string | null {
-  return writeToken;
-}
-
-export function onWriteTokenChange(listener: () => void): () => void {
-  tokenListeners.add(listener);
-  return () => {
-    tokenListeners.delete(listener);
-  };
-}
-
 export interface RequestInit_ {
   query?: Record<string, string>;
   body?: unknown;
-  /** Send the write token: every write, and the reads whose answer the
-   *  server extends for a bearer token (a twin-config's `document`). */
-  auth?: boolean;
   signal?: AbortSignal | undefined;
 }
 
@@ -115,12 +96,12 @@ export function makeRequester(options: ClientOptions = {}): Requester {
     const url = `${base}${path}${q}`;
     const headers: Record<string, string> = { Accept: "application/json" };
     if (init.body !== undefined) headers["Content-Type"] = "application/json";
-    if (init.auth && writeToken) headers.Authorization = `Bearer ${writeToken}`;
     let response: Response;
     try {
       response = await doFetch(url, {
         method,
         headers,
+        credentials: "include",
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
         signal: init.signal,
       });

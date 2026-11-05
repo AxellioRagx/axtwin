@@ -29,6 +29,7 @@ import type {
   TopologyExport,
   TwinConfigSummary,
   CastRoster,
+  Whoami,
 } from "../../src/api/types";
 import { mergeSegments, readDoc } from "../../src/features/edit-canvas/edit/document";
 import { readTe, setNodeField } from "../../src/features/edit-canvas/edit/te";
@@ -102,6 +103,8 @@ export function tunnelSource(over: Partial<DiscoverySource> = {}): DiscoverySour
 }
 
 export interface FakeState {
+  /** What `GET /api/whoami` answers (A8); the dev default is an open deployment. */
+  whoami: Whoami;
   plugins: DiscoveryPlugin[];
   sources: DiscoverySource[];
   runs: DiscoveryRun[];
@@ -145,6 +148,7 @@ export interface FakeState {
 
 export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeState } {
   const state: FakeState = {
+    whoami: { user: "anonymous", can_write: true, mode: "none", signin_url: "" },
     plugins: [AXQUERY, ZEEK],
     sources: [],
     runs: [],
@@ -179,6 +183,9 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     schema: "axr-assertions/1", imprint: pit, as_of: null, source: null, add: [], override: [], suppress: [],
   });
   const api: Api = {
+    async whoami() {
+      return state.whoami;
+    },
     async listPlugins() {
       return { plugins: state.plugins };
     },
