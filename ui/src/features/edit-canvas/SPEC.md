@@ -251,11 +251,17 @@ page, not a card in one:
   the level-of-detail step.
 - **Basics now, not Phase 2.** Marquee select, Delete, Esc, double-click a
   segment to zoom to it, right-click menus. Undo/redo waits for the command
-  stack.
+  stack. **Built 2026-11-05**: the marquee came with the rail's select tool;
+  Delete / Backspace removes the selection (nodes, segments, a leg; an
+  annotation even in view mode; never from inside a field, never while the
+  deploy locks the canvas); double-click a segment or a site fits the view to
+  it (`maxZoom` 1.5, so the tile expands past the detail threshold; the shell
+  records `data-zoom-target`); right-click on the empty pane opens a menu
+  (Zoom to fit, Lock/Unlock all, Find a node, and in edit mode Add a segment
+  and Annotate here at the pointer). Node, leg and segment menus as before.
 
 Order: frame + surface, then rail + inspector, then level of detail (mockups
-first) — all three built 2026-11-05. Still open from the table: Delete key,
-double-click a segment to zoom to it, a right-click menu on the pane.
+first) — all three built 2026-11-05, the basics the same evening.
 
 ## Notes
 

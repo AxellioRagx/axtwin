@@ -784,3 +784,71 @@ describe("pure pieces of the edit canvas", () => {
     expect(classify(base, { ...base, "exr/x.yaml": "exercise: {}\n" }, "te.yaml")).toMatchObject([{ kind: "inert" }]);
   });
 });
+
+describe("the basics: Delete, double-click to zoom, the pane menu", () => {
+  it("Delete removes the selected node, segment or leg; not from a field, not in view mode", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(host("ws01"));
+    await panel().findByTestId("node-panel");
+    // Typing Delete inside a field is editing, not removing.
+    fireEvent.keyDown(within(panel().getByTestId("node-panel")).getByLabelText("Role"), { key: "Delete" });
+    expect(hosts()).toEqual(["web01", "ws01"]);
+    fireEvent.keyDown(window, { key: "Delete" });
+    await waitFor(() => expect(hosts()).toEqual(["web01"]));
+    await waitFor(() => expect(panel().queryByTestId("node-panel")).toBeNull());
+    fireEvent.click(segment("net-dmz"));
+    await panel().findByTestId("segment-panel");
+    fireEvent.keyDown(window, { key: "Backspace" });
+    await waitFor(() => expect(segments()).toEqual(["net-lan"]));
+    expect(screen.getByTestId("dirty-marker")).toBeTruthy();
+  });
+
+  it("Delete does nothing to the twin in view mode", async () => {
+    const { api } = seeded({ deploys: [{ ...DEPLOY, status: "running" }] });
+    renderAt(api, "/twins/corp-live/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(host("ws01"));
+    await panel().findByTestId("node-panel");
+    fireEvent.keyDown(window, { key: "Delete" });
+    await settle();
+    expect(hosts()).toContain("ws01");
+  });
+
+  it("double-click on a segment zooms to it; right-click on the pane opens the pane menu", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.doubleClick(segment("net-dmz"));
+    await waitFor(() => expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("seg:net-dmz"));
+    fireEvent.doubleClick(host("ws01")); // a host is not a zoom target
+    expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("seg:net-dmz");
+    const pane = window.document.querySelector(".react-flow__pane")!;
+    fireEvent.contextMenu(pane, { clientX: 300, clientY: 200 });
+    const menu = await screen.findByTestId("context-menu");
+    const labels = within(menu).getAllByRole("button").map((b) => b.textContent);
+    expect(labels).toEqual(["Zoom to fit", "Lock all", "Find a node…", "Add a segment", "Annotate here (text)", "Annotate here (rect)"]);
+    fireEvent.click(within(menu).getByRole("button", { name: "Add a segment" }));
+    await waitFor(() => expect(segments().length).toBe(3));
+    expect(screen.queryByTestId("context-menu")).toBeNull();
+    fireEvent.contextMenu(pane, { clientX: 300, clientY: 200 });
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByRole("button", { name: "Annotate here (text)" }));
+    await screen.findByTestId("canvas-annotation");
+    fireEvent.contextMenu(pane, { clientX: 300, clientY: 200 });
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByRole("button", { name: "Find a node…" }));
+    await screen.findByTestId("popover-find");
+  });
+
+  it("the pane menu works read-only too, without the edit items", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-cast/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
+    fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 200 });
+    const menu = await screen.findByTestId("context-menu");
+    expect(within(menu).getAllByRole("button").map((b) => b.textContent)).toEqual(["Zoom to fit", "Lock all", "Find a node…"]);
+    fireEvent.click(within(menu).getByRole("button", { name: "Lock all" }));
+    expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
+  });
+});

@@ -123,6 +123,9 @@ export function connectionToAttach(c: Pick<Connection, "source" | "target">): { 
 }
 
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
+/** What a context menu is about: a node, a leg, a segment, or the empty pane
+ *  (with the flow position under the pointer). */
+type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
@@ -169,7 +172,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const [attachArmed, setAttachArmed] = useState(false);
   const [attachFrom, setAttachFrom] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
-  const [menu, setMenu] = useState<{ x: number; y: number; target: MenuTarget } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; target: MenuSubject } | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  /** The last node a double-click zoomed to (the shell's `data-zoom-target`). */
+  const [zoomTarget, setZoomTarget] = useState<string | null>(null);
   const editing = Boolean(edit) && !locked;
 
   const annotationNodes = useMemo<CanvasNode[]>(() => {
@@ -268,6 +274,26 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         setPopover(null);
         select({ kind: "none" }, []);
       }
+      // Delete removes the selection (nodes, segments, a leg, an annotation)
+      // -- never from inside a field, never while the deploy locks the canvas.
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+        const sel = edit.selection;
+        if (sel.kind === "annotation") {
+          e.preventDefault();
+          edit.onAnnotations(edit.annotations.filter((a) => a.id !== sel.id || a.locked));
+          select({ kind: "none" }, []);
+          return;
+        }
+        if (locked) return;
+        e.preventDefault();
+        if (sel.kind === "node") sel.names.forEach((n) => edit.onRemoveNode(n));
+        else if (sel.kind === "segment") sel.names.forEach((n) => edit.onRemoveSegment(n));
+        else if (sel.kind === "leg") edit.onDetach(sel.node, sel.segment);
+        else return;
+        select({ kind: "none" }, []);
+      }
     };
     const up = (e: KeyboardEvent) => {
       if (e.key === "Alt") setAlt(false);
@@ -278,7 +304,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [edit, select]);
+  }, [edit, select, locked]);
 
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
@@ -384,6 +410,27 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target });
   }, []);
 
+  const onPaneContextMenu = useCallback(
+    (e: MouseEvent | React.MouseEvent) => {
+      e.preventDefault();
+      const box = shellRef.current?.getBoundingClientRect();
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target: { kind: "pane", at } });
+    },
+    [rf],
+  );
+
+  // Double-click a segment (or a site) to zoom to it: past the detail
+  // threshold the tile expands to its chips.
+  const onNodeDoubleClick = useCallback(
+    (_e: React.MouseEvent, node: CanvasNode) => {
+      if (node.data.kind !== "segment" && node.data.kind !== "site") return;
+      setZoomTarget(node.id);
+      void rf.fitView({ nodes: [{ id: node.id }], duration: 300, maxZoom: 1.5, padding: 0.15 });
+    },
+    [rf],
+  );
+
   const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
 
   const align = useCallback(
@@ -412,13 +459,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   );
 
   const addAnnotation = useCallback(
-    (kind: AnnotationKind) => {
+    (kind: AnnotationKind, where?: { x: number; y: number }) => {
       if (!edit) return;
       const v = rf.getViewport();
       const shell = document.querySelector<HTMLElement>(".canvas-shell");
       const w = shell?.clientWidth || 800;
       const h = shell?.clientHeight || 500;
-      const at = { x: Math.round((-v.x + w / 2) / v.zoom), y: Math.round((-v.y + h / 2) / v.zoom) };
+      const at = where ? { x: Math.round(where.x), y: Math.round(where.y) } : { x: Math.round((-v.x + w / 2) / v.zoom), y: Math.round((-v.y + h / 2) / v.zoom) };
       edit.onAnnotations([...edit.annotations, newAnnotation(kind, at)]);
       setShowAnnotations(true);
     },
@@ -533,9 +580,21 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const shownNodes = useMemo(() => (detail === "compact" ? nodes.map((n) => (n.type === "host" || n.type === "rungs" ? { ...n, hidden: true } : n)) : nodes), [nodes, detail]);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
-    if (!menu || !edit) return [];
+    if (!menu) return [];
     const t = menu.target;
     const items: Array<{ label: string; run(): void; danger?: boolean }> = [];
+    if (t.kind === "pane") {
+      items.push({ label: "Zoom to fit", run: () => void rf.fitView({ duration: 300 }) });
+      items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
+      items.push({ label: "Find a node…", run: () => setPopover("find") });
+      if (edit && editing) {
+        items.push({ label: "Add a segment", run: () => edit.onAddSegment() });
+        items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
+        items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
+      }
+      return items;
+    }
+    if (!edit) return [];
     if (t.kind === "host" || t.kind === "router") {
       const group = edit.model.te.nodes.find((n) => n.name === t.name);
       items.push({
@@ -556,15 +615,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
     return items;
-  }, [menu, edit, attachArmed, attachFrom]);
+  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation]);
 
   return (
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
         <div
+          ref={shellRef}
           className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${detail === "compact" ? " compact" : ""}`}
           data-testid="canvas"
+          data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
           data-detail-mode={detailMode}
           data-locked={locked ? "true" : "false"}
@@ -582,7 +643,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             nodesDraggable={!locked}
             nodesConnectable={editing}
             elementsSelectable
-            panOnDrag={tool === "pan" ? true : [1, 2]}
+            panOnDrag={tool === "pan" ? true : [1]}  // select mode: middle button pans; the right button is the pane menu
             selectionOnDrag={tool === "select"}
             selectionMode={SelectionMode.Partial}
             deleteKeyCode={null}
@@ -607,6 +668,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
               setMenu(null);
               select({ kind: "none" }, []);
             }}
+            onPaneContextMenu={onPaneContextMenu}
+            onNodeDoubleClick={onNodeDoubleClick}
             onMoveEnd={(_e, v) => onViewport(v)}
             proOptions={{ hideAttribution: true }}
             {...viewportProps}
