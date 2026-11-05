@@ -1,7 +1,7 @@
 /** `model/detail.ts`: the zoom hysteresis and the chip's short name, pure. */
 import { describe, expect, it } from "vitest";
 
-import { DETAIL_COLLAPSE, DETAIL_EXPAND, nextLevel, nextMode, shortBytes, shortName, zoomBucket } from "../src/features/edit-canvas/model/detail";
+import { DETAIL_COLLAPSE, DETAIL_EXPAND, INV_ZOOM_MAX, glyphCapacity, invZoom, nextLevel, nextMode, shortBytes, shortName, zoomBucket } from "../src/features/edit-canvas/model/detail";
 
 describe("the level of detail follows the zoom with hysteresis", () => {
   it("expands at 0.6 and collapses below 0.5; between the two it holds", () => {
@@ -58,5 +58,21 @@ describe("bytes on a chrome label", () => {
     expect(shortBytes(310_000_000)).toBe("310 MB");
     expect(shortBytes(1_234_567_890)).toBe("1.2 GB");
     expect(shortBytes(15_494_524_704_945)).toBe("15.5 TB");
+  });
+});
+
+describe("a compact tile's sizes", () => {
+  it("keeps its header text at a constant screen size, capped", () => {
+    expect(invZoom(1)).toBe(1);
+    expect(invZoom(2)).toBe(1); // zoomed in: never smaller than the canvas size
+    expect(invZoom(0.5)).toBe(2);
+    expect(invZoom(0.3)).toBe(INV_ZOOM_MAX);
+    expect(invZoom(0)).toBe(1);
+  });
+  it("shows as many glyphs as the tile holds under its header", () => {
+    expect(glyphCapacity(156, 96)).toBe(2); // the smallest tile: one row of two
+    expect(glyphCapacity(290, 96)).toBe(4); // a two-host tile: one row
+    expect(glyphCapacity(290, 148)).toBe(8); // six hosts, three chip rows: two glyph rows
+    expect(glyphCapacity(290, 60)).toBe(0);
   });
 });

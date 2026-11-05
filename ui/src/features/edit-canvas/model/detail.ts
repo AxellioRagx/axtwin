@@ -64,3 +64,28 @@ export function shortBytes(n: number): string {
   const text = i === 0 ? String(Math.round(v)) : v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1).replace(/\.0$/, "") : v.toFixed(1).replace(/\.0$/, "");
   return `${text} ${units[i]}`;
 }
+
+/**
+ * A compact tile's text keeps a constant SCREEN size: the shell carries
+ * `--inv` = 1/zoom, clamped so a tile zoomed far out does not grow its header
+ * past its own box (at 2.5 a 13 px label is 32 px in canvas units).
+ */
+export const INV_ZOOM_MAX = 2.5;
+export function invZoom(zoom: number): number {
+  if (!Number.isFinite(zoom) || zoom <= 0) return 1;
+  return Math.min(INV_ZOOM_MAX, Math.max(1, 1 / zoom));
+}
+
+/** The compact tile's glyph geometry in canvas units (`canvas.css` draws
+ *  them at these sizes), and how many glyphs a tile of `w × h` can show
+ *  under its header without overflowing: the rest fold into `+N`. */
+export const GLYPH_W = 54;
+export const GLYPH_H = 32;
+export const GLYPH_GAP = 6;
+export const GLYPH_PAD = 10;
+export const COMPACT_HEADER_H = 34;
+export function glyphCapacity(w: number, h: number): number {
+  const perRow = Math.max(1, Math.floor((w - 2 * GLYPH_PAD + GLYPH_GAP) / (GLYPH_W + GLYPH_GAP)));
+  const rows = Math.max(0, Math.floor((h - COMPACT_HEADER_H - 2 * GLYPH_PAD + GLYPH_GAP) / (GLYPH_H + GLYPH_GAP)));
+  return perRow * rows;
+}

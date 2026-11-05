@@ -245,7 +245,15 @@ page, not a card in one:
   `hostname:` key's first label, an `address:` key's `.c.d`, a design node's
   group name); the address and role ride as `data-address` / `data-role` and
   on the hover card. A tile keeps its layout size at both levels, so no pin
-  moves. Role glyphs are `RoleIcon` in `icons.tsx`, keyed by the badge label.
+  moves (the chip and tile constants are in the plane stamp: changing them
+  drops every saved layout, so sizes are tuned inside the boxes). A compact
+  tile's header text keeps a constant screen size through `--inv` (1/zoom,
+  capped at 2.5, written to the shell on every viewport change without a
+  render); the CIDR gives way first; the glyph row (54 × 32 canvas px per
+  glyph) shows as many as the tile holds under the header
+  (`glyphCapacity`), the rest fold into `+N`. A full chip's label is 15 px
+  canvas (9 px on screen at 0.6). Role glyphs are `RoleIcon` in
+  `icons.tsx`, keyed by the badge label.
   A router keeps its `DEVICE_W × DEVICE_H` slot (the band's spacing and the
   saved pins depend on it); the icon sits on the slot's bottom edge, where the
   legs' source handle is, with the name and leg count above it. The Internet

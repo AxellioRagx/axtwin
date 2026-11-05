@@ -19,6 +19,7 @@ import {
   ReactFlowProvider,
   SelectionMode,
   useNodesState,
+  useOnViewportChange,
   useReactFlow,
   useStore,
   type Connection,
@@ -39,7 +40,7 @@ import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
-import { nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
+import { invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME } from "./Palette";
@@ -153,6 +154,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     setAutoLevel((prev) => nextLevel(prev, bucket === "hi" ? 1 : 0));
   }, [bucket]);
   const detail: DetailLevel = detailMode === "auto" ? autoLevel : detailMode;
+  // `--inv` on the shell keeps a compact tile's text at a constant screen
+  // size (`canvas.css`); written straight to the DOM on every viewport
+  // change, so no React render rides on a pan or a zoom.
+  const setInv = useCallback((zoom: number) => shellRef.current?.style.setProperty("--inv", invZoom(zoom).toFixed(3)), []);
+  useOnViewportChange({ onChange: (v) => setInv(v.zoom), onEnd: (v) => setInv(v.zoom) });
+  useEffect(() => setInv(rf.getZoom()), [rf, setInv, placement]);
   const locked = lockedAll || Boolean(edit?.locked);
   const [query, setQuery] = useState("");
   const [findNote, setFindNote] = useState<string | null>(null);

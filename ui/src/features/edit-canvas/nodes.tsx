@@ -10,7 +10,8 @@ import { createContext, useContext, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
-import type { DetailLevel } from "./model/detail";
+import { glyphCapacity, type DetailLevel } from "./model/detail";
+import { TILE_H, TILE_W } from "./layout/geometry";
 import { roleBadgeLabel } from "./model/roles";
 import { HANDLE, type CanvasEdge, type CanvasNode } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
@@ -86,8 +87,12 @@ export function SegmentNode(p: P) {
   const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
   const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing));
   const glyphs = [...d.roleBadges].sort((a, b) => b.count - a.count);
-  const shown = glyphs.slice(0, TILE_GLYPH_MAX);
-  const folded = glyphs.slice(TILE_GLYPH_MAX).reduce((n, g) => n + g.count, 0);
+  // As many glyphs as the tile holds under its header (the ghost glyph and
+  // a `+N` fold each take a slot), never more than TILE_GLYPH_MAX.
+  const capacity = Math.max(1, glyphCapacity(p.width ?? TILE_W, p.height ?? TILE_H) - (d.ghosts ? 1 : 0));
+  const limit = Math.min(TILE_GLYPH_MAX, glyphs.length <= capacity ? capacity : Math.max(1, capacity - 1));
+  const shown = glyphs.slice(0, limit);
+  const folded = glyphs.slice(limit).reduce((n, g) => n + g.count, 0);
   const legend = glyphs.map((g) => `${g.role} ${g.count}`).join(" · ");
   return (
     <div
@@ -115,7 +120,7 @@ export function SegmentNode(p: P) {
               <span className="cv-glyph-count">{g.count}</span>
             </span>
           ))}
-          {folded ? <span className="cv-glyph" title={glyphs.slice(TILE_GLYPH_MAX).map((g) => `${g.role} ${g.count}`).join(" · ")}>+{folded}</span> : null}
+          {folded ? <span className="cv-glyph cv-glyph-fold" data-testid="glyph-fold" title={glyphs.slice(limit).map((g) => `${g.role} ${g.count}`).join(" · ")}>+{folded}</span> : null}
           {d.ghosts ? (
             <span className="cv-glyph ghost" title={`${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}: under the occupancy gate`}>
               <RoleIcon label="GHOST" />
