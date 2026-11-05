@@ -59,18 +59,25 @@ Specs updated in step: `api/Spec.md` A8, `ui/Spec.md` Seam/Config/C1.6, the canv
   `~/.axrange/serve-8080.log`). It serves `ui/dist` live, so every track above is what :8080
   shows. Every write on that bind is accepted from anyone; set the token or `AXRANGE_AUTH=
   proxy` (+ `AXRANGE_TRUSTED_PROXY_CIDRS`) before exposing further. Restart only on request.
-- **Nothing of this session was seen in a browser** (no browser tool here): jsdom tests and
-  the build only. First thing: `/canvas/<twin>` at 1622 px, zoom across 0.5/0.6, D, Delete,
-  double-click a tile, right-click the pane, the inspector tabs.
+- **Seen in a browser** at last (Playwright's chromium from `~/.cache/ms-playwright`, driven
+  by `/home/rocky/fx-cap/mgmtui/node_modules/playwright`; helper `shot.cjs` in this session's
+  scratchpad, 1622 × 980): corp-apcn-reader (compact at fit zoom 0.44, full at 1.57 with a
+  host selected), corp-twin, corp-enterprise, the palette popover, the pane menu, the Hosts
+  tab. Fixed from the look: compact names were 12.5 px (`.mono` overrode the scaled size),
+  the count was clipped (now a number pill), the CIDR and gw badge go at compact, chrome
+  names fit, attach handles show only on hover / while attaching, the inspector stops short
+  of the mini-map, chips use 13.5 px. Not yet checked with eyes: dark theme, a deployed
+  twin's view mode, Delete / double-click (jsdom only), a 40-segment twin's Checks tab.
 - Existing cast bundles predate the `members` row: promote shows disabled until re-cast.
 
 ## Next steps (ordered)
 
-0. Eyes on the shell (above); fix what the first look finds. Sizes are tuned blind inside
-   the fixed boxes (chip/tile constants are in the plane stamp): a compact tile's header
-   text is screen-constant via `--inv` (1/zoom ≤ 2.5), the glyph row is capped to the tile,
-   a chip's label is 15 px canvas; the chrome labels are short (full wording in the title);
-   the inspector is 460 px on Checks and drag-resizable (double-click resets).
+0. What the look left open: the top bar wraps to two rows on a cast twin (title + pills +
+   Design/Evidence + layout + exits); a fitView of a wide plane uses only the middle third
+   of the window's height (the plane is wide and flat); the single-host 156 px tiles
+   ellipsize their name at compact; site labels sit on the tiles' top edge. Sizes live
+   inside the fixed boxes (chip/tile constants are in the plane stamp): compact header text
+   is screen-constant via `--inv` (1/zoom ≤ 2.5), the glyph row is capped to the tile.
 1. The Canvas area against the largest cast twin (element budgets are measured, not
    assumed); create one blank design from `/canvas/new`; re-cast one imprint and exercise
    promote end to end.

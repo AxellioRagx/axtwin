@@ -109,7 +109,13 @@ export function SegmentNode(p: P) {
       <div className="cv-segment-header">
         <span className="mono cv-segment-name">{d.name}</span>
         <span className="mono muted cv-segment-cidr">{d.cidr}</span>
-        <span className="muted cv-segment-count">{d.hosts} host{d.hosts === 1 ? "" : "s"}{d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}</span>
+        {detail === "compact" ? (
+          <span className="badge cv-segment-count" title={`${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`} data-testid="segment-count">
+            {d.hosts}
+          </span>
+        ) : (
+          <span className="muted cv-segment-count">{d.hosts} host{d.hosts === 1 ? "" : "s"}{d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}</span>
+        )}
         {d.hasRouterLeg ? <span className="badge" title="a router has a leg here">gw</span> : null}
       </div>
       {detail === "compact" ? (

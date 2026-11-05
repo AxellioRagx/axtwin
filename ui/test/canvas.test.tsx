@@ -260,7 +260,8 @@ describe("the design canvas (C2, read-only)", () => {
     const lan = tiles.find((t) => t.dataset["cidr"] === "10.80.20.0/24")!;
     const glyphs = within(lan).getByTestId("segment-glyphs");
     expect(within(glyphs).getAllByTitle(/domain-controller · 1|corp-workstation · 1/).length).toBe(2);
-    expect(lan.textContent).toContain("2 hosts");
+    expect(within(lan).getByTestId("segment-count").textContent).toBe("2"); // number only; the words are its title
+    expect(within(lan).getByTestId("segment-count").getAttribute("title")).toBe("2 hosts");
     expect(screen.queryByText(/bytes · .* flows/)).toBeNull(); // arc labels are off
     fireEvent.click(detail()); // compact -> auto, which the zoom (1) resolves to full
     expect(shell().dataset["detailMode"]).toBe("auto");
