@@ -176,6 +176,45 @@ criteria of its own beyond them.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 
+## Shell and chrome
+
+Decided 2026-11-05 after measuring the live canvas against GNS3's web UI
+(`docs/design/ui-shell-and-auth.md` has the measurements). The canvas is the
+page, not a card in one:
+
+- **Frame.** `/canvas/:id` opts out of `.main`'s 1100 px column. The React
+  Flow container is fixed to the viewport under the top bar; no subbar, no
+  page heading, no card border or padding; the dot grid runs edge to edge;
+  `fitView` on load.
+- **Top bar.** One bar carries the twin name, the origin pill (cast /
+  authored), the state pill (read-only / dirty) and the exits (Save layout,
+  Discard; in edit mode Apply / Reset / Persist / Save-As). Nothing
+  twin-specific sits below it.
+- **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
+  ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
+  find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
+  opens `Palette.tsx` as a popover, never a permanent sidebar; the
+  `220px 1fr 320px` grid in `canvas.css` goes.
+- **Right inspector.** `SidePanel.tsx` becomes one floating, collapsible,
+  tabbed card (~280 px):
+  *Selection* (the clicked node's address, role, image, persona, evidence —
+  where C3's property editing lives), *Hosts* (filterable list, click to
+  centre), *Notes*. Collapsed to a tab strip until a node is clicked. The
+  run-time warnings become a dismissible status strip.
+- **Level of detail.** Switched on `useViewport().zoom`. Below ~0.6 a segment
+  is a tile with CIDR, host count and up to ~6 role glyphs, and edge byte
+  labels are hidden; above it the tile expands to host chips (icon + short
+  name; address and role on hover; detail in the inspector). Routers and the
+  gateway are icon nodes.
+- **Surface.** One accent for selection, one for lit traffic; UI text
+  12–13 px; mini-map styled like the rail.
+- **Basics now, not Phase 2.** Marquee select, Delete, Esc, double-click a
+  segment to zoom to it, right-click menus. Undo/redo waits for the command
+  stack.
+
+Order: frame + surface, then rail + inspector, then level of detail (mockups
+first).
+
 ## Notes
 
 - Prerequisites are the A3 then A2 seams and the `host:` pin kind in the

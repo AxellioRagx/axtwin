@@ -267,7 +267,29 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   read is therefore hours, which is what the long budget and the run page's
   polling are for.
 
-**Not being built (stated so it is not re-proposed):** `GET /api/attacks` and
+**A8 — auth modes** (decided 2026-11-05, `docs/design/ui-shell-and-auth.md`;
+not built). The console holds no credential; the API decides, per deployment,
+whom to trust. `AXRANGE_AUTH` names one or more modes, comma-separated:
+- `none` — every write accepted. The **dev default** when `AXRANGE_API_TOKEN`
+  is unset; `axrange serve` warns at startup that writes are unauthenticated.
+- `proxy` — a write is accepted when it carries an identity header
+  (`X-Forwarded-User`; `X-Auth-Request-Email` also read) **and** arrives from
+  a trusted upstream (`AXRANGE_TRUSTED_PROXY_CIDRS`, default loopback only);
+  no header → `401`. The username is recorded wherever a write already records
+  provenance. The CIDR check is what makes the header trustworthy; it is not
+  optional.
+- `token` — the existing `Authorization: Bearer <AXRANGE_API_TOKEN>` check,
+  unchanged, for the CLI, automation and a directly exposed engine. Setting
+  `AXRANGE_API_TOKEN` implies this mode, as today.
+- `GET /api/whoami` → `{user, can_write, mode}` (`anonymous`, `true`, `none`
+  in dev) so the console shows its read-only state and a name without probing.
+Reads stay open on the bind; CORS stays same-origin / explicit allowlist. Built
+as one change to `_require_write_token` in `api/app.py` plus the route; no
+session store, no cookie minted here, no accounts.
+
+**Not being built (stated so it is not re-proposed):** a login page, session
+cookies, user accounts or RBAC inside axtwin (auth is the proxy's or the host
+app's, A8); `GET /api/attacks` and
 any attack plugin registry (the exercise request schema's `activity` and
 `adversary` kinds are the playout vocabulary, read from `/openapi.json`); a
 deploy-platform plugin **registry** (targets are the named entries A4 manages;
@@ -332,8 +354,9 @@ so it never writes into the package's fixture directory) until the API imports
 run's belief store lands beside the IR store as `<imprint_id>.belief.duckdb`;
 `bake` (`aximprint bake`, formerly `materialize`) runs with `--replace` because the IR store is the API's own
 working store and nothing in the API compares PITs. `AXRANGE_SPA_DIR` co-serve is already
-wired. Writes stay behind `AXRANGE_API_TOKEN` exactly like the existing deploy
-writes; every new POST/PUT/DELETE above is token-gated.
+wired. Every new POST/PUT/DELETE above is a write and goes through the one
+write dependency, whose behaviour A8's `AXRANGE_AUTH` selects (today: open
+unless `AXRANGE_API_TOKEN` is set, then bearer).
 
 ## Acceptance
 

@@ -62,16 +62,30 @@ config has no working copy and offers Save and Save-As only. A discovered imprin
 is cast first and then edited as a twin-config; the imprint assertions path stays
 behind the provenance view and is not a second editor.
 
-The console must **not** embed credentials; it calls the API, which holds adapter
-config. It must render correctly against an API that reports zero of any list
-(empty, not broken).
+The console must **not** embed, hold or ask for credentials — neither adapter
+config nor its own write credential. Authentication is the reverse proxy's or
+the host application's; the API chooses whom to trust per deployment (A8,
+`docs/design/ui-shell-and-auth.md`). The console sends same-origin requests
+with `credentials: "include"`, reads `GET /api/whoami` for its read-only state
+and the operator's name, and reacts to `401` (sign in: the served
+`signin_url`) and `403` (read-only) after attempting a write, never before.
+It must render correctly against an API that reports zero of any list (empty,
+not broken).
+
+**Shell.** Two kinds of route. List and detail pages live in the centred
+`.main` column. Canvas routes are the page: the drawing fills the window
+under the single top bar, and every control floats over it (tool rail left,
+collapsible inspector right, mini-map) — see "Shell and chrome" in
+`ui/src/features/edit-canvas/SPEC.md`.
 
 ## Config
 
 Served by `axrange serve` when `AXRANGE_SPA_DIR` points at the built SPA. Grafana
 base URL for embedded telemetry panels is a single configurable value (env/served
-config), empty = telemetry panels hidden. No other UI config; everything else is
-read from the API at runtime.
+config), empty = telemetry panels hidden. The same served config carries
+`signin_url` (`AXRANGE_SIGNIN_URL`, e.g. `/oauth2/start?rd=`), empty = a bare
+"sign in required" on `401`. No other UI config; everything else is read from
+the API at runtime.
 
 **Stack (recorded 2026-10-27, not revisited):** React 18 + Vite 8 +
 TypeScript (strict from zero) + Vitest/Testing Library over jsdom, in `ui/`
@@ -118,9 +132,12 @@ its listed tests pass. T0.x is the release gate for UI v0.
 - C1.5 (live) Against `corp-apcn-reader` through the SSH tunnel: save, test
   (span + census shown), run ten days, poll to completion, open the imprint.
   Done by API on 2026-10-27 (`docs/SESSION_STATE.md` has the run).
-- C1.6 (auto) A 401 names WHICH token is missing: the console's write token
-  (the API's `AXRANGE_API_TOKEN`), never the source's credential, and says
-  whether none is set or the one set was refused. *(`source.page.test.tsx`.)*
+- C1.6 (auto) A `401` on a write is shown as "sign in required" (linking the
+  served `signin_url` when set) and a `403` as "read-only for this account";
+  neither is confused with a source's own credential failure, which keeps its
+  own wording. The console has no credential field and sends no
+  `Authorization` header. *(`source.page.test.tsx`; rewritten 2026-11-05 for
+  A8 — the old test asserted the write-token wording.)*
 - C1.7 (auto) The census reads as figures (`16.9 G (16,893,421,675)`,
   `15.5 TB`), the sensor's sites as a table, never as raw JSON; the access line
   carries the credential state (`password stored` / `no password stored`).

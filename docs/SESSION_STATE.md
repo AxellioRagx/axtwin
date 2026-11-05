@@ -4,11 +4,28 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-10-31 · **Branch:** `wip/design-platforms-canvas` (twenty-two commits past
+**Last updated:** 2026-11-05 · **Branch:** `wip/design-platforms-canvas` (twenty-three commits past
 `wip/api-discovery-runs`, which is five past `master`). Remote `origin` exists; **never push**,
 the user pushes. Rule restated 2026-10-31: **commit each track as it lands**.
 
-## What this session did
+## What this session did (2026-11-05: docs only, from a clone on another host; nothing run)
+
+Two decisions taken with the user, written into the specs — **start here**, in this order:
+
+1. **`docs/design/ui-shell-and-auth.md`** — the decision record. (a) *The canvas is the page*:
+   measured against GNS3's web UI, `.canvas-shell` sits in `.main`'s 1100 px column inside a
+   card under two bars and a heading, and edit mode's `220px 1fr 320px` grid leaves the drawing
+   ~540 px; it must fill the window, with `Palette.tsx` as a popover off a floating icon rail
+   and `SidePanel.tsx` as a floating, collapsible, tabbed inspector. (b) *The console holds no
+   credential*: the Write-token field goes; the API gains `AXRANGE_AUTH = none | proxy | token`
+   + `GET /api/whoami`; auth is the reverse proxy's or the host app's.
+2. **`api/Spec.md`** seam **A8**; **`ui/Spec.md`** Seam / Config (`signin_url`) / C1.6 / "Shell";
+   **`ui/src/features/edit-canvas/SPEC.md`** "Shell and chrome" with the build order.
+
+TRex ASTF as a "crowd" traffic generator was discussed the same day and parked; nothing in the
+repo yet.
+
+## What the 2026-10-31 session did
 
 Built the design commits of 2026-10-30 as code, one commit per track, then reviewed the two
 unreviewed tracks and fixed what the reviews found:
@@ -17,19 +34,10 @@ unreviewed tracks and fixed what the reviews found:
    **canvas phase 1**; `ce610c3`+`cc3ddeb` **platform seams**; `2fb3e27` **Splunk + Elastic**;
    `69bab7a` **libvirt adapter**; `03503fc`+`39f2cfb` **canvas phase 2**; `94efa09` **platform
    travels with the config**; `2eda68d` **`POST /api/validate {document}` + layout annotations**.
-2. `2744358` **SIEM plugins hardened after review**: bisection bounds floor/ceil (int-truncation
-   lost rows; also closed in axquery), each leaf sorted before the merge (Splunk is newest-first),
-   ISO `ts` on Corelight rows normalised in `rows.zeek_events`, OpenSearch tiebreaker `_id`,
-   Elastic health events only on a consumed leaf + `timed_out` + PIT id refresh, Splunk WARN →
-   `partial_results`, `index=` validated, CIM `src`/`dest` must be IPs, shared `rows.flow_state`
-   / `start_from` / `http.request`. 180 tests in the four SIEM/axquery files.
-3. `52485f3` **libvirt adapter hardened after review**: only VIR_ERR_NO_* codes mean "absent"
-   (a transport error no longer reports a guest gone), teardown guard fails closed (positive
-   tier-shape match; `default` network refused), q35 CD-ROM target no longer collides with a
-   sata boot disk, `snat`/`dhcp` refused `adapter-unsupported` instead of silently dropped,
-   apply-sdn-config scoped to this plan's networks, agent timeout `-1`, `PLATFORM` never read
-   from the environment, `HOST_SSH_HOST` cross-checked with the URI, raw `libvirtError` wrapped,
-   `cloud_init_user`/`nic_model` wired, per-import `adapter_libvirt → adapter_proxmox` allowlist.
+2. `2744358` **SIEM plugins hardened after review** (bisection bounds, per-leaf sort, Corelight
+   ISO `ts`, OpenSearch `_id` tiebreaker, Elastic health events; 180 tests in four files).
+3. `52485f3` **libvirt adapter hardened after review** (absent only on VIR_ERR_NO_*, teardown
+   guard fails closed, `snat`/`dhcp` refused, `PLATFORM` never from env, per-import allowlist).
 4. `a2240c7` **promote-to-assertion keyed by the cast roster** — the handoff's open question,
    verified: a twin-config node name is a cast GROUP name and the assertions seam resolves only
    entity keys / observed CIDRs. The sidecar's `nodes[i].count` row now carries `members`;
@@ -66,6 +74,14 @@ unreviewed tracks and fixed what the reviews found:
 
 ## Next steps (ordered)
 
+0. **The 2026-11-05 decisions, in this order** (each its own commit): A8 in the engine
+   (`AXRANGE_AUTH` in `api/settings.py`, `_require_write_token` in `api/app.py` becomes the mode
+   dispatcher with the trusted-CIDR check, `GET /api/whoami`, startup warning in `none`,
+   `docs/OPERATIONS.md`); the console drops the token (`areas/shell/AppFrame.tsx`,
+   `api/client.ts`, `whoami` on load, 401/403 per `ui/Spec.md`, C1.6 test rewritten); canvas
+   frame + surface (canvas routes opt out of `.main`, fixed full-window container, one top bar,
+   `fitView`, accent and type sizes); rail + inspector (`Palette.tsx` popover, `SidePanel.tsx`
+   floating tabbed card, warnings as a status strip); node level of detail (mockups first).
 1. Eyes on the Canvas area and the canvas against the largest cast twin (element budgets are
    measured, not assumed); create one blank design from `/canvas/new` with the write token;
    re-cast one imprint and exercise promote end to end.
