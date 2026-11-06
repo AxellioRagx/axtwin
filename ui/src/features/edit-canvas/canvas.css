@@ -252,7 +252,7 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-exits .cv-progress { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); white-space: nowrap; }
 .cv-spinner { width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: cv-spin 0.8s linear infinite; }
 @keyframes cv-spin { to { transform: rotate(360deg); } }
-.cv-pill .cv-pill-id { max-width: 14em; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+.cv-pill .cv-pill-id { max-width: 11em; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
 .cv-pill .cv-tier.failed, .cv-pill.failed { color: var(--bad); border-color: var(--bad); }
 .cv-strip .cv-dismiss { float: right; margin-left: 8px; padding: 0 5px; border: none; background: none; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
 

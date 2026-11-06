@@ -33,7 +33,8 @@ describe("the state pill reads every tier", () => {
     expect(screen.getByTestId("tier-te").dataset["status"]).toBe("completed");
     expect(screen.getByTestId("tier-tfc").dataset["status"]).toBe("failed");
     expect(screen.getByTestId("tier-tap").dataset["status"]).toBe("completed");
-    expect(screen.getByTestId("mode").textContent).toContain("tfc failed");
+    expect(screen.getByTestId("mode").textContent).toContain("tfc ✗ failed");
+    expect(screen.getByTestId("mode").textContent).toContain("tap ✓");
     expect(screen.getByTestId("reapply-baseline").textContent).toContain("Re-apply tfc from baseline");
   });
 

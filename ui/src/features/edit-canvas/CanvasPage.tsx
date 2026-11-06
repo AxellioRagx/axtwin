@@ -119,6 +119,12 @@ export function tierStatus(rows: readonly DeploySummary[], teDeployId: string): 
   return out;
 }
 
+/** A tier's state in the pill: a check for the common case, the word when it
+ *  matters (failed, running, anything else), so the bar stays one row. Pure. */
+export function tierWord(status: string): string {
+  return status === "completed" ? "✓" : status === "failed" ? "✗ failed" : status === "running" ? "⟳ running" : status;
+}
+
 /** The working copy's state word (`SPEC.md` "Shell and chrome"): `dirty` alone
  *  read as "not applied" to an operator, when it means "differs from the
  *  baseline". Two states instead: the copy's changes were applied and are not
@@ -827,14 +833,14 @@ export function CanvasPage() {
             {built && data ? " · " : null}
             {data ? (
               <span data-testid="mode">
-                {mode} mode
+                {mode}
                 {data.deploy ? (
                   <>
                     {" · "}
                     <span className="mono cv-pill-id" title={data.deploy.deploy_id}>{data.deploy.deploy_id}</span>
-                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}`} data-testid="tier-te" data-status={data.deploy.status}> te {data.deploy.status}</span>
+                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}`} data-testid="tier-te" data-status={data.deploy.status} title={`te ${data.deploy.status}`}> · te {tierWord(data.deploy.status)}</span>
                     {Object.entries(tiers).map(([t, st]) => (
-                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}`} data-testid={`tier-${t}`} data-status={st}> · {t} {st}</span>
+                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}`} data-testid={`tier-${t}`} data-status={st} title={`${t} ${st}`}> · {t} {tierWord(st)}</span>
                     ))}
                   </>
                 ) : (

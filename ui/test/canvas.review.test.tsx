@@ -56,7 +56,7 @@ describe("rename, Save-As, the allocator, the card", () => {
     expect((put!.body as { imprint: string }).imprint).toBe("corp-copy");
     await screen.findByText(/saved as corp-copy, layout draft carried over/);
     // The new twin opens with the carried annotation and no draft to lose.
-    await waitFor(() => expect(screen.getByTestId("mode").textContent).toContain("edit mode · undeployed"));
+    await waitFor(() => expect(screen.getByTestId("mode").textContent).toContain("edit · undeployed"));
     await waitFor(() => expect(screen.queryByTestId("layout-dirty")).toBeNull());
   });
 

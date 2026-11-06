@@ -28,7 +28,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    expect(screen.getByTestId("mode").textContent).toContain("edit mode · undeployed");
+    expect(screen.getByTestId("mode").textContent).toContain("edit · undeployed");
     expect(screen.getByTestId("clean-marker").textContent).toBe("saved");
     expect(segments()).toEqual(["net-dmz", "net-lan"]);
 
@@ -158,7 +158,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    expect(screen.getByTestId("mode").textContent).toContain("edit mode · dep-1 te completed");
+    expect(screen.getByTestId("mode").textContent).toContain("edit · dep-1 · te ✓");
     expect(screen.getByTestId("clean-marker").textContent).toBe("working copy equals the baseline");
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
@@ -431,7 +431,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded({ deploys: [{ ...DEPLOY, status: "running" }] });
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    expect(screen.getByTestId("mode").textContent).toContain("view mode · dep-1 te running");
+    expect(screen.getByTestId("mode").textContent).toContain("view · dep-1 · te ⟳ running");
     expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
     expect(screen.getByTestId("canvas").dataset["mode"]).toBe("view");
     openPalette();
