@@ -225,6 +225,19 @@ export function moveTo(doc: WorkingDoc, model: DocModel, node: string, segment: 
   return withTe(doc, (t) => setNodeNets(t, node, nets));
 }
 
+/** Re-home one leg (rule 6, track 4): a router's drop dragged from one bus to
+ *  another moves that attachment to the other segment, its address let go
+ *  (the planner allocates one there). A topology change: the API classifies
+ *  it as a re-plan. */
+export function rehome(doc: WorkingDoc, model: DocModel, node: string, from: string, to: string): Files {
+  const n = model.te.nodes.find((x) => x.name === node);
+  if (!n) throw new Error(`no node group named '${node}'`);
+  if (!model.te.segments.some((s) => s.name === to)) throw new Error(`no segment named '${to}'`);
+  if (!n.nets.some((l) => l.segment === from)) throw new Error(`'${node}' is not on ${from}`);
+  if (n.nets.some((l) => l.segment === to)) throw new Error(`'${node}' is already on ${to}`);
+  return withTe(doc, (t) => setNodeNets(t, node, n.nets.map((l) => (l.segment === from ? { segment: to, ip: null } : l))));
+}
+
 export function detach(doc: WorkingDoc, model: DocModel, node: string, segment: string): Files {
   const n = model.te.nodes.find((x) => x.name === node);
   if (!n) throw new Error(`no node group named '${node}'`);

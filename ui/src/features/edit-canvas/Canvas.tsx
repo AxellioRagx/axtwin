@@ -51,7 +51,6 @@ import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
 import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, RoutesContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
-import { CHIP_H } from "./layout/geometry";
 import "./canvas.css";
 
 export interface CanvasEditProps {
@@ -68,9 +67,12 @@ export interface CanvasEditProps {
   /** An existing chip was dropped onto another segment. */
   onMove(node: string, segment: string): void;
   onDetach(node: string, segment: string): void;
+  /** Rule 6 (track 4): a router's drop dragged from one bus to another re-homes that leg. */
+  onRehome(node: string, from: string, to: string): void;
   onRemoveNode(name: string): void;
   onRemoveSegment(name: string): void;
-  onAddSegment(): void;
+  /** Add a bus under the site of `near` (a segment name), else of the selection. */
+  onAddSegment(near?: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
 }
@@ -82,6 +84,8 @@ export interface CanvasProps {
   placement: Placement;
   /** A node was dragged: save its absolute top-left under this pin key. */
   onPin: (key: string, at: { x: number; y: number }) => void;
+  /** A bus was reordered: every lane of its site, re-ranked, as one change. */
+  onPinMany: (pins: Record<string, { x: number; y: number }>) => void;
   /** A `+N more` tile was clicked. */
   onToggleSite: (siteKey: string) => void;
   initialViewport: Viewport | null;
@@ -104,6 +108,8 @@ export interface CanvasProps {
 
 const DEFAULT_GLOW_SECONDS = 8;
 const GRID = 24;
+/** A fit never zooms past this: a two-bus twin at 2.5 filled the window with four icons. */
+const FIT_MAX_ZOOM = 1.5;
 /** A folded site group (rendering rule 3) is its label alone. */
 const SITE_FOLDED_W = 220;
 const SITE_FOLDED_H = 30;
@@ -163,6 +169,49 @@ export function connectionToAttach(c: Pick<Connection, "source" | "target">): { 
   return node && segment ? { node, segment } : null;
 }
 
+/**
+ * The rank a bus dropped at `centreY` takes among its site's lanes (the
+ * `segment:` pin's `y`, track 4): how many OTHER lanes of the site have
+ * their centre above it. Pure.
+ */
+export function rankAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, laneId: string, centreY: number): number | null {
+  const lane = nodes.find((n) => n.id === laneId);
+  if (!lane || !lane.parentId) return null;
+  let rank = 0;
+  for (const n of nodes) {
+    if (n.id === laneId || n.parentId !== lane.parentId || n.data.kind !== "segment") continue;
+    const abs = absolutePosition(nodes, n.id);
+    if (!abs) continue;
+    const h = n.measured?.height ?? n.height ?? 0;
+    if (abs.y + h / 2 < centreY) rank++;
+  }
+  return rank;
+}
+
+/**
+ * The rank pins a reorder writes: EVERY lane of the dropped bus's site, in
+ * the order they stand with the dropped one at `centreY`'s rank -- so the
+ * others shift round it rather than clash with it (with every rank settled,
+ * one re-ranked lane had pushed the last lane to the top). Pure.
+ */
+export function reorderPins(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, laneId: string, centreY: number): Record<string, { x: number; y: number }> | null {
+  const rank = rankAt(nodes, laneId, centreY);
+  const lane = nodes.find((n) => n.id === laneId);
+  if (rank === null || !lane) return null;
+  const others = nodes
+    .filter((n) => n.id !== laneId && n.parentId === lane.parentId && n.data.kind === "segment")
+    .map((n) => ({ n, y: (absolutePosition(nodes, n.id)?.y ?? 0) + (n.measured?.height ?? n.height ?? 0) / 2 }))
+    .sort((a, b) => a.y - b.y)
+    .map((x) => x.n);
+  const order = [...others.slice(0, rank), lane, ...others.slice(rank)];
+  const out: Record<string, { x: number; y: number }> = {};
+  order.forEach((n, i) => {
+    const key = pinKeyOf(n);
+    if (key) out[key] = { x: 0, y: i };
+  });
+  return out;
+}
+
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
 /** What a context menu is about: a node, a leg, a segment, or the empty pane
  *  (with the flow position under the pointer). */
@@ -170,7 +219,7 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
-function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -266,6 +315,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const [alt, setAlt] = useState(false);
   const [attachArmed, setAttachArmed] = useState(false);
   const [attachFrom, setAttachFrom] = useState<string | null>(null);
+  // A handle drag (the attach gesture) is in flight: every bus's target handle grows to its whole lane.
+  const [connecting, setConnecting] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuSubject } | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -322,21 +373,30 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
       const at = absolutePosition(moved, node.id);
       if (!at) return;
-      // A host chip dropped inside another segment's box moves there (the attach gesture by drop).
+      // A bus is reordered, never dropped free: the site's lanes are re-ranked with it at the rank its centre landed at (track 4).
+      if (node.data.kind === "segment") {
+        const h = node.measured?.height ?? node.height ?? 0;
+        const pins = reorderPins(moved, node.id, at.y + h / 2);
+        if (pins) onPinMany(pins);
+        else setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
+        return;
+      }
+      // A host icon dropped inside another bus's lane moves there (the attach gesture by drop);
+      // on a lane it is already on, it just takes the spot.
       if (editing && edit && node.data.kind === "host") {
         const w = node.measured?.width ?? node.width ?? 0;
         const h = node.measured?.height ?? node.height ?? 0;
         const nodeId = node.data.nodeId;
         const under = segmentAt(moved.filter((n) => n.id !== node.id), { x: at.x + w / 2, y: at.y + h / 2 });
         const group = edit.model.te.nodes.find((n) => n.name === nodeId);
-        if (under && group && group.nets[0]?.segment !== under) {
+        if (under && group && !group.nets.some((l) => l.segment === under)) {
           edit.onMove(nodeId, under);
           return;
         }
       }
       onPin(key, { x: Math.round(at.x * 100) / 100, y: Math.round(at.y * 100) / 100 });
     },
-    [rf, onPin, edit, editing],
+    [rf, onPin, onPinMany, edit, editing],
   );
 
   // Selection is explicit -- a click, a Shift-click to extend, an edge click,
@@ -422,14 +482,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     },
     [rf],
   );
-  // A leg is picked only where it crosses the pane or a site's background: a
-  // chip, a segment or a router under the pointer wins over the leg (round 2:
-  // a leg over a chip's lower half had been selecting the leg's segment).
+  // A leg is picked where it crosses the pane, a site's tint or a bus's lane
+  // (its drops run down the lane's port region): an icon or a router under the
+  // pointer wins over the leg (round 2: a leg over a chip's lower half had been
+  // selecting the leg's segment).
   const legUnder = useCallback(
     (target: EventTarget | null, clientX: number, clientY: number): string | null => {
       const el = target instanceof Element ? target : null;
       const node = el?.closest(".react-flow__node");
-      if (node && !el?.closest('[data-testid="canvas-site"]')) return null;
+      if (node && !el?.closest('[data-testid="canvas-site"],[data-testid="canvas-segment"]')) return null;
       return legAt(clientX, clientY);
     },
     [legAt],
@@ -448,9 +509,65 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     [legUnder],
   );
 
-  // The node a twin node is drawn as: a router, or a host of a device role on
-  // several segments (rule 5), is the router-style node; else the chip.
-  const drawnId = useCallback((name: string) => (rf.getNode(ID.router(name)) ? ID.router(name) : ID.host(name)), [rf]);
+  // ---- rule 6 (track 4): a router's drop dragged from one bus to another re-homes the leg.
+  // The legs take no pointer events, so the shell catches the press over one (by the
+  // pane's hit-test), follows the pointer with a rubber line, highlights the bus under
+  // it, and on release asks the page to move the attachment. The press is kept from
+  // React Flow (no marquee, no pan) by stopping the native mousedown in the capture phase.
+  const [legDrag, setLegDrag] = useState<{ node: string; segment: string; hue: string; from: { x: number; y: number }; to: { x: number; y: number }; over: string | null } | null>(null);
+  const legDragRef = useRef<typeof legDrag>(null);
+  legDragRef.current = legDrag;
+  const onShellPointerDownCapture = useCallback(
+    (e: React.PointerEvent) => {
+      if (!editing || !edit || e.button !== 0) return;
+      const id = legUnder(e.target, e.clientX, e.clientY);
+      const parts = id ? legParts(id) : null;
+      if (!parts || parts.kind !== "leg") return;
+      const router = rf.getNode(ID.router(parts.node));
+      const hue = router?.data.kind === "router" ? router.data.hue : "";
+      const shell = shellRef.current?.getBoundingClientRect();
+      const port = router ? rf.flowToScreenPosition({ x: router.position.x + (router.measured?.width ?? router.width ?? 0) / 2, y: router.position.y + (router.measured?.height ?? router.height ?? 0) }) : { x: e.clientX, y: e.clientY };
+      const from = { x: port.x - (shell?.left ?? 0), y: port.y - (shell?.top ?? 0) };
+      const to = { x: e.clientX - (shell?.left ?? 0), y: e.clientY - (shell?.top ?? 0) };
+      setLegDrag({ node: parts.node, segment: parts.segment, hue, from, to, over: null });
+      e.preventDefault();
+    },
+    [editing, edit, legUnder, rf],
+  );
+  const onShellMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (legDragRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, []);
+  useEffect(() => {
+    if (!legDrag) return;
+    const move = (e: PointerEvent) => {
+      const shell = shellRef.current?.getBoundingClientRect();
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }, { snapToGrid: false });
+      const over = segmentAt(rf.getNodes(), at);
+      setLegDrag((d) => (d ? { ...d, to: { x: e.clientX - (shell?.left ?? 0), y: e.clientY - (shell?.top ?? 0) }, over } : d));
+    };
+    const up = (e: PointerEvent) => {
+      const d = legDragRef.current;
+      setLegDrag(null);
+      if (!d || !edit) return;
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }, { snapToGrid: false });
+      const over = segmentAt(rf.getNodes(), at);
+      if (over && over !== d.segment) edit.onRehome(d.node, d.segment, over);
+    };
+    const cancel = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLegDrag(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, [legDrag !== null, rf, edit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
@@ -460,10 +577,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         toggleFolded(fold.dataset["siteCollapse"]);
         return;
       }
-      if (node.data.kind === "site" && edit) {
+      if ((node.data.kind === "site" || node.data.kind === "segment") && edit) {
         const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
         if (leg) {
-          select({ kind: "leg", ...leg }, []);
+          select({ kind: "leg" as const, node: leg.node, segment: leg.segment }, []);
           return;
         }
       }
@@ -486,7 +603,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       if (d.kind === "host" || d.kind === "router") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
-        select({ kind: "node", names }, names.map(drawnId));
+        select({ kind: "node", names }, names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : ID.host(n))));
       } else if (d.kind === "segment") {
         // While a gesture is armed a segment is its TARGET, not the selection's subject.
         if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
@@ -510,7 +627,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       }
       if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
     },
-    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, legAt, drawnId],
+    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, legAt, graph],
   );
 
 
@@ -570,7 +687,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind !== "site" || !edit) return;
       const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
-      if (leg) onContextMenu(e, { kind: "leg", ...leg });
+      if (leg) onContextMenu(e, { kind: "leg" as const, node: leg.node, segment: leg.segment });
     },
     [edit, legAt, onContextMenu],
   );
@@ -581,7 +698,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       const box = shellRef.current?.getBoundingClientRect();
       const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
       const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target: leg ? { kind: "leg", ...leg } : { kind: "pane", at } });
+      setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target: leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "pane", at } });
     },
     [rf, legAt],
   );
@@ -598,9 +715,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   );
 
   // The edges are controlled, so the selected leg's flag is derived here.
-  // Rendering rule 2: the legs are structure and always drawn; an arc is
-  // evidence, drawn only while lit by the overlay or touching the selection.
-  const selectedLeg = edit?.selection.kind === "leg" ? `leg:${edit.selection.node}>${edit.selection.segment}` : null;
+  // The legs are structure and always drawn; an arc is evidence, drawn only
+  // while lit by the overlay or touching the selection.
+  const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : [];
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
   // Rule 7: a selected router opens every fan it has; a click on a site's tint opens that site's.
@@ -616,15 +733,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
       return [e];
     });
-    return [...others, ...structural.map((e) => (e.id === selectedLeg ? { ...e, selected: true } : e))];
-  }, [placement.edges, selectedLeg, scope, glow.arcs, fanN, fansOpen]);
+    return [...others, ...structural.map((e) => (selectedLegs.includes(e.id) ? { ...e, selected: true } : e))];
+  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
+  const rehomeTarget = legDrag?.over ?? null;
+  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu]);
 
   const align = useCallback(
     (axis: "h" | "v") => {
       const current = rf.getNodes();
-      const sel = current.filter((n) => n.selected && pinKeyOf(n));
+      // A bus is ranked, not placed: only hosts and routers align.
+      const sel = current.filter((n) => n.selected && pinKeyOf(n) && n.data.kind !== "segment");
       if (sel.length < 2) return;
       const abs = sel.map((n) => ({ n, at: absolutePosition(current, n.id)! }));
       const ref = axis === "h" ? Math.min(...abs.map((a) => a.at.y)) : Math.min(...abs.map((a) => a.at.x));
@@ -721,7 +840,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       switch (e.key) {
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
-        case "f": void rf.fitView({ duration: 300 }); break;
+        case "f": void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }); break;
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
@@ -737,14 +856,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     return () => window.removeEventListener("keydown", down);
   }, [rf, edit, locked, togglePopover]);
 
-  const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : drawnId(id)), [centreOn, drawnId]);
+  const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
 
   const viewTools: RailButton[] = [
     { name: "Select", key: "V", icon: <Icon.select />, pressed: tool === "select", onClick: () => setTool("select") },
     { name: "Pan", key: "H, or hold Space", icon: <Icon.pan />, pressed: tool === "pan" || spaceHeld, onClick: () => setTool("pan") },
     { name: "Zoom in", key: "+", icon: <Icon.zoomIn />, onClick: () => void rf.zoomIn({ duration: 200 }) },
     { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
-    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
+    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
@@ -773,11 +892,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   useEffect(() => {
     if (nodesReady && !fitted.current) {
       fitted.current = true;
-      void rf.fitView();
+      void rf.fitView({ maxZoom: FIT_MAX_ZOOM });
     }
   }, [nodesReady, rf]);
 
-  // Compact: the chips (and a segment's rungs) leave the DOM; React Flow hides
+  // Compact: the icons (and a bus's rungs) leave the DOM; React Flow hides
   // their edges with them. State keeps them, so a selection survives a zoom.
   const shownNodes = useMemo(() => {
     const foldedSites = new Set(folded);
@@ -791,11 +910,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         hiddenIds.add(n.id);
         out = { ...out, hidden: true };
       }
-      if (n.type === "host" && labels !== "all" && !(labels === "selected" && n.selected)) out = { ...out, width: CHIP_H };
-      if (n.type === "rungs" && labels !== "all") out = { ...out, width: CHIP_H };
       return out;
     });
-  }, [nodes, detail, folded, labels]);
+  }, [nodes, detail, folded]);
 
   // Rule 6: the legs' polylines over the boxes as they stand. Deferred, so a
   // drag's frames are not held up by the routing; the legs follow a beat behind.
@@ -807,12 +924,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     const t = menu.target;
     const items: Array<{ label: string; run(): void; danger?: boolean }> = [];
     if (t.kind === "pane") {
-      items.push({ label: "Zoom to fit", run: () => void rf.fitView({ duration: 300 }) });
+      items.push({ label: "Zoom to fit", run: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) });
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
         if (edit.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, null, edit.placing!.count ?? 1, t.at) });
-        items.push({ label: "Add a segment", run: () => edit.onAddSegment() });
+        items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
         items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
       }
@@ -835,7 +952,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     } else if (t.kind === "segment") {
       if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
       if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
-      items.push({ label: "Add a segment", run: () => edit.onAddSegment() });
+      items.push({ label: "Add a segment in this site", run: () => edit.onAddSegment(t.name) });
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
     return items;
@@ -850,7 +967,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         <div
           ref={shellRef}
           onMouseMove={onShellMouseMove}
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${detail === "compact" ? " compact" : ""}`}
+          onPointerDownCapture={onShellPointerDownCapture}
+          onMouseDownCapture={onShellMouseDownCapture}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}`}
           data-testid="canvas"
           data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
@@ -884,6 +1003,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             onNodeClick={onNodeClick}
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
+            onConnectStart={() => setConnecting(true)}
+            onConnectEnd={() => setConnecting(false)}
             onDrop={onDrop}
             onDragOver={(e) => {
               if (editing) {
@@ -899,7 +1020,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
                 return;
               }
               const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
-              select(leg ? { kind: "leg", ...leg } : { kind: "none" }, []);
+              select(leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "none" }, []);
             }}
             onNodeContextMenu={onNodeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
@@ -1000,6 +1121,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
               </Panel>
             ) : null}
           </ReactFlow>
+          {legDrag ? (
+            <svg className="cv-rubber" aria-hidden="true" data-testid="rehome-rubber" data-over={legDrag.over ?? undefined}>
+              <line x1={legDrag.from.x} y1={legDrag.from.y} x2={legDrag.to.x} y2={legDrag.to.y} style={{ stroke: legDrag.hue || "var(--accent)" }} />
+              <circle cx={legDrag.to.x} cy={legDrag.to.y} r={4} style={{ fill: legDrag.hue || "var(--accent)" }} />
+            </svg>
+          ) : null}
+          {legDrag ? <div className="cv-rehome-hint muted" role="status">{legDrag.over && legDrag.over !== legDrag.segment ? `drop: ${legDrag.node} ${legDrag.segment} → ${legDrag.over}` : `drag ${legDrag.node}'s ${legDrag.segment} port onto another bus · Esc cancels`}</div> : null}
           {menu && menuItems.length ? (
             <ul className="cv-menu" role="menu" style={{ left: menu.x, top: menu.y }} data-testid="context-menu">
               {menuItems.map((m) => (
@@ -1053,10 +1181,9 @@ function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel
     const rd = drawn?.kind === "router" ? drawn : null;
     return (
       <div className="cv-ro" data-testid="ro-router">
-        <h3 className="mono">{sel.id}</h3>
+        <h3 className="mono">{rd ? <span className="cv-hue-swatch" style={{ background: rd.hue }} aria-hidden="true" /> : null}{sel.id}</h3>
         <dl className="facts">
-          {rd?.device ? <><dt>device</dt><dd data-testid="ro-device">kind: host · role: {rd.device} · attached by the config</dd></> : null}
-          <dt>legs</dt><dd>{r ? r.segments.join(", ") : "none"}</dd>
+          <dt>ports</dt><dd>{r ? r.segments.join(", ") : "none"}</dd>
           {rd?.uplink || rd?.crossing ? <><dt>WAN</dt><dd>{rd.uplink ? "the config's uplink" : "the gateway by observed crossing traffic"}</dd></> : null}
           {rd?.crossing ? <><dt>crossing</dt><dd data-testid="ro-crossing">{crossingText(rd.crossing)}</dd></> : null}
         </dl>

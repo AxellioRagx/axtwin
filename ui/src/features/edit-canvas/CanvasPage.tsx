@@ -40,7 +40,8 @@ import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
-import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
+import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
+import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor } from "./edit/useEditor";
 import { layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
@@ -277,7 +278,7 @@ export function CanvasPage() {
   // Moves and annotation changes stay on the canvas; the side-car is written
   // only by "Save layout" (or alongside a document Save / Persist).
   const draft = useLayoutDraft(api, id, layout.data);
-  const { pins, annotations, onPin, setAnnotations } = draft;
+  const { pins, annotations, onPin, onPinMany, setAnnotations } = draft;
   const layoutChanges = draft.changes;
   const saveLayout = draft.save;
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -495,11 +496,12 @@ export function CanvasPage() {
     return null;
   }, [data, id, model, view, docPending]);
 
-  // In the design view a site's or segment's computed position SETTLES for the
-  // session: a later mutation packs only what has no position yet, into free
-  // space, so adding a node never shuffles its neighbours (2026-11-05: every
-  // add/remove re-placed the segments and lost the drag). A drag's pin wins
-  // over a settled position; Discard returns to the settled one.
+  // In the design view a site's computed position and a bus's RANK in its site
+  // SETTLE for the session: a later mutation places only what has no position
+  // yet, so adding a node never shuffles its neighbours and a new segment
+  // lands at the end of its site (2026-11-05: every add/remove re-placed the
+  // segments and lost the drag). A drag's pin wins over a settled position;
+  // Discard returns to the settled one.
   const settled = useRef<Record<string, { x: number; y: number }>>({});
   useEffect(() => {
     settled.current = {};
@@ -511,9 +513,13 @@ export function CanvasPage() {
     if (design && !p.overBudget) {
       for (const n of p.nodes) {
         const key = pinKeyOf(n);
-        if (!key || !(key.startsWith("site:") || key.startsWith("segment:")) || key in settled.current) continue;
-        const abs = absolutePosition(p.nodes, n.id);
-        if (abs) settled.current[key] = abs;
+        if (!key || key in settled.current) continue;
+        if (key.startsWith("site:")) {
+          const abs = absolutePosition(p.nodes, n.id);
+          if (abs) settled.current[key] = abs;
+        } else if (key.startsWith("segment:") && n.data.kind === "segment" && typeof n.data.rank === "number") {
+          settled.current[key] = { x: 0, y: n.data.rank };
+        }
       }
     }
     return p;
@@ -533,10 +539,17 @@ export function CanvasPage() {
 
   // ---- the palette's placement ----
   const items = useMemo(() => (data ? paletteItems(data.catalog, data.personas, id) : []), [data, id]);
-  const onAddSegment = useCallback(() => {
+  // Rule 6 (track 4): "Add segment" inserts the new bus under the selected site -- the
+  // site of the segment it was asked beside, else of the selection, else of the first segment.
+  const selectionRef = useRef<Selection>(selection);
+  selectionRef.current = selection;
+  const onAddSegment = useCallback((near?: string) => {
     edit("add segment", (d, m) => {
       const inPlay = m.te.segments.map((s) => s.cidr);
-      const prefix = (m.te.segments[0] ? twoOctetPrefix(m.te.segments[0].cidr) : null) ?? "10.200";
+      const sel = selectionRef.current;
+      const nearName = near ?? (sel.kind === "segment" ? sel.names[0] : sel.kind === "node" ? m.te.nodes.find((n) => n.name === sel.names[0])?.nets[0]?.segment : sel.kind === "leg" ? sel.segment : undefined);
+      const nearSeg = nearName ? m.te.segments.find((s) => s.name === nearName) : undefined;
+      const prefix = (nearSeg ? twoOctetPrefix(nearSeg.cidr) : null) ?? (m.te.segments[0] ? twoOctetPrefix(m.te.segments[0].cidr) : null) ?? "10.200";
       // The next /24 AFTER the highest in use under the prefix (.10, .20 -> .21), not the
       // first free one (.0, the site's own network address, legal but surprising).
       const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
@@ -791,6 +804,7 @@ export function CanvasPage() {
       onAttach: (node, segment) => void edit(`attach ${node} to ${segment}`, (d, m) => attach(d, m, node, segment)),
       onMove: (node, segment) => void edit(`move ${node} to ${segment}`, (d, m) => moveTo(d, m, node, segment)),
       onDetach: (node, segment) => void edit(`detach ${node} from ${segment}`, (d, m) => detach(d, m, node, segment)),
+      onRehome: (node, from, to) => void edit(`re-home ${node}: ${from} → ${to}`, (d, m) => rehome(d, m, node, from, to)),
       onRemoveNode: (name) => void edit(`remove ${name}`, (d, m) => removeNode(d, m, name)),
       onRemoveSegment: (name) => void edit(`remove segment ${name}`, (d, m) => removeSegment(d, m, name)),
       onAddSegment,
@@ -994,6 +1008,7 @@ export function CanvasPage() {
             exportData={built.exportData}
             placement={placement}
             onPin={onPin}
+            onPinMany={onPinMany}
             onToggleSite={onToggleSite}
             initialViewport={initialViewport}
             onViewport={onViewport}
@@ -1031,6 +1046,7 @@ export function CanvasPage() {
                         changes={deployed ? (config?.changes ?? []) : null}
                         blocked={blocked}
                         onRenamed={(kind, from, to) => setSelection((sel) => (sel.kind === kind ? { kind, names: sel.names.map((n) => (n === from ? to : n)) } : sel))}
+                        observedSegments={(node) => observedSegments(data?.exportData ?? null, cast, node, model.te.nodes.find((n) => n.name === node)?.nets.map((l) => l.segment) ?? [])}
                       />
                     ),
                     checks: (

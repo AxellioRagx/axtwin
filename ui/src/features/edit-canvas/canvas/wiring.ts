@@ -1,19 +1,22 @@
 /**
- * The legs' geometry over the LIVE node boxes (rendering rule 6,
- * 2026-11-06): a leg leaves a router from the bottom of its icon, lands on
- * one of its segment's top-edge handles -- a tile has one handle per
- * attached router, spread across its top edge, so parallel legs never
- * overlap -- and runs orthogonally through the gutters between boxes
- * (`route.ts`), never through a tile's interior. A fan (rule 7) lands on
- * its site's top edge, at the router's x clamped into the site, and its bus
- * leaves that entry point for each segment's handle.
+ * The legs' geometry over the LIVE node boxes (rendering rule 2, track 4,
+ * 2026-11-06): a leg leaves a router from the bottom of its icon and drops
+ * onto its bus's line in the site's PORT REGION -- the right end of every
+ * lane, left of the count badge, where no host sits -- one drop column per
+ * source into the site, so parallel drops never overlap. Between the two it
+ * runs orthogonally through the gutters (`route.ts`), never through a host
+ * row, a bus label or a badge. A fan lands on its site's top edge at the
+ * router's column and its rail runs straight down that column to each bus.
+ * A multi-homed host's stub (rule 4) leaves its icon's top and lands on the
+ * other bus's line the same way, from below when that bus is above it.
  *
  * Positions come from React Flow's node state, so a drag re-wires; sizes
  * are the measured ones when the DOM has them, else the placement's. A leg
  * the router cannot route (a port walled in) is a straight line. Pure --
  * no React, no DOM.
  */
-import { DEVICE_H } from "../layout/geometry";
+import { DEVICE_H, SITE_PAD } from "../layout/geometry";
+import { BUS_BADGE_W, BUS_LABEL_W, BUS_LINE_H, BUS_ROW_H, laneLineY, portColumnX } from "./bus";
 import { absolutePosition, type CanvasData, type CanvasEdge, type Rect } from "./placement";
 import { routeAll, type LegRequest, type Point, type RouteOptions } from "./route";
 
@@ -29,19 +32,18 @@ export interface WireNode {
   data: CanvasData;
 }
 
-/** The side of a router's drawn icon box (`.cv-icon-box`), flush with the
- *  bottom-centre of its node. */
+/** The side of a router's drawn icon box (`.cv-icon-box`), flush with the bottom-centre of its node. */
 export const ROUTER_ICON = 34;
-/** A fan's entry keeps this far inside its site's left and right edges. */
-const ENTRY_INSET = 24;
-/** Two fans entering one site keep this far apart. */
-const ENTRY_GAP = 14;
+/** The badge on a bus line: this tall, centred on the line. */
+const BADGE_H = 20;
 
 export interface Wiring {
   /** Edge id -> the polyline to draw, `from` and `to` included. */
   routes: Map<string, Point[]>;
   /** The boxes the routing kept clear of, for the acceptance check. */
   obstacles: Rect[];
+  /** The host rows alone (a leg must never cross one): the acceptance check's subject. */
+  hostRows: Rect[];
 }
 
 /** The absolute box of a node: measured when the DOM has laid it out, else the placement's. */
@@ -72,8 +74,7 @@ function boxes(shown: readonly WireNode[]): Map<string, Rect> {
 /** A channel keeps this much clear above a router's name (its name sits at the slot's top). */
 const ROUTER_BOX_PAD_Y = 10;
 
-/** The box a router draws (its node, `DEVICE_W` × `DEVICE_H`), with headroom
- *  above the name so a leg never grazes it. */
+/** The box a router draws (its node, `DEVICE_W` × `DEVICE_H`), with headroom above the name so a leg never grazes it. */
 export function routerBox(slot: Rect): Rect {
   return { x: slot.x, y: slot.y - ROUTER_BOX_PAD_Y, w: slot.w, h: (slot.h || DEVICE_H) + ROUTER_BOX_PAD_Y };
 }
@@ -85,87 +86,118 @@ export function clipBox(n: Pick<WireNode, "type">, box: Rect): Rect {
 }
 
 const inside = (inner: Rect, outer: Rect) => inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.w <= outer.x + outer.w && inner.y + inner.h <= outer.y + outer.h;
+const union = (a: Rect, b: Rect): Rect => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+};
+
+/** The host rows of a lane: its icons grouped by row (by their y within the lane), each row one box. An icon dragged clear of its lane is its own box. */
+export function hostRowsOf(lane: Rect, icons: readonly Rect[]): Rect[] {
+  const rows = new Map<number, Rect>();
+  const loose: Rect[] = [];
+  for (const b of icons) {
+    if (!inside(b, lane)) {
+      loose.push(b);
+      continue;
+    }
+    const row = Math.round((b.y + b.h - lane.y) / BUS_ROW_H);
+    const cur = rows.get(row);
+    rows.set(row, cur ? union(cur, b) : { ...b });
+  }
+  return [...rows.values(), ...loose];
+}
 
 /**
- * Wire every leg, fan and bus edge over the nodes as they stand. `edges` is
- * the list the canvas draws (after the fan collapse); edges of other kinds
- * are ignored.
+ * Wire every leg, stub, fan and bus edge over the nodes as they stand.
+ * `edges` is the list the canvas draws (after the fan collapse); edges of
+ * other kinds are ignored.
  */
 export function wire(nodes: readonly WireNode[], edges: readonly CanvasEdge[], options: Partial<RouteOptions> = {}): Wiring {
   const shown = nodes.filter((n) => !n.hidden);
   const byId = new Map(shown.map((n) => [n.id, n]));
   const box = boxes(shown);
-  // Obstacles: the tiles, the chrome, each router's drawn box, and a chip
-  // that was dragged clear of its tile. Site tints and annotations are not.
+  // Obstacles: each bus's host rows, label and badge; the chrome; each
+  // router's drawn box. The lanes themselves (a drop ends on a lane's line,
+  // inside its box) and the site tints are not.
   const obstacles: Rect[] = [];
+  const hostRows: Rect[] = [];
+  const iconsByLane = new Map<string, Rect[]>();
   for (const n of shown) {
     const b = box.get(n.id);
     if (!b) continue;
     const k = n.data.kind;
-    if (k === "segment" || k === "overflow" || k === "unplaced" || k === "internet") obstacles.push(b);
+    if (k === "overflow" || k === "unplaced" || k === "internet") obstacles.push(b);
     else if (k === "router") obstacles.push(routerBox(b));
-    else if ((k === "host" || k === "rungs") && n.parentId) {
-      const parent = box.get(n.parentId);
-      if (parent && !inside(b, parent)) obstacles.push(b);
+    else if (k === "segment") {
+      obstacles.push({ x: b.x, y: b.y, w: BUS_LABEL_W, h: b.h - BUS_LINE_H });
+      obstacles.push({ x: b.x + b.w - BUS_BADGE_W, y: laneLineY(b) - BADGE_H / 2, w: BUS_BADGE_W, h: BADGE_H });
+    } else if ((k === "host" || k === "rungs") && n.parentId) {
+      iconsByLane.set(n.parentId, [...(iconsByLane.get(n.parentId) ?? []), b]);
     }
   }
+  for (const [laneId, icons] of iconsByLane) {
+    const lane = box.get(laneId);
+    const rows = lane ? hostRowsOf(lane, icons) : icons;
+    hostRows.push(...rows);
+    obstacles.push(...rows);
+  }
 
-  // The source port of a leg: a router's icon bottom; a chip's bottom-centre.
-  const port = (id: string): Point | null => {
-    const n = byId.get(id);
+  // The source port of a leg: a router's icon bottom; a chip's top (a stub leaves upward).
+  const bottom = (id: string): Point | null => {
     const b = box.get(id);
-    if (!n || !b) return null;
-    return { x: b.x + b.w / 2, y: b.y + b.h };
+    return b ? { x: b.x + b.w / 2, y: b.y + b.h } : null;
   };
-  const sourceX = (id: string) => port(id)?.x ?? 0;
+  const top = (id: string): Point | null => {
+    const b = box.get(id);
+    return b ? { x: b.x + b.w / 2, y: b.y } : null;
+  };
+  const sourceX = (id: string) => box.get(id)?.x ?? 0;
 
-  // Handles: a tile's top edge carries one per attached source (by the
-  // sources' x), so legs from two routers into one tile land apart.
-  const attached = new Map<string, Set<string>>();
-  const attach = (target: string, source: string) => {
-    let s = attached.get(target);
-    if (!s) attached.set(target, (s = new Set()));
-    s.add(source);
-  };
+  // The drop columns of a site's port region: one per source into the site
+  // (a router, a fan entry, a multi-homed host), by the sources' x from the
+  // left, so drops never cross one another.
   const fanEntryKey = (router: string, site: string) => `${router}|${site}`;
+  const siteOfTarget = (id: string): string | null => {
+    const n = byId.get(id);
+    if (!n) return null;
+    return n.data.kind === "site" ? n.id : (n.parentId ?? null);
+  };
+  const sourcesBySite = new Map<string, Map<string, number>>();
+  const addSource = (site: string | null, key: string, x: number) => {
+    if (!site) return;
+    let s = sourcesBySite.get(site);
+    if (!s) sourcesBySite.set(site, (s = new Map()));
+    if (!s.has(key)) s.set(key, x);
+  };
   for (const e of edges) {
     const d = e.data;
     if (!d) continue;
-    if (d.kind === "leg") attach(e.target, e.source);
-    else if (d.kind === "bus") attach(e.target, fanEntryKey(d.router, d.site));
+    if (d.kind === "leg" || d.kind === "stub") addSource(siteOfTarget(e.target), e.source, sourceX(e.source));
+    else if (d.kind === "fan") addSource(e.target, fanEntryKey(d.router, d.site), sourceX(e.source));
+    else if (d.kind === "bus") addSource(siteOfTarget(e.target), fanEntryKey(d.router, d.site), sourceX(ID_ROUTER(d.router)));
   }
-  // A fan's entry on its site's top edge: the router's x clamped into the
-  // site; several fans into one site are spread ENTRY_GAP apart.
-  const entries = new Map<string, Point>();
-  const perSite = new Map<string, Array<{ key: string; x: number }>>();
-  for (const e of edges) {
-    const d = e.data;
-    if (!d || d.kind !== "fan") continue;
-    const site = box.get(e.target);
-    if (!site) continue;
-    const x = Math.min(site.x + site.w - ENTRY_INSET, Math.max(site.x + ENTRY_INSET, sourceX(e.source)));
-    const list = perSite.get(e.target) ?? [];
-    list.push({ key: fanEntryKey(d.router, d.site), x });
-    perSite.set(e.target, list);
+  const columnOf = new Map<string, number>(); // `${site}|${key}` -> index from the right
+  for (const [site, sources] of sourcesBySite) {
+    const ordered = [...sources.entries()].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+    ordered.forEach(([key], i) => columnOf.set(`${site}|${key}`, ordered.length - 1 - i));
   }
-  for (const [siteId, list] of perSite) {
-    const site = box.get(siteId)!;
-    list.sort((a, b) => a.x - b.x);
-    let last = Number.NEGATIVE_INFINITY;
-    for (const it of list) {
-      const x = Math.max(it.x, last + ENTRY_GAP);
-      entries.set(it.key, { x, y: site.y });
-      last = x;
-    }
-  }
-  const handleX = (target: string, sourceKey: string): number | null => {
+  /** The drop x in `target`'s port region for `key`: the target's right edge less the badge, then the column. */
+  const portX = (target: string, key: string): number | null => {
     const b = box.get(target);
-    const set = attached.get(target);
-    if (!b || !set) return null;
-    const sources = [...set].sort((a, b2) => (entries.get(a)?.x ?? sourceX(a)) - (entries.get(b2)?.x ?? sourceX(b2)));
-    const i = sources.indexOf(sourceKey);
-    const k = sources.length;
-    return b.x + (b.w * ((i < 0 ? 0 : i) + 1)) / (k + 1);
+    const n = byId.get(target);
+    if (!b || !n) return null;
+    const site = n.data.kind === "site" ? n.id : (n.parentId ?? target);
+    const idx = columnOf.get(`${site}|${key}`) ?? 0;
+    const right = n.data.kind === "site" ? b.x + b.w - SITE_PAD - BUS_BADGE_W : b.x + b.w - BUS_BADGE_W;
+    return portColumnX(right, 0, idx);
+  };
+  /** Where a drop lands on `target`: a bus's line, an overflow lane's top edge, a site's top edge. */
+  const landingY = (target: string): number | null => {
+    const b = box.get(target);
+    const n = byId.get(target);
+    if (!b || !n) return null;
+    return n.data.kind === "segment" ? laneLineY(b) : b.y;
   };
 
   const requests: LegRequest[] = [];
@@ -174,43 +206,45 @@ export function wire(nodes: readonly WireNode[], edges: readonly CanvasEdge[], o
     const d = e.data;
     if (!d) continue;
     if (d.kind === "leg") {
-      const from = port(e.source);
-      const tb = box.get(e.target);
-      const hx = handleX(e.target, e.source);
-      if (!from || !tb || hx === null) continue;
-      const to = { x: hx, y: tb.y };
-      const src = byId.get(e.source)!;
-      if (src.data.kind === "host" || src.data.kind === "rungs") {
-        // A chip inside its tile leaves through the tile's top edge at its own
-        // x (its bottom is the tile's interior); the stub inside is drawn as is.
-        const cb = box.get(e.source)!;
-        const parent = src.parentId ? box.get(src.parentId) : null;
-        if (parent && inside(cb, parent)) {
-          const exit = { x: cb.x + cb.w / 2, y: parent.y };
-          requests.push({ id: e.id, from: exit, to, leave: "up", prefix: [{ x: exit.x, y: cb.y }] });
-          fallback.set(e.id, [{ x: exit.x, y: cb.y }, to]);
-          continue;
-        }
-      }
+      const from = bottom(e.source);
+      const x = portX(e.target, e.source);
+      const y = landingY(e.target);
+      if (!from || x === null || y === null) continue;
+      const to = { x, y };
       requests.push({ id: e.id, from, to });
       fallback.set(e.id, [from, to]);
+    } else if (d.kind === "stub") {
+      const from = top(e.source);
+      const x = portX(e.target, e.source);
+      const y = landingY(e.target);
+      if (!from || x === null || y === null) continue;
+      const to = { x, y };
+      requests.push({ id: e.id, from, to, leave: "up", arrive: y < from.y ? "up" : "down" });
+      fallback.set(e.id, [from, to]);
     } else if (d.kind === "fan") {
-      const from = port(e.source);
-      const to = entries.get(fanEntryKey(d.router, d.site));
-      if (!from || !to) continue;
+      const from = bottom(e.source);
+      const x = portX(e.target, fanEntryKey(d.router, d.site));
+      const y = landingY(e.target);
+      if (!from || x === null || y === null) continue;
+      const to = { x, y };
       requests.push({ id: e.id, from, to });
       fallback.set(e.id, [from, to]);
     } else if (d.kind === "bus") {
-      const from = entries.get(fanEntryKey(d.router, d.site));
-      const tb = box.get(e.target);
-      const hx = handleX(e.target, fanEntryKey(d.router, d.site));
-      if (!from || !tb || hx === null) continue;
-      const to = { x: hx, y: tb.y };
+      const key = fanEntryKey(d.router, d.site);
+      const siteBox = box.get(d.site);
+      const ex = portX(d.site, key);
+      const x = portX(e.target, key);
+      const y = landingY(e.target);
+      if (!siteBox || ex === null || x === null || y === null) continue;
+      const from = { x: ex, y: siteBox.y };
+      const to = { x, y };
       requests.push({ id: e.id, from, to });
       fallback.set(e.id, [from, to]);
     }
   }
   const routes = routeAll(requests, obstacles, options);
   for (const [id, pts] of fallback) if (!routes.has(id)) routes.set(id, pts);
-  return { routes, obstacles };
+  return { routes, obstacles, hostRows };
 }
+
+const ID_ROUTER = (name: string) => `router:${name}`;

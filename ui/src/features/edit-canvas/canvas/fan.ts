@@ -1,11 +1,12 @@
 /**
- * Fan-out collapse per site (rendering rule 7, 2026-11-06): a router with
- * legs into more than N segments of one site group draws ONE leg to the
- * site's top edge, badged with the count, and a short bus inside the site
- * from that entry to each segment's handle. A router's legs behind a
- * group's `+N more` tile (the placement's folded `legs:` edge) go through
- * the same fan, its bus landing on the overflow tile. Selecting the router,
- * or opening the site, expands that site's fan to individual legs. Pure.
+ * Fan-out collapse per site (rendering rule 2, track 4, 2026-11-06): a
+ * router with legs into more than N buses of one site group draws ONE trunk
+ * to the site's top edge, badged with the count, and a rail inside the site
+ * from that entry down to each bus, all in the router's hue. A router's
+ * legs behind a group's `+N more` lane (the placement's folded `legs:` edge)
+ * go through the same fan, the rail landing on the overflow lane. Selecting
+ * the router, or opening the site, expands that site's fan to individual
+ * legs. A multi-homed host's stubs are not a router's and pass through. Pure.
  */
 import { EDGE_Z, ID, LEG_CLASS, type CanvasEdge } from "./placement";
 
@@ -38,7 +39,7 @@ export function fanOut(edges: readonly CanvasEdge[], n: number, open: ReadonlySe
   const rest: CanvasEdge[] = [];
   for (const e of edges) {
     const d = e.data;
-    if (!d || d.kind !== "leg" || d.from !== "router" || !d.site) {
+    if (!d || d.kind !== "leg" || !d.site) {
       rest.push(e);
       continue;
     }
@@ -63,14 +64,16 @@ export function fanOut(edges: readonly CanvasEdge[], n: number, open: ReadonlySe
       if (g.folded) out.push(g.folded);
       continue;
     }
-    const source = g.legs[0]?.source ?? g.folded!.source;
+    const first = g.legs[0] ?? g.folded!;
+    const source = first.source;
+    const hue = first.data?.kind === "leg" ? first.data.hue : "";
     const label = `${total} segment${total === 1 ? "" : "s"}${foldedCount ? ` · ${foldedCount} behind +N more` : ""}`;
-    out.push({ id: fanId(g.router, g.site), type: "leg", className: LEG_CLASS, source, target: ID.site(g.site), sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "fan", router: g.router, site: g.site, count: total, label } });
+    out.push({ id: fanId(g.router, g.site), type: "leg", className: LEG_CLASS, source, target: ID.site(g.site), sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "fan", router: g.router, site: g.site, count: total, label, hue } });
     for (const leg of g.legs) {
-      out.push({ id: busId(g.router, leg.target), type: "leg", className: LEG_CLASS, source: ID.site(g.site), target: leg.target, sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "bus", router: g.router, site: g.site, segment: leg.data?.kind === "leg" ? leg.data.label : leg.target } });
+      out.push({ id: busId(g.router, leg.target), type: "leg", className: LEG_CLASS, source: ID.site(g.site), target: leg.target, sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "bus", router: g.router, site: g.site, segment: leg.data?.kind === "leg" ? leg.data.label : leg.target, hue } });
     }
     if (g.folded) {
-      out.push({ id: busId(g.router, g.folded.target), type: "leg", className: LEG_CLASS, source: ID.site(g.site), target: g.folded.target, sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "bus", router: g.router, site: g.site, segment: `${foldedCount} behind +N more` } });
+      out.push({ id: busId(g.router, g.folded.target), type: "leg", className: LEG_CLASS, source: ID.site(g.site), target: g.folded.target, sourceHandle: "bottom", targetHandle: "top", zIndex: EDGE_Z, data: { kind: "bus", router: g.router, site: g.site, segment: `${foldedCount} behind +N more`, hue } });
     }
   }
   return [...out, ...rest];

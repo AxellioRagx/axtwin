@@ -39,6 +39,8 @@ export interface EditState {
   attachFrom: string | null;
   /** The palette item armed for click-to-place. */
   placing: PaletteItem | null;
+  /** Rule 6 (track 4): the bus a router's leg is being dragged over, the drop that would re-home it. */
+  rehomeTarget: string | null;
   onContextMenu(e: React.MouseEvent, target: { kind: "host" | "router"; name: string } | { kind: "leg"; node: string; segment: string } | { kind: "segment"; name: string }): void;
 }
 

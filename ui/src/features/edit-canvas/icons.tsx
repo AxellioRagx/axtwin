@@ -39,6 +39,10 @@ const ROLE_GLYPHS: Record<string, ReactNode> = {
   JUMP: <><path d="M2 11.5V7l5-4.5 5 4.5v4.5" /><path d="M5.5 11.5v-3h3v3" /></>,
   EXT: <circle cx="7" cy="7" r="5.5" strokeDasharray="2 2" />,
   NONE: <><circle cx="7" cy="7" r="5.5" /><path d="M7 4.5v3M7 9.5v.5" /></>,
+  L2SW: <><rect x="1.5" y="4" width="11" height="6" rx="1.2" /><path d="M3.5 7h1M6 7h1M8.5 7h1M3 10v2M7 10v2M11 10v2" /></>,
+  L3SW: <><rect x="1.5" y="4" width="11" height="6" rx="1.2" /><path d="M3.5 7h1M6 7h1M8.5 7h1M3 10v2M7 10v2M11 10v2M7 1.5v2.5" /></>,
+  FW: <><rect x="1.5" y="2.5" width="11" height="9" rx="1" /><path d="M1.5 5.5h11M1.5 8.5h11M5 2.5v3M9 5.5v3M5 8.5v3" /></>,
+  RTR: <><circle cx="7" cy="7" r="5.5" /><path d="M4 6l1.5-1.2v2.4zM10 8l-1.5 1.2V6.8zM4.5 8h4M5.5 6h4" /></>,
   GHOST: <><path d="M3 12V6a4 4 0 0 1 8 0v6l-2-1.5-2 1.5-2-1.5z" strokeDasharray="2 2" /></>,
 };
 

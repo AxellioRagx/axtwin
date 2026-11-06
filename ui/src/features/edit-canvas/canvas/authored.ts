@@ -11,10 +11,12 @@
  */
 import type { Topology, TopologyEdge, TopologyExport, TopologyExportNode, TwinTree } from "../../../api/types";
 import type { CastInput, RouterLegs } from "../model/graph";
-import { DEVICE_ROLES } from "../model/roles";
 
-/** A host's second and later attachments: a multi-homed host is drawn in its
- *  first segment with a leg to each of the others. */
+/** A host's second and later attachments (rendering rule 4, track 4): a
+ *  multi-homed host sits on the lowest of its buses with a stub to each of
+ *  the others. A switch-class host is a host like any other -- a switch IN a
+ *  segment is a member of it, not a gateway to it (the track-3 device rule
+ *  is reverted). */
 export interface ExtraLeg {
   host: string;
   /** The network id, which is the segment NAME in the export vocabulary. */
@@ -29,18 +31,9 @@ export interface AuthoredGraph {
   /** The routers with a leg on an `egress: true` network: the config's
    *  uplinks, which are what draws an Internet node over an authored twin. */
   uplinks: string[];
-  /** The `kind: host` nodes drawn router-style (rendering rule 5): a switch
-   *  or router role with legs on more than one segment. */
-  devices: string[];
 }
 
-export interface AuthoredOptions {
-  /** The roles that make a multi-homed host a device (`model/roles.ts` `DEVICE_ROLES`). */
-  deviceRoles?: ReadonlySet<string>;
-}
-
-export function authoredGraph(topology: Topology, tree: TwinTree | null, options: AuthoredOptions = {}): AuthoredGraph {
-  const deviceRoles = options.deviceRoles ?? DEVICE_ROLES;
+export function authoredGraph(topology: Topology, tree: TwinTree | null): AuthoredGraph {
   const networks = topology.nodes.filter((n) => n.type === "network");
   const netById = new Map(networks.map((n) => [n.id, n]));
   const cidrOf = (netId: string): string => netById.get(netId)?.cidr ?? netId;
@@ -77,7 +70,6 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null, options
   const routers: RouterLegs[] = [];
   const extraLegs: ExtraLeg[] = [];
   const uplinks: string[] = [];
-  const devices: string[] = [];
   const egressNets = new Set(networks.filter((n) => n.egress).map((n) => n.id));
   const entities = new Map<string, number>();
   for (const n of topology.nodes) {
@@ -88,15 +80,8 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null, options
       if (legs.some((e) => egressNets.has(e.target))) uplinks.push(n.id);
       continue;
     }
-    // Rendering rule 5: a host of a switch or router role on several segments
-    // is a device between them, drawn router-style with its config legs; a
-    // host's legs are ever only its `net` / `nets[]` -- nothing is inferred.
-    const role = roleByInstance.get(n.id) ?? null;
-    if (role !== null && deviceRoles.has(role) && new Set(legs.map((e) => e.target)).size > 1) {
-      routers.push({ name: n.id, segments: legs.map((e) => e.target), kind: "host", role });
-      devices.push(n.id);
-      continue;
-    }
+    // A host's attachments are ever only its `net` / `nets[]` -- nothing is
+    // inferred; the first is where it sits, the rest are its stubs (rule 4).
     const first = legs[0];
     const segment = first ? cidrOf(first.target) : null;
     if (first) entities.set(first.target, (entities.get(first.target) ?? 0) + 1);
@@ -142,5 +127,5 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null, options
     routers,
     segmentRoster: networks.map((n) => ({ name: n.id, cidr: cidrOf(n.id), zone_type: zoneByName.get(n.id) ?? null })),
   };
-  return { exportData, cast, extraLegs, uplinks, devices };
+  return { exportData, cast, extraLegs, uplinks };
 }

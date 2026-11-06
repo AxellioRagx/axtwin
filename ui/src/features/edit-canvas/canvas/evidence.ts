@@ -7,7 +7,7 @@
  * on a selected segment, and for a selected host the arcs its own observed
  * edges contribute to (its segment to each peer's). Pure -- no React.
  */
-import type { TopologyExport } from "../../../api/types";
+import type { CastRoster, TopologyExport } from "../../../api/types";
 import type { ConsoleGraph } from "../model/graph";
 import { arcKey, type CanvasNode } from "./placement";
 
@@ -52,4 +52,31 @@ export function arcShown(key: string, scope: ArcScope, lit: ReadonlySet<string>)
   if (lit.has(key) || scope.keys.has(key)) return true;
   if (!scope.anchors.size) return false;
   return key.split("|").some((a) => scope.anchors.has(a));
+}
+
+/**
+ * Rule 3 (track 4): a switch-class host's OBSERVED adjacency is evidence, never
+ * a structural leg. For a design node (a cast group name) the cast roster
+ * says which observed entities are its members and which observed network
+ * each segment name stands for; the export's edges say which peers those
+ * members talked to. The segments those peers sit in, less the ones the
+ * node's `nets[]` already name, are what the inspector offers to attach.
+ * Sorted; empty when the twin was not cast or nothing was observed. Pure.
+ */
+export function observedSegments(exportData: TopologyExport | null, roster: CastRoster | null, node: string, attached: readonly string[]): string[] {
+  if (!exportData || !roster) return [];
+  const members = new Set(roster.node_roster.find((n) => n.name === node)?.members ?? []);
+  if (!members.size) return [];
+  const nameByObservedCidr = new Map<string, string>();
+  for (const s of roster.segment_roster) if (s.observed_cidr) nameByObservedCidr.set(s.observed_cidr, s.name);
+  const cidrOfEntity = new Map(exportData.nodes.map((n) => [n.id, n.segment]));
+  const out = new Set<string>();
+  for (const e of exportData.edges) {
+    const peer = members.has(e.src) ? e.dst : members.has(e.dst) ? e.src : null;
+    if (!peer || members.has(peer)) continue;
+    const cidr = cidrOfEntity.get(peer);
+    const name = cidr ? nameByObservedCidr.get(cidr) : undefined;
+    if (name && !attached.includes(name)) out.add(name);
+  }
+  return [...out].sort();
 }

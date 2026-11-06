@@ -144,10 +144,10 @@ const SEARCH_CAP = 400_000;
 
 /**
  * The cheapest orthogonal path on `grid` from `from` (a grid point, entered
- * moving DOWN) to `to` (a grid point, to be left moving DOWN), or `null`.
- * The result is the corner points only, `from` and `to` included.
+ * moving `startDir`) to `to` (a grid point, to be left moving `endDir`), or
+ * `null`. The result is the corner points only, `from` and `to` included.
  */
-export function routeOnGrid(grid: Grid, from: Point, to: Point, bend: number, startDir: 1 | 3 = 1): Point[] | null {
+export function routeOnGrid(grid: Grid, from: Point, to: Point, bend: number, startDir: 1 | 3 = 1, endDir: 1 | 3 = 1): Point[] | null {
   const { xs, ys, hBlocked, vBlocked } = grid;
   const cols = xs.length;
   const rows = ys.length;
@@ -191,7 +191,7 @@ export function routeOnGrid(grid: Grid, from: Point, to: Point, bend: number, st
       if (blocked) continue;
       const step = nd === 0 || nd === 2 ? Math.abs(xs[ni]! - xs[i]!) : Math.abs(ys[nj]! - ys[j]!);
       const ns = key(ni, nj, nd);
-      const cost = g[s]! + step + (nd === d ? 0 : bend) + (ni === i1 && nj === j1 && nd !== 1 ? bend : 0);
+      const cost = g[s]! + step + (nd === d ? 0 : bend) + (ni === i1 && nj === j1 && nd !== endDir ? bend : 0);
       if (cost < g[ns]!) {
         g[ns] = cost;
         parent[ns] = s;
@@ -227,9 +227,10 @@ export interface LegRequest {
   id: string;
   /** Where the leg leaves its node: on the node's bottom edge, moving down (or its top edge, moving up). */
   from: Point;
-  /** Where the leg lands: on the target's top edge, arriving from above. */
+  /** Where the leg lands: on the target's edge, arriving from above (`arrive: "down"`) or from below. */
   to: Point;
   leave?: "down" | "up";
+  arrive?: "down" | "up";
   /** Points drawn before `from` as they are (a chip's stub inside its own tile). */
   prefix?: readonly Point[];
 }
@@ -244,11 +245,11 @@ export function routeAll(legs: readonly LegRequest[], boxes: readonly Rect[], op
   const { margin, bend } = { ...ROUTE_DEFAULTS, ...options };
   const r = (v: number) => Math.round(v * 2) / 2;
   const starts = legs.map((l) => ({ x: r(l.from.x), y: r(l.leave === "up" ? l.from.y - margin : l.from.y + margin) }));
-  const ends = legs.map((l) => ({ x: r(l.to.x), y: r(l.to.y - margin) }));
+  const ends = legs.map((l) => ({ x: r(l.to.x), y: r(l.arrive === "up" ? l.to.y + margin : l.to.y - margin) }));
   const grid = buildGrid(boxes, [...starts.map((p) => p.x), ...ends.map((p) => p.x)], [...starts.map((p) => p.y), ...ends.map((p) => p.y)], margin);
   const out = new Map<string, Point[]>();
   legs.forEach((leg, k) => {
-    const inner = routeOnGrid(grid, starts[k]!, ends[k]!, bend, leg.leave === "up" ? 3 : 1);
+    const inner = routeOnGrid(grid, starts[k]!, ends[k]!, bend, leg.leave === "up" ? 3 : 1, leg.arrive === "up" ? 3 : 1);
     if (!inner) return;
     out.set(leg.id, simplify([...(leg.prefix ?? []), leg.from, ...inner, leg.to]));
   });

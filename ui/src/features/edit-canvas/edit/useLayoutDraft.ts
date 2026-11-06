@@ -48,6 +48,8 @@ export interface LayoutDraft {
   note: string | null;
   savedAt: string | null;
   onPin(key: string, at: { x: number; y: number }): void;
+  /** Several pins at once (a bus reorder re-ranks its site's lanes): one change. */
+  onPinMany(pins: Record<string, { x: number; y: number }>): void;
   setAnnotations(list: Annotation[]): void;
   save(): Promise<boolean>;
   discard(): void;
@@ -82,6 +84,10 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
 
   const onPin = useCallback((key: string, at: { x: number; y: number }) => {
     setPins((p) => ({ ...p, [key]: at }));
+    setChanges((n) => n + 1);
+  }, []);
+  const onPinMany = useCallback((many: Record<string, { x: number; y: number }>) => {
+    setPins((p) => ({ ...p, ...many }));
     setChanges((n) => n + 1);
   }, []);
   const setAnnotations = useCallback((list: Annotation[]) => {
@@ -133,5 +139,5 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [changes]);
 
-  return { doc, pins, annotations, changes, saving, error, note, savedAt, onPin, setAnnotations, save, discard };
+  return { doc, pins, annotations, changes, saving, error, note, savedAt, onPin, onPinMany, setAnnotations, save, discard };
 }

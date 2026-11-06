@@ -77,15 +77,19 @@ describe("a compact tile's sizes", () => {
   });
 });
 
-describe("a site's tile columns follow the plane's shape", () => {
-  it("a five-site cast with six 290 x 96 tiles each goes to one column; a small twin keeps two", async () => {
-    const { chooseSiteCols, PLANE_ASPECT_TARGET } = await import("../src/features/edit-canvas/canvas/placement");
-    const tile = { w: 290, h: 96 };
-    const six = Array.from({ length: 6 }, () => tile);
+describe("the site rows follow the plane's shape (track 4)", () => {
+  it("five corp-twin-sized sites go two or three per row; a lone site is one; a small twin stays one row", async () => {
+    const { chooseSitesPerRow, PLANE_ASPECT_TARGET, planeSize } = await import("../src/features/edit-canvas/canvas/bus");
     expect(PLANE_ASPECT_TARGET).toBe(1.8);
-    expect(chooseSiteCols(Array.from({ length: 5 }, () => ({ boxes: six, engineCols: 3 })))).toBe(1);
-    expect(chooseSiteCols([{ boxes: [tile, tile], engineCols: 2 }])).toBe(2);
-    expect(chooseSiteCols([{ boxes: [tile, tile, tile, tile], engineCols: 2 }, { boxes: [tile, tile], engineCols: 2 }])).toBe(2);
-    expect(chooseSiteCols([])).toBe(1);
+    const site = { w: 520, h: 420 };
+    const five = Array.from({ length: 5 }, () => site);
+    const k = chooseSitesPerRow(five);
+    expect(k).toBeGreaterThanOrEqual(2);
+    expect(k).toBeLessThanOrEqual(4);
+    expect(chooseSitesPerRow([site])).toBe(1);
+    expect(chooseSitesPerRow([site, site])).toBe(2);
+    expect(chooseSitesPerRow([])).toBe(1);
+    expect(planeSize(five, 5).h).toBe(420);
+    expect(planeSize(five, 2).h).toBeGreaterThan(3 * 420);
   });
 });

@@ -89,19 +89,19 @@ describe("a site grows around its children", () => {
     return { x: n.position.x + (parent?.position.x ?? 0), y: n.position.y + (parent?.position.y ?? 0), w: n.width!, h: n.height! };
   };
 
-  it("a segment pinned above and left of the site pulls the site's edge with it; the others stay put", () => {
+  it("a segment pinned to rank 0 goes first; the others keep their order; the site's box holds every lane", () => {
     const graph = graphOf(TE);
     const plain = place(graph);
     const site0 = plain.nodes.find((n) => n.type === "site")!;
     const office0 = abs(plain, "seg:office");
     const servers0 = abs(plain, "seg:servers");
-    const pinned = place(graph, { "segment:10.70.10.0/24": { x: site0.position.x - 150, y: site0.position.y - 120 } });
+    expect(office0.y).toBeLessThan(servers0.y);
+    const pinned = place(graph, { "segment:10.70.20.0/24": { x: 0, y: 0 } });
     const site = pinned.nodes.find((n) => n.type === "site")!;
     const office = abs(pinned, "seg:office");
     const servers = abs(pinned, "seg:servers");
-    expect([office.x, office.y]).toEqual([site0.position.x - 150, site0.position.y - 120]);
-    expect([servers.x, servers.y]).toEqual([servers0.x, servers0.y]);
-    expect(office0).not.toEqual(office);
+    expect(servers.y).toBeLessThan(office.y);
+    expect([servers.x, servers.y]).toEqual([office0.x, office0.y]); // it took the first slot
     for (const b of [office, servers]) {
       expect(b.x).toBeGreaterThanOrEqual(site.position.x);
       expect(b.y).toBeGreaterThan(site.position.y);

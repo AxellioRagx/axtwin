@@ -173,21 +173,22 @@ describe("the design canvas (C2, read-only)", () => {
   });
 
   it("places a cast twin identically across two renders of the same layout document", async () => {
-    const doc = layoutDoc("corp-cast", { "segment:10.80.30.0/24": { x: 700, y: 650 }, "site:misc": { x: 1200, y: 300 } });
+    // A site pin is an absolute top-left; a segment pin is the bus's RANK in its site (track 4): seg-b first.
+    const doc = layoutDoc("corp-cast", { "segment:10.80.30.0/24": { x: 0, y: 0 }, "site:misc": { x: 1200, y: 300 } });
     const first = seeded({ layouts: { "corp-cast": doc } });
     const r1 = renderAt(first.api, "/twins/corp-cast/canvas");
     // The layout document loads beside the graph; the pins land when it does.
-    await waitFor(() => expect(positions()["segment:10.80.30.0/24"]).toEqual([700, 650]));
+    await waitFor(() => expect(positions()["site:misc"]).toEqual([1200, 300]));
     const a = positions();
     r1.unmount();
     const second = seeded({ layouts: { "corp-cast": doc } });
     renderAt(second.api, "/twins/corp-cast/canvas");
-    await waitFor(() => expect(positions()["segment:10.80.30.0/24"]).toEqual([700, 650]));
+    await waitFor(() => expect(positions()["site:misc"]).toEqual([1200, 300]));
     const b = positions();
     expect(Object.keys(a).length).toBeGreaterThan(5);
     expect(b).toEqual(a);
-    // The pins are honoured as absolute top-lefts; unpinned elements keep their computed slots.
-    expect(a["segment:10.80.30.0/24"]).toEqual([700, 650]);
+    // The rank pin put seg-b (10.80.30) above seg-a (10.80.20), against CIDR order; unpinned elements keep their computed slots.
+    expect(a["segment:10.80.30.0/24"]![1]).toBeLessThan(a["segment:10.80.20.0/24"]![1]);
     expect(a["site:misc"]).toEqual([1200, 300]); // the lone 10.20 segment is the engine's misc group
     expect(a["site:10.80"]).not.toEqual([1200, 300]);
     // A host chip follows its (unpinned) segment: it sits inside the segment's box.
@@ -349,7 +350,7 @@ describe("the one write: a dragged node's position as a pin", () => {
   it("keys sites, segments and nodes; chrome, collapsed bands and +N tiles are not pinnable", () => {
     expect(pinKeyOf({ data: { kind: "site", key: "site:10.80", label: "10.80", shown: 1, total: 1, northSouthBytes: 0 } })).toBe("site:10.80");
     expect(pinKeyOf({ data: { kind: "segment", name: "seg-a", cidr: "10.80.20.0/24", deployedCidr: null, zoneType: null, hosts: 0, ghosts: 0, evidenceMix: [], roleBadges: [], hasRouterLeg: false } })).toBe("segment:10.80.20.0/24");
-    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0, uplink: false, crossing: null, device: null } })).toBe("host:gw01");
+    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0, uplink: false, crossing: null, hue: "#2b6fd6" } })).toBe("host:gw01");
     expect(pinKeyOf({ data: { kind: "overflow", siteKey: "site:10.80", hidden: 3, total: 9, expanded: false } })).toBeNull();
     expect(pinKeyOf({ data: { kind: "internet", label: "", sub: "", title: "" } })).toBeNull();
   });

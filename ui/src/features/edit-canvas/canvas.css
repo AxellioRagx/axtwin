@@ -114,33 +114,32 @@
 .cv-site.selected { box-shadow: 0 0 0 2px var(--accent); }
 .cv-site.collapsed { background: color-mix(in srgb, var(--muted) 16%, transparent); }
 
-.cv-segment { border: 2px solid var(--ev, var(--line)); border-radius: 8px; background: var(--panel); color: var(--ink); }
-.cv-segment-header { display: flex; gap: 6px; align-items: center; padding: 3px 8px; font-size: 12.5px; border-bottom: 1px solid var(--line); height: 26px; white-space: nowrap; overflow: hidden; }
-.cv-segment-name { font-weight: 600; flex: none; }
-.cv-segment-cidr { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.cv-segment-count { margin-left: auto; flex: none; }
-/* Compact: the name may ellipsize (rarely) but the count, a number-only pill, never drops. */
-.cv-segment.compact .cv-segment-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.cv-segment.compact .badge.cv-segment-count { padding: 0 calc(5px * var(--inv, 1)); border-radius: 999px; line-height: 1.3; color: var(--ink); border-color: var(--muted); }
-/* Compact (zoomed out, model/detail.ts): no chips, a glyph row instead. The
-   header's text keeps a constant SCREEN size through `--inv` (1/zoom, set on
-   the shell, capped at 2.5) and the CIDR is the first thing to give way; the
-   glyphs stay in canvas units (GLYPH_* in model/detail.ts sizes the row to
-   the tile) and read as shapes at 0.3x, which is what they are for. */
-.cv-segment.compact { border-radius: 10px; overflow: hidden; }
-.cv-segment.compact .cv-segment-header { height: 34px; font-size: calc(13px * var(--inv, 1)); padding: 2px 10px; gap: 8px; }
-/* `.mono` carries its own 12.5 px, so the name and CIDR are sized here explicitly. */
-/* 10.5 px x inv: a cast twin's `seg-10-20-193-0` (15 glyphs) fits a 290 px tile beside the count at zoom 0.44. */
-.cv-segment.compact .cv-segment-name { font-size: calc(10.5px * var(--inv, 1)); }
-.cv-segment.compact .cv-segment-header > .badge:not(.cv-segment-count) { display: none; } /* the gw badge: the legs show it */
-/* Compact: the CIDR goes (it is the tile's title and the inspector's fact); the name keeps the line. */
-.cv-segment.compact .cv-segment-cidr { display: none; }
-.cv-segment.compact .cv-segment-count { font-size: calc(11px * var(--inv, 1)); }
+/* Rendering rule 1 (track 4): a segment is a BUS -- one line along the lane's
+   bottom edge, its name and CIDR at the left end, the host-count badge at the
+   right end, one hue dot per serving router (rule 2) at the left end of the
+   line; no enclosing box. The lane's box (the host rows above the line) is
+   the drop target of every attach gesture. */
+.cv-segment { color: var(--ink); }
+.cv-bus { position: relative; background: transparent; border: none; }
+.cv-bus-line { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; border-radius: 2px; background: var(--ev, var(--line)); opacity: 0.9; }
+.cv-bus.ev-none .cv-bus-line { background: var(--muted); }
+.cv-bus-label { position: absolute; left: 10px; bottom: 7px; display: flex; flex-direction: column; gap: 1px; max-width: 150px; line-height: 1.15; }
+.cv-segment-name { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-segment-cidr { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-bus-dots { position: absolute; left: 2px; bottom: -4px; display: flex; gap: 3px; align-items: center; }
+.cv-bus-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--bg); box-shadow: 0 0 0 1px var(--line); }
+.cv-bus .cv-segment-count { position: absolute; right: 2px; bottom: -8px; min-width: 18px; padding: 0 6px; border-radius: 999px; line-height: 1.35; font-size: 11px; background: var(--panel); color: var(--ink); border-color: var(--muted); text-align: center; }
+.cv-bus.selected .cv-bus-line { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.cv-bus.selected .cv-segment-name { color: var(--accent); }
+/* Compact (zoomed out, model/detail.ts): no icons, a glyph row over the host
+   rows instead. The label keeps a constant SCREEN size through `--inv`
+   (1/zoom, set on the shell, capped at 2.5). */
+.cv-bus.compact .cv-segment-name { font-size: calc(12px * var(--inv, 1)); }
+.cv-bus.compact .cv-segment-cidr { display: none; }
+.cv-bus.compact .cv-segment-count { font-size: calc(11px * var(--inv, 1)); padding: 0 calc(5px * var(--inv, 1)); }
+.cv-bus .cv-glyphs { position: absolute; left: 168px; right: 60px; bottom: 6px; padding: 0; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
 /* Zoomed out, the other labels read at screen size too, capped by their boxes. */
 .canvas-shell.compact .cv-site-label, .canvas-shell.compact .cv-site-label .mono { font-size: min(calc(12.5px * var(--inv, 1)), 17px); line-height: 1.1; }
-/* A narrow (one-chip) tile at compact: the name may take two lines; a lone host needs no glyph row. */
-.cv-segment.compact.narrow .cv-segment-header { height: auto; min-height: 34px; white-space: normal; align-items: flex-start; padding-top: 4px; }
-.cv-segment.compact.narrow .cv-segment-name { white-space: normal; overflow-wrap: anywhere; line-height: 1.1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .canvas-shell.compact .cv-icon-name { font-size: min(calc(12.5px * var(--inv, 1)), 26px); }
 .canvas-shell.compact .cv-chrome .cv-icon-name { font-size: min(calc(11px * var(--inv, 1)), 22px); }
 .cv-glyphs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
@@ -148,31 +147,33 @@
 .cv-glyph svg { width: 20px; height: 20px; }
 .cv-glyph.ghost { opacity: 0.6; border-style: dashed; }
 .cv-glyph-fold { font-size: 14px; }
-.cv-segment.selected { box-shadow: 0 0 0 2px var(--accent); }
 .cv-segment .cv-empty { margin: 8px; font-size: 12px; }
-.cv-unplaced { border-style: dotted; }
+.cv-unplaced { border: 2px dotted var(--line); border-radius: 8px; background: var(--panel); }
+.cv-unplaced .cv-segment-header { display: flex; gap: 6px; align-items: center; padding: 3px 8px; font-size: 12.5px; }
 
-/* The chip is seen at zoom 0.6 and up: 15 px canvas text is 9 px on screen
-   at 0.6 and 15 at 1, inside the fixed CHIP_W x CHIP_H slot (132 x 30). */
-.cv-host { position: relative; display: flex; align-items: center; gap: 5px; padding: 0 6px 0 3px; border: 1px solid var(--line); border-radius: 15px; background: var(--bg); color: var(--ink); font-size: 13px; white-space: nowrap; overflow: visible; cursor: grab; }
-/* The chip at full detail: the role glyph inside the evidence ring, the short name. */
+/* A host on its bus (rule 1): a 30 px icon -- the role glyph inside the
+   evidence ring -- sitting on the line; the `×N` badge inside its bounds at
+   the bottom-right; a switch-class host's role badge (rule 3) at the top-right;
+   its caption under the line when labels are on (the node keeps its 30 px box,
+   so no pin moves). Name, address and role are on the hover card. */
+.cv-host { position: relative; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--ink); font-size: 13px; white-space: nowrap; overflow: visible; cursor: grab; }
 .cv-host .cv-ring { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--ev, var(--line)); flex: none; color: var(--ink); }
 .cv-host .cv-ring svg { width: 14px; height: 14px; }
-/* 13.5 px mono: eleven characters in the 132 px chip (`mail-server` fits, `domain-controller` ellipsizes). */
-.cv-host .cv-host-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+.cv-host .cv-host-label { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 10.5px; line-height: 1.1; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 85%, transparent); max-width: 96px; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .cv-host.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-/* Rendering rule 4: with no label the chip is its ring alone (the node is
-   sized to it, so the hit box is the drawn box); the count badge rides its corner. */
-.cv-host.bare { padding: 0; justify-content: center; gap: 0; border-radius: 50%; }
-/* Rendering rule 8: ONE badge style -- the `×N` sits inside the chip's bounds at
-   its bottom-right corner, bare or labelled (a labelled chip keeps the corner clear). */
-.cv-host .cv-count-badge { position: absolute; right: 1px; bottom: 1px; padding: 0 3px; font-size: 10px; line-height: 12px; min-width: 0; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); }
-.cv-host:has(.cv-count-badge):not(.bare) { padding-right: 24px; }
-/* A collapsed role band (rule 8): the band's ring with its count as the same badge. */
-.cv-rungs.bare .cv-count-badge { right: -4px; bottom: -3px; }
+.cv-host.selected .cv-host-label { color: var(--accent); }
+/* ONE badge style: the `×N` sits inside the icon's bounds at its bottom-right. */
+.cv-host .cv-count-badge { position: absolute; right: -1px; bottom: -1px; padding: 0 2px; font-size: 9.5px; line-height: 11px; min-width: 0; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); }
+/* Rule 3: a switch-class host wears its role (`L2`, `L3`, `FW`) at the top-right, with the switch glyph in its ring. */
+.cv-host .cv-role-badge { position: absolute; left: -5px; top: -6px; padding: 0 3px; font-size: 8.5px; font-weight: 700; line-height: 11px; border-radius: 4px; background: var(--ink); color: var(--bg); letter-spacing: 0.02em; }
+.cv-host.cv-switch .cv-ring { border-radius: 6px; }
+/* Rule 4: a multi-homed host sits on the lowest of its buses; a second ring says it is on more. */
+.cv-host.cv-multi { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--muted); }
+.cv-host.cv-multi.selected { box-shadow: 0 0 0 2px var(--accent); }
 .cv-host.ghost { opacity: 0.55; border-style: dashed; }
 .cv-host.glow { border-color: var(--glow); box-shadow: 0 0 0 3px var(--glow), 0 0 14px 4px var(--glow); transition: box-shadow 0.3s ease; }
 .cv-rungs { background: var(--panel); border-style: dashed; cursor: default; }
+.cv-host.cv-rungs .cv-count-badge { right: -1px; bottom: -1px; }
 /* The hovered chip's node rises above its neighbours, or the card is half under the next chip. */
 .react-flow__node:has(> .cv-host:hover), .react-flow__node:has(.cv-card) { z-index: 1000 !important; }
 .cv-card { position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px; min-width: 240px; max-width: 320px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); white-space: normal; cursor: default; pointer-events: none; }
@@ -186,6 +187,10 @@
    every leg starts -- is the icon's own bottom, and the text hangs above. */
 .cv-router { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; color: var(--ink); font-size: 12px; line-height: 1.2; }
 .cv-icon-box { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: var(--panel); border: 1.5px solid var(--muted); color: var(--ink); flex: none; }
+/* Rule 2: a router's one hue, on its icon ring (its legs and its buses' dots carry the same). */
+.cv-router .cv-icon-box { border-color: var(--hue, var(--muted)); border-width: 2.5px; border-radius: 50%; }
+.cv-router .cv-icon-name { color: var(--ink); }
+.cv-hue-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .cv-icon-box svg { width: 20px; height: 20px; }
 .cv-icon-name { font-weight: 600; white-space: nowrap; }
 /* Rendering rule 1: the gateway is a badge on its router's icon. */
@@ -194,9 +199,6 @@
    box): a long one ellipsizes, the full name is the node's title and its card.
    `flex: none`, or the overflow rule lets the item shrink and clip its own text. */
 .cv-router .cv-icon-name { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Rule 5: a host of a switch or router role drawn router-style wears its role under its name. */
-.cv-router .cv-device-role { font-size: 10.5px; color: var(--muted); line-height: 1.1; }
-.cv-router[data-device] .cv-icon-box { border-radius: 6px; }
 .cv-wan-badge { position: absolute; top: -7px; right: -7px; width: 15px; height: 15px; border-radius: 50%; background: var(--panel); border: 1px solid var(--muted); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
 .cv-wan-badge svg { width: 9px; height: 9px; }
 .cv-icon-sub { font-size: 11px; white-space: nowrap; }
@@ -215,11 +217,23 @@
 .react-flow__edge-path.cv-arc { stroke: var(--muted); fill: none; }
 .react-flow__edge-path.cv-arc-asserted { stroke-dasharray: 6 4; }
 .react-flow__edge-path.cv-arc.glow, g.glow .react-flow__edge-path { stroke: var(--glow); filter: drop-shadow(0 0 4px var(--glow)); }
-.react-flow__edge-path.cv-leg { stroke: var(--ink); stroke-width: 1.5; fill: none; }
-.react-flow__edge-path.cv-leg-folded { stroke: var(--muted); stroke-dasharray: 5 4; }
-/* Rule 7: the fan's one leg to a site wears its count; the bus inside the site is quieter. */
-.react-flow__edge-path.cv-leg-fan { stroke: var(--ink); stroke-width: 2; }
-.react-flow__edge-path.cv-leg-bus { stroke: var(--muted); stroke-width: 1.25; }
+/* Rule 2: a router's leg is a drop in the router's hue (set inline), a port
+   dot where it meets its bus; the fan's trunk wears its count; the rail
+   inside the site is the same hue, thinner. A multi-homed host's stub (rule
+   4) is in the ink, dashed, with a hollow dot. */
+.react-flow__edge-path.cv-leg { stroke: var(--hue, var(--ink)); stroke-width: 1.75; fill: none; }
+.react-flow__edge-path.cv-leg-folded { stroke-dasharray: 5 4; opacity: 0.8; }
+.react-flow__edge-path.cv-leg-fan { stroke-width: 2.5; }
+.react-flow__edge-path.cv-leg-bus { stroke-width: 1.5; opacity: 0.85; }
+.react-flow__edge-path.cv-leg-stub { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1.5; }
+.cv-port { stroke-width: 1.5; }
+.cv-port.cv-port-stub { fill: var(--bg) !important; stroke: var(--muted) !important; }
+g.selected .cv-port { fill: var(--accent) !important; stroke: var(--accent) !important; }
+/* Rule 6: the rubber line of a drop being dragged onto another bus, and the bus under it. */
+.cv-rubber { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9; }
+.cv-rubber line { stroke-width: 2; stroke-dasharray: 6 4; }
+.cv-rehome-hint { position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); z-index: 9; padding: 4px 10px; border-radius: 6px; background: var(--float-bg); border: 1px solid var(--line); font-size: 12.5px; pointer-events: none; }
+.canvas-shell.rehoming .react-flow__pane { cursor: grabbing; }
 [data-testid="canvas-leg"][data-fan] .react-flow__edge-textwrapper { display: block; }
 [data-testid="canvas-leg"][data-fan] .react-flow__edge-textbg { fill: var(--panel); }
 [data-testid="canvas-leg"][data-fan] .react-flow__edge-text { font-size: 11px; fill: var(--ink); }
@@ -301,11 +315,14 @@ table.cv-matrix th:first-child { text-align: left; }
    chips do not wear a hundred blue dots. */
 .canvas-shell.editing .react-flow__handle { opacity: 0; pointer-events: all; background: var(--accent); transition: opacity 0.12s ease; }
 .canvas-shell.editing .cv-host:hover .react-flow__handle-bottom, .canvas-shell.editing .cv-router:hover .react-flow__handle-bottom, .canvas-shell.editing .cv-host.selected .react-flow__handle-bottom, .canvas-shell.editing.attaching .cv-host .react-flow__handle-bottom, .canvas-shell.editing.attaching .cv-router .react-flow__handle-bottom { opacity: 1; }
-.canvas-shell.editing .cv-segment .react-flow__handle-top { width: 60%; height: 6px; border-radius: 3px; left: 20%; transform: none; top: -3px; }
-.canvas-shell.editing .cv-segment:hover .react-flow__handle-top, .canvas-shell.editing .cv-segment.cv-target .react-flow__handle-top, .canvas-shell.editing.attaching .cv-segment .react-flow__handle-top, .canvas-shell.editing .react-flow.connecting .cv-segment .react-flow__handle-top { opacity: 1; }
-.cv-segment.cv-target { box-shadow: 0 0 0 2px var(--accent), 0 0 10px var(--accent); }
+/* A bus's target handle is a dot on its line until a handle drag is in flight (the
+   shell's `connecting`): then it is the whole lane, so the connection dropped anywhere
+   on the lane lands. Otherwise it takes no pointer events, so the lane itself drags. */
+.canvas-shell.editing .cv-segment .react-flow__handle-top { top: auto; bottom: -3px; left: 50%; pointer-events: none; }
+.canvas-shell.editing.connecting .cv-segment .react-flow__handle-top { width: 100%; height: 100%; border-radius: 6px; left: 0; top: 0; bottom: auto; transform: none; pointer-events: all; opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.canvas-shell.editing .cv-segment.cv-target .react-flow__handle-top { opacity: 1; }
+.cv-segment.cv-target { border-radius: 6px; box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cv-host.cv-armed { box-shadow: 0 0 0 2px var(--accent); }
-.cv-host .cv-count-badge { padding: 0 5px; font-size: 12px; flex: none; }
 .react-flow__edge-path.cv-leg.selected, g.selected .react-flow__edge-path.cv-leg { stroke: var(--accent); stroke-width: 2.5; }
 
 .cv-menu { position: absolute; z-index: 30; list-style: none; margin: 0; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); min-width: 180px; }

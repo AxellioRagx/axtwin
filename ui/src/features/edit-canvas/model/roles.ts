@@ -90,14 +90,21 @@ export const INFRA_DEVICE_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The roles that make a `kind: host` node a NETWORK DEVICE on the canvas
- * (rendering rule 5, 2026-11-06): attached to more than one segment, such a
- * host is drawn router-style between its segments rather than as a chip in
- * its first segment fanning legs out of the tile. The API enumerates no role
- * vocabulary (the tree carries each group's role as written), so this is the
- * configurable set the canvas reads; `authoredGraph` takes an override.
+ * The SWITCH CLASS (rendering rule 3, track 4, 2026-11-06): a `kind: host`
+ * of one of these roles is a host on its bus like any other -- a switch IN a
+ * segment is a member of it, not a gateway to it -- drawn with the switch
+ * icon and a role badge, and its observed adjacency is offered in the
+ * inspector as evidence to attach, never drawn as a structural leg. The API
+ * enumerates no role vocabulary (the tree carries each group's role as
+ * written), so this is the configurable set the canvas reads.
  */
-export const DEVICE_ROLES: ReadonlySet<string> = new Set(["l2-switch", "l3-switch", "router", "firewall"]);
+export const SWITCH_ROLES: ReadonlySet<string> = new Set(["l2-switch", "l3-switch", "router", "firewall"]);
+
+/** The short badge a switch-class host wears on its icon (`L2`, `L3`, `FW`, `RTR`). */
+export function switchBadge(role: string): string {
+  return SWITCH_BADGE[role] ?? roleBadgeLabel(role);
+}
+const SWITCH_BADGE: Readonly<Record<string, string>> = { "l2-switch": "L2", "l3-switch": "L3", firewall: "FW", router: "RTR" };
 
 /**
  * A total order key for a role band or matrix axis. Named roles keep their
@@ -175,6 +182,10 @@ const ROLE_BADGE_ABBR: Readonly<Record<string, string>> = {
   "bastion-jump": "JUMP",
   "corp-workstation": "WS",
   "generic-endpoint": "EP",
+  "l2-switch": "L2SW",
+  "l3-switch": "L3SW",
+  firewall: "FW",
+  router: "RTR",
   [UNROLED]: "NONE",
   [EXTERNAL]: "EXT",
 };

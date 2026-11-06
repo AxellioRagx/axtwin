@@ -32,6 +32,7 @@ import {
 } from "./edit/document";
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
+import { SWITCH_ROLES } from "./model/roles";
 
 export type Selection =
   | { kind: "none" }
@@ -71,6 +72,9 @@ export interface SidePanelProps {
   blocked: string | null;
   /** A node group or segment was renamed: the selection is keyed by name, re-key it. */
   onRenamed?: ((kind: "node" | "segment", from: string, to: string) => void) | undefined;
+  /** Rule 3 (track 4): the segments a switch-class host was OBSERVED on and is not attached to
+   *  (`canvas/evidence.ts` `observedSegments`), evidence the inspector offers to attach. */
+  observedSegments?: ((node: string) => string[]) | undefined;
 }
 
 const ZONE_TYPES = ["", "vlan", "simple", "dmz", "mgmt", "ot"];
@@ -257,6 +261,8 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const baseRole = p.baseline?.te.nodes.find((x) => x.name === n.name)?.role;
   const roleChanged = p.baseline !== null && baseRole !== undefined && baseRole !== n.role && n.role;
   const otherSegments = p.model.te.segments.filter((s) => !n.nets.some((l) => l.segment === s.name));
+  const isSwitch = n.role !== null && SWITCH_ROLES.has(n.role);
+  const observed = isSwitch && p.observedSegments ? p.observedSegments(n.name).filter((seg) => p.model.te.segments.some((s) => s.name === seg)) : [];
   return (
     <section className="cv-side-section" data-testid="node-panel">
       <h3>
@@ -291,6 +297,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
         </select>
       </Field>
       <h4>Attachments</h4>
+      {isSwitch ? <p className="muted hint" data-testid="switch-note">a switch is a member of its segments, not a gateway to them: its attachments are the config's `nets[]`</p> : null}
       {n.nets.length === 0 ? <p className="muted">on no segment</p> : null}
       <ul className="cv-legs" data-testid="attachments">
         {n.nets.map((l) => (
@@ -321,6 +328,16 @@ function NodePanel(p: SidePanelProps & { name: string }) {
             }}
           >
             Attach
+          </button>
+        </div>
+      ) : null}
+      {observed.length ? (
+        <div className="cv-observed" data-testid="observed-segments">
+          <p className="muted">
+            observed on {observed.length} segment{observed.length === 1 ? "" : "s"} it is not attached to: <span className="mono">{observed.join(", ")}</span>
+          </p>
+          <button type="button" disabled={ro} onClick={() => p.apply(`attach ${n.name} to ${observed.join(", ")} (observed)`, (d, m) => observed.reduce((files, seg) => attach({ ...d, files }, { ...m, te: { ...m.te, nodes: m.te.nodes.map((x) => (x.name === n.name ? { ...x, nets: [...x.nets, ...observed.slice(0, observed.indexOf(seg)).map((s2) => ({ segment: s2, ip: null }))] } : x)) } }, n.name, seg), d.files))} title="write these segments into the node's nets[] (a topology change: a re-plan)" data-testid="attach-observed">
+            Attach…
           </button>
         </div>
       ) : null}

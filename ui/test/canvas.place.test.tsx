@@ -8,7 +8,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { EDGE_Z, freeSlot, place } from "../src/features/edit-canvas/canvas/placement";
+import { EDGE_Z, orderByRank, place } from "../src/features/edit-canvas/canvas/placement";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import { clickPane, item, seeded, segment, segments } from "./helpers/canvasFixtures";
@@ -43,37 +43,41 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-describe("a pinned box is fixed; the others go into free space", () => {
-  it("freeSlot moves a box right of what it overlaps, and onto a new row when the row is full", () => {
-    const origin = { x: 0, y: 0 };
-    const taken = [{ x: 12, y: 38, w: 200, h: 100 }];
-    expect(freeSlot({ x: 12, y: 38 }, { w: 200, h: 100 }, taken, origin, 600)).toEqual({ x: 228, y: 38 });
-    expect(freeSlot({ x: 300, y: 38 }, { w: 200, h: 100 }, taken, origin, 600)).toEqual({ x: 300, y: 38 });
-    // The row is full: under everything, from the left edge.
-    expect(freeSlot({ x: 12, y: 38 }, { w: 200, h: 100 }, [{ x: 12, y: 38, w: 200, h: 100 }, { x: 228, y: 38, w: 200, h: 100 }], origin, 440)).toEqual({ x: 12, y: 154 });
+describe("a bus is ranked in its site, never dropped free (track 4)", () => {
+  it("orderByRank: a ranked item takes its slot, a clash takes the next, the rest fill in order", () => {
+    const rank = (r: Record<string, number>) => (x: string) => (x in r ? r[x]! : null);
+    expect(orderByRank(["a", "b", "c"], rank({}))).toEqual(["a", "b", "c"]);
+    expect(orderByRank(["a", "b", "c"], rank({ c: 0 }))).toEqual(["c", "a", "b"]);
+    expect(orderByRank(["a", "b", "c"], rank({ a: 2 }))).toEqual(["b", "c", "a"]);
+    expect(orderByRank(["a", "b", "c"], rank({ a: 1, b: 1 }))).toEqual(["c", "a", "b"]);
+    expect(orderByRank(["a", "b", "c"], rank({ b: 9 }))).toEqual(["a", "c", "b"]);
   });
 
-  it("place: a segment pinned onto another's slot does not hide it; the unpinned one moves and the site holds both", () => {
+  it("place: a segment pinned to rank 0 goes to the top of its site; the lanes never overlap and the site holds them all", () => {
     const graph = graphOf(TE);
-    const plain = place(graph);
     const abs = (p: ReturnType<typeof place>, id: string) => {
       const n = p.nodes.find((x) => x.id === id)!;
       const parent = n.parentId ? p.nodes.find((x) => x.id === n.parentId)! : null;
       return { x: n.position.x + (parent?.position.x ?? 0), y: n.position.y + (parent?.position.y ?? 0), w: n.width!, h: n.height! };
     };
-    const office = abs(plain, "seg:office");
-    // Pin `servers` exactly where `office` is packed (a 12 px offset would do the same).
-    const pinned = place(graph, { "segment:10.70.20.0/24": { x: office.x + 12, y: office.y + 12 } });
+    const plain = place(graph);
+    // CIDR order by default: segment-3 (10.70.0) above office (.10) above servers (.20).
+    expect(abs(plain, "seg:segment-3").y).toBeLessThan(abs(plain, "seg:office").y);
+    expect(abs(plain, "seg:office").y).toBeLessThan(abs(plain, "seg:servers").y);
+    const pinned = place(graph, { "segment:10.70.20.0/24": { x: 0, y: 0 } });
     const o = abs(pinned, "seg:office");
     const sv = abs(pinned, "seg:servers");
     const s3 = abs(pinned, "seg:segment-3");
-    expect([sv.x, sv.y]).toEqual([office.x + 12, office.y + 12]);
+    expect(sv.y).toBeLessThan(s3.y);
+    expect(s3.y).toBeLessThan(o.y);
+    expect(pinned.nodes.find((n) => n.id === "seg:servers")!.data).toMatchObject({ rank: 0 });
     const overlap = (a: typeof o, b: typeof o) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
     expect(overlap(o, sv)).toBe(false);
     expect(overlap(s3, sv)).toBe(false);
     expect(overlap(o, s3)).toBe(false);
     const site = pinned.nodes.find((n) => n.type === "site")!;
     for (const b of [o, sv, s3]) {
+      expect(b.x).toBeGreaterThanOrEqual(site.position.x);
       expect(b.x + b.w).toBeLessThanOrEqual(site.position.x + site.width! + 0.01);
       expect(b.y + b.h).toBeLessThanOrEqual(site.position.y + site.height! + 0.01);
     }

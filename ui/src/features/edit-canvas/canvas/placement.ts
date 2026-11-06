@@ -1,55 +1,33 @@
 /**
- * The canvas's placement: the lifted tiered engine decides WHAT is drawn and
- * in what order -- the site groups, which of a group's segments get a tile
- * under the per-group budget (`+N more` for the rest), the role bands inside
- * a segment and which bands collapse by occupancy rung, the top-K observed
- * arcs with their log-scaled widths, the WAN edge -- and this module turns
- * that into React Flow nodes and edges at CONTENT-DERIVED sizes: a segment is
- * a group node sized to the chips it holds, a site a group of segments, a
- * router a node spanning the segments it joins.
+ * The canvas's placement: the lifted tiered engine decides WHAT is drawn --
+ * the site groups, which of a group's segments get a lane under the
+ * per-group budget (`+N more` for the rest), the role bands inside a segment
+ * and which bands collapse by occupancy rung, the top-K observed arcs with
+ * their log-scaled widths -- and this module turns that into React Flow
+ * nodes and edges on the BUS plane (rendering rules of track 4, 2026-11-06):
+ * a segment is a horizontal bus lane sized to the icons on it, a site a
+ * vertical stack of lanes behind a tint, a router a box in the row above
+ * with one hue and one leg into every bus it serves.
  *
  * The frozen console drew hosts only one zoom level down; this canvas draws
- * every chip at once, so the element budgets are applied TOGETHER as the
+ * every icon at once, so the element budgets are applied TOGETHER as the
  * guard against DOM blow-up (`SPEC.md` Notes): over the level-0 box budget,
  * or over the band budget in any drawn segment, the caller falls back to the
  * list/matrix view instead of a denser canvas.
  *
  * Positions: every element's computed absolute top-left, then the pins
- * (`site:` / `segment:` / `host:` -> absolute) override it; React Flow wants a
- * child's position RELATIVE to its parent, so the conversion happens last and
- * `absolutePosition` reverses it after a drag. A child is deliberately NOT
- * clamped to its parent's box (`extent: "parent"`): the clamp would silently
- * move a pin the operator saved, and the attachment is the twin's fact, not
- * the box's -- a chip dragged clear of its segment is still on it, and the
- * attach gesture (Phase 2) is what changes that. Pure -- no React, no DOM.
+ * override it -- a `site:` or `host:` pin is an absolute top-left, a
+ * `segment:` pin is the lane's RANK within its site (its `y`; `x` is 0), so
+ * a bus is reordered, never dropped free on the plane. React Flow wants a
+ * child's position RELATIVE to its parent, so the conversion happens last
+ * and `absolutePosition` reverses it after a drag. A child is deliberately
+ * NOT clamped to its parent's box: the attachment is the twin's fact, not
+ * the box's -- an icon dragged clear of its bus is still on it, and the
+ * attach gesture is what changes that. Pure -- no React, no DOM.
  */
 import type { Edge, Node } from "@xyflow/react";
 
-import {
-  BAND_PAD,
-  CANVAS_PAD,
-  CHIP_GAP_X,
-  CHIP_GAP_Y,
-  CHIP_H,
-  CHIP_W,
-  CHIPS_PER_ROW,
-  DEVICE_GAP_X,
-  DEVICE_GAP_Y,
-  DEVICE_H,
-  DEVICE_W,
-  INTERNET_W,
-  SITE_GAP_X,
-  SITE_HEADER_H,
-  SITE_PAD,
-  TIER_GAP_Y,
-  TIER_INTERNET_H,
-  TILE_GAP_X,
-  TILE_GAP_Y,
-  TILE_H,
-  TILE_W,
-  type Box,
-  type Point,
-} from "../layout/geometry";
+import { CANVAS_PAD, DEVICE_GAP_X, DEVICE_GAP_Y, DEVICE_H, DEVICE_W, INTERNET_W, SITE_GAP_X, SITE_HEADER_H, SITE_PAD, TIER_GAP_Y, TIER_INTERNET_H, TILE_H, TILE_W, type Box, type Point } from "../layout/geometry";
 import { layout0, overflowAnchorKey, siteKeyOfOverflowAnchor, type Level0Options } from "../layout/level0";
 import { layout1 } from "../layout/level1";
 import { NO_PINS, type Pins } from "../layout/pins";
@@ -57,9 +35,12 @@ import { stackBands } from "../layout/tiers";
 import { BUDGET_LEVEL0, BUDGET_LEVEL1_BANDS, type RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
 import { shortName } from "../model/detail";
+import { compareCidr } from "../model/keys";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
 import type { Annotation } from "../edit/annotations";
 import type { ExtraLeg } from "./authored";
+import { BUS_BADGE_W, BUS_GAP_Y, BUS_ICON, BUS_MIN_W, OVERFLOW_LANE_H, PORT_PAD, SITE_ROW_GAP_Y, chooseSitesPerRow, iconSlot, laneContentWidth, laneHeight, laneRows, planeSize, portRegionWidth, siteSize } from "./bus";
+import { hueOf } from "./hues";
 
 // ---------------------------------------------------------------------------
 // Node and edge data -- `type` aliases, not interfaces, so they satisfy React
@@ -72,9 +53,11 @@ export type SiteData = {
   shown: number;
   total: number;
   northSouthBytes: number;
-  /** Folded to its label by the operator (`Canvas.tsx`); its segments are hidden. */
+  /** Folded to its label by the operator (`Canvas.tsx`); its lanes are hidden. */
   collapsed?: boolean;
 };
+/** A router with a leg on a bus, with its hue: the dot at the bus's left end (rule 2). */
+export type Served = { router: string; hue: string };
 export type SegmentData = {
   kind: "segment";
   name: string;
@@ -86,24 +69,32 @@ export type SegmentData = {
   evidenceMix: EvidenceMixEntry[];
   roleBadges: Array<{ role: string; count: number }>;
   hasRouterLeg: boolean;
+  /** The routers with a leg here, in router order (rule 2's dots). */
+  served?: Served[];
+  /** The lane's rank within its site, top to bottom: what a `segment:` pin saves. */
+  rank?: number;
+  /** How many host rows the lane holds. */
+  rows?: number;
 };
 export type HostData = {
   kind: "host";
   nodeId: string;
   label: string;
-  /** The chip's name at full detail (`model/detail.ts` `shortName`). */
+  /** The icon's caption when labels are on (`model/detail.ts` `shortName`). */
   short: string;
   address: string | null;
   role: string | null;
   roleLabel: string;
   roleConfidence: number | null;
   roleEvidence: string | null;
-  /** The placement evidence (`segment_evidence_class`): the chip's ring. */
+  /** The placement evidence (`segment_evidence_class`): the icon's ring. */
   evidence: string | null;
   occupancy: number | null;
   isGhost: boolean;
   listen: string[];
   dial: string[];
+  /** Rule 4: on more than one bus; it sits on the lowest and draws a stub to each other one. */
+  multi?: boolean;
 };
 export type RungsData = { kind: "rungs"; role: string; roleLabel: string; count: number; rungs: RungTally[] };
 /** What crossed the twin's edge, attributed to its gateway router: the
@@ -118,16 +109,15 @@ export type RouterData = {
   uplink: boolean;
   /** The crossing traffic this router carries as the gateway, or `null` when it is not one. */
   crossing: Crossing | null;
-  /** Rendering rule 5: a `kind: host` of a switch or router role drawn router-style, with that role. */
-  device: string | null;
+  /** Rule 2: the router's one hue (`canvas/hues.ts`), on its ring, its legs and its buses' dots. */
+  hue: string;
 };
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
 /** The Internet pill: short label and sub-line beside the icon (the slot
  *  has room for about twenty glyphs each), the full wording in `title`.
- *  Rendering rule 1 (2026-11-06): it is drawn only when the cast evidence
- *  has non-local peers or the config defines an uplink on a router; the
- *  gateway is folded into that router (`RouterData.uplink` / `crossing`),
- *  there is no WAN node. */
+ *  Drawn only when the cast evidence has non-local peers or the config
+ *  defines an uplink on a router; the gateway is folded into that router
+ *  (`RouterData.uplink` / `crossing`), there is no WAN node. */
 export type ChromeData = { kind: "internet"; label: string; sub: string; title: string };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
@@ -136,16 +126,19 @@ export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterD
 export type CanvasNode = Node<CanvasData, string>;
 
 export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
-/** `folded`: the leg goes to a group's `+N more` tile for `folded` hidden
+/** A router's leg onto a bus (rule 2): a vertical drop in the router's hue.
+ *  `folded`: the leg goes to a group's `+N more` lane for `folded` hidden
  *  segments at once (one edge, not one per hidden segment); it names no
  *  single attachment, so it has no label, no detach, no selection. */
-export type LegData = { kind: "leg"; label: string; from: "router" | "host"; folded?: number; /** The site group the target segment lies in (the fan collapse groups by it). */ site?: string };
-/** Rendering rule 7 (`canvas/fan.ts`): one leg from a router to a site's top edge for `count` segments... */
-export type FanData = { kind: "fan"; router: string; site: string; count: number; label: string };
-/** ...and the bus inside the site from that entry to each segment's handle. */
-export type BusData = { kind: "bus"; router: string; site: string; segment: string };
+export type LegData = { kind: "leg"; label: string; folded?: number; /** The site group the target lies in (the fan collapse groups by it). */ site?: string; hue: string };
+/** Rule 4: a multi-homed host's stub from its icon to each bus it is on but does not sit on. */
+export type StubData = { kind: "stub"; host: string; segment: string; label: string; folded?: number; site?: string };
+/** Rule 2's fan (`canvas/fan.ts`): one trunk from a router to a site for `count` buses... */
+export type FanData = { kind: "fan"; router: string; site: string; count: number; label: string; hue: string };
+/** ...and the rail inside the site from that entry down to each bus. */
+export type BusData = { kind: "bus"; router: string; site: string; segment: string; hue: string };
 export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
-export type CanvasEdgeData = ArcData | LegData | FanData | BusData | TrunkData;
+export type CanvasEdgeData = ArcData | LegData | StubData | FanData | BusData | TrunkData;
 export type CanvasEdge = Edge<CanvasEdgeData, string>;
 
 export interface Placement {
@@ -157,13 +150,12 @@ export interface Placement {
   overBudget: string | null;
   hiddenSegments: number;
   hiddenPairs: number;
-  /** Segment NAME -> the arc anchor it is drawn through (itself, or its
-   *  group's `+N more` tile when collapsed). */
+  /** Segment NAME -> the anchor it is drawn through (itself, or its group's `+N more` lane when collapsed). */
   anchorByName: Record<string, string>;
 }
 
 export interface PlacementOptions extends Level0Options {
-  /** A multi-homed authored host's further attachments, drawn as legs. */
+  /** A multi-homed authored host's further attachments (rule 4). */
   extraLegs?: readonly ExtraLeg[];
   /** The routers the config names as uplinks (`AuthoredGraph.uplinks`). */
   uplinks?: readonly string[];
@@ -183,8 +175,9 @@ export const ID = {
 export const HANDLE = { top: "top", bottom: "bottom", bottomIn: "bottom-in" } as const;
 
 /** The pin key a node is saved under, or `null` for an element that is part
- *  of the fixed frame (chrome, a collapsed band, the `+N more` tile). A
- *  router is a node of the twin and pins as `host:<name>` like any node. */
+ *  of the fixed frame (chrome, a collapsed band, the `+N more` lane). A
+ *  router is a node of the twin and pins as `host:<name>` like any node; a
+ *  segment's pin is its rank in its site (`{ x: 0, y: rank }`). */
 export function pinKeyOf(node: Pick<CanvasNode, "data">): string | null {
   const d = node.data;
   switch (d.kind) {
@@ -223,9 +216,30 @@ export function arcKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
+/**
+ * The lanes of a site in slot order: a ranked item takes its slot (the next
+ * free one when two claim the same), the rest fill the free slots in the
+ * order given. A rank past the end lands at the end. Pure.
+ */
+export function orderByRank<T>(items: readonly T[], rankOf: (item: T) => number | null): T[] {
+  const n = items.length;
+  const slots: Array<T | undefined> = new Array<T | undefined>(n).fill(undefined);
+  const ranked = items.map((t, i) => ({ t, i, r: rankOf(t) })).filter((x): x is { t: T; i: number; r: number } => x.r !== null).sort((a, b) => a.r - b.r || a.i - b.i);
+  for (const p of ranked) {
+    let s = Math.max(0, Math.min(n - 1, Math.round(p.r)));
+    while (s < n && slots[s] !== undefined) s++;
+    if (s >= n) s = slots.indexOf(undefined);
+    if (s >= 0) slots[s] = p.t;
+  }
+  const rest = items.filter((t) => rankOf(t) === null);
+  let k = 0;
+  for (let s = 0; s < n; s++) if (slots[s] === undefined) slots[s] = rest[k++];
+  return slots as T[];
+}
+
 // ---------------------------------------------------------------------------
-// Chips inside a segment: the lifted level-1 band rule gives role order,
-// which band collapses and its rung tally; the grid here is the canvas's own.
+// Icons on a bus: the lifted level-1 band rule gives role order, which band
+// collapses and its rung tally; the row is the canvas's own.
 // ---------------------------------------------------------------------------
 type ChipSpec = { node: GraphNode } | { rungs: RungsData };
 
@@ -240,28 +254,6 @@ function chipsOf(graph: ConsoleGraph, cidr: string): { chips: ChipSpec[]; bands:
   return { chips, bands: l1.bands.length };
 }
 
-/** Row-major packing of a site's boxes at `cols` across, each column as wide
- *  as its widest box and each row as tall as its tallest; sets every box's
- *  `rel` and returns the site's size. */
-function packSiteBoxes(boxes: Array<{ w: number; h: number; rel: Point }>, colsWanted: number): { w: number; h: number } {
-  const cols = Math.max(1, Math.min(colsWanted, boxes.length || 1));
-  const rows = Math.max(1, Math.ceil(boxes.length / cols));
-  const colW = Array.from({ length: cols }, () => 0);
-  const rowH = Array.from({ length: rows }, () => 0);
-  boxes.forEach((b, i) => {
-    colW[i % cols] = Math.max(colW[i % cols] ?? 0, b.w);
-    rowH[Math.floor(i / cols)] = Math.max(rowH[Math.floor(i / cols)] ?? 0, b.h);
-  });
-  const colX = colW.map((_, c) => SITE_PAD + colW.slice(0, c).reduce((a, w) => a + w, 0) + c * TILE_GAP_X);
-  const rowY = rowH.map((_, r) => SITE_HEADER_H + SITE_PAD + rowH.slice(0, r).reduce((a, h) => a + h, 0) + r * TILE_GAP_Y);
-  boxes.forEach((b, i) => {
-    b.rel = { x: colX[i % cols] ?? SITE_PAD, y: rowY[Math.floor(i / cols)] ?? SITE_HEADER_H + SITE_PAD };
-  });
-  const w = 2 * SITE_PAD + colW.reduce((a, x) => a + x, 0) + (cols - 1) * TILE_GAP_X;
-  const h = boxes.length ? SITE_HEADER_H + 2 * SITE_PAD + rowH.reduce((a, x) => a + x, 0) + (rows - 1) * TILE_GAP_Y : SITE_HEADER_H + 2 * SITE_PAD;
-  return { w, h };
-}
-
 export interface Rect {
   x: number;
   y: number;
@@ -269,87 +261,7 @@ export interface Rect {
   h: number;
 }
 
-function overlaps(a: Rect, b: Rect): boolean {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-}
-
-/**
- * The nearest free spot for a box whose packed slot is under a PINNED box:
- * to the right of what it overlaps, and onto a new row under everything
- * when the row is full. An operator's pins are fixed; a box without one
- * (a segment just added, or one placed before the pins moved) goes into
- * free space instead of under a neighbour (2026-11-05: `segment-3` landed
- * under `office` at a 12 px offset, and a fresh load hid it there). Pure.
- */
-export function freeSlot(at: Point, size: { w: number; h: number }, occupied: readonly Rect[], origin: Point, rowWidth: number): Point {
-  let x = at.x;
-  let y = at.y;
-  const right = Math.max(origin.x + rowWidth, ...occupied.map((r) => r.x + r.w + SITE_PAD));
-  for (let guard = 0; guard < 400; guard++) {
-    const hit = occupied.find((r) => overlaps({ x, y, w: size.w, h: size.h }, r));
-    if (!hit) return { x, y };
-    x = hit.x + hit.w + TILE_GAP_X;
-    if (x + size.w > right) {
-      x = origin.x + SITE_PAD;
-      y = Math.max(y, ...occupied.map((r) => r.y + r.h)) + TILE_GAP_Y;
-    }
-  }
-  return { x, y };
-}
-
-/** The shape a fitView should meet: a window is about this wide for its
- *  height, and the plane is judged with the tiers above the sites counted. */
-export const PLANE_ASPECT_TARGET = 1.8;
-const TIERS_H_ESTIMATE = TIER_INTERNET_H + 96 + 2 * TIER_GAP_Y;
-
-/**
- * How many tile columns a site may use (the engine's count at most, the
- * same cap for every site) so that the sites in their one row make a plane
- * near `PLANE_ASPECT_TARGET`. The lifted engine packs 156 px tiles three
- * across; the canvas's chip-sized tiles are twice as wide, and at three
- * across a five-site cast was 4.5 : 1 -- a fitView used the middle third
- * of the window. Pure: the choice with the aspect nearest the target wins,
- * so a small twin stays two across and a wide one goes to one.
- */
-export function chooseSiteCols(sites: ReadonlyArray<{ boxes: ReadonlyArray<{ w: number; h: number }>; engineCols: number }>): number {
-  if (!sites.length) return 1;
-  const most = Math.max(1, ...sites.map((s) => s.engineCols));
-  let best = most;
-  let bestScore = Number.POSITIVE_INFINITY;
-  for (let k = most; k >= 1; k--) {
-    let width = 2 * CANVAS_PAD + Math.max(0, sites.length - 1) * SITE_GAP_X;
-    let tallest = 0;
-    for (const s of sites) {
-      const size = packSiteBoxes(s.boxes.map((b) => ({ w: b.w, h: b.h, rel: { x: 0, y: 0 } })), Math.min(k, s.engineCols));
-      width += size.w;
-      tallest = Math.max(tallest, size.h);
-    }
-    const aspect = width / (TIERS_H_ESTIMATE + tallest);
-    const score = Math.abs(Math.log(aspect) - Math.log(PLANE_ASPECT_TARGET));
-    if (score < bestScore) {
-      bestScore = score;
-      best = k;
-    }
-  }
-  return best;
-}
-
-function gridFor(count: number): { cols: number; rows: number; w: number; h: number } {
-  const cols = Math.max(1, Math.min(CHIPS_PER_ROW, count));
-  const rows = Math.ceil(count / cols);
-  const w = Math.max(TILE_W, 2 * BAND_PAD + cols * CHIP_W + (cols - 1) * CHIP_GAP_X);
-  const h = Math.max(TILE_H, SITE_HEADER_H + 2 * BAND_PAD + rows * CHIP_H + Math.max(0, rows - 1) * CHIP_GAP_Y);
-  return { cols, rows, w, h };
-}
-
-function chipSlot(i: number, cols: number): Point {
-  return {
-    x: BAND_PAD + (i % cols) * (CHIP_W + CHIP_GAP_X),
-    y: SITE_HEADER_H + BAND_PAD + Math.floor(i / cols) * (CHIP_H + CHIP_GAP_Y),
-  };
-}
-
-function hostData(n: GraphNode): HostData {
+function hostData(n: GraphNode, multi: boolean): HostData {
   const role = roleBucket(n.role, n.locality);
   return {
     kind: "host",
@@ -366,21 +278,22 @@ function hostData(n: GraphNode): HostData {
     isGhost: n.isGhost,
     listen: n.listenPorts,
     dial: n.dialPorts,
+    ...(multi ? { multi: true } : {}),
   };
 }
 
 // ---------------------------------------------------------------------------
 // The placement
 // ---------------------------------------------------------------------------
-interface PlacedBox {
+interface Lane {
   id: string;
-  type: string;
-  data: CanvasData;
+  type: "segment" | "overflow";
+  data: SegmentData | OverflowData;
   /** Relative to the site. */
   rel: Point;
   w: number;
   h: number;
-  pinKey: string | null;
+  rows: number;
   children: Array<{ id: string; type: string; data: CanvasData; rel: Point; w: number; h: number; pinKey: string | null }>;
 }
 
@@ -390,16 +303,15 @@ interface PlacedSite {
   abs: Point;
   w: number;
   h: number;
-  boxes: PlacedBox[];
+  lanes: Lane[];
 }
 
-/** A leg's layer: above a site (z 0), its segment boxes (z 1) and their chips
- *  (z 2), so a leg that crosses another box is drawn, not hidden behind it
- *  (2026-11-05: the router→servers leg showed only as a stub between boxes). */
+/** A leg's layer: above a site (z 0), its lanes (z 1) and their icons (z 2),
+ *  so a leg that crosses another box is drawn, not hidden behind it. */
 export const EDGE_Z = 3;
 /** The class on a leg edge: `canvas.css` takes its pointer events away, so a
  *  leg over a box never catches a drag or a click meant for the box; the pane
- *  hit-tests the legs itself (`nearestLeg`). */
+ *  hit-tests the legs itself (`nearestPolyline`). */
 export const LEG_CLASS = "cv-leg-edge";
 
 export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: PlacementOptions = {}): Placement {
@@ -429,99 +341,182 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
     chipsByCidr.set(t.segment.observedCidr, chips);
   }
 
-  // ---- sites: the engine's grouping and order, re-packed at content sizes ----
-  const sites: PlacedSite[] = [];
+  // ---- the anchors: a shown segment is its own, a hidden one its group's `+N more` lane ----
   const anchorByName: Record<string, string> = {};
-  const pending: Array<{ key: string; sp: (typeof l0.sites)[number]; tiles: typeof l0.tiles; boxes: PlacedBox[]; engineCols: number }> = [];
+  const siteOfSegment = new Map<string, string>();
+  for (const t of l0.tiles) {
+    anchorByName[t.segment.name] = t.segment.name;
+    siteOfSegment.set(t.segment.name, t.siteKey);
+  }
+  for (const o of l0.overflow) {
+    for (const h of o.hidden) {
+      anchorByName[h.name] = ID.overflow(o.siteKey);
+      siteOfSegment.set(h.name, o.siteKey);
+    }
+  }
+  const cidrOfName = new Map(graph.segments.map((s) => [s.name, s.observedCidr]));
+  const nameOfCidr = new Map(graph.segments.map((s) => [s.observedCidr, s.name]));
+
+  // ---- the lanes of each site, in rank order (a `segment:` pin is a rank) ----
+  const rankOf = (cidr: string): number | null => {
+    const p = pins[`segment:${cidr}`];
+    return p && Number.isFinite(p.y) ? p.y : null;
+  };
+  const laneOrder = new Map<string, string[]>(); // site key -> segment names in slot order
+  for (const sp of l0.sites) {
+    const shown = l0.tiles.filter((t) => t.siteKey === sp.site.key).map((t) => t.segment);
+    shown.sort((a, b) => compareCidr(a.observedCidr, b.observedCidr));
+    laneOrder.set(sp.site.key, orderByRank(shown, (s) => rankOf(s.observedCidr)).map((s) => s.name));
+  }
+  const laneIndex = (name: string): number => laneOrder.get(siteOfSegment.get(name) ?? "")?.indexOf(name) ?? -1;
+
+  // ---- rule 4: a multi-homed host sits on the LOWEST of its buses in its first
+  // segment's site and draws a stub to each other bus it is on ----
+  const extraByHost = new Map<string, ExtraLeg[]>();
+  for (const leg of options.extraLegs ?? []) extraByHost.set(leg.host, [...(extraByHost.get(leg.host) ?? []), leg]);
+  const multi = new Set<string>();
+  const stubs: Array<{ host: string; segment: string; ip: string | null }> = [];
+  for (const [host, extras] of extraByHost) {
+    const node = graph.nodeById.get(host);
+    const firstName = node?.segment ? nameOfCidr.get(node.segment) : undefined;
+    if (!node || !firstName) continue;
+    multi.add(host);
+    const attachments = [{ segment: firstName, ip: node.address }, ...extras.map((e) => ({ segment: e.segment, ip: e.ip }))];
+    const firstSite = siteOfSegment.get(firstName);
+    let home = firstName;
+    let homeIndex = laneIndex(firstName);
+    for (const a of attachments) {
+      if (siteOfSegment.get(a.segment) !== firstSite || anchorByName[a.segment] !== a.segment) continue;
+      const idx = laneIndex(a.segment);
+      if (idx > homeIndex) {
+        home = a.segment;
+        homeIndex = idx;
+      }
+    }
+    if (home !== firstName) {
+      const fromCidr = node.segment!;
+      const toCidr = cidrOfName.get(home)!;
+      const from = chipsByCidr.get(fromCidr) ?? [];
+      const at = from.findIndex((c) => "node" in c && c.node.id === host);
+      if (at >= 0) {
+        const [spec] = from.splice(at, 1);
+        chipsByCidr.set(toCidr, [...(chipsByCidr.get(toCidr) ?? []), spec!]);
+      } else home = firstName; // collapsed into a rung band: it stays where the band is
+    }
+    for (const a of attachments) if (a.segment !== home) stubs.push({ host, segment: a.segment, ip: a.ip });
+  }
+
+  // ---- rule 2: one hue per router; the drop sources per site size the port region ----
+  const hueByRouter = new Map(graph.routers.map((r, i) => [r.name, hueOf(i)]));
+  const sourcesBySite = new Map<string, Set<string>>();
+  const addSource = (site: string | undefined, key: string) => {
+    if (!site) return;
+    let s = sourcesBySite.get(site);
+    if (!s) sourcesBySite.set(site, (s = new Set()));
+    s.add(key);
+  };
+  for (const r of graph.routers) for (const name of r.segments) addSource(siteOfSegment.get(name), `router:${r.name}`);
+  for (const s of stubs) addSource(siteOfSegment.get(s.segment), `host:${s.host}`);
+
+  // ---- sites: lanes stacked at the site's inner width ----
+  const sites: PlacedSite[] = [];
   for (const sp of l0.sites) {
     const key = sp.site.key;
-    const tiles = l0.tiles.filter((t) => t.siteKey === key);
+    const order = laneOrder.get(key) ?? [];
     const overflow = l0.overflow.find((o) => o.siteKey === key) ?? null;
-    const boxes: PlacedBox[] = tiles.map((t) => {
-      const seg = t.segment;
+    const specs = order.map((name) => {
+      const seg = graph.segmentByName.get(name)!;
       const chips = chipsByCidr.get(seg.observedCidr) ?? [];
-      const grid = gridFor(chips.length);
-      anchorByName[seg.name] = seg.name;
-      return {
-        id: ID.segment(seg.name),
-        type: "segment",
-        data: {
-          kind: "segment",
-          name: seg.name,
-          cidr: seg.observedCidr,
-          deployedCidr: seg.deployedCidr,
-          zoneType: seg.zoneType,
-          hosts: seg.hostCount,
-          ghosts: seg.ghostCount,
-          evidenceMix: seg.evidenceMix,
-          roleBadges: seg.roleBadges,
-          hasRouterLeg: seg.hasRouterLeg,
-        },
-        rel: { x: 0, y: 0 },
-        w: grid.w,
-        h: grid.h,
-        pinKey: `segment:${seg.observedCidr}`,
-        children: chips.map((c, i) =>
-          "node" in c
-            ? { id: ID.host(c.node.id), type: "host", data: hostData(c.node), rel: chipSlot(i, grid.cols), w: CHIP_W, h: CHIP_H, pinKey: `host:${c.node.id}` }
-            : { id: `${ID.segment(seg.name)}:rungs:${c.rungs.role}`, type: "rungs", data: c.rungs, rel: chipSlot(i, grid.cols), w: CHIP_W, h: CHIP_H, pinKey: null },
-        ),
-      };
+      return { seg, chips, rows: laneRows(chips.length), contentW: laneContentWidth(chips.length) };
     });
+    // At least as wide as the row of routers serving it (`DEVICE_W` each), so they share one row above rather than stacking.
+    const routersHere = graph.routers.filter((r) => r.segments.some((name) => siteOfSegment.get(name) === key)).length;
+    const routersW = routersHere ? routersHere * (DEVICE_W + DEVICE_GAP_X) - DEVICE_GAP_X + 2 * PORT_PAD : 0;
+    const innerW = Math.max(BUS_MIN_W, routersW, Math.max(0, ...specs.map((s) => s.contentW)) + portRegionWidth(sourcesBySite.get(key)?.size ?? 0) + BUS_BADGE_W);
+    const lanes: Lane[] = specs.map(({ seg, chips, rows }, rank) => ({
+      id: ID.segment(seg.name),
+      type: "segment",
+      data: {
+        kind: "segment",
+        name: seg.name,
+        cidr: seg.observedCidr,
+        deployedCidr: seg.deployedCidr,
+        zoneType: seg.zoneType,
+        hosts: seg.hostCount,
+        ghosts: seg.ghostCount,
+        evidenceMix: seg.evidenceMix,
+        roleBadges: seg.roleBadges,
+        hasRouterLeg: seg.hasRouterLeg,
+        served: graph.routers.filter((r) => r.segments.includes(seg.name)).map((r) => ({ router: r.name, hue: hueByRouter.get(r.name)! })),
+        rank,
+        rows,
+      },
+      rel: { x: 0, y: 0 },
+      w: innerW,
+      h: laneHeight(rows),
+      rows,
+      children: chips.map((c, i) =>
+        "node" in c
+          ? { id: ID.host(c.node.id), type: "host", data: hostData(c.node, multi.has(c.node.id)), rel: iconSlot(i, rows), w: BUS_ICON, h: BUS_ICON, pinKey: `host:${c.node.id}` }
+          : { id: `${ID.segment(seg.name)}:rungs:${c.rungs.role}`, type: "rungs", data: c.rungs, rel: iconSlot(i, rows), w: BUS_ICON, h: BUS_ICON, pinKey: null },
+      ),
+    }));
     if (overflow) {
-      for (const h of overflow.hidden) anchorByName[h.name] = ID.overflow(key);
-      boxes.push({
+      lanes.push({
         id: ID.overflow(key),
         type: "overflow",
         data: { kind: "overflow", siteKey: key, hidden: overflow.hidden.length, total: overflow.total, expanded: overflow.expanded },
         rel: { x: 0, y: 0 },
-        w: TILE_W,
-        h: TILE_H,
-        pinKey: null,
+        w: innerW,
+        h: OVERFLOW_LANE_H,
+        rows: 0,
         children: [],
       });
     }
-    // The engine's grid is row-major at the column count it chose (distinct
-    // x slots among its tile boxes); the canvas may use fewer columns, never
-    // more, so a tile keeps its order and the plane keeps a window's shape.
-    const slotX = new Set<number>(tiles.map((t) => t.box.x));
-    if (overflow) slotX.add(overflow.box.x);
-    pending.push({ key, sp, tiles, boxes, engineCols: Math.max(1, slotX.size) });
+    let y = SITE_HEADER_H + SITE_PAD;
+    for (const lane of lanes) {
+      lane.rel = { x: SITE_PAD, y };
+      y += lane.h + BUS_GAP_Y;
+    }
+    const size = siteSize(innerW, lanes.map((l) => l.h));
+    sites.push({ key, data: { kind: "site", key, label: sp.site.label, shown: specs.length, total: sp.site.segments.length, northSouthBytes: sp.site.northSouth.bytes }, abs: { x: 0, y: 0 }, w: size.w, h: size.h, lanes });
   }
-  const maxCols = chooseSiteCols(pending.map((p) => ({ boxes: p.boxes.map((b) => ({ w: b.w, h: b.h })), engineCols: p.engineCols })));
-  let cursorX = CANVAS_PAD;
-  for (const { key, sp, tiles, boxes, engineCols } of pending) {
-    const { w, h } = packSiteBoxes(boxes, Math.min(engineCols, maxCols));
-    sites.push({
-      key,
-      data: { kind: "site", key, label: sp.site.label, shown: tiles.length, total: sp.site.segments.length, northSouthBytes: sp.site.northSouth.bytes },
-      abs: { x: cursorX, y: 0 },
-      w,
-      h,
-      boxes,
-    });
-    cursorX += w + SITE_GAP_X;
-  }
-  const unplacedW = l0.unplaced ? TILE_W : 0;
-  const contentW = Math.max(INTERNET_W, cursorX - CANVAS_PAD - (sites.length ? SITE_GAP_X : 0) + (l0.unplaced ? (sites.length ? SITE_GAP_X : 0) + unplacedW : 0));
-  const sitesH = Math.max(TILE_H, ...sites.map((s) => s.h));
 
-  // ---- routers: one box per router, spanning the segments it joins ----
-  const segAbsX = new Map<string, { left: number; right: number }>();
+  // ---- the sites in rows near a window's shape ----
+  const perRow = chooseSitesPerRow(sites.map((s) => ({ w: s.w, h: s.h })));
+  const rowsOfSites: PlacedSite[][] = [];
+  for (let i = 0; i < sites.length; i += perRow) rowsOfSites.push(sites.slice(i, i + perRow));
+  let rowY = 0;
+  for (const row of rowsOfSites) {
+    let cursorX = CANVAS_PAD;
+    for (const s of row) {
+      s.abs = { x: cursorX, y: rowY };
+      cursorX += s.w + SITE_GAP_X;
+    }
+    rowY += Math.max(...row.map((s) => s.h)) + SITE_ROW_GAP_Y;
+  }
+  const sitesSize = planeSize(sites.map((s) => ({ w: s.w, h: s.h })), perRow);
+  const unplacedW = l0.unplaced ? TILE_W : 0;
+  const lastRow = rowsOfSites[rowsOfSites.length - 1] ?? [];
+  const lastRowRight = lastRow.length ? Math.max(...lastRow.map((s) => s.abs.x + s.w)) : CANVAS_PAD;
+  const unplacedX = lastRowRight + (lastRow.length ? SITE_GAP_X : 0);
+  const contentW = Math.max(INTERNET_W, sitesSize.w - 2 * CANVAS_PAD, l0.unplaced ? unplacedX + unplacedW - CANVAS_PAD : 0);
+  const sitesH = Math.max(TILE_H, sitesSize.h);
+
+  // ---- routers: one box per router, over the lanes it serves ----
+  const laneAbsX = new Map<string, { left: number; right: number }>();
   for (const s of sites) {
-    for (const b of s.boxes) {
-      const left = s.abs.x + b.rel.x;
-      segAbsX.set(b.id, { left, right: left + b.w });
+    for (const l of s.lanes) {
+      const left = s.abs.x + l.rel.x;
+      laneAbsX.set(l.id, { left, right: left + l.w });
     }
   }
   // A router's node is its DRAWN box (`DEVICE_W` wide: the icon with its name
-  // and leg count), not an invisible span over its segments (plane epoch 4):
-  // spans overlapped once rule 5 brought a twin's switches into the band, and
-  // a later node's transparent span shadowed an earlier icon. The span still
-  // decides where the icon goes: its centre, or along it.
+  // and leg count). The lanes it serves decide where the icon goes: their
+  // span's centre, or along the span to share a row.
   const routerSpans = graph.routers.map((r) => {
     const spans = r.segments
-      .map((name) => segAbsX.get(anchorByName[name] === name ? ID.segment(name) : (anchorByName[name] ?? "")))
+      .map((name) => laneAbsX.get(anchorByName[name] === name ? ID.segment(name) : (anchorByName[name] ?? "")))
       .filter((s): s is { left: number; right: number } => !!s);
     if (!spans.length) return { router: r, spanLeft: CANVAS_PAD, spanW: DEVICE_W, left: CANVAS_PAD, w: DEVICE_W, drawnLegs: 0 };
     const left = Math.min(...spans.map((s) => s.left));
@@ -532,8 +527,7 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   routerSpans.sort((a, b) => a.spanLeft - b.spanLeft || (a.router.name < b.router.name ? -1 : 1));
   // A row holds every router whose box fits beside the others'; a router's
   // foot stays clear (no box in a lower row under another's icon, where its
-  // legs leave straight down, nor in an upper row over its own). By span
-  // alone each of corp-twin's twelve switches took a row of its own (2026-11-06).
+  // legs leave straight down, nor in an upper row over its own).
   const rows: Array<Array<{ l: number; r: number; cx: number }>> = [];
   const under = (cx: number, b: { l: number; r: number }) => cx >= b.l - DEVICE_GAP_X && cx <= b.r + DEVICE_GAP_X;
   const W = DEVICE_W;
@@ -541,10 +535,6 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   const boxAt = (cx: number) => ({ l: cx - W / 2, r: cx + W / 2, cx });
   const fits = (box: { l: number; r: number; cx: number }, i: number) => rows[i]!.every((b) => box.r + G <= b.l || box.l >= b.r + G) && rows.every((other, j) => j === i || other.every((b) => !under(b.cx, box) && !under(box.cx, b)));
   const routerRows = routerSpans.map((s) => {
-    // The icon sits at the span's centre, or slides along the span (it is
-    // still between its segments) to the nearest spot that fits an existing
-    // row; failing every row, a new row, slid right past any foot it would
-    // sit under. A pin overrides either way.
     const cx0 = s.spanLeft + s.spanW / 2;
     const lo = s.spanLeft + W / 2;
     const hi = s.spanLeft + s.spanW - W / 2;
@@ -574,19 +564,16 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   const infraH = rows.length ? rows.length * DEVICE_H + (rows.length - 1) * DEVICE_GAP_Y : 0;
 
   // ---- the tiers, stacked top to bottom with the lifted primitive ----
-  // Rendering rule 1: the Internet is drawn only on evidence of non-local
-  // peers or a configured uplink; the gateway is a badge on its router, so
-  // there is no WAN band and a twin with neither starts at its router.
+  // The Internet is drawn only on evidence of non-local peers or a configured
+  // uplink; the gateway is a badge on its router, so a twin with neither
+  // starts at its router.
   const uplinks = [...(options.uplinks ?? [])];
   const showInternet = graph.nonLocal.length > 0 || uplinks.length > 0;
-  // The gateways: the configured uplinks; else, with crossing EVIDENCE and
-  // one router, that router (the old WAN label's "the gateway" rule). A
-  // router alone is no gateway: an authored twin shows no badge.
   const crossing: Crossing | null = graph.wanEdge && graph.wanEdge.crossingEdges > 0 ? { edges: graph.wanEdge.crossingEdges, bytes: graph.wanEdge.bytes, flows: graph.wanEdge.flows, inferred: graph.wanEdge.inferred } : null;
   const gateways = uplinks.length ? uplinks : crossing && routerSpans.length === 1 ? [routerSpans[0]!.router.name] : [];
   const bands = stackBands([showInternet ? TIER_INTERNET_H : 0, infraH, sitesH], CANVAS_PAD, TIER_GAP_Y);
   const [internetBand, infraBand, segmentBand] = bands as [Box, Box, Box];
-  for (const s of sites) s.abs = { x: s.abs.x, y: segmentBand.y };
+  for (const s of sites) s.abs = { x: s.abs.x, y: segmentBand.y + s.abs.y };
 
   // ---- nodes, with pins applied on absolute coordinates, then made relative ----
   const pinned = (key: string | null, abs: Point): Point => {
@@ -621,59 +608,40 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       position: abs,
       width: s.w,
       height: DEVICE_H,
-      // Over the site tints and segment boxes (0 / 1), under the legs (EDGE_Z): a router
-      // dragged into a site stays visible and hoverable.
+      // Over the site tints and lanes (0 / 1), under the legs (EDGE_Z): a router dragged into a site stays visible.
       zIndex: 2,
       ...common,
-      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs, uplink: uplinks.includes(s.router.name), crossing: gateways.includes(s.router.name) ? crossing : null, device: s.router.kind === "host" ? (s.router.role ?? "host") : null },
+      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs, uplink: uplinks.includes(s.router.name), crossing: gateways.includes(s.router.name) ? crossing : null, hue: hueByRouter.get(s.router.name)! },
     });
   });
   for (const s of sites) {
     const siteAbs = pinned(s.key, s.abs);
-    // Pinned boxes are fixed; the others take their packed slot unless a pinned
-    // box sits there, then the nearest free spot. The site grows to hold them all.
-    const placedBoxes = s.boxes.map((b) => {
-      const p = b.pinKey ? pins[b.pinKey] : undefined;
-      return { b, abs: p ? { x: p.x, y: p.y } : { x: siteAbs.x + b.rel.x, y: siteAbs.y + b.rel.y }, fixed: Boolean(p) };
-    });
-    const occupied: Rect[] = placedBoxes.filter((x) => x.fixed).map((x) => ({ x: x.abs.x, y: x.abs.y, w: x.b.w, h: x.b.h }));
-    if (occupied.length) {
-      for (const pb of placedBoxes) {
-        if (pb.fixed) continue;
-        pb.abs = freeSlot(pb.abs, { w: pb.b.w, h: pb.b.h }, occupied, siteAbs, s.w);
-        occupied.push({ x: pb.abs.x, y: pb.abs.y, w: pb.b.w, h: pb.b.h });
-      }
-    }
-    // The site's box is the union of its packed box and every child box with
-    // its padding (the header above), so a segment dragged out in any direction
-    // takes the site's edge with it rather than leaving a hole (round 2).
-    const siteOrigin = {
-      x: Math.min(siteAbs.x, ...placedBoxes.map((x) => x.abs.x - SITE_PAD)),
-      y: Math.min(siteAbs.y, ...placedBoxes.map((x) => x.abs.y - SITE_HEADER_H - SITE_PAD)),
-    };
-    const siteW = Math.max(siteAbs.x + s.w, ...placedBoxes.map((x) => x.abs.x + x.b.w + SITE_PAD)) - siteOrigin.x;
-    const siteH = Math.max(siteAbs.y + s.h, ...placedBoxes.map((x) => x.abs.y + x.b.h + SITE_PAD)) - siteOrigin.y;
-    // The tint is not a selection target (rule 3): selected, React Flow would
-    // lift it over the routers and legs it lies under. It still drags (its pin).
+    // The site's box is the union of its packed box and every lane's box with
+    // its padding, so an icon dragged out never leaves a hole in the tint.
+    const laneAbs = s.lanes.map((l) => ({ l, abs: { x: siteAbs.x + l.rel.x, y: siteAbs.y + l.rel.y } }));
+    const siteOrigin = { x: siteAbs.x, y: siteAbs.y };
+    const siteW = s.w;
+    const siteH = s.h;
+    // The tint is not a selection target: selected, React Flow would lift it over the routers and legs it lies under. It still drags (its pin).
     nodes.push({ id: ID.site(s.key), type: "site", position: siteOrigin, width: siteW, height: siteH, ...common, selectable: false, data: s.data });
-    for (const { b, abs: boxAbs } of placedBoxes) {
+    for (const { l, abs: laneAt } of laneAbs) {
       nodes.push({
-        id: b.id,
-        type: b.type,
+        id: l.id,
+        type: l.type,
         parentId: ID.site(s.key),
-        position: { x: boxAbs.x - siteOrigin.x, y: boxAbs.y - siteOrigin.y },
-        width: b.w,
-        height: b.h,
+        position: { x: laneAt.x - siteOrigin.x, y: laneAt.y - siteOrigin.y },
+        width: l.w,
+        height: l.h,
         ...common,
-        data: b.data,
+        data: l.data,
       });
-      for (const c of b.children) {
-        const chipAbs = pinned(c.pinKey, { x: boxAbs.x + c.rel.x, y: boxAbs.y + c.rel.y });
+      for (const c of l.children) {
+        const chipAbs = pinned(c.pinKey, { x: laneAt.x + c.rel.x, y: laneAt.y + c.rel.y });
         nodes.push({
           id: c.id,
           type: c.type,
-          parentId: b.id,
-          position: { x: chipAbs.x - boxAbs.x, y: chipAbs.y - boxAbs.y },
+          parentId: l.id,
+          position: { x: chipAbs.x - laneAt.x, y: chipAbs.y - laneAt.y },
           width: c.w,
           height: c.h,
           draggable: c.pinKey !== null,
@@ -687,7 +655,7 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
     nodes.push({
       id: ID.unplaced,
       type: "unplaced",
-      position: { x: cursorX, y: segmentBand.y },
+      position: { x: unplacedX, y: segmentBand.y },
       width: TILE_W,
       height: TILE_H,
       draggable: false,
@@ -703,15 +671,10 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       edges.push({ id: `trunk:internet>${name}`, type: "trunk", source: ID.internet, target: ID.router(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "trunk", bytes: crossing?.bytes ?? 0, flows: crossing?.flows ?? 0 } });
     }
   }
-  // The site a drawn tile or a folded segment lies in: the fan collapse
-  // (`canvas/fan.ts`) groups a router's legs by it.
-  const siteOfSegment = new Map<string, string>();
-  for (const t of l0.tiles) siteOfSegment.set(t.segment.name, t.siteKey);
-  for (const o of l0.overflow) for (const h of o.hidden) siteOfSegment.set(h.name, o.siteKey);
+  // Rule 2: a router's legs are the config's `nets[]`, one per bus, in its hue.
   for (const s of routerSpans) {
+    const hue = hueByRouter.get(s.router.name)!;
     const foldedTo = new Map<string, number>();
-    // A device (rule 5) is a host; its legs are the config's and it is drawn router-style.
-    const from = s.router.kind === "host" ? "host" : "router";
     for (const name of s.router.segments) {
       const anchor = anchorByName[name];
       if (!anchor) continue;
@@ -719,20 +682,29 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
         continue;
       }
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from, site: siteOfSegment.get(name) } });
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, site: siteOfSegment.get(name), hue } });
     }
-    // A router that joins segments behind a group's `+N more` tile draws ONE
-    // leg to that tile, however many it joins there (a 45-leg router drew a
-    // wedge of labelled lines to the same tile).
+    // A router that joins segments behind a group's `+N more` lane draws ONE leg to that lane, however many it joins there.
     for (const [anchor, n] of foldedTo) {
-      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined } });
+      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
     }
   }
-  for (const leg of options.extraLegs ?? []) {
-    const anchor = anchorByName[leg.segment];
+  // Rule 4: a multi-homed host's stubs, from its icon to each other bus it is on.
+  const stubFolded = new Map<string, { host: string; anchor: string; n: number }>();
+  for (const st of stubs) {
+    const anchor = anchorByName[st.segment];
     if (!anchor) continue;
-    const target = anchor === leg.segment ? ID.segment(leg.segment) : anchor;
-    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", className: LEG_CLASS, source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
+    if (anchor !== st.segment) {
+      const k = `${st.host}>${anchor}`;
+      const cur = stubFolded.get(k) ?? { host: st.host, anchor, n: 0 };
+      cur.n += 1;
+      stubFolded.set(k, cur);
+      continue;
+    }
+    edges.push({ id: `stub:${st.host}>${st.segment}`, type: "leg", className: LEG_CLASS, source: ID.host(st.host), target: ID.segment(st.segment), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: st.host, segment: st.segment, label: st.ip ?? st.segment, site: siteOfSegment.get(st.segment) } });
+  }
+  for (const f of stubFolded.values()) {
+    edges.push({ id: `stubs:${f.host}>${f.anchor}`, type: "leg", className: LEG_CLASS, source: ID.host(f.host), target: f.anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: f.host, segment: f.anchor, label: `${f.n} segment${f.n === 1 ? "" : "s"} behind +N more`, folded: f.n, site: siteKeyOfOverflowAnchor(f.anchor) ?? undefined } });
   }
   for (const arc of l0.arcs) {
     const src = anchorByName[arc.a] === arc.a ? ID.segment(arc.a) : arc.a;

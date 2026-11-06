@@ -14,28 +14,22 @@
  * change to the packing RULES, which a hash over numbers cannot see.
  */
 import {
-  BAND_PAD,
   CANVAS_PAD,
-  CHIP_GAP_X,
-  CHIP_GAP_Y,
-  CHIP_H,
-  CHIP_W,
-  CHIPS_PER_ROW,
   DEVICE_GAP_X,
   DEVICE_GAP_Y,
   DEVICE_H,
   DEVICE_W,
+  INTERNET_W,
   SITE_GAP_X,
   SITE_HEADER_H,
   SITE_PAD,
   TIER_GAP_Y,
   TIER_INTERNET_H,
-  TILE_GAP_X,
-  TILE_GAP_Y,
   TILE_H,
   TILE_W,
 } from "../layout/geometry";
 import { SITE_BUDGET } from "../model/budgets";
+import { BUS_BADGE_W, BUS_GAP_Y, BUS_HOSTS_PER_ROW, BUS_ICON, BUS_ICON_GAP, BUS_LABEL_W, BUS_LINE_H, BUS_MIN_W, BUS_ROW_H, OVERFLOW_LANE_H, PLANE_ASPECT_TARGET, PORT_GAP, PORT_PAD, SITE_ROW_GAP_Y } from "./bus";
 
 // Epoch 2 (2026-11-05): a site's tile columns are chosen for the plane's
 // shape (`placement.ts` `chooseSiteCols`), no longer the engine's count.
@@ -46,12 +40,17 @@ import { SITE_BUDGET } from "../model/budgets";
 // (`DEVICE_W` wide), no longer a span over the segments it joins; a pin
 // saved for the span's left edge would put the icon `(span - DEVICE_W) / 2`
 // to the left of where it was.
-export const CANVAS_PLANE_EPOCH = 4;
+// Epoch 5 (2026-11-06, track 4): the BUS plane -- a segment is a lane in a
+// vertical stack, not a tile in a grid, and a `segment:` pin is the lane's
+// RANK in its site, not a free position; a tile's pin read as a rank would
+// put every bus at the end of its site.
+export const CANVAS_PLANE_EPOCH = 5;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],
   ["TIER_INTERNET_H", TIER_INTERNET_H],
   ["TIER_GAP_Y", TIER_GAP_Y],
+  ["INTERNET_W", INTERNET_W],
   ["DEVICE_W", DEVICE_W],
   ["DEVICE_H", DEVICE_H],
   ["DEVICE_GAP_X", DEVICE_GAP_X],
@@ -59,17 +58,23 @@ export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = 
   ["SITE_PAD", SITE_PAD],
   ["SITE_HEADER_H", SITE_HEADER_H],
   ["SITE_GAP_X", SITE_GAP_X],
+  ["SITE_ROW_GAP_Y", SITE_ROW_GAP_Y],
   ["SITE_BUDGET", SITE_BUDGET],
   ["TILE_W", TILE_W],
   ["TILE_H", TILE_H],
-  ["TILE_GAP_X", TILE_GAP_X],
-  ["TILE_GAP_Y", TILE_GAP_Y],
-  ["CHIP_W", CHIP_W],
-  ["CHIP_H", CHIP_H],
-  ["CHIP_GAP_X", CHIP_GAP_X],
-  ["CHIP_GAP_Y", CHIP_GAP_Y],
-  ["CHIPS_PER_ROW", CHIPS_PER_ROW],
-  ["BAND_PAD", BAND_PAD],
+  ["BUS_LABEL_W", BUS_LABEL_W],
+  ["BUS_BADGE_W", BUS_BADGE_W],
+  ["BUS_ICON", BUS_ICON],
+  ["BUS_ICON_GAP", BUS_ICON_GAP],
+  ["BUS_ROW_H", BUS_ROW_H],
+  ["BUS_HOSTS_PER_ROW", BUS_HOSTS_PER_ROW],
+  ["BUS_LINE_H", BUS_LINE_H],
+  ["BUS_GAP_Y", BUS_GAP_Y],
+  ["BUS_MIN_W", BUS_MIN_W],
+  ["PORT_GAP", PORT_GAP],
+  ["PORT_PAD", PORT_PAD],
+  ["OVERFLOW_LANE_H", OVERFLOW_LANE_H],
+  ["PLANE_ASPECT_TARGET", PLANE_ASPECT_TARGET],
 ];
 
 /** FNV-1a over the canonical `name=value` list, as 8 hex digits. */
