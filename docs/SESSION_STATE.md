@@ -4,8 +4,8 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-06 00:35 · **Branch:** `wip/design-platforms-canvas`, nine commits
-past `origin` (`c5d6856`), **not pushed** (user: "will take care of pushing when I get back").
+**Last updated:** 2026-11-06 00:45 · **Branch:** `wip/design-platforms-canvas`, six commits
+past `c5d6856` (39f02a6..c7ca5e0), **pushed** to origin on 2026-11-06 at the user's request.
 Rule: commit each track as it lands, staged by path; push only when asked.
 
 ## What this session did
@@ -71,7 +71,7 @@ matched a shell wrapper the first time).
 
 ## Next steps
 
-0. Push (nine commits). Re-cast corp-apcn-reader-20261028 so the IPv6 segment leaves it.
+0. Re-cast corp-apcn-reader-20261028 so the IPv6 segment leaves it.
 1. The small open items above, then the libvirt path (blocked by the confirm-first `vmid` →
    guest-handle bump and `planner/pass1_emit.py:149 ROUTER_WAN_BRIDGE="vmbr0"`), then live
    Splunk/Elastic against a Corelight-fed index.
