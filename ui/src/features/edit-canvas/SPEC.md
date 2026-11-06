@@ -90,7 +90,7 @@ canvas — the first two are what neither incumbent documents.
 
 | Area | Items | Tag |
 |---|---|---|
-| Palette & placement | searchable, categorised palette of images, personas and node groups, with an availability cue per image; drag-drop and click-to-place; count field for N copies with `{name}-{n}` naming; default template with Shift-click quick add | app over RF `onDrop` |
+| Palette & placement | searchable, categorised palette of images, personas and node groups (this twin's own; other twins' groups under a folded "From other twins"), with an availability cue per image; ONE placement rule (2026-11-06, the GNS3 pattern): a click arms the item, the next click on a segment places it (a router: a segment for its first leg or an empty spot for none), Esc disarms; drag-drop onto a segment; a segment is added at once, a persona binds to the selected node group at once; count field for N copies with `{name}-{n}` naming | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
 | Attaching (the twin's "linking") | drag a host onto a segment or from a host's handle to a segment bus; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | RF handles + app state machine |

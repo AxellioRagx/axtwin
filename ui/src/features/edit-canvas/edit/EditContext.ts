@@ -27,6 +27,8 @@ export interface PaletteItem {
   summary?: string;
   /** The image is referenced by a twin in the catalog (the availability cue). */
   available?: boolean;
+  /** For a group: declared by another twin in the catalog, listed under "From other twins". */
+  foreign?: boolean;
 }
 
 export interface EditState {

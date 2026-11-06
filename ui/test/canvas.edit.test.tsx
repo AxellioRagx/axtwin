@@ -131,6 +131,13 @@ const ann = (name: string) => {
   if (!screen.queryByTestId("popover-annotate")) fireEvent.click(screen.getByTestId("rail-annotate"));
   return within(screen.getByTestId("popover-annotate")).getByRole("button", { name });
 };
+/** A click on the empty pane. React Flow's selection mode dispatches a pane
+ *  click from pointer-down + pointer-up at the same spot, not from `click`. */
+export const clickPane = (x = 300, y = 700) => {
+  const pane = window.document.querySelector(".react-flow__pane")!;
+  fireEvent.pointerDown(pane, { button: 0, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: "mouse" });
+  fireEvent.pointerUp(pane, { button: 0, clientX: x, clientY: y, pointerId: 1, isPrimary: true, pointerType: "mouse" });
+};
 export const commit = (input: HTMLElement, value: string) => {
   fireEvent.change(input, { target: { value } });
   fireEvent.keyDown(input, { key: "Enter" });
@@ -159,11 +166,12 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(segment("segment-3").dataset["cidr"]).toBe("10.1.2.0/24"); // the next free /24 under the twin's prefix
     expect(screen.getByTestId("dirty-marker").textContent).toContain("unsaved changes");
 
-    // Select the new segment, then click a node group from the palette: click-to-place.
-    fireEvent.click(segment("segment-3"));
-    await waitFor(() => expect(panel().getByTestId("segment-panel")).toBeTruthy());
+    // Arm a node group from the palette, then click the new segment: click-to-place, one rule.
     fireEvent.click(item("group", "corp-auth/web01"));
+    expect(screen.getByTestId("palette-hint").textContent).toContain("armed: web01");
+    fireEvent.click(segment("segment-3"));
     await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
+    expect(screen.getByTestId("palette-hint").textContent).not.toContain("armed");
     expect(host("web01-1").dataset["address"]).toBe("10.1.2.10");
     await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
 
@@ -482,18 +490,24 @@ describe("the design canvas, phase 2 (C3)", () => {
     await screen.findAllByTestId("canvas-host");
     openPalette();
     fireEvent.change(screen.getByLabelText("Copies"), { target: { value: "3" } });
+    // Arm the image, click the segment: three copies land there. A selected segment is not a target by itself.
     fireEvent.click(segment("net-dmz"));
     await panel().findByTestId("segment-panel");
     fireEvent.click(item("image", "debian-12-cloud@v1"));
+    expect(hosts()).toEqual(["web01", "ws01"]);
+    expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
+    fireEvent.click(segment("net-dmz"));
     await waitFor(() => expect(hosts()).toEqual(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3", "web01", "ws01"]));
     expect(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3"].map((n) => host(n).dataset["address"])).toEqual(["10.1.1.10", "10.1.1.11", "10.1.1.12"]);
-    // Without a selected segment an item arms click-to-place; Esc disarms (and Esc clears the selection).
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(panel().queryByTestId("segment-panel")).toBeNull());
+    // A second click on the armed item disarms it, as does Esc (which also clears the selection).
     fireEvent.click(item("image", "debian-12-cloud@v1"));
     expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
+    fireEvent.click(item("image", "debian-12-cloud@v1"));
+    expect(screen.queryByText(/armed:/)).toBeNull();
+    fireEvent.click(item("image", "debian-12-cloud@v1"));
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText(/armed:/)).toBeNull());
+    await waitFor(() => expect(panel().queryByTestId("segment-panel")).toBeNull());
     // A persona needs a selected group. (The category starts folded; Esc closed the popover.)
     openPalette();
     fireEvent.click(screen.getByRole("button", { name: /Personas/ }));
@@ -506,7 +520,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     // The palette is searchable and categorised.
     fireEvent.change(screen.getByLabelText("Search the palette"), { target: { value: "ubuntu" } });
     // This twin's group first, then the other catalog twin's, then the image once.
-    expect(screen.getAllByTestId("palette-item").map((i) => i.dataset["id"])).toEqual(["corp-auth/web01", "corp-live/web01", "ubuntu-server-22@v5"]);
+    expect(screen.getAllByTestId("palette-item").map((i) => i.dataset["id"])).toEqual(["corp-auth/web01", "ubuntu-server-22@v5", "corp-live/web01"]);
   });
 
   it("attach allocates a segment-appropriate address: a second leg from the panel, a detach from the context menu, the sticky attach mode", async () => {
@@ -882,10 +896,12 @@ describe("a router joins segments: it places without one", () => {
     await screen.findAllByTestId("canvas-host");
     const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
     expect(routers()).toEqual(["gw"]);
-    // Nothing selected: a click on Router places it at once, unattached.
+    // Armed, then an empty spot: the router lands there with no leg.
     const r = item("router", "router");
     expect(r.title).toContain("attach it to each segment it joins");
     fireEvent.click(r);
+    expect(screen.getByTestId("palette-hint").textContent).toContain("or an empty spot for no leg yet");
+    clickPane();
     await waitFor(() => expect(routers()).toEqual(["gw", "router"]));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();
     // Unattached is a WARNING (an error would have blocked the placement): the document stays saveable, the Checks tab says what is missing.
@@ -905,10 +921,9 @@ describe("a router joins segments: it places without one", () => {
     expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-lan") as HTMLInputElement).value).toBe("");
     tab("Checks");
     await waitFor(() => expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false));
-    // With a segment selected, Router places with that segment as its first leg.
-    fireEvent.click(segment("net-dmz"));
-    await panel().findByTestId("segment-panel");
+    // Armed, then a segment: that segment is the router's first leg.
     fireEvent.click(item("router", "router"));
+    fireEvent.click(segment("net-dmz"));
     await waitFor(() => expect(routers()).toEqual(["gw", "router", "router-1"]));
     fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-dmz"]));
@@ -921,6 +936,7 @@ describe("a router joins segments: it places without one", () => {
     await screen.findAllByTestId("canvas-host");
     const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
     fireEvent.click(item("group", "corp-auth/gw"));
+    clickPane();
     await waitFor(() => expect(routers()).toEqual(["gw", "gw-1"]));
     expect(screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"])).not.toContain("gw-1");
     fireEvent.click(item("image", "debian-12-cloud@v1"));

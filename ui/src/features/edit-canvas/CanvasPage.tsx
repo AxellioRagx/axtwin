@@ -154,7 +154,7 @@ export function paletteItems(catalog: readonly TwinConfigDetail[], personas: rea
   for (const d of ordered) {
     for (const n of d.nodes) {
       const count = typeof n.count === "number" ? n.count : typeof n.count === "string" && /^\d+$/.test(n.count) ? Number(n.count) : typeof n.count === "string" ? (Number(/:(\d+)\}/.exec(n.count)?.[1]) || 1) : 1;
-      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : "host", role: n.role ?? null, image: n.image, count, summary: `${n.kind} · ${n.image}${n.role ? ` · ${n.role}` : ""}` });
+      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : "host", role: n.role ?? null, image: n.image, count, summary: `${n.kind} · ${n.image}${n.role ? ` · ${n.role}` : ""}`, foreign: d.id !== ownId });
       if (n.image) images.add(n.image);
     }
   }
@@ -488,7 +488,6 @@ export function CanvasPage() {
 
   // ---- the palette's placement ----
   const items = useMemo(() => (data ? paletteItems(data.catalog, data.personas, id) : []), [data, id]);
-  const selectedSegment = selection.kind === "segment" && selection.names.length === 1 ? selection.names[0]! : null;
   const onAddSegment = useCallback(() => {
     edit("add segment", (d, m) => {
       const inPlay = m.te.segments.map((s) => s.cidr);
@@ -519,7 +518,7 @@ export function CanvasPage() {
       }
       const nodeKind = item.kind === "router" || item.nodeKind === "router" ? "router" : "host";
       if (!segment && nodeKind !== "router") {
-        setBlocked("drop the item onto a segment (or select a segment and click the item)");
+        setBlocked(`${item.label} needs a segment: arm it, then click a segment (or drag it onto one)`);
         return;
       }
       const name = item.kind === "group" ? item.id.split("/").pop()! : item.id.replace(/@.*$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
@@ -944,7 +943,7 @@ export function CanvasPage() {
             locked={Boolean(locked)}
             layoutBar={layoutBar}
             {...(editProps ? { edit: editProps } : {})}
-            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, selectedSegment, n, null)} count={copies} onCount={setCopies} selectedSegment={selectedSegment} disabled={Boolean(locked)} note={data.paletteNote} /> } : {})}
+            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={data.paletteNote} /> } : {})}
             {...(editProps && model
               ? {
                   inspector: {
