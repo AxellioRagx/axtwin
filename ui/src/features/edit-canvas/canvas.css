@@ -159,7 +159,9 @@
 .cv-rungs { background: var(--panel); border-style: dashed; cursor: default; }
 /* The hovered chip's node rises above its neighbours, or the card is half under the next chip. */
 .react-flow__node:has(> .cv-host:hover), .react-flow__node:has(.cv-card) { z-index: 1000 !important; }
-.cv-card { position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px; min-width: 240px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); white-space: normal; cursor: default; }
+.cv-card { position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 4px; min-width: 240px; max-width: 320px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); white-space: normal; cursor: default; pointer-events: none; }
+.cv-card.flip-left { left: auto; right: 0; }
+.cv-card.flip-up { top: auto; bottom: 100%; margin-top: 0; margin-bottom: 4px; }
 .cv-card .facts { grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 4px 0 0; }
 
 /* Routers and the chrome are icon nodes: a box with the glyph, the name beneath. */

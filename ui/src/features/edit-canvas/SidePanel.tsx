@@ -69,6 +69,8 @@ export interface SidePanelProps {
   changes: PendingChange[] | null;
   /** The reason the last edit was blocked, shown until the next edit. */
   blocked: string | null;
+  /** A node group or segment was renamed: the selection is keyed by name, re-key it. */
+  onRenamed?: ((kind: "node" | "segment", from: string, to: string) => void) | undefined;
 }
 
 const ZONE_TYPES = ["", "vlan", "simple", "dmz", "mgmt", "ot"];
@@ -261,7 +263,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
         {n.kind === "router" ? "Router" : "Node group"} <span className="mono">{n.name}</span>
       </h3>
       <Field label="Name">
-        <Text ariaLabel="Node name" value={n.name} disabled={ro} mono onCommit={(v) => p.apply(`rename ${n.name} → ${v}`, (d, m) => renameNode(d, m, n.name, v))} />
+        <Text ariaLabel="Node name" value={n.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename ${n.name} → ${v}`, (d, m) => renameNode(d, m, n.name, v)) === null) p.onRenamed?.("node", n.name, v); }} />
       </Field>
       <Field label="Role" hint="a role change that keeps the image applies live; with a new image it is a re-plan">
         <Text ariaLabel="Role" value={n.role ?? ""} disabled={ro} onCommit={(v) => p.apply(`role of ${n.name}`, (d) => setNodeField(d, n.name, "role", v.trim() || null))} />
@@ -411,7 +413,7 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
         Segment <span className="mono">{s.name}</span>
       </h3>
       <Field label="Name">
-        <Text ariaLabel="Segment name" value={s.name} disabled={ro} mono onCommit={(v) => p.apply(`rename segment ${s.name} → ${v}`, (d) => renameSegment(d, s.name, v))} />
+        <Text ariaLabel="Segment name" value={s.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename segment ${s.name} → ${v}`, (d) => renameSegment(d, s.name, v)) === null) p.onRenamed?.("segment", s.name, v); }} />
       </Field>
       <Field label="CIDR" hint="the deployed network, as its network address">
         <Text ariaLabel="CIDR" value={s.cidr} disabled={ro} mono onCommit={(v) => p.apply(`cidr of ${s.name}`, (d) => setSegmentField(d, s.name, "cidr", v.trim()))} />

@@ -39,13 +39,22 @@ export function isNetworkAddress(cidr: string): boolean {
 /**
  * The next free `/24` in a two-octet prefix (`10.80` -> `10.80.0.0/24`,
  * `10.80.1.0/24`, ...), or `null` when none is free. Free means no overlap
- * with ANY CIDR in play, whatever its prefix length.
+ * with ANY CIDR in play, whatever its prefix length. With `after`, the
+ * search starts past the highest `/24` in play under the prefix (`.10`,
+ * `.20` -> `.21`) and falls back to the first free one when none is left.
  */
-export function nextFreeSlash24(prefix: string, inPlay: readonly string[]): string | null {
+export function nextFreeSlash24(prefix: string, inPlay: readonly string[], options: { after?: boolean } = {}): string | null {
   const base = /^\d{1,3}\.\d{1,3}$/.test(prefix) ? ipv4ToInt(`${prefix}.0.0`) : null;
   if (base === null) return null;
   const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
-  for (let n = 0; n < 256; n++) {
+  let from = 0;
+  if (options.after) {
+    const under = ranges.filter((r) => r.start >= base && r.start < base + 65536);
+    if (under.length) from = Math.min(255, Math.floor((Math.max(...under.map((r) => r.end)) - base) / 256) + 1);
+    if (from >= 256) from = 0;
+  }
+  for (let i = 0; i < 256; i++) {
+    const n = (from + i) % 256;
     const start = base + n * 256;
     const end = start + 255;
     if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${prefix}.${n}.0/24`;

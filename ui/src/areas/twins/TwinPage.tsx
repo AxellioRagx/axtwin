@@ -1,68 +1,113 @@
 import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
+import type { DeploySummary, TwinSummary } from "../../api/types";
 import { formatCount } from "../../model/sources";
+import { standingDeploy, tierStatus } from "../../features/edit-canvas/CanvasPage";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { ErrorLine } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 import { TwinTree } from "./TwinTree";
 
-/** One twin in the catalog: the summary the deploy tiers read. */
+/** One twin in the catalog: the summary the deploy tiers read, and what stands
+ *  on it. A cast twin shows its discovery facts (as of, confidence, days
+ *  observed); an authored one has none and shows none (2026-11-05: "As of"
+ *  and "Mean confidence 0.00" on a designed twin read as findings). */
 export function TwinPage() {
   const api = useApi();
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { data, error, loading } = useLoad((signal) => api.getTwin(id, signal), [id]);
+  const { data, error, loading } = useLoad<{ twin: TwinSummary; deploys: DeploySummary[] }>(async (signal) => {
+    const twin = await api.getTwin(id, signal);
+    const deploys = await api.listDeploys(signal).catch(() => ({ deploys: [], warnings: [] }));
+    return { twin, deploys: deploys.deploys };
+  }, [id]);
+  const twin = data?.twin;
+  const cast = Boolean(twin?.pit_id);
+  const te = data ? standingDeploy(data.deploys, id) : null;
+  const tiers = data && te ? tierStatus(data.deploys, te.deploy_id) : {};
+  const mine = data ? data.deploys.filter((d) => d.scenario_id === id && (d.tier ?? "te") === "te") : [];
   return (
     <>
       <div className="row">
         <h1 style={{ flex: 1 }}>Twin {id}</h1>
-        {data ? <Link to={`/canvas/${encodeURIComponent(id)}`}>Open the design canvas</Link> : null}
-        {data ? (
+        {twin ? <Link to={`/canvas/${encodeURIComponent(id)}`}>Open the design canvas</Link> : null}
+        {twin ? (
           <ConfirmDelete label="Delete twin" target={id} confirmText="Confirm: remove the twin from the catalog" onDelete={() => api.deleteTwin(id)} onDeleted={() => navigate("/twins")} />
         ) : null}
       </div>
       <ErrorLine error={error} prefix="could not load the twin" />
       {loading && !data ? <p className="muted">Loading…</p> : null}
-      {data ? (
+      {twin ? (
         <div className="panel" data-testid="twin-summary">
           <dl className="facts">
-            <dt>Cast from</dt>
+            <dt>Origin</dt>
             <dd>
-              {data.pit_id ? (
-                <Link to={`/imprints/${encodeURIComponent(data.pit_id)}`}>{data.pit_id}</Link>
+              {twin.pit_id ? (
+                <>
+                  cast from <Link to={`/imprints/${encodeURIComponent(twin.pit_id)}`}>{twin.pit_id}</Link>
+                </>
               ) : (
-                <span className="muted">authored, not discovered</span>
+                <span>authored on the canvas, not discovered</span>
               )}
             </dd>
-            <dt>As of</dt>
-            <dd>{data.as_of}</dd>
-            <dt>Hosts</dt>
-            <dd>{formatCount(data.hosts)}</dd>
-            <dt>Segments</dt>
-            <dd>{formatCount(data.segments)}</dd>
-            <dt>Services</dt>
-            <dd>{formatCount(data.services)}</dd>
-            <dt>Personas</dt>
-            <dd>{formatCount(data.personas)}</dd>
-            <dt>Mean confidence</dt>
-            <dd>{typeof data.mean_confidence === "number" ? data.mean_confidence.toFixed(2) : "unknown"}</dd>
-            {data.days_observed !== undefined && data.days_observed !== null ? (
+            <dt>Deploy</dt>
+            <dd data-testid="deploy-state">
+              {te ? (
+                <>
+                  <span className="mono">{te.deploy_id}</span>
+                  {" · "}
+                  <span className={te.status === "failed" ? "error" : ""} data-testid="tier-te">te {te.status}</span>
+                  {Object.entries(tiers).map(([t, st]) => (
+                    <span key={t} className={st === "failed" ? "error" : ""} data-testid={`tier-${t}`}>
+                      {" · "}
+                      {t} {st}
+                    </span>
+                  ))}
+                  {te.target ? <span className="muted"> · on {te.target}</span> : null}
+                </>
+              ) : mine.length ? (
+                <span className="muted">none standing ({mine.length} past deploy{mine.length === 1 ? "" : "s"}: {[...new Set(mine.map((d) => d.status))].join(", ")})</span>
+              ) : (
+                <span className="muted">none: the twin is in the catalog, not deployed</span>
+              )}
+            </dd>
+            {cast ? (
               <>
-                <dt>Days observed</dt>
-                <dd>{formatCount(data.days_observed)}</dd>
+                <dt>As of</dt>
+                <dd>{twin.as_of}</dd>
               </>
             ) : null}
-            {data.windows !== undefined && data.windows !== null ? (
+            <dt>Hosts</dt>
+            <dd>{formatCount(twin.hosts)}</dd>
+            <dt>Segments</dt>
+            <dd>{formatCount(twin.segments)}</dd>
+            <dt>Services</dt>
+            <dd>{formatCount(twin.services)}</dd>
+            <dt>Personas</dt>
+            <dd>{formatCount(twin.personas)}</dd>
+            {cast ? (
+              <>
+                <dt>Mean confidence</dt>
+                <dd>{typeof twin.mean_confidence === "number" ? twin.mean_confidence.toFixed(2) : "unknown"}</dd>
+              </>
+            ) : null}
+            {cast && twin.days_observed !== undefined && twin.days_observed !== null ? (
+              <>
+                <dt>Days observed</dt>
+                <dd>{formatCount(twin.days_observed)}</dd>
+              </>
+            ) : null}
+            {cast && twin.windows !== undefined && twin.windows !== null ? (
               <>
                 <dt>Windows</dt>
-                <dd>{formatCount(data.windows)}</dd>
+                <dd>{formatCount(twin.windows)}</dd>
               </>
             ) : null}
           </dl>
-          {Array.isArray(data.warnings) && data.warnings.length ? (
+          {Array.isArray(twin.warnings) && twin.warnings.length ? (
             <ul className="muted">
-              {data.warnings.map((w, i) => (
+              {twin.warnings.map((w, i) => (
                 <li key={i}>{w}</li>
               ))}
             </ul>
@@ -70,7 +115,7 @@ export function TwinPage() {
           <h2>Segments</h2>
           <TwinTree id={id} />
           <p className="muted">
-            The twin is in the catalog; the deploy tiers read it from there. <Link to="/twins">All twins</Link>
+            The twin is in the catalog; the deploy tiers read it from there (<code>axrange te deploy --config {id}</code>, then <code>tap deploy</code> and <code>tfc deploy --twin {id}</code>). <Link to="/twins">All twins</Link>
           </p>
         </div>
       ) : null}

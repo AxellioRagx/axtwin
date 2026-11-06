@@ -285,12 +285,17 @@ describe("the design canvas (C2, read-only)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find" }));
     expect(screen.getByText("no segment 10.9.9.0/24 in this twin")).toBeTruthy();
 
-    fireEvent.mouseEnter(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "address:10.80.20.9")!);
-    const card = screen.getByTestId("canvas-hover-card");
+    // The card opens after a short dwell (never on a click or a drag) and closes on a press.
+    const chip = screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "address:10.80.20.9")!;
+    fireEvent.mouseEnter(chip);
+    expect(screen.queryByTestId("canvas-hover-card")).toBeNull();
+    const card = await screen.findByTestId("canvas-hover-card");
     expect(card.textContent).toContain("10.80.20.9");
     expect(card.textContent).toContain("corp-workstation (0.40)");
     expect(card.textContent).toContain("imputed");
     expect(card.textContent).toContain("Occupancy1.00");
+    fireEvent.pointerDown(chip);
+    expect(screen.queryByTestId("canvas-hover-card")).toBeNull();
   });
 
   it("locks and unlocks dragging, and follows the app theme", async () => {

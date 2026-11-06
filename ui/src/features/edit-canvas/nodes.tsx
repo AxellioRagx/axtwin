@@ -6,7 +6,7 @@
  * fixed chrome (Internet, the WAN edge). Nothing here edits anything.
  */
 import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, type EdgeProps, type NodeProps } from "@xyflow/react";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
@@ -141,14 +141,52 @@ export function SegmentNode(p: P) {
   );
 }
 
+/** The hover card opens after this long over a chip, so a click or a drag never raises one. */
+export const HOVER_CARD_MS = 350;
+
+/** The hover card's own hooks: opens after `HOVER_CARD_MS` over the chip, closes on a press,
+ *  a leave or a drag, and flips left / up when it would run off the canvas shell. */
+function useHoverCard(dragging: boolean | undefined) {
+  const [open, setOpen] = useState(false);
+  const [flip, setFlip] = useState<{ left: boolean; up: boolean }>({ left: false, up: false });
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const el = useRef<HTMLDivElement | null>(null);
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  const close = () => {
+    cancel();
+    setOpen(false);
+  };
+  const enter = () => {
+    cancel();
+    timer.current = setTimeout(() => {
+      const chip = el.current;
+      const shell = chip?.closest<HTMLElement>(".canvas-shell");
+      if (chip && shell) {
+        const c = chip.getBoundingClientRect();
+        const s = shell.getBoundingClientRect();
+        setFlip({ left: c.left + 260 > s.right, up: c.bottom + 200 > s.bottom });
+      }
+      setOpen(true);
+    }, HOVER_CARD_MS);
+  };
+  useEffect(() => cancel, []);
+  useEffect(() => {
+    if (dragging) close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
+  return { open, flip, el, enter, close };
+}
+
 export function HostNode(p: P) {
   const d = p.data;
   const glow = useContext(GlowContext);
   const edit = useEdit();
-  const [hover, setHover] = useState(false);
+  const card = useHoverCard(p.dragging);
   if (d.kind !== "host") return null;
   const lit = glow.hosts.has(d.nodeId);
-  const evidence = d.evidence ?? "no evidence";
   // In edit mode the chip is a node GROUP of the working document: its count and pinned address ride along.
   const group = edit?.model.te.nodes.find((n) => n.name === d.nodeId) ?? null;
   const pinned = group?.nets[0]?.ip ?? null;
@@ -162,8 +200,10 @@ export function HostNode(p: P) {
       data-address={pinned ?? d.address ?? undefined}
       {...posAttrs(p, `host:${d.nodeId}`)}
       style={{ width: p.width, height: p.height }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      ref={card.el}
+      onMouseEnter={card.enter}
+      onMouseLeave={card.close}
+      onPointerDown={card.close}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "host", name: d.nodeId }) : undefined}
     >
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
@@ -171,20 +211,24 @@ export function HostNode(p: P) {
       </span>
       <span className="cv-host-label mono" title={d.label}>{d.short}</span>
       {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
-      {hover ? (
-        <div className="cv-card" role="tooltip" data-testid="canvas-hover-card">
+      {card.open ? (
+        <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.nodeId}</div>
           <dl className="facts">
             <dt>Address</dt>
             <dd className="mono">{pinned ?? d.address ?? "none"}</dd>
             <dt>Role</dt>
             <dd>
-              {d.role ?? <span className="muted">not discovered</span>}
+              {d.role ?? <span className="muted">{edit ? "none" : "not discovered"}</span>}
               {typeof d.roleConfidence === "number" ? ` (${d.roleConfidence.toFixed(2)})` : ""}
               {d.roleEvidence ? <span className="muted"> · {d.roleEvidence}</span> : null}
             </dd>
-            <dt>Evidence</dt>
-            <dd>{evidence}</dd>
+            {d.evidence ? (
+              <>
+                <dt>Evidence</dt>
+                <dd>{d.evidence}</dd>
+              </>
+            ) : null}
             {typeof d.occupancy === "number" ? (
               <>
                 <dt>Occupancy</dt>

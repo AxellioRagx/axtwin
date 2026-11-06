@@ -38,7 +38,7 @@ import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf, place } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
-import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations } from "./edit/annotations";
+import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
 import type { PaletteItem } from "./edit/EditContext";
@@ -514,7 +514,9 @@ export function CanvasPage() {
     edit("add segment", (d, m) => {
       const inPlay = m.te.segments.map((s) => s.cidr);
       const prefix = (m.te.segments[0] ? twoOctetPrefix(m.te.segments[0].cidr) : null) ?? "10.200";
-      const cidr = nextFreeSlash24(prefix, inPlay) ?? nextFreeSlash24("10.200", inPlay);
+      // The next /24 AFTER the highest in use under the prefix (.10, .20 -> .21), not the
+      // first free one (.0, the site's own network address, legal but surprising).
+      const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
       if (!cidr) throw new Error(`no free /24 under ${prefix}`);
       const taken = new Set(m.te.segments.map((s) => s.name));
       let n = m.te.segments.length + 1;
@@ -595,9 +597,20 @@ export function CanvasPage() {
       const newId = saveAsId.trim();
       if (!newId) throw new Error("give the new twin-config an id");
       await api.createTwinConfig({ id: newId, files: saveAsFiles(editor.doc, newId) });
+      // The layout as it stands on screen -- the saved pins AND the unsaved moves
+      // and annotations -- goes with the new twin, so Save-As drops no draft.
+      let carried = true;
+      if (draft.doc || layoutChanges > 0) {
+        try {
+          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout)));
+          draft.discard();
+        } catch {
+          carried = false;
+        }
+      }
       setSaveAsId("");
       navigate(`/canvas/${encodeURIComponent(newId)}`);
-      return `saved as ${newId}`;
+      return `saved as ${newId}${layoutChanges > 0 ? (carried ? ", layout draft carried over" : "; the layout draft could not be written there") : ""}`;
     });
   const applyExit = () =>
     run("apply", async () => {
@@ -994,6 +1007,7 @@ export function CanvasPage() {
                         validating={validating || !(validation && files && sameFiles(validation.files, files))}
                         changes={deployed ? (config?.changes ?? []) : null}
                         blocked={blocked}
+                        onRenamed={(kind, from, to) => setSelection((sel) => (sel.kind === kind ? { kind, names: sel.names.map((n) => (n === from ? to : n)) } : sel))}
                       />
                     ),
                     checks: (
