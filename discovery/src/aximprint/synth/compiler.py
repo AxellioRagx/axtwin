@@ -229,6 +229,14 @@ UNMEASURED_RUNG = "unmeasured"
 #: boundary flip between the two would produce a `core` group the deploy silently drops.
 _RUNG_EPSILON = 1e-9
 
+def _is_ipv4_network(cidr: str) -> bool:
+    """Whether a segment CIDR is one the twin IR can take (IPv4)."""
+    try:
+        return ipaddress.ip_network(cidr, strict=False).version == 4
+    except ValueError:
+        return False
+
+
 
 def occupancy_rung(occupancy: Optional[float]) -> str:
     """Which presence class an occupancy falls in. `None` -> `UNMEASURED_RUNG`."""
@@ -856,11 +864,28 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             asserted = aview.host_fields(entity["entity_key"]).get("segment")
             if asserted is not None:
                 return asserted[0]
-        return entity["segment"]
+        seg = entity["segment"]
+        # The twin IR is IPv4-only (axRange refuses a non-IPv4 segment CIDR outright), so an
+        # IPv6 segment the windowing minted -- a ULA /64 passes `is_provisionable` -- can never
+        # be a twin segment, and a host placed only there is not a twin node. Counted and
+        # named below rather than dropped quietly.
+        return seg if seg and _is_ipv4_network(seg) else None
 
     placed = [e for e in pit["ir_entity"] if e["locality"] == "local" and _segment_of(e)]
+    v6_segments = sorted({e["segment"] for e in pit["ir_entity"]
+                          if e["locality"] == "local" and e["segment"]
+                          and not _is_ipv4_network(e["segment"])})
+    v6_entities = sum(1 for e in pit["ir_entity"]
+                      if e["locality"] == "local" and e["segment"] in v6_segments)
+    if v6_segments:
+        caveats.append(
+            f"{len(v6_segments)} IPv6 segment(s) carrying {v6_entities} local entities are not "
+            f"twin segments and those entities are not twin nodes: the twin IR is IPv4-only, and "
+            f"a dual-stack host is already present under its IPv4 address. Segments: "
+            f"{v6_segments}.")
     if skipped := sum(1 for e in pit["ir_entity"]
-                      if e["locality"] == "local" and not _segment_of(e)):
+                      if e["locality"] == "local" and not _segment_of(e)
+                      and e["segment"] not in v6_segments):
         caveats.append(
             f"{skipped} local entities were observed on no provisionable network (link-local, "
             f"multicast) and are NOT twin nodes; each is already present under its routable "
@@ -1074,14 +1099,17 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
     # shape the real rows carry. Without it every `next(sg for sg in all_segments ...)` lookup
     # below raises StopIteration on the first sink node. `windows_present` is 0 against the
     # PIT's own total: the honest reading is "seen in none of them", not a fabricated presence.
+    # IPv6 rows never reach the twin (see `_segment_of`); they are named in the caveats above
+    # and must not be mistaken for the D7 emptiness prune below.
+    ir_segments_v4 = [sg for sg in pit["ir_segment"] if _is_ipv4_network(sg["cidr"])]
     if sink_groups:
-        all_segments = pit["ir_segment"] + [{
+        all_segments = ir_segments_v4 + [{
             "cidr": SINK_CIDR, "name": SINK_SEGMENT_NAME,
             "windows_present": 0, "windows_total": windows,
             "coverage_source": "synthesized",
         }]
     else:
-        all_segments = pit["ir_segment"]
+        all_segments = ir_segments_v4
 
     # ASSERTED SEGMENTS (`docs/WORK_ORDER_reference_ingest.md` S2). Two cases, and only the first
     # creates anything: a CIDR the PIT never observed becomes a synthesized row, and one it did

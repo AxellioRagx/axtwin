@@ -99,6 +99,23 @@ def test_a_local_host_on_no_provisionable_network_is_not_a_node(tmp_path):
     assert any("no provisionable network" in c for c in out["caveats"])
 
 
+def test_an_ipv6_segment_is_not_a_twin_segment(tmp_path):
+    """A ULA address passes `is_provisionable`, so the windowing mints an IPv6 /64 segment and
+    places hosts on it -- and axRange refuses a non-IPv4 segment CIDR outright (CV-012 on the
+    canvas, the schema at deploy). The 2026-10-28 corp-apcn cast carried one and could not be
+    saved. The cast names it in the caveats instead of emitting it."""
+    v6 = [_flow(W1 + 6, "fd78:f376:bfe7:4d3d::1", "fd78:f376:bfe7:4d3d::2"),
+          _flow(W1 + 7, "fd78:f376:bfe7:4d3d::3", "fd78:f376:bfe7:4d3d::2", 389)]
+    out = _compiled(tmp_path, _TWO_SEGMENTS + v6)
+    tc = _tc(out)
+    assert not any(":" in sg["cidr"] for sg in tc["segments"])
+    assert not any("fd78" in n["name"] for n in tc["nodes"])
+    assert not any(":" in leg.get("segment", "") for n in tc["nodes"] for leg in n.get("nets", []))
+    assert any("IPv6 segment(s)" in c and "fd78:f376:bfe7:4d3d::/64" in c for c in out["caveats"])
+    # The IPv4 segments are untouched by it.
+    assert {sg["cidr"] for sg in tc["segments"]} >= {"10.0.1.0/24", "10.0.2.0/24"}
+
+
 def test_external_peers_are_not_nodes(tmp_path):
     """A twin cannot deploy the internet."""
     out = _compiled(tmp_path)
