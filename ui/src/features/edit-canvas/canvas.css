@@ -191,7 +191,12 @@
 .react-flow__edge-path.cv-leg { stroke: var(--ink); stroke-width: 1.5; }
 .react-flow__edge-path.cv-leg-folded { stroke: var(--muted); stroke-dasharray: 5 4; }
 /* A leg's label draws only while the leg is selected or hovered. */
-[data-testid="canvas-leg"]:not(.selected):not(:hover) .react-flow__edge-textwrapper { display: none; }
+[data-testid="canvas-leg"]:not(.selected):not(.hover) .react-flow__edge-textwrapper { display: none; }
+/* A leg is drawn above the boxes but takes no pointer events: a drag or a click
+   on a box under it reaches the box, and the pane hit-tests the legs itself
+   (`Canvas.tsx` legAt) for the click, the hover label and the menu. */
+.react-flow__edge.cv-leg-edge, .react-flow__edge.cv-leg-edge * { pointer-events: none; }
+.canvas-shell.over-leg .react-flow__pane { cursor: pointer; }
 .canvas-shell[data-panning="true"] .react-flow__pane { cursor: grab; }
 .canvas-shell[data-panning="true"] .react-flow__pane:active { cursor: grabbing; }
 .react-flow__edge-path.cv-trunk { stroke: var(--muted); }

@@ -233,7 +233,7 @@ function packSiteBoxes(boxes: Array<{ w: number; h: number; rel: Point }>, colsW
   return { w, h };
 }
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -368,6 +368,10 @@ interface PlacedSite {
  *  (z 2), so a leg that crosses another box is drawn, not hidden behind it
  *  (2026-11-05: the router→servers leg showed only as a stub between boxes). */
 export const EDGE_Z = 3;
+/** The class on a leg edge: `canvas.css` takes its pointer events away, so a
+ *  leg over a box never catches a drag or a click meant for the box; the pane
+ *  hit-tests the legs itself (`nearestLeg`). */
+export const LEG_CLASS = "cv-leg-edge";
 
 export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: PlacementOptions = {}): Placement {
   const l0 = layout0(graph, NO_PINS, options);
@@ -574,15 +578,22 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         occupied.push({ x: pb.abs.x, y: pb.abs.y, w: pb.b.w, h: pb.b.h });
       }
     }
-    const siteW = Math.max(s.w, ...placedBoxes.map((x) => x.abs.x + x.b.w - siteAbs.x + SITE_PAD));
-    const siteH = Math.max(s.h, ...placedBoxes.map((x) => x.abs.y + x.b.h - siteAbs.y + SITE_PAD));
-    nodes.push({ id: ID.site(s.key), type: "site", position: siteAbs, width: siteW, height: siteH, ...common, data: s.data });
+    // The site's box is the union of its packed box and every child box with
+    // its padding (the header above), so a segment dragged out in any direction
+    // takes the site's edge with it rather than leaving a hole (round 2).
+    const siteOrigin = {
+      x: Math.min(siteAbs.x, ...placedBoxes.map((x) => x.abs.x - SITE_PAD)),
+      y: Math.min(siteAbs.y, ...placedBoxes.map((x) => x.abs.y - SITE_HEADER_H - SITE_PAD)),
+    };
+    const siteW = Math.max(siteAbs.x + s.w, ...placedBoxes.map((x) => x.abs.x + x.b.w + SITE_PAD)) - siteOrigin.x;
+    const siteH = Math.max(siteAbs.y + s.h, ...placedBoxes.map((x) => x.abs.y + x.b.h + SITE_PAD)) - siteOrigin.y;
+    nodes.push({ id: ID.site(s.key), type: "site", position: siteOrigin, width: siteW, height: siteH, ...common, data: s.data });
     for (const { b, abs: boxAbs } of placedBoxes) {
       nodes.push({
         id: b.id,
         type: b.type,
         parentId: ID.site(s.key),
-        position: { x: boxAbs.x - siteAbs.x, y: boxAbs.y - siteAbs.y },
+        position: { x: boxAbs.x - siteOrigin.x, y: boxAbs.y - siteOrigin.y },
         width: b.w,
         height: b.h,
         ...common,
@@ -646,20 +657,20 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
         continue;
       }
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from: "router" } });
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from: "router" } });
     }
     // A router that joins segments behind a group's `+N more` tile draws ONE
     // leg to that tile, however many it joins there (a 45-leg router drew a
     // wedge of labelled lines to the same tile).
     for (const [anchor, n] of foldedTo) {
-      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
+      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
     }
   }
   for (const leg of options.extraLegs ?? []) {
     const anchor = anchorByName[leg.segment];
     if (!anchor) continue;
     const target = anchor === leg.segment ? ID.segment(leg.segment) : anchor;
-    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
+    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", className: LEG_CLASS, source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
   }
   for (const arc of l0.arcs) {
     const src = anchorByName[arc.a] === arc.a ? ID.segment(arc.a) : arc.a;

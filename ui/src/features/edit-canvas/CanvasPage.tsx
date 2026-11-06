@@ -173,30 +173,44 @@ function viewportKey(id: string): string {
   return `axr-canvas-viewport:${id}`;
 }
 
-/** The command stack kept in this browser per working copy, keyed by the deploy
- *  and valid for one `updated_at` of the copy: a reload of the same copy gets its
- *  Undo back; a copy changed meanwhile (another console, a reset) drops it. */
-function undoKey(deployId: string): string {
-  return `axr-canvas-undo:${deployId}`;
+/** The command stack kept in this browser per document -- the deploy's working
+ *  copy, or the catalog twin when nothing is deployed -- and restored only when
+ *  it still fits the text loaded: the last command's after-text (or, with
+ *  everything undone, the next redo's before-text) must be what the server
+ *  holds, path for path. A copy changed meanwhile (another console, a reset)
+ *  fails that and drops the stack. (2026-11-06 round 2: the `updated_at` key
+ *  alone did not catch every case and left undeployed twins out.) */
+function undoKey(scope: string): string {
+  return `axr-canvas-undo:${scope}`;
 }
 
-export function readStoredStack(deployId: string, updatedAt: string | null): Stack | null {
-  if (!updatedAt) return null;
+/** The stack describes `files` iff the text it ends at is the text loaded. */
+export function stackFits(stack: Stack, files: Files): boolean {
+  const last = stack.done[stack.done.length - 1];
+  const next = stack.undone[stack.undone.length - 1];
+  const end = last ? last.after : next ? next.before : null;
+  if (!end) return false;
+  return Object.entries(end).every(([path, text]) => files[path] === text);
+}
+
+export function readStoredStack(scope: string, files: Files | null): Stack | null {
+  if (!files) return null;
   try {
-    const raw = localStorage.getItem(undoKey(deployId));
+    const raw = localStorage.getItem(undoKey(scope));
     if (!raw) return null;
-    const v = JSON.parse(raw) as { updated_at?: unknown; stack?: Partial<Stack> };
-    if (v.updated_at !== updatedAt || !v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
-    return { done: v.stack.done, undone: v.stack.undone };
+    const v = JSON.parse(raw) as { stack?: Partial<Stack> };
+    if (!v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
+    const stack = { done: v.stack.done, undone: v.stack.undone };
+    return stackFits(stack, files) ? stack : null;
   } catch {
     return null;
   }
 }
 
-export function writeStoredStack(deployId: string, updatedAt: string | null, stack: Stack): void {
+export function writeStoredStack(scope: string, stack: Stack): void {
   try {
-    if (!updatedAt || (stack.done.length === 0 && stack.undone.length === 0)) localStorage.removeItem(undoKey(deployId));
-    else localStorage.setItem(undoKey(deployId), JSON.stringify({ updated_at: updatedAt, stack }));
+    if (stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(scope));
+    else localStorage.setItem(undoKey(scope), JSON.stringify({ stack }));
   } catch {
     // no storage: the stack lives for the page only
   }
@@ -300,8 +314,8 @@ export function CanvasPage() {
     if (document) {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
       synced.current = { ...document.files };
-      // The same working copy as this browser last edited: its Undo comes back.
-      const stored = data.config ? readStoredStack(data.config.deploy_id, data.config.updated_at) : null;
+      // The same text as this browser last edited: its Undo comes back.
+      const stored = readStoredStack(data.config ? data.config.deploy_id : `twin:${id}`, document.files);
       if (stored) editor.restoreStack(stored);
     }
     setSelection({ kind: "none" });
@@ -429,13 +443,15 @@ export function CanvasPage() {
     return () => clearTimeout(t);
   }, [exitNote]);
 
-  // The stack rides with the copy's `updated_at`: written once the files are
-  // synced (so the stored stack describes exactly the copy the server holds).
+  // The stack is stored once the text is at rest on the server -- synced to
+  // the working copy, or saved to the catalog -- so the stored stack describes
+  // exactly the text a reload will get.
   useEffect(() => {
-    if (!deployId || !config) return;
-    if (!editor.files || !synced.current || !sameFiles(editor.files, synced.current)) return;
-    writeStoredStack(deployId, config.updated_at, editor.stack);
-  }, [deployId, config, editor.files, editor.stack]);
+    if (!editor.files) return;
+    const atRest = deployed ? Boolean(synced.current && sameFiles(editor.files, synced.current)) : !editor.dirty;
+    if (!atRest) return;
+    writeStoredStack(deployId ?? `twin:${id}`, editor.stack);
+  }, [deployed, deployId, id, editor.files, editor.dirty, editor.stack]);
 
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {

@@ -33,6 +33,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { TopologyExport } from "../../api/types";
+import { nearestLeg, parseLegPath } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
@@ -343,9 +344,60 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     };
   }, [edit, select, locked]);
 
+  // The legs take no pointer events (a leg over a box must not catch the
+  // box's drag or click), so the pane finds the leg under the pointer: the
+  // nearest within 8 screen px. Hover marks it (`.hover` shows its label).
+  const legAt = useCallback(
+    (clientX: number, clientY: number): string | null => {
+      const shell = shellRef.current;
+      if (!shell) return null;
+      const at = rf.screenToFlowPosition({ x: clientX, y: clientY }, { snapToGrid: false }); // the snap would move the point off the leg
+      const legs: Array<{ id: string; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+      for (const g of shell.querySelectorAll<SVGGElement>("g[data-leg]")) {
+        const d = g.querySelector("path.react-flow__edge-path")?.getAttribute("d");
+        const line = d ? parseLegPath(d) : null;
+        if (line && g.dataset["leg"]) legs.push({ id: g.dataset["leg"], ...line });
+      }
+      return nearestLeg(at, legs, 8 / rf.getZoom());
+    },
+    [rf],
+  );
+  // A leg is picked only where it crosses the pane or a site's background: a
+  // chip, a segment or a router under the pointer wins over the leg (round 2:
+  // a leg over a chip's lower half had been selecting the leg's segment).
+  const legUnder = useCallback(
+    (target: EventTarget | null, clientX: number, clientY: number): string | null => {
+      const el = target instanceof Element ? target : null;
+      const node = el?.closest(".react-flow__node");
+      if (node && !el?.closest('[data-testid="canvas-site"]')) return null;
+      return legAt(clientX, clientY);
+    },
+    [legAt],
+  );
+  const hoveredLeg = useRef<string | null>(null);
+  const onShellMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const id = legUnder(e.target, e.clientX, e.clientY);
+      if (id === hoveredLeg.current) return;
+      const shell = shellRef.current;
+      if (hoveredLeg.current) shell?.querySelector(`g[data-leg="${CSS.escape(hoveredLeg.current)}"]`)?.classList.remove("hover");
+      if (id) shell?.querySelector(`g[data-leg="${CSS.escape(id)}"]`)?.classList.add("hover");
+      hoveredLeg.current = id;
+      shell?.classList.toggle("over-leg", Boolean(id));
+    },
+    [legUnder],
+  );
+
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+      if (node.data.kind === "site" && edit) {
+        const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
+        if (leg) {
+          select({ kind: "leg", ...leg }, []);
+          return;
+        }
+      }
       if (!edit) {
         const d = node.data;
         if (d.kind === "host") setRoSel({ kind: "host", id: d.nodeId });
@@ -384,16 +436,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       }
       if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
     },
-    [onToggleSite, edit, editing, attachArmed, attachFrom, select],
+    [onToggleSite, edit, editing, attachArmed, attachFrom, select, legAt],
   );
 
-  const onEdgeClick = useCallback(
-    (_e: React.MouseEvent, edge: Edge) => {
-      const leg = legParts(edge.id); // null for a folded `legs:` edge
-      if (leg) select({ kind: "leg", ...leg }, []);
-    },
-    [select],
-  );
 
   // A marquee selects many at once; a single pick is the click handlers' above.
   const onSelectionChange = useCallback(
@@ -447,14 +492,24 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target });
   }, []);
 
+  const onNodeContextMenu = useCallback(
+    (e: React.MouseEvent, node: CanvasNode) => {
+      if (node.data.kind !== "site" || !edit) return;
+      const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
+      if (leg) onContextMenu(e, { kind: "leg", ...leg });
+    },
+    [edit, legAt, onContextMenu],
+  );
+
   const onPaneContextMenu = useCallback(
     (e: MouseEvent | React.MouseEvent) => {
       e.preventDefault();
       const box = shellRef.current?.getBoundingClientRect();
+      const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
       const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target: { kind: "pane", at } });
+      setMenu({ x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0), target: leg ? { kind: "leg", ...leg } : { kind: "pane", at } });
     },
-    [rf],
+    [rf, legAt],
   );
 
   // Double-click a segment (or a site) to zoom to it: past the detail
@@ -467,6 +522,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     },
     [rf],
   );
+
+  // The edges are controlled, so the selected leg's flag is derived here.
+  const selectedLeg = edit?.selection.kind === "leg" ? `leg:${edit.selection.node}>${edit.selection.segment}` : null;
+  const edges = useMemo(() => (selectedLeg ? placement.edges.map((e) => (e.id === selectedLeg ? { ...e, selected: true } : e)) : placement.edges), [placement.edges, selectedLeg]);
 
   const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
 
@@ -672,6 +731,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       <DetailContext.Provider value={detail}>
         <div
           ref={shellRef}
+          onMouseMove={onShellMouseMove}
           className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${detail === "compact" ? " compact" : ""}`}
           data-testid="canvas"
           data-zoom-target={zoomTarget ?? undefined}
@@ -685,7 +745,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         >
           <ReactFlow<CanvasNode>
             nodes={shownNodes}
-            edges={placement.edges}
+            edges={edges}
             onNodesChange={onNodesChange}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
@@ -704,7 +764,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             snapGrid={[GRID, GRID]}
             onNodeDragStop={onNodeDragStop}
             onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
             onDrop={onDrop}
@@ -721,8 +780,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
                 edit.onPlace(edit.placing, null, edit.placing.count ?? 1, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
                 return;
               }
-              select({ kind: "none" }, []);
+              const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
+              select(leg ? { kind: "leg", ...leg } : { kind: "none" }, []);
             }}
+            onNodeContextMenu={onNodeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
             onNodeDoubleClick={onNodeDoubleClick}
             onMoveEnd={(_e, v) => onViewport(v)}

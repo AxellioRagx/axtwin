@@ -236,8 +236,23 @@ page, not a card in one:
   packs only what has no position yet, so adding a node never shuffles its
   neighbours. A box without a pin never lands under a pinned one: it takes
   the nearest free spot (`placement.ts` `freeSlot`) and the site grows to
-  hold it. Legs draw above the boxes they cross (`EDGE_Z` 3, over site 0 /
-  segment 1 / chip 2).
+  hold it. **Round 2 (2026-11-06):** a site's box is the union of its packed
+  box and every child's box with its padding, so a segment dragged out in
+  any direction takes the site's edge with it rather than leaving a hole.
+  Legs draw above the boxes they cross (`EDGE_Z` 3, over site 0 / segment 1
+  / chip 2) but take NO pointer events (`LEG_CLASS` in `canvas.css`): a drag
+  or a click on a box under a leg reaches the box. A leg is a straight line
+  from the border of the node it leaves towards the centre of its segment,
+  clipped at both borders (`canvas/legs.ts` `clipLine`; a router's box is its
+  34 px icon, not its span), so it points at its target from whichever side
+  the segment was dragged to; overlapping boxes get the centre-to-centre
+  line. The pane finds the leg under the pointer (`Canvas.tsx` `legAt`,
+  nearest within 8 screen px, only over the pane or a site's background: a
+  chip, segment or router wins): hover shows its label, click selects it,
+  right-click opens its menu. The command stack is stored per document
+  (`axr-canvas-undo:<deploy id>` or `twin:<id>`) and restored only when it
+  still fits the text loaded (`stackFits`: the last command's after-text,
+  or the next redo's before-text, is what the server holds).
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which

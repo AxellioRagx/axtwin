@@ -5,7 +5,7 @@
  * the segments it joins, an observed arc with a `log(bytes)` width, and the
  * fixed chrome (Internet, the WAN edge). Nothing here edits anything.
  */
-import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, type EdgeProps, type NodeProps } from "@xyflow/react";
+import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, useInternalNode, type EdgeProps, type InternalNode, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
@@ -13,7 +13,8 @@ import { evidenceClassName, saturationFor } from "./model/evidence";
 import { glyphCapacity, type DetailLevel } from "./model/detail";
 import { CHIP_W, TILE_H, TILE_W } from "./layout/geometry";
 import { roleBadgeLabel } from "./model/roles";
-import { HANDLE, type CanvasEdge, type CanvasNode } from "./canvas/placement";
+import { clipLine, legPath } from "./canvas/legs";
+import { HANDLE, type CanvasEdge, type CanvasNode, type Rect } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
 
@@ -385,12 +386,34 @@ export function ArcEdge(e: E) {
   );
 }
 
-/** A router's or a multi-homed host's leg onto a segment: a straight line.
- *  In edit mode it is an ATTACHMENT of the working document: labelled with
- *  the pinned address (or the segment), right-click to detach. */
+/** The side of a router's drawn icon box (`.cv-icon-box`), flush with the
+ *  bottom-centre of a node that spans the segments it joins. */
+export const ROUTER_ICON = 34;
+
+/** The box a leg is clipped against: the node's box on the plane, from React
+ *  Flow's internals (measured when the DOM has laid it out, else the size the
+ *  placement gave it) -- for a router, its icon box, since the node itself
+ *  is an invisible span over its segments. */
+function boxOf(n: InternalNode): Rect {
+  const w = n.measured.width ?? n.width ?? 0;
+  const h = n.measured.height ?? n.height ?? 0;
+  const { x, y } = n.internals.positionAbsolute;
+  if (n.type === "router") return { x: x + w / 2 - ROUTER_ICON / 2, y: y + h - ROUTER_ICON, w: ROUTER_ICON, h: ROUTER_ICON };
+  return { x, y, w, h };
+}
+
+/** A router's or a multi-homed host's leg onto a segment: a straight line
+ *  from the one box's border towards the other's centre (`legs.ts`), so it
+ *  points at its target from whichever side. In edit mode it is an
+ *  ATTACHMENT of the working document: labelled with the pinned address (or
+ *  the segment). It takes no pointer events (`canvas.css`): the pane finds
+ *  it under the pointer for the click, the hover label and the menu. */
 export function LegEdge(e: E) {
   const edit = useEdit();
-  const [path, labelX, labelY] = getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
+  const src = useInternalNode(e.source);
+  const dst = useInternalNode(e.target);
+  const line = src && dst ? clipLine(boxOf(src), boxOf(dst)) : null;
+  const [path, labelX, labelY] = line ? [legPath(line), line.mid.x, line.mid.y] : getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
   const folded = e.data?.kind === "leg" ? (e.data.folded ?? 0) : 0;
   const parts = folded ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
@@ -399,8 +422,8 @@ export function LegEdge(e: E) {
   // router were a wedge of text. A folded leg names its count instead.
   const label = folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} data-folded={folded || undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
-      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${folded ? " cv-leg-folded" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} data-folded={folded || undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`}>
+      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${folded ? " cv-leg-folded" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
     </g>
   );
 }
