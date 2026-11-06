@@ -24,6 +24,13 @@ import { Icon, RoleIcon } from "./icons";
  *  routers and the chrome are icons, arc labels are off. */
 export const DetailContext = createContext<DetailLevel>("full");
 
+/** Rendering rule 4 (2026-11-06): a host chip's text label is drawn for every
+ *  chip, the selected chips only, or none; name, address and role stay on
+ *  the hover card and in the inspector. The rail's toggle, kept per user. */
+export type LabelsMode = "all" | "selected" | "none";
+export const LABELS_MODES: readonly LabelsMode[] = ["all", "selected", "none"];
+export const LabelsContext = createContext<LabelsMode>("selected");
+
 /** How many role glyphs a compact tile carries before folding the rest. */
 export const TILE_GLYPH_MAX = 6;
 
@@ -66,14 +73,22 @@ function posAttrs(p: P, key: string) {
   return { "data-key": key, "data-x": String(p.positionAbsoluteX), "data-y": String(p.positionAbsoluteY) };
 }
 
+/** Rendering rule 3 (2026-11-06): the two-octet prefix group is a layout
+ *  convenience, not topology -- a borderless background tint with a small
+ *  label, no title bar; the chevron folds it to its label (the canvas hides
+ *  its segments, `data-site-collapse` is the click the canvas reads). */
 export function SiteNode(p: P) {
   const d = p.data;
   if (d.kind !== "site") return null;
+  const count = d.shown < d.total ? `${d.shown} of ${d.total} segments` : `${d.total} segment${d.total === 1 ? "" : "s"}`;
   return (
-    <div className={`cv-site${p.selected ? " selected" : ""}`} data-testid="canvas-site" {...posAttrs(p, d.key)} style={{ width: p.width, height: p.height }}>
-      <div className="cv-site-header">
+    <div className={`cv-site${p.selected ? " selected" : ""}${d.collapsed ? " collapsed" : ""}`} data-testid="canvas-site" data-collapsed={d.collapsed || undefined} {...posAttrs(p, d.key)} style={{ width: p.width, height: p.height }}>
+      <div className="cv-site-label" data-testid="site-label">
+        <button type="button" className="cv-site-toggle nodrag" data-site-collapse={d.key} aria-expanded={!d.collapsed} aria-label={d.collapsed ? `Expand ${d.label}` : `Collapse ${d.label}`} title={d.collapsed ? "show this group's segments" : "fold this group to its label"}>
+          {d.collapsed ? "▸" : "▾"}
+        </button>
         <span className="mono">{d.label}</span>
-        <span className="muted"> · {d.shown < d.total ? `${d.shown} of ${d.total} segments` : `${d.total} segment${d.total === 1 ? "" : "s"}`}</span>
+        <span className="muted"> · {count}{d.collapsed ? " folded" : ""}</span>
       </div>
       <Handles />
     </div>
@@ -192,9 +207,11 @@ export function HostNode(p: P) {
   const group = edit?.model.te.nodes.find((n) => n.name === d.nodeId) ?? null;
   const pinned = group?.nets[0]?.ip ?? null;
   const armed = edit?.attachFrom === d.nodeId;
+  const labels = useContext(LabelsContext);
+  const labelled = labels === "all" || (labels === "selected" && Boolean(p.selected));
   return (
     <div
-      className={`cv-host ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}`}
+      className={`cv-host ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${labelled ? "" : " bare"}`}
       data-testid="canvas-host"
       data-node-id={d.nodeId}
       data-role={d.roleLabel}
@@ -210,7 +227,7 @@ export function HostNode(p: P) {
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
         <RoleIcon label={d.roleLabel} />
       </span>
-      <span className="cv-host-label mono" title={d.label}>{d.short}</span>
+      {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
       {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
@@ -263,26 +280,65 @@ export function RungsNode(p: P) {
   );
 }
 
+/** The crossing figure a gateway router carries (rendering rule 1): the
+ *  WAN badge's title, the hover card's row and the inspector's fact. */
+export function crossingText(c: { edges: number; bytes: number; flows: number; inferred: boolean }): string {
+  return `${c.edges} crossing edge${c.edges === 1 ? "" : "s"} · ${c.bytes.toLocaleString()} bytes · ${c.flows.toLocaleString()} flows${c.inferred ? " (inferred from observed traffic)" : ""}`;
+}
+
 export function RouterNode(p: P) {
   const d = p.data;
   const edit = useEdit();
+  const card = useHoverCard(p.dragging);
   if (d.kind !== "router") return null;
   const armed = edit?.attachFrom === d.name;
+  const gateway = d.uplink || d.crossing !== null;
+  const wan = d.uplink ? "the config's uplink" : d.crossing ? "the gateway by observed crossing traffic" : null;
   return (
     <div
       className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}`}
       data-testid="canvas-router"
       data-node-id={d.name}
+      data-gateway={gateway || undefined}
       {...posAttrs(p, `host:${d.name}`)}
       style={{ width: p.width, height: p.height }}
-      title={`${d.name} joins ${d.segments.join(", ") || "no segment"}`}
+      ref={card.el}
+      onMouseEnter={card.enter}
+      onMouseLeave={card.close}
+      onPointerDown={card.close}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "router", name: d.name }) : undefined}
     >
       {/* Name and leg count above, the icon flush with the box's bottom edge:
-          the legs leave from the bottom-centre handle, so they meet the icon. */}
+          the legs leave from the bottom-centre handle, so they meet the icon.
+          A gateway wears a small WAN badge on the icon; the figures are on
+          the card and in the inspector, never on the plane. */}
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
-      <span className="cv-icon-box" aria-hidden="true"><Icon.router /></span>
+      <span className="cv-icon-box" aria-hidden="true">
+        <Icon.router />
+        {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
+      </span>
+      {card.open ? (
+        <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
+          <div className="mono">{d.name}</div>
+          <dl className="facts">
+            <dt>Legs</dt>
+            <dd className="mono">{d.segments.join(", ") || "none"}</dd>
+            {wan ? (
+              <>
+                <dt>WAN</dt>
+                <dd>{wan}</dd>
+              </>
+            ) : null}
+            {d.crossing ? (
+              <>
+                <dt>Crossing</dt>
+                <dd>{crossingText(d.crossing)}</dd>
+              </>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
       <Handles role="host" />
     </div>
   );
@@ -322,10 +378,10 @@ export function OverflowNode(p: P) {
 
 export function ChromeNode(p: P) {
   const d = p.data;
-  if (d.kind !== "internet" && d.kind !== "wan") return null;
+  if (d.kind !== "internet") return null;
   return (
-    <div className={`cv-chrome cv-${d.kind}`} data-testid={`canvas-${d.kind}`} style={{ width: p.width, height: p.height }} title={d.title}>
-      <span className="cv-icon-box" aria-hidden="true">{d.kind === "internet" ? <Icon.globe /> : <Icon.cloud />}</span>
+    <div className="cv-chrome cv-internet" data-testid="canvas-internet" style={{ width: p.width, height: p.height }} title={d.title}>
+      <span className="cv-icon-box" aria-hidden="true"><Icon.globe /></span>
       <span className="cv-icon-text">
         <span className="cv-icon-name">{d.label}</span>
         <span className="muted cv-icon-sub">{d.sub}</span>

@@ -478,18 +478,19 @@ export function CanvasPage() {
   // The document reaches the editor one effect after the load lands: until it
   // does, nothing is drawn, so the design view never flashes the evidence one.
   const docPending = Boolean(data && (data.config?.document ?? data.detail?.document)) && (!model || editor.doc?.id !== (data?.config?.document ?? data?.detail?.document)?.id);
-  const built = useMemo<{ kind: "authored" | "cast" | "design"; graph: ConsoleGraph; exportData: TopologyExport | null; extraLegs: ReturnType<typeof authoredGraph>["extraLegs"] } | null>(() => {
+  const built = useMemo<{ kind: "authored" | "cast" | "design"; graph: ConsoleGraph; exportData: TopologyExport | null; extraLegs: ReturnType<typeof authoredGraph>["extraLegs"]; uplinks: string[] } | null>(() => {
     if (!data || docPending) return null;
     if (model && (view === "design" || !data.exportData)) {
       const g = documentGraph(model, id);
-      return { kind: "design", graph: buildGraph(g.exportData, g.cast), exportData: null, extraLegs: g.extraLegs };
+      return { kind: "design", graph: buildGraph(g.exportData, g.cast), exportData: null, extraLegs: g.extraLegs, uplinks: g.uplinks };
     }
     if (data.exportData) {
-      return { kind: "cast", graph: buildGraph(data.exportData, castInput(id, data.tree, data.twin)), exportData: data.exportData, extraLegs: [] };
+      // A cast twin's Internet is its evidence (non-local peers); the config's uplink marker is the authored path's.
+      return { kind: "cast", graph: buildGraph(data.exportData, castInput(id, data.tree, data.twin)), exportData: data.exportData, extraLegs: [], uplinks: [] };
     }
     if (data.topology) {
       const a = authoredGraph(data.topology, data.tree);
-      return { kind: "authored", graph: buildGraph(a.exportData, a.cast), exportData: null, extraLegs: a.extraLegs };
+      return { kind: "authored", graph: buildGraph(a.exportData, a.cast), exportData: null, extraLegs: a.extraLegs, uplinks: a.uplinks };
     }
     return null;
   }, [data, id, model, view, docPending]);
@@ -506,7 +507,7 @@ export function CanvasPage() {
   const placement = useMemo(() => {
     if (!built) return null;
     const design = built.kind === "design";
-    const p = place(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs });
+    const p = place(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks });
     if (design && !p.overBudget) {
       for (const n of p.nodes) {
         const key = pinKeyOf(n);

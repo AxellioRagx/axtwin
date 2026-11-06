@@ -402,6 +402,8 @@ export interface TopologyNode {
   /** Network nodes only. */
   cidr?: string | null;
   vlan?: number | null;
+  /** Network nodes only: the segment's `egress: true` -- the config's uplink. */
+  egress?: boolean | null;
   /** The live op status overlay when a deploy annotates the graph. */
   status?: string | null;
 }

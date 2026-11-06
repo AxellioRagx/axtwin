@@ -339,6 +339,94 @@ page, not a card in one:
 Order: frame + surface, then rail + inspector, then level of detail (mockups
 first) — all three built 2026-11-05, the basics the same evening.
 
+### Rendering rules
+
+Decided 2026-11-06 (user) after the canvas review's second round: what the
+plane draws is the twin's STRUCTURE; evidence and layout conveniences are
+quieter, or on demand. Built the same day.
+
+1. **Uplink and Internet.** There is no WAN node. A router that the config
+   names as an uplink -- a leg on a segment with `egress: true` (IR
+   `Network.egress`; `GET /api/scenarios/{id}/topology` carries it on the
+   network node, the design view reads it off the text) -- wears a small WAN
+   badge on its icon; so does the one router of a cast twin whose export
+   shows crossing traffic (the old WAN label's "the gateway" rule, with no
+   attribution when there are several). The crossing figure (edges, bytes,
+   flows, *inferred* when no router leg was published) is on the router's
+   hover card and in the inspector, never on the plane. An `Internet` node is
+   drawn only when the cast evidence has non-local peers or the config
+   defines an uplink, with a trunk to each gateway; a twin with neither
+   starts at its router (`placement.ts`: `uplinks`, `gateways`, plane epoch
+   3 since the WAN band is gone).
+2. **Structure, then evidence.** Attachments -- a router's legs, a host's
+   legs -- are structural edges and always drawn. Observed flows (the
+   host↔host arcs with their `log(bytes)` width) are evidence: OFF by
+   default, drawn only while the traffic overlay lights them (the existing
+   filter) or while they touch the selection -- every arc on a selected
+   segment; for a selected host the arcs its own observed edges fall into,
+   its segment to each peer's (`canvas/evidence.ts` `arcScope` /
+   `arcShown`; the edges are filtered in `Canvas.tsx`). The status strip's
+   "N observed pairs not drawn" still counts against the placement's top-K.
+3. **The site group is demoted.** The two-octet prefix group (`10.70`,
+   `10.80`) is a layout convenience, not topology: a borderless background
+   tint with a small label (`.cv-site`, no title bar, no double border), not
+   a selection target (selected, React Flow would lift it over the routers
+   and legs it lies under; it still drags by its pin). The label's chevron
+   folds the group to its label: its segments and chips become React Flow
+   `hidden` nodes, the legs to them go with them, and the chevron unfolds it
+   (`Canvas.tsx` `folded`, per page). A segment dragged out of its group
+   takes the group's edge with it (the round-2 rule above), which closes
+   R2-2.
+4. **Labels.** A host chip is its ring (the role glyph in the evidence
+   ring) and its `×N` badge; the name, address and role are on the hover
+   card and in the inspector. The rail's **Labels** button (N) cycles *all /
+   selected / none*, default *selected* (a selected chip grows to show its
+   name), kept per user in this browser (`axr-canvas-labels`, like the
+   detail mode's rail state). A label-less chip is sized to its ring so the
+   hit box is the drawn box; the chip slots keep their spacing, so no pin
+   moves. Segments keep their name and CIDR, routers their short name.
+
+Acceptance (Vitest, `ui/test/canvas.rendering.test.tsx`; the pure arc rule
+is tested on the placement since jsdom draws no edge before a measurement):
+an authored twin with no uplink renders no Internet or gateway node and its
+router is the topmost element; an authored twin whose router has a leg on
+an `egress: true` segment renders one, with the badge; a cast twin with
+non-local peers renders one, its router wears the badge, the crossing figure
+is in the inspector and on the card; a cast twin opens with zero
+observed-flow edges in the DOM; the labels toggle changes the chip text and
+is kept; the site group has no border element and folds.
+
+**Manual checklist, 2026-11-06** (the running build on :8080, Playwright
+1622 × 980, `scratchpad/t1.cjs` / `t1b.cjs`, read by eye on the shots):
+
+1. `/canvas/canvas-test` (authored, no uplink): no Internet, no WAN node; the
+   topmost element is `host:gw` at y 24, the `10.70` tint under it at 116;
+   two legs, zero arcs; the chips are bare rings 30 px wide (`×2` on the
+   corner of the workstation's); the tint has no border and no header, its
+   label reads `▾ 10.70 · 2 segments`. **Seen.**
+2. canvas-test, labels: a click on a chip shows its name (the chip grows to
+   its slot); the rail button cycles to *none* then *all* (every chip
+   named, `axr-canvas-labels` = `all`). **Seen.**
+3. canvas-test, fold: the chevron hides both segments, their chips and the
+   two legs; the label reads `▸ 10.70 · 2 segments folded`; the chevron
+   brings them back. The router's hover card names its legs. **Seen.**
+4. `/canvas/corp-twin` (authored, 54 segments, 18 drawn legs): no Internet,
+   no WAN; `hq-mx` topmost at y 24 with its legs fanning to five tinted
+   groups; zero arcs (an authored twin has none to show). **Seen.**
+5. `/canvas/corpapcn-twin`, the *evidence* view (cast, 786 nodes, 596
+   non-local): the Internet node reads `596 non-local`; one router, with the
+   WAN badge; zero arcs on open; a click on a segment draws the one arc on
+   it, Esc hides it; the router's inspector reads `WAN · the gateway by
+   observed crossing traffic` and `715 crossing edges · 41,065,082 bytes ·
+   3,725 flows`; *Light up traffic* with protocol `tcp` lit 446 of 1437
+   edges, 355 hosts and 11 arcs for 8 s. **Seen.**
+6. Round 2 of the review, by hand (`docs/design/canvas-review-2026-11-05.md`):
+   R2-1 Undo after a reload, R2-2 the dragged-out segment, R2-3 the leg to a
+   moved segment, R2-4 the leg under a drag -- **seen** on 2026-11-06 with
+   `scratchpad/r2*.cjs`; R2-5 Apply then Cancel mid-replay returned `409
+   cancelled` in 4 s and Reset replayed the baseline; the attach select took
+   a keyboard pick. **Done.**
+
 ## Notes
 
 - Prerequisites are the A3 then A2 seams and the `host:` pin kind in the

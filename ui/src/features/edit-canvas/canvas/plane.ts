@@ -30,7 +30,6 @@ import {
   SITE_PAD,
   TIER_GAP_Y,
   TIER_INTERNET_H,
-  TIER_WAN_H,
   TILE_GAP_X,
   TILE_GAP_Y,
   TILE_H,
@@ -40,12 +39,14 @@ import { SITE_BUDGET } from "../model/budgets";
 
 // Epoch 2 (2026-11-05): a site's tile columns are chosen for the plane's
 // shape (`placement.ts` `chooseSiteCols`), no longer the engine's count.
-export const CANVAS_PLANE_EPOCH = 2;
+// Epoch 3 (2026-11-06, rendering rule 1): the WAN band is gone -- the
+// gateway is a badge on its router -- so the router band and the sites sit
+// higher; a pin saved under the old bands would put a router inside a site.
+export const CANVAS_PLANE_EPOCH = 3;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],
   ["TIER_INTERNET_H", TIER_INTERNET_H],
-  ["TIER_WAN_H", TIER_WAN_H],
   ["TIER_GAP_Y", TIER_GAP_Y],
   ["DEVICE_W", DEVICE_W],
   ["DEVICE_H", DEVICE_H],

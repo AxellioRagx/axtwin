@@ -75,7 +75,7 @@ export function readDoc(doc: WorkingDoc): DocModel {
 // The document as a graph: the Phase 1 authored pipeline over the twin config
 // ---------------------------------------------------------------------------
 export function documentTopology(te: TeModel, id: string): Topology {
-  const nodes: Topology["nodes"] = te.segments.map((s) => ({ id: s.name, type: "network", cidr: s.cidr }));
+  const nodes: Topology["nodes"] = te.segments.map((s) => ({ id: s.name, type: "network", cidr: s.cidr, egress: s.egress || null }));
   const edges: Topology["edges"] = [];
   for (const n of te.nodes) {
     nodes.push({ id: n.name, type: n.kind === "router" ? "router" : "host", image: n.image });

@@ -47,7 +47,9 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { DetailContext, edgeTypes, GlowContext, legParts, NO_GLOW, nodeTypes, type Glow } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, type Glow, type LabelsMode } from "./nodes";
+import { arcScope, arcShown } from "./canvas/evidence";
+import { CHIP_H } from "./layout/geometry";
 import "./canvas.css";
 
 export interface CanvasEditProps {
@@ -100,6 +102,22 @@ export interface CanvasProps {
 
 const DEFAULT_GLOW_SECONDS = 8;
 const GRID = 24;
+/** A folded site group (rendering rule 3) is its label alone. */
+const SITE_FOLDED_W = 220;
+const SITE_FOLDED_H = 30;
+/** The labels toggle (rendering rule 4), kept per user in this browser. */
+const LABELS_KEY = "axr-canvas-labels";
+function readLabels(): LabelsMode {
+  try {
+    const v = localStorage.getItem(LABELS_KEY);
+    return v === "all" || v === "none" || v === "selected" ? v : "selected";
+  } catch {
+    return "selected";
+  }
+}
+function nextLabels(m: LabelsMode): LabelsMode {
+  return LABELS_MODES[(LABELS_MODES.indexOf(m) + 1) % LABELS_MODES.length]!;
+}
 
 export function Canvas(props: CanvasProps) {
   return (
@@ -180,6 +198,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const bucket = useStore((st) => zoomBucket(st.transform[2]));
   const [autoLevel, setAutoLevel] = useState<DetailLevel>("full");
   const [detailMode, setDetailMode] = useState<DetailMode>("auto");
+  const [labels, setLabels] = useState<LabelsMode>(readLabels);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LABELS_KEY, labels);
+    } catch {
+      // no storage: the choice lives for the page
+    }
+  }, [labels]);
+  // Site groups folded to their label (rendering rule 3): their segments and chips are hidden.
+  const [folded, setFolded] = useState<string[]>([]);
+  const toggleFolded = useCallback((key: string) => setFolded((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
   useEffect(() => {
     if (bucket === "mid") return;
     setAutoLevel((prev) => nextLevel(prev, bucket === "hi" ? 1 : 0));
@@ -216,9 +245,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const [zoomTarget, setZoomTarget] = useState<string | null>(null);
   const editing = Boolean(edit) && !locked;
 
+  // Keyed on the annotation list, not the edit props as a whole: the node
+  // array is rebuilt from this (below), which drops every `selected` flag,
+  // and the edit props change on every selection.
+  const annotations = edit?.annotations;
   const annotationNodes = useMemo<CanvasNode[]>(() => {
-    if (!edit || !showAnnotations) return [];
-    return edit.annotations.filter((a) => !a.hidden).map((a) => ({
+    if (!annotations || !showAnnotations) return [];
+    return annotations.filter((a) => !a.hidden).map((a) => ({
       id: `ann:${a.id}`,
       type: "annotation",
       position: { x: a.x, y: a.y },
@@ -229,7 +262,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       zIndex: -1,
       data: { kind: "annotation", ann: a },
     }));
-  }, [edit, showAnnotations]);
+  }, [annotations, showAnnotations]);
   useEffect(() => setNodes([...placement.nodes, ...annotationNodes]), [placement, annotationNodes, setNodes]);
 
   // Annotation resizes land in the annotation list when the resize ends.
@@ -391,6 +424,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+      const fold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-site-collapse]") : null;
+      if (fold?.dataset["siteCollapse"]) {
+        toggleFolded(fold.dataset["siteCollapse"]);
+        return;
+      }
       if (node.data.kind === "site" && edit) {
         const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
         if (leg) {
@@ -436,7 +474,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       }
       if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
     },
-    [onToggleSite, edit, editing, attachArmed, attachFrom, select, legAt],
+    [onToggleSite, toggleFolded, edit, editing, attachArmed, attachFrom, select, legAt],
   );
 
 
@@ -524,8 +562,19 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   );
 
   // The edges are controlled, so the selected leg's flag is derived here.
+  // Rendering rule 2: the legs are structure and always drawn; an arc is
+  // evidence, drawn only while lit by the overlay or touching the selection.
   const selectedLeg = edit?.selection.kind === "leg" ? `leg:${edit.selection.node}>${edit.selection.segment}` : null;
-  const edges = useMemo(() => (selectedLeg ? placement.edges.map((e) => (e.id === selectedLeg ? { ...e, selected: true } : e)) : placement.edges), [placement.edges, selectedLeg]);
+  const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
+  const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
+  const edges = useMemo(
+    () =>
+      placement.edges.flatMap((e) => {
+        if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+        return e.id === selectedLeg ? [{ ...e, selected: true }] : [e];
+      }),
+    [placement.edges, selectedLeg, scope, glow.arcs],
+  );
 
   const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
 
@@ -634,6 +683,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         case "-": void rf.zoomOut({ duration: 200 }); break;
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
         case "d": setDetailMode(nextMode); break;
+        case "n": setLabels(nextLabels); break;
         case "/": e.preventDefault(); togglePopover("find"); break;
         case "t": togglePopover("traffic"); break;
         case "a": if (edit) togglePopover("palette"); break;
@@ -654,6 +704,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
+    { name: `Labels: ${labels}`, key: "N", icon: <Icon.labels />, pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];
@@ -684,7 +735,22 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
   // Compact: the chips (and a segment's rungs) leave the DOM; React Flow hides
   // their edges with them. State keeps them, so a selection survives a zoom.
-  const shownNodes = useMemo(() => (detail === "compact" ? nodes.map((n) => (n.type === "host" || n.type === "rungs" ? { ...n, hidden: true } : n)) : nodes), [nodes, detail]);
+  const shownNodes = useMemo(() => {
+    const foldedSites = new Set(folded);
+    const hiddenIds = new Set<string>();
+    return nodes.map((n) => {
+      let out = n;
+      if (detail === "compact" && (n.type === "host" || n.type === "rungs")) out = { ...out, hidden: true };
+      if (n.data.kind === "site" && foldedSites.has(n.data.key)) out = { ...out, width: SITE_FOLDED_W, height: SITE_FOLDED_H, data: { ...n.data, collapsed: true } };
+      // A parent comes before its children in the placement's order.
+      if (n.parentId && (foldedSites.has(n.parentId) || hiddenIds.has(n.parentId))) {
+        hiddenIds.add(n.id);
+        out = { ...out, hidden: true };
+      }
+      if (n.type === "host" && labels !== "all" && !(labels === "selected" && n.selected)) out = { ...out, width: CHIP_H };
+      return out;
+    });
+  }, [nodes, detail, folded, labels]);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
     if (!menu) return [];
@@ -729,6 +795,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
+      <LabelsContext.Provider value={labels}>
         <div
           ref={shellRef}
           onMouseMove={onShellMouseMove}
@@ -862,7 +929,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
               <Inspector
                 open={inspectorTab}
                 onOpen={setInspectorTab}
-                selection={inspector ? inspector.selection : <ReadOnlySelection graph={graph} sel={roSel} />}
+                selection={inspector ? inspector.selection : <ReadOnlySelection graph={graph} sel={roSel} placement={placement} />}
                 graph={graph}
                 onCentre={centreOnListed}
                 notes={notes}
@@ -902,6 +969,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             </ul>
           ) : null}
         </div>
+      </LabelsContext.Provider>
       </DetailContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
@@ -910,7 +978,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
 /** The inspector's Selection tab without an editor (a cast or authored
  *  twin): the clicked host's or segment's facts, read from the graph. */
-function ReadOnlySelection({ graph, sel }: { graph: ConsoleGraph; sel: { kind: "host" | "router" | "segment"; id: string } | null }) {
+function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel: { kind: "host" | "router" | "segment"; id: string } | null; placement: Placement }) {
   if (!sel) return <p className="muted">click a host, a router or a segment</p>;
   if (sel.kind === "segment") {
     const seg = graph.segmentByName.get(sel.id);
@@ -929,11 +997,15 @@ function ReadOnlySelection({ graph, sel }: { graph: ConsoleGraph; sel: { kind: "
   }
   if (sel.kind === "router") {
     const r = graph.routers.find((x) => x.name === sel.id);
+    const drawn = placement.nodes.find((n) => n.id === ID.router(sel.id))?.data;
+    const rd = drawn?.kind === "router" ? drawn : null;
     return (
       <div className="cv-ro" data-testid="ro-router">
         <h3 className="mono">{sel.id}</h3>
         <dl className="facts">
           <dt>legs</dt><dd>{r ? r.segments.join(", ") : "none"}</dd>
+          {rd?.uplink || rd?.crossing ? <><dt>WAN</dt><dd>{rd.uplink ? "the config's uplink" : "the gateway by observed crossing traffic"}</dd></> : null}
+          {rd?.crossing ? <><dt>crossing</dt><dd data-testid="ro-crossing">{crossingText(rd.crossing)}</dd></> : null}
         </dl>
       </div>
     );

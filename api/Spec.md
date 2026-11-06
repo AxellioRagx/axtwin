@@ -29,7 +29,7 @@ that is **not** listed under a seam below already exists:
 `GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel`, `DELETE /api/discovery/runs/{id}` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
-`GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
+`GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology` (a `network` node carries the segment's `egress`, the config's uplink marker the canvas reads -- 2026-11-06),
 `GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `GET|PUT /api/deploys/{id}/config`, `POST /api/deploys/{id}/config/apply|reset|cancel`, `POST /api/validate`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
 `DELETE /api/deploys/{id}`, `GET|POST|DELETE /api/tfc`, `GET|POST|DELETE /api/taps`,

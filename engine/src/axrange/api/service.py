@@ -1010,7 +1010,7 @@ def topology(settings: ApiSettings, scenario: str, *,
             continue
         net_ids.add(net.id)
         nodes.append(dtos.TopologyNodeDTO(
-            id=net.id, type="network", cidr=net.cidr, vlan=net.vlan,
+            id=net.id, type="network", cidr=net.cidr, vlan=net.vlan, egress=net.egress,
         ))
 
     # op-status overlay: map node id -> a representative op status from state.db

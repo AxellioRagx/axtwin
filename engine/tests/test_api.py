@@ -125,6 +125,11 @@ def test_topology(tmp_path):
     assert ("h-b", "corp") in pairs
     # no deploy yet → no status overlay
     assert all(n.get("status") is None for n in t["nodes"])
+    # a network node carries the segment's `egress` (the config's uplink marker
+    # the canvas reads); the fixture declares none
+    nets = [n for n in t["nodes"] if n["type"] == "network"]
+    assert nets and all("egress" in n and n["egress"] is None for n in nets)
+    assert all(n["egress"] is None for n in t["nodes"] if n["type"] != "network")
 
 
 def test_topology_unknown_scenario(tmp_path):

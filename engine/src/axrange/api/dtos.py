@@ -61,6 +61,9 @@ class TopologyNodeDTO(BaseModel):
     # network-only enrichment
     cidr: Optional[str] = None
     vlan: Optional[int] = None
+    # the segment's `egress: true` (IR `Network.egress`): the config's uplink,
+    # which the canvas reads as "a router with a leg here is a gateway"
+    egress: Optional[bool] = None
     # live op status overlay (joined from state.db); None when no deploy / pre-deploy.
     # one of: completed | running | failed | halted-due-to-upstream | pending
     status: Optional[str] = None

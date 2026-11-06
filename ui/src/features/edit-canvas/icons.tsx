@@ -187,6 +187,11 @@ export const Icon = {
       <path d="M4 4l8 8M12 4l-8 8" />
     </Svg>
   ),
+  labels: () => (
+    <Svg>
+      <path d="M2 12.5l3-9 3 9M3.2 9.5h3.6M10 6.5h4.5M10 9.5h4.5M10 12.5h3" />
+    </Svg>
+  ),
   chevronRight: () => (
     <Svg>
       <path d="M6 3l5 5-5 5" />

@@ -41,6 +41,8 @@ export interface TeSegment {
   cidr: string;
   zoneType: string | null;
   isolated: boolean;
+  /** `egress: true`: the segment is the twin's uplink (IR `Network.egress`), so a router with a leg on it is a gateway. */
+  egress: boolean;
 }
 
 export interface TeNode {
@@ -128,7 +130,7 @@ export function readTe(text: string): TeModel {
         problems.push(`segment at line ${it.line + 1} has no name or cidr`);
         continue;
       }
-      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true" });
+      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true" });
     }
   }
   const nodes: TeNode[] = [];

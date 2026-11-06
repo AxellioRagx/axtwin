@@ -25,6 +25,9 @@ export interface AuthoredGraph {
   exportData: TopologyExport;
   cast: CastInput;
   extraLegs: ExtraLeg[];
+  /** The routers with a leg on an `egress: true` network: the config's
+   *  uplinks, which are what draws an Internet node over an authored twin. */
+  uplinks: string[];
 }
 
 export function authoredGraph(topology: Topology, tree: TwinTree | null): AuthoredGraph {
@@ -63,12 +66,15 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
   const nodes: TopologyExportNode[] = [];
   const routers: Array<{ name: string; segments: string[] }> = [];
   const extraLegs: ExtraLeg[] = [];
+  const uplinks: string[] = [];
+  const egressNets = new Set(networks.filter((n) => n.egress).map((n) => n.id));
   const entities = new Map<string, number>();
   for (const n of topology.nodes) {
     if (n.type === "network") continue;
     const legs = legsOf.get(n.id) ?? [];
     if (n.type === "router") {
       routers.push({ name: n.id, segments: legs.map((e) => e.target) });
+      if (legs.some((e) => egressNets.has(e.target))) uplinks.push(n.id);
       continue;
     }
     const first = legs[0];
@@ -116,5 +122,5 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
     routers,
     segmentRoster: networks.map((n) => ({ name: n.id, cidr: cidrOf(n.id), zone_type: zoneByName.get(n.id) ?? null })),
   };
-  return { exportData, cast, extraLegs };
+  return { exportData, cast, extraLegs, uplinks };
 }

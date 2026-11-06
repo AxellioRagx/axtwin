@@ -43,23 +43,20 @@ import {
   SITE_PAD,
   TIER_GAP_Y,
   TIER_INTERNET_H,
-  TIER_WAN_H,
   TILE_GAP_X,
   TILE_GAP_Y,
   TILE_H,
   TILE_W,
-  WAN_W,
   type Box,
   type Point,
 } from "../layout/geometry";
 import { layout0, overflowAnchorKey, type Level0Options } from "../layout/level0";
 import { layout1 } from "../layout/level1";
 import { NO_PINS, type Pins } from "../layout/pins";
-import { strokeForBytes, volumeRange } from "../layout/scale";
 import { stackBands } from "../layout/tiers";
 import { BUDGET_LEVEL0, BUDGET_LEVEL1_BANDS, type RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
-import { shortBytes, shortName } from "../model/detail";
+import { shortName } from "../model/detail";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
 import type { Annotation } from "../edit/annotations";
 import type { ExtraLeg } from "./authored";
@@ -68,7 +65,16 @@ import type { ExtraLeg } from "./authored";
 // Node and edge data -- `type` aliases, not interfaces, so they satisfy React
 // Flow's `Record<string, unknown>` bound.
 // ---------------------------------------------------------------------------
-export type SiteData = { kind: "site"; key: string; label: string; shown: number; total: number; northSouthBytes: number };
+export type SiteData = {
+  kind: "site";
+  key: string;
+  label: string;
+  shown: number;
+  total: number;
+  northSouthBytes: number;
+  /** Folded to its label by the operator (`Canvas.tsx`); its segments are hidden. */
+  collapsed?: boolean;
+};
 export type SegmentData = {
   kind: "segment";
   name: string;
@@ -100,12 +106,27 @@ export type HostData = {
   dial: string[];
 };
 export type RungsData = { kind: "rungs"; role: string; roleLabel: string; count: number; rungs: RungTally[] };
-export type RouterData = { kind: "router"; name: string; segments: string[]; drawnLegs: number };
+/** What crossed the twin's edge, attributed to its gateway router: the
+ *  graph's `WanEdge` (`inferred` when no router leg was published). */
+export type Crossing = { edges: number; bytes: number; flows: number; inferred: boolean };
+export type RouterData = {
+  kind: "router";
+  name: string;
+  segments: string[];
+  drawnLegs: number;
+  /** The config names this router as an uplink (a leg on an `egress: true` segment). */
+  uplink: boolean;
+  /** The crossing traffic this router carries as the gateway, or `null` when it is not one. */
+  crossing: Crossing | null;
+};
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
-/** The Internet pill and the WAN edge: short label and sub-line beside the
- *  icon (the slot has room for about twenty glyphs each), the full wording
- *  in `title`. */
-export type ChromeData = { kind: "internet" | "wan"; label: string; sub: string; title: string };
+/** The Internet pill: short label and sub-line beside the icon (the slot
+ *  has room for about twenty glyphs each), the full wording in `title`.
+ *  Rendering rule 1 (2026-11-06): it is drawn only when the cast evidence
+ *  has non-local peers or the config defines an uplink on a router; the
+ *  gateway is folded into that router (`RouterData.uplink` / `crossing`),
+ *  there is no WAN node. */
+export type ChromeData = { kind: "internet"; label: string; sub: string; title: string };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };
@@ -138,6 +159,8 @@ export interface Placement {
 export interface PlacementOptions extends Level0Options {
   /** A multi-homed authored host's further attachments, drawn as legs. */
   extraLegs?: readonly ExtraLeg[];
+  /** The routers the config names as uplinks (`AuthoredGraph.uplinks`). */
+  uplinks?: readonly string[];
 }
 
 export const ID = {
@@ -271,7 +294,7 @@ export function freeSlot(at: Point, size: { w: number; h: number }, occupied: re
 /** The shape a fitView should meet: a window is about this wide for its
  *  height, and the plane is judged with the tiers above the sites counted. */
 export const PLANE_ASPECT_TARGET = 1.8;
-const TIERS_H_ESTIMATE = TIER_INTERNET_H + TIER_WAN_H + 96 + 3 * TIER_GAP_Y;
+const TIERS_H_ESTIMATE = TIER_INTERNET_H + 96 + 2 * TIER_GAP_Y;
 
 /**
  * How many tile columns a site may use (the engine's count at most, the
@@ -507,9 +530,18 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   const infraH = rowRight.length ? rowRight.length * DEVICE_H + (rowRight.length - 1) * DEVICE_GAP_Y : 0;
 
   // ---- the tiers, stacked top to bottom with the lifted primitive ----
-  const showInternet = graph.nonLocal.length > 0 || graph.wanEdge !== null;
-  const bands = stackBands([showInternet ? TIER_INTERNET_H : 0, graph.wanEdge ? TIER_WAN_H : 0, infraH, sitesH], CANVAS_PAD, TIER_GAP_Y);
-  const [internetBand, wanBand, infraBand, segmentBand] = bands as [Box, Box, Box, Box];
+  // Rendering rule 1: the Internet is drawn only on evidence of non-local
+  // peers or a configured uplink; the gateway is a badge on its router, so
+  // there is no WAN band and a twin with neither starts at its router.
+  const uplinks = [...(options.uplinks ?? [])];
+  const showInternet = graph.nonLocal.length > 0 || uplinks.length > 0;
+  // The gateways: the configured uplinks; else, with crossing EVIDENCE and
+  // one router, that router (the old WAN label's "the gateway" rule). A
+  // router alone is no gateway: an authored twin shows no badge.
+  const crossing: Crossing | null = graph.wanEdge && graph.wanEdge.crossingEdges > 0 ? { edges: graph.wanEdge.crossingEdges, bytes: graph.wanEdge.bytes, flows: graph.wanEdge.flows, inferred: graph.wanEdge.inferred } : null;
+  const gateways = uplinks.length ? uplinks : crossing && routerSpans.length === 1 ? [routerSpans[0]!.router.name] : [];
+  const bands = stackBands([showInternet ? TIER_INTERNET_H : 0, infraH, sitesH], CANVAS_PAD, TIER_GAP_Y);
+  const [internetBand, infraBand, segmentBand] = bands as [Box, Box, Box];
   for (const s of sites) s.abs = { x: s.abs.x, y: segmentBand.y };
 
   // ---- nodes, with pins applied on absolute coordinates, then made relative ----
@@ -528,24 +560,11 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       height: TIER_INTERNET_H - 12,
       draggable: false,
       ...common,
-      data: { kind: "internet", label: "Internet", sub: `${graph.nonLocal.length} non-local`, title: `Internet · ${graph.nonLocal.length} non-local entities (outside every segment)` },
-    });
-  }
-  if (graph.wanEdge) {
-    const we = graph.wanEdge;
-    nodes.push({
-      id: ID.wan,
-      type: "chrome",
-      position: { x: CANVAS_PAD + (contentW - WAN_W) / 2, y: wanBand.y },
-      width: WAN_W,
-      height: TIER_WAN_H - 12,
-      draggable: false,
-      ...common,
       data: {
-        kind: "wan",
-        label: we.inferred ? "Egress (inferred)" : graph.routers.length === 1 ? `Gateway ${graph.routers[0]?.name ?? ""}` : "Gateway",
-        sub: `${we.crossingEdges} crossing · ${shortBytes(we.bytes)}`,
-        title: `${we.inferred ? "Egress, inferred from observed traffic" : graph.routers.length === 1 ? `Gateway ${graph.routers[0]?.name ?? ""}` : "Gateway"} · ${we.crossingEdges} crossing edges · ${we.bytes.toLocaleString()} bytes`,
+        kind: "internet",
+        label: "Internet",
+        sub: graph.nonLocal.length ? `${graph.nonLocal.length} non-local` : `uplink on ${gateways.join(", ")}`,
+        title: graph.nonLocal.length ? `Internet · ${graph.nonLocal.length} non-local entities (outside every segment)` : `Internet · the config's uplink on ${gateways.join(", ")}`,
       },
     });
   }
@@ -558,8 +577,11 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       position: abs,
       width: s.w,
       height: DEVICE_H,
+      // Over the site tints and segment boxes (0 / 1), under the legs (EDGE_Z): a router
+      // dragged into a site stays visible and hoverable.
+      zIndex: 2,
       ...common,
-      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs },
+      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs, uplink: uplinks.includes(s.router.name), crossing: gateways.includes(s.router.name) ? crossing : null },
     });
   });
   for (const s of sites) {
@@ -587,7 +609,9 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
     };
     const siteW = Math.max(siteAbs.x + s.w, ...placedBoxes.map((x) => x.abs.x + x.b.w + SITE_PAD)) - siteOrigin.x;
     const siteH = Math.max(siteAbs.y + s.h, ...placedBoxes.map((x) => x.abs.y + x.b.h + SITE_PAD)) - siteOrigin.y;
-    nodes.push({ id: ID.site(s.key), type: "site", position: siteOrigin, width: siteW, height: siteH, ...common, data: s.data });
+    // The tint is not a selection target (rule 3): selected, React Flow would
+    // lift it over the routers and legs it lies under. It still drags (its pin).
+    nodes.push({ id: ID.site(s.key), type: "site", position: siteOrigin, width: siteW, height: siteH, ...common, selectable: false, data: s.data });
     for (const { b, abs: boxAbs } of placedBoxes) {
       nodes.push({
         id: b.id,
@@ -630,22 +654,9 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
 
   // ---- edges ----
   const edges: CanvasEdge[] = [];
-  if (showInternet && graph.wanEdge) {
-    edges.push({ id: "trunk:internet", type: "trunk", source: ID.internet, target: ID.wan, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "trunk", bytes: graph.wanEdge.bytes, flows: graph.wanEdge.flows } });
-  }
-  if (graph.wanEdge && sites.length) {
-    const range = volumeRange(sites.map((s) => s.data.northSouthBytes));
-    for (const s of sites) {
-      edges.push({
-        id: `trunk:${s.key}`,
-        type: "trunk",
-        source: ID.wan,
-        target: ID.site(s.key),
-        sourceHandle: HANDLE.bottom,
-        targetHandle: HANDLE.top,
-        style: { strokeWidth: strokeForBytes(s.data.northSouthBytes, range) },
-        data: { kind: "trunk", bytes: s.data.northSouthBytes, flows: 0 },
-      });
+  if (showInternet) {
+    for (const name of gateways) {
+      edges.push({ id: `trunk:internet>${name}`, type: "trunk", source: ID.internet, target: ID.router(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "trunk", bytes: crossing?.bytes ?? 0, flows: crossing?.flows ?? 0 } });
     }
   }
   for (const s of routerSpans) {

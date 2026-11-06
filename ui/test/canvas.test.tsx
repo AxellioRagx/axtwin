@@ -127,6 +127,7 @@ afterEach(() => {
 
 describe("the design canvas (C2, read-only)", () => {
   it("renders an authored twin with every segment, host and router, roles from the tree", async () => {
+    localStorage.setItem("axr-canvas-labels", "all"); // the chip text these assertions read (rule 4: selected-only by default)
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     const segments = await screen.findAllByTestId("canvas-segment");
@@ -148,6 +149,7 @@ describe("the design canvas (C2, read-only)", () => {
   });
 
   it("renders a cast twin with its evidence rings, role badges, ghosts and the router from the tree", async () => {
+    localStorage.setItem("axr-canvas-labels", "all"); // the chip text these assertions read (rule 4: selected-only by default)
     const { api } = seeded();
     renderAt(api, "/twins/corp-cast/canvas");
     const segments = await screen.findAllByTestId("canvas-segment");
@@ -162,9 +164,9 @@ describe("the design canvas (C2, read-only)", () => {
     expect(ws.className).toContain("ev-imputed");
     expect(screen.getByTestId("canvas-router").textContent).toContain("gw01");
     expect(screen.getByTestId("canvas-internet").textContent).toContain("1 non-local");
-    expect(screen.getByTestId("canvas-wan").textContent).toContain("Gateway gw01");
-    // The label is short enough for the slot; the full wording is the node's title.
-    expect(screen.getByTestId("canvas-wan").getAttribute("title")).toMatch(/^Gateway gw01 · \d+ crossing edges · [\d,]+ bytes$/);
+    // Rendering rule 1: no WAN node; the one router is the gateway and wears the badge.
+    expect(screen.queryByTestId("canvas-wan")).toBeNull();
+    expect(within(screen.getByTestId("canvas-router")).getByTestId("wan-badge")).toBeTruthy();
     expect(screen.getByTestId("canvas-internet").getAttribute("title")).toContain("non-local entities");
     expect(screen.getAllByTestId("canvas-site").length).toBe(2);
     expect(screen.getByText("cast · observed evidence")).toBeTruthy();
@@ -347,7 +349,7 @@ describe("the one write: a dragged node's position as a pin", () => {
   it("keys sites, segments and nodes; chrome, collapsed bands and +N tiles are not pinnable", () => {
     expect(pinKeyOf({ data: { kind: "site", key: "site:10.80", label: "10.80", shown: 1, total: 1, northSouthBytes: 0 } })).toBe("site:10.80");
     expect(pinKeyOf({ data: { kind: "segment", name: "seg-a", cidr: "10.80.20.0/24", deployedCidr: null, zoneType: null, hosts: 0, ghosts: 0, evidenceMix: [], roleBadges: [], hasRouterLeg: false } })).toBe("segment:10.80.20.0/24");
-    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0 } })).toBe("host:gw01");
+    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0, uplink: false, crossing: null } })).toBe("host:gw01");
     expect(pinKeyOf({ data: { kind: "overflow", siteKey: "site:10.80", hidden: 3, total: 9, expanded: false } })).toBeNull();
     expect(pinKeyOf({ data: { kind: "internet", label: "", sub: "", title: "" } })).toBeNull();
   });
