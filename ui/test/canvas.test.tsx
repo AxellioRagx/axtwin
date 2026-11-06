@@ -157,7 +157,7 @@ describe("the design canvas (C2, read-only)", () => {
     const dc = hosts.find((h) => h.dataset["nodeId"] === "address:10.80.20.4")!;
     expect(dc.className).toContain("ev-observed");
     expect(dc.dataset["role"]).toBe("DC");
-    expect(dc.textContent).toContain(".20.4"); // an address key's short name
+    expect(dc.textContent).toContain(".80.20.4"); // an address key's short name: the last three octets
     const ws = hosts.find((h) => h.dataset["nodeId"] === "address:10.80.20.9")!;
     expect(ws.className).toContain("ev-imputed");
     expect(screen.getByTestId("canvas-router").textContent).toContain("gw01");

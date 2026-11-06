@@ -113,7 +113,10 @@ export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterD
 export type CanvasNode = Node<CanvasData, string>;
 
 export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
-export type LegData = { kind: "leg"; label: string; from: "router" | "host" };
+/** `folded`: the leg goes to a group's `+N more` tile for `folded` hidden
+ *  segments at once (one edge, not one per hidden segment); it names no
+ *  single attachment, so it has no label, no detach, no selection. */
+export type LegData = { kind: "leg"; label: string; from: "router" | "host"; folded?: number };
 export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
 export type CanvasEdgeData = ArcData | LegData | TrunkData;
 export type CanvasEdge = Edge<CanvasEdgeData, string>;
@@ -580,11 +583,21 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
     }
   }
   for (const s of routerSpans) {
+    const foldedTo = new Map<string, number>();
     for (const name of s.router.segments) {
       const anchor = anchorByName[name];
       if (!anchor) continue;
-      const target = anchor === name ? ID.segment(name) : anchor;
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: name, from: "router" } });
+      if (anchor !== name) {
+        foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
+        continue;
+      }
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: name, from: "router" } });
+    }
+    // A router that joins segments behind a group's `+N more` tile draws ONE
+    // leg to that tile, however many it joins there (a 45-leg router drew a
+    // wedge of labelled lines to the same tile).
+    for (const [anchor, n] of foldedTo) {
+      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
     }
   }
   for (const leg of options.extraLegs ?? []) {

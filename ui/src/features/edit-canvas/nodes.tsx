@@ -11,7 +11,7 @@ import { createContext, useContext, useState } from "react";
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
 import { glyphCapacity, type DetailLevel } from "./model/detail";
-import { TILE_H, TILE_W } from "./layout/geometry";
+import { CHIP_W, TILE_H, TILE_W } from "./layout/geometry";
 import { roleBadgeLabel } from "./model/roles";
 import { HANDLE, type CanvasEdge, type CanvasNode } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
@@ -96,7 +96,7 @@ export function SegmentNode(p: P) {
   const legend = glyphs.map((g) => `${g.role} ${g.count}`).join(" · ");
   return (
     <div
-      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}`}
+      className={`cv-segment ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}${(p.width ?? TILE_W) < 2 * CHIP_W ? " narrow" : ""}`}
       data-testid="canvas-segment"
       data-cidr={d.cidr}
       data-name={d.name}
@@ -118,7 +118,7 @@ export function SegmentNode(p: P) {
         )}
         {d.hasRouterLeg ? <span className="badge" title="a router has a leg here">gw</span> : null}
       </div>
-      {detail === "compact" ? (
+      {detail === "compact" && !((p.width ?? TILE_W) < 2 * CHIP_W && d.hosts <= 1) ? (
         <div className="cv-glyphs" data-testid="segment-glyphs" aria-label={legend || "no roles"}>
           {shown.map((g) => (
             <span key={g.role} className="cv-glyph" title={`${g.role} · ${g.count}`} data-role={roleBadgeLabel(g.role)}>
@@ -347,12 +347,16 @@ export function ArcEdge(e: E) {
 export function LegEdge(e: E) {
   const edit = useEdit();
   const [path, labelX, labelY] = getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
-  const parts = legParts(e.id);
+  const folded = e.data?.kind === "leg" ? (e.data.folded ?? 0) : 0;
+  const parts = folded ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
-  const label = edit && parts ? (leg?.ip ?? parts.segment) : undefined;
+  // The label (the pinned address, else the segment) draws only while the
+  // leg is selected or hovered (`canvas.css`): forty labelled legs from one
+  // router were a wedge of text. A folded leg names its count instead.
+  const label = folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} className={e.selected ? "selected" : ""} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
-      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} data-folded={folded || undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} onContextMenu={edit && parts ? (ev) => edit.onContextMenu(ev, { kind: "leg", ...parts }) : undefined}>
+      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${folded ? " cv-leg-folded" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
     </g>
   );
 }

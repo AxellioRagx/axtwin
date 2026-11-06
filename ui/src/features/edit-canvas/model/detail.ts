@@ -46,9 +46,11 @@ export function shortName(id: string, address: string | null): string {
   return value || (address ? lastOctets(address) : id);
 }
 
+/** The last three octets (`.80.20.4`): two collided between 10.80.20.x and
+ *  10.20.20.x segments of one cast; three fit the chip and name the segment. */
 function lastOctets(ip: string): string {
   const parts = ip.split(".");
-  return parts.length === 4 ? `.${parts[2]}.${parts[3]}` : ip;
+  return parts.length === 4 ? `.${parts[1]}.${parts[2]}.${parts[3]}` : ip;
 }
 
 /** Bytes as a chrome label reads them: `1.2 GB`, `310 MB`, `0 B`. */

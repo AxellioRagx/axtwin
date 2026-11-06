@@ -25,16 +25,16 @@ describe("the level of detail follows the zoom with hysteresis", () => {
 });
 
 describe("a chip's short name is derived, never stored", () => {
-  it("takes a hostname's first label, an address's last two octets, a mac's last two bytes", () => {
+  it("takes a hostname's first label, an address's last three octets, a mac's last two bytes", () => {
     expect(shortName("hostname:fin-ws01.corp.example", null)).toBe("fin-ws01");
-    expect(shortName("address:10.80.20.4", "10.80.20.4")).toBe(".20.4");
+    expect(shortName("address:10.80.20.4", "10.80.20.4")).toBe(".80.20.4"); // three: two collided across 10.80.20.x and 10.20.20.x
     expect(shortName("mac:aa:bb:cc:dd:ee:ff", null)).toBe("ee:ff");
   });
   it("keeps a design node's group name, and falls back to the address", () => {
     expect(shortName("web01", "10.1.1.20")).toBe("web01");
     expect(shortName("debian-12-cloud-1", "10.1.1.10")).toBe("debian-12-cloud-1");
-    expect(shortName("10.1.1.20", "10.1.1.20")).toBe(".1.20");
-    expect(shortName("", "10.1.1.20")).toBe(".1.20");
+    expect(shortName("10.1.1.20", "10.1.1.20")).toBe(".1.1.20");
+    expect(shortName("", "10.1.1.20")).toBe(".1.1.20");
   });
 });
 

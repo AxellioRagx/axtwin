@@ -139,6 +139,32 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   // popover is open, which inspector tab is open (null = the tab strip only;
   // a click on a node opens Selection), and the read-only selection.
   const [tool, setTool] = useState<"select" | "pan">("select");
+  // Space held: pan with any button while it is down (a trackpad has no middle button).
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  useEffect(() => {
+    const isField = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return Boolean(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable));
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !isField(e.target) && !e.repeat) {
+        e.preventDefault();
+        setSpaceHeld(true);
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === "Space") setSpaceHeld(false);
+    };
+    const blur = () => setSpaceHeld(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, []);
   const [popover, setPopover] = useState<Popover | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
   const [roSel, setRoSel] = useState<{ kind: "host" | "router" | "segment"; id: string } | null>(null);
@@ -359,7 +385,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
   const onEdgeClick = useCallback(
     (_e: React.MouseEvent, edge: Edge) => {
-      const leg = legParts(edge.id);
+      const leg = legParts(edge.id); // null for a folded `legs:` edge
       if (leg) select({ kind: "leg", ...leg }, []);
     },
     [select],
@@ -559,7 +585,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
 
   const viewTools: RailButton[] = [
     { name: "Select", key: "V", icon: <Icon.select />, pressed: tool === "select", onClick: () => setTool("select") },
-    { name: "Pan", key: "H", icon: <Icon.pan />, pressed: tool === "pan", onClick: () => setTool("pan") },
+    { name: "Pan", key: "H, or hold Space", icon: <Icon.pan />, pressed: tool === "pan" || spaceHeld, onClick: () => setTool("pan") },
     { name: "Zoom in", key: "+", icon: <Icon.zoomIn />, onClick: () => void rf.zoomIn({ duration: 200 }) },
     { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
     { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
@@ -636,6 +662,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
           data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
           data-detail-mode={detailMode}
+          data-panning={tool === "pan" || spaceHeld ? "true" : "false"}
           data-locked={locked ? "true" : "false"}
           data-color-mode={colorMode}
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
@@ -651,8 +678,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             nodesDraggable={!locked}
             nodesConnectable={editing}
             elementsSelectable
-            panOnDrag={tool === "pan" ? true : [1]}  // select mode: middle button pans; the right button is the pane menu
-            selectionOnDrag={tool === "select"}
+            panOnDrag={tool === "pan" || spaceHeld ? true : [1]}  // select mode: middle button pans; the right button is the pane menu
+            selectionOnDrag={tool === "select" && !spaceHeld}
             selectionMode={SelectionMode.Partial}
             deleteKeyCode={null}
             zoomOnDoubleClick={false}
