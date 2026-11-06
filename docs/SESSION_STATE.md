@@ -4,94 +4,102 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-06 00:45 · **Branch:** `wip/design-platforms-canvas`, six commits
-past `c5d6856` (39f02a6..c7ca5e0), **pushed** to origin on 2026-11-06 at the user's request.
+**Last updated:** 2026-11-06 05:55 · **Branch:** `wip/design-platforms-canvas`, seven
+commits past origin's `8cc405a` (65dd86b..HEAD, this handoff the seventh), **not pushed** (the user pushes).
 Rule: commit each track as it lands, staged by path; push only when asked.
 
 ## What this session did
 
-The 2026-11-05 design built end to end (A8 auth; canvas = the page; rail + inspector; node
-level of detail; the basics; routers place without a segment — all pushed), then, on the
-user's "fix them all autonomously" and "design a twin from scratch and deploy it on dev45":
+The canvas review a Claude-desktop browser session wrote on 2026-11-05 (Claude Doc
+`PR6PeoXpMPjcfMikVX69qP`: an edit → Save-As → Apply round trip on the deployed `canvas-test`,
+ten bugs by severity, six UX confusions) was worked in full. Decisions the user made first:
+Reset discards first and replays best-effort; the undo stack lives in the browser per working
+copy; placement is arm-then-click only; the bar regroup, a cancel for long exits, per-change
+discard and restoring canvas-test's committed tfc were all in scope.
 
-1. `39f02a6` **quiet legs, Space to pan, three-octet short names, narrow compact tiles** —
-   one dashed `legs:` edge per router and folded `+N more` group; a leg's label only on
-   hover/selection; hold Space to pan (trackpads); `.80.20.4`; narrow tiles wrap their name.
-2. `39998ca` a hovered chip's card rises above its neighbours.
-3. `98dbfb7` **a router's leg is never pinned**: `attach` and placing on a segment gave the
-   router the next free host address; the engine then had nothing at the gateway
-   (network+1). Found designing the twin; the deploy shows `gw` at .1 on both segments.
-4. `a89fef7` **discovery: the cast keeps IPv6 segments out of the twin** (`_segment_of`,
-   one caveat naming them; a ULA /64 passed `is_provisionable` and axRange refuses non-IPv4
-   CIDRs — corp-apcn-reader-20261028 could not be saved). Discovery suite green.
-5. `391eadb` **`catalog/twins/canvas-test`** — the first twin designed on the canvas through
-   the browser (Playwright drove the real UI: new design, palette, inspector, Save), with
-   bundle-local scripted personas and a boundary tap to XPress-SW-A; README has the sequence,
-   the capture proof and the teardown.
+1. `65dd86b` **api (A2):** Reset deletes the working copy BEFORE replaying the baseline's
+   tiers; a failed replay is `replay_failed` + a warning, not a 500 (a baseline persona that
+   could not play had wedged the copy). `{tiers: [...]}` replays named baseline tiers with
+   or without a copy. `GET .../config` carries `exit` while an Apply/Reset runs; `POST
+   .../config/cancel` sets a flag the executor polls between ops (`409 cancelled`, the tier
+   left `attempted`); a second exit is `409 busy` at once. `edits.ConfigExits` on
+   `app.state`, in-process. Spec: `api/Spec.md` A2. Engine suite green (+2 tests).
+2. `710f68c` **ui, the deployed twin's exits:** per-tier pill (te/tfc/tap, red when failed,
+   "Re-apply <tier> from baseline"); *applied · unpersisted* vs *unapplied changes*;
+   progress with Cancel; a 409 shown at once as `busy:` / `cancelled:`; Reset's failed
+   replay reported; Undo survives a reload (localStorage per deploy + `updated_at`); Discard
+   per pending change in Checks; the layout group floats at the canvas's bottom
+   (`layoutBar`); exits grouped history | working copy | save-as; notes fade after 8 s.
+3. `8ae7dde` **one placement rule:** click arms, click a segment places (a router: a segment
+   or an empty spot), Esc disarms; other twins' groups under a folded "From other twins".
+4. `e8b7791` **positions:** site/segment positions settle for the session (`settled` ref in
+   `CanvasPage`), a box never lands under a pinned one (`freeSlot`, the site grows), the
+   view fits once (`useNodesInitialized`), legs at `EDGE_Z` 3 above the boxes. Test
+   fixtures moved to `ui/test/helpers/canvasFixtures.tsx`.
+5. `3a7d104` rename re-keys the selection; Save-As carries the layout draft; the next /24
+   after the highest in use; hover card on a 350 ms dwell, closes on press, flips at the
+   edge; no evidence row on authored chips; the twin page shows the standing deploy per
+   tier and no discovery facts for an authored twin.
+6. `1ed813c` the pill's tier words compact (`te ✓ · tfc ✗ failed`) so the bar is one row.
 
-**The serve** (:8080, pid 1029254, `none` mode) was restarted 00:17 with
-`AXRANGE_IMAGES_ROOT=/home/rocky/axr-product/deploy-dev45`: without an images root every
-design fails REF-120 and the console cannot Save. Killed by pid, not pattern (a pattern also
-matched a shell wrapper the first time).
+**Seen live** (:8080, Playwright, 1622 × 980, `scratchpad/review.cjs`): bar 46 px one row;
+a collapsed inspector opens on a tab click (the review's item did not reproduce); the card;
+"add a leg on…" registers a keyboard pick (the review's failure was its automation); legs
+z 4 over segments z 1; a real Reset on canvas-test showed "resetting… replaying tfc · N s
+Cancel" for 15 s while `GET .../config` stayed ~14 ms and the page answered in ~11 ms — the
+review's 90 s freeze came from its failing baseline persona, now a reported replay failure.
+
+**The serve** (pid 1075721, `none` mode, images root) was restarted 05:43 for the cancel
+route; `ui/dist` is rebuilt beside and swapped (`vite build --outDir dist.new`). Memory has
+the anchored `pgrep` (an unanchored one killed the bash wrapper, not the serve).
 
 ## Standing on dev45 — left up for the user
 
-- te `canvas-test-f919dae1` (48 ops, 4 VMs: gw router, corp-workstation01/02, file-server),
-  tap `tap-canvas-test-f919dae1-1a070fcc` (office↔servers boundary → XPress-SW-A), tfc
-  `tfc-canvas-test-f919dae1-bb83ca92` (office-workstation, file-share). DB `~/.axrange/state.db`.
-- **Capture proven**: the sink's `gre-cap` RX counter 21 → 233 in minutes, and `tcpdump` on
-  dev45 of the GRE to 10.255.251.21 shows `10.70.10.2/.3 → 10.70.20.10:445/80` SYNs and
-  the server's RSTs (nothing listens: scripted personas, no `install:` from the canvas).
-  Teardown: `axrange te destroy canvas-test-f919dae1 --allow-destroy --db ~/.axrange/state.db`.
+te `canvas-test-f919dae1` + tap `…-1a070fcc` (→ XPress-SW-A) + tfc `…-bb83ca92`; the working
+copy is now clean (the live Reset above replayed the committed scripted tfc). The reviewer's
+uncommitted edit (library `file-server` persona in `tfc/default.yaml`) was reverted;
+`catalog/twins/canvas-test/generated/` (layout.json, .history) is untracked, as is
+`canvas-test-exp1` from the review's Save-As. Teardown: `axrange te destroy
+canvas-test-f919dae1 --allow-destroy --db ~/.axrange/state.db`.
 
 ## Current state
 
-- **Tests:** ui typecheck clean, **179 tests**, build clean, `ui/dist` live; discovery full
-  suite green after the cast change; engine untouched this session (last: 4180 passed, the
-  two pre-existing failures from the untracked `catalog/twins/{test2,test-twin-2,
-  corp-apcn-reader-20261028}` folders). Untracked also: `catalog/twins/mylab` (not mine).
-- **Seen with eyes** (Playwright chromium, 1622 × 980): every twin's fit view, compact and
-  full, the dark theme, a dense Checks tab, the Router item live, Delete, double-click, the
-  pane menu, the deployed twin's working-copy view with its exits. Recipe in memory.
+- **Tests:** engine full suite green (background run, exit 0; `test_api_edit_model.py` 44);
+  ui typecheck clean, **227 tests in 17 files**; `ui/dist` live.
+- Untracked: `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028,mylab,canvas-test-exp1}`.
 
-## Issues left (the user's list, worked)
+## Issues left
 
-- **Open, small:** a design tile says "1 host" for a group with `count: 2` (groups, not
-  instances); the top bar wraps below ~1500 px; compact tiles keep their full-detail height
-  (corp-twin's 42-host tiles stand empty at fit zoom 0.5); the canvas cannot author a
-  node's `install:` / `requires` / `resources` (palette group items drop them), so a
-  canvas-designed file server runs no smbd; `POST /api/validate` answers 400 (not a
-  finding) for a router between placement and its first leg.
-- **Yours to decide:** the serve's auth mode (`none` on 0.0.0.0 accepts every write; set the
-  token or `AXRANGE_AUTH=proxy`); where A8 provenance lands (`request.state.user` is unused);
-  the Checks tab (an addition to the three-tab design); the untracked catalog folders and the
-  two engine failures they cause; merge to `master`; the mockup's Router/LOD follow-ups.
-- **Confirmed fine:** a leg-less router is a canvas warning and the engine's STR-070 refuses
-  it at Save; dark theme; dense Checks at 460 px.
+- From the review, not done: the canvas cannot author `install:` (so a designed file server
+  runs no smbd — the review's root cause); a cancel reaches only the process running the
+  playout; the executor's cancel lands between ops (one host's drive finishes first).
+- **Open, small (older):** a tile says "1 host" for a `count: 2` group; compact tiles keep
+  full height; `POST /api/validate` 400 for a leg-less router mid-edit; the bar wraps below
+  ~1500 px.
+- **Yours to decide:** the serve's auth mode (`none` on 0.0.0.0); A8 provenance; the Checks
+  tab; the untracked catalog folders; merge to `master`; whether the undo stack should move
+  server-side (chosen browser-side for now).
 
 ## Next steps
 
-0. Re-cast corp-apcn-reader-20261028 so the IPv6 segment leaves it.
-1. The small open items above, then the libvirt path (blocked by the confirm-first `vmid` →
-   guest-handle bump and `planner/pass1_emit.py:149 ROUTER_WAN_BRIDGE="vmbr0"`), then live
-   Splunk/Elastic against a Corelight-fed index.
+0. Push the seven commits. Re-cast corp-apcn-reader-20261028 (IPv6 segment).
+1. `install:` / `requires` / `resources` on a palette group and in the node panel, so a
+   canvas-designed server runs its daemon.
+2. The small items above, then the libvirt path and live Splunk/Elastic.
 
 ## Gotchas
 
-- Write policy resolved ONCE at `create_app`; tests flipping `settings.api_token` build a
-  second app. `TestClient(app, client=("10.0.0.5", 1))` sets the peer for the CIDR check.
-- Chip/tile constants are hashed into the plane stamp and a packing-rule change bumps its
-  epoch (`canvas/plane.ts`, now 2): either drops every saved layout. Compact header text is
-  screen-constant via `--inv` (1/zoom ≤ 2.5).
-- Canvas tests: the palette is the rail's `+` popover, find/traffic/annotate are popovers,
-  the inspector shows ONE tab; helpers `openPalette()`, `item()`, `ann()`, `tab()`. Every
-  edit must leave the document free of ERRORS (warnings pass), so a "not yet" rule is a
-  warning. jsdom's zoom is 1; pin a level with `rail-detail`.
-- `tap`/`tfc deploy` take `--twin <id> --db`, no `--images`; `te inventory` wants the deploy
-  id. Library endpoint personas `require` roles (DC, DNS, web-tier): a small twin needs
-  bundle-local ones in `<bundle>/personas/`.
-- Stage by path, never `git add -A`. Engine tests `-n auto -p no:cacheprovider`; `ui/`: `npm
-  ci` only.
+- Write policy resolved ONCE at `create_app`; `ConfigExits` too — tests that flip settings
+  build a second app. A cancel test needs a persona backend that blocks (`_Blocking…`).
+- Pane click in jsdom: React Flow's selection mode dispatches it from pointer-down +
+  pointer-up (`clickPane()` in `canvasFixtures`), `fireEvent.click` does nothing.
+- The hover card has a 350 ms dwell: tests `findByTestId` it. The fake API's timestamps
+  come from `stamp()` (monotonic): `applied.at === updated_at` means "applied".
+- Chip/tile constants are hashed into the plane stamp (epoch 2). Every edit must leave the
+  document free of ERRORS (warnings pass). jsdom's zoom is 1; pin a level with `rail-detail`.
+- `tap`/`tfc deploy` take `--twin <id> --db`, no `--images`. Stage by path, never `git add
+  -A`. Engine tests `-n auto -p no:cacheprovider`; `ui/`: `npm ci` only; never build into
+  a served `ui/dist`.
 
 ## Environment
 
