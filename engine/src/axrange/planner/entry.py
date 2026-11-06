@@ -94,12 +94,28 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
     )
 
 
+class _EitherEvent:
+    """Set when either event is: the executor's one abort signal, fed by the
+    heartbeat's loss OR an operator's cancel (`cancel_event`)."""
+
+    def __init__(self, *events: Any) -> None:
+        self._events = events
+
+    def is_set(self) -> bool:
+        return any(e.is_set() for e in self._events)
+
+
 def run_deploy_executor(store, adapter, config_backend, plan, ctx, deploy_id: str,
-                        heartbeat) -> Any:
+                        heartbeat, *, cancel_event: Any = None) -> Any:
     """Build the `Executor`, persist the plan, start the heartbeat, and run.
 
     Returns the executor's result; propagates any exception `executor.run()`
     raises (callers decide whether to swallow it or let it surface).
+
+    `cancel_event` (a `threading.Event`, optional): an operator's cancel.
+    The executor polls it between ops exactly as it polls the heartbeat's
+    loss -- the op in flight finishes, the rest are halted and the deploy
+    ends `failed` (a truthful record: the playout did not converge).
     """
     from axrange.planner import Executor
 
@@ -111,7 +127,7 @@ def run_deploy_executor(store, adapter, config_backend, plan, ctx, deploy_id: st
         # abort is dead. This is the SOLE `Executor(...)` construction for
         # both the CLI and API deploy paths (`cli.main.cmd_deploy` routes
         # through this function too), so wiring it here covers both.
-        lost_event=heartbeat.lost,
+        lost_event=heartbeat.lost if cancel_event is None else _EitherEvent(heartbeat.lost, cancel_event),
     )
     executor.persist_plan()
     heartbeat.start()

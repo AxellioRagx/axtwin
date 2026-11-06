@@ -14,6 +14,7 @@ import json
 import logging
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -6395,8 +6396,22 @@ def _hold_te_lease(settings: ApiSettings, te: Any):
             store.close()
 
 
+def _exit_dto(exits: Any, deploy_id: str) -> Optional[dtos.ConfigExitDTO]:
+    """The Apply or Reset in flight on this deploy, from the app's
+    `ConfigExits` registry, or None."""
+    ex = exits.get(deploy_id) if exits is not None else None
+    if ex is None:
+        return None
+    return dtos.ConfigExitDTO(
+        kind=ex.kind, tier=ex.tier, started_at=_iso(ex.started_at) or "",
+        elapsed_s=round(max(0.0, time.time() - ex.started_at), 1),
+        cancel_requested=ex.cancel_requested,
+    )
+
+
 def _deploy_config_dto(
     settings: ApiSettings, te: Any, *, warnings: Optional[list[str]] = None,
+    exits: Any = None,
 ) -> dtos.DeployConfigDTO:
     """The working copy as the console sees it: the row's document, or the
     baseline's until the first PUT; `dirty` and the per-change classification
@@ -6431,6 +6446,7 @@ def _deploy_config_dto(
         apply_allowed=all(c.kind != edits.KIND_TOPOLOGY for c in changes),
         applied=applied,
         updated_at=_iso(wc.updated_at) if wc is not None else None,
+        exit=_exit_dto(exits, te.deploy_id),
         warnings=list(warnings or []),
     )
 
@@ -6442,9 +6458,73 @@ def _change_dto(c: Any) -> dtos.PendingChangeDTO:
     )
 
 
-def deploy_config(settings: ApiSettings, deploy_id: str) -> dtos.DeployConfigDTO:
+def deploy_config(settings: ApiSettings, deploy_id: str, *, exits: Any = None) -> dtos.DeployConfigDTO:
     """A2 `GET /api/deploys/{id}/config`."""
-    return _deploy_config_dto(settings, _te_for_config(settings, deploy_id))
+    return _deploy_config_dto(settings, _te_for_config(settings, deploy_id), exits=exits)
+
+
+def deploy_config_cancel(settings: ApiSettings, deploy_id: str, *, exits: Any) -> dtos.ConfigExitCancelDTO:
+    """A2 `POST /api/deploys/{id}/config/cancel`: ask the Apply or Reset in
+    flight on this deploy to stop. The executor polls the flag between ops
+    (the op in flight finishes), the exit's answer is then `409 cancelled`
+    and its tier stays recorded `attempted`. 409 when nothing is in
+    flight -- in THIS process: a playout another process runs holds the
+    twin's lease and is not reachable from here."""
+    te = _te_for_config(settings, deploy_id)
+    ex = exits.request_cancel(te.deploy_id) if exits is not None else None
+    if ex is None:
+        raise ApiError(
+            409, f"no Apply or Reset is in flight on deploy {te.deploy_id} in this process; "
+            "nothing to cancel", detail={"code": "nothing-in-flight"},
+        )
+    return dtos.ConfigExitCancelDTO(deploy_id=te.deploy_id, kind=ex.kind, tier=ex.tier)
+
+
+class _NoExit:
+    """The exit record when no registry is wired (tests, the CLI): a cancel
+    that is never requested."""
+
+    def __init__(self) -> None:
+        self.tier: Optional[str] = None
+        self.cancel = threading.Event()
+
+    @property
+    def cancel_requested(self) -> bool:
+        return False
+
+
+@_contextmanager
+def _exit_in_flight(exits: Any, te: Any, kind: str):
+    """Register the exit for the length of the call; a second Apply or
+    Reset on the same deploy is `409 busy` at once, before any lease."""
+    from axrange.api import edits
+
+    if exits is None:
+        yield _NoExit()
+        return
+    try:
+        ex = exits.begin(te.deploy_id, kind)
+    except edits.ExitBusy as e:
+        raise ApiError(
+            409, f"{e.current.kind} on deploy {te.deploy_id} is in progress"
+            f"{f' (replaying {e.current.tier})' if e.current.tier else ''}; "
+            "wait for it or cancel it (POST .../config/cancel)",
+            detail={"code": "busy", "held_by": te.deploy_id, "exit": e.current.kind},
+        ) from e
+    try:
+        yield ex
+    finally:
+        exits.end(te.deploy_id)
+
+
+def _cancelled(kind: str, tier: str, te: Any, cause: Optional[ApiError]) -> ApiError:
+    status = cause.detail.get("status") if cause is not None and isinstance(cause.detail, dict) else None
+    return ApiError(
+        409, f"{kind} cancelled while replaying {tier} on {te.deploy_id}: the op in flight "
+        "finished, the rest were halted, so the twin may be half-applied -- Apply or "
+        "Reset again when ready",
+        detail={"code": "cancelled", "kind": kind, "tier": tier, "status": status},
+    )
 
 
 def deploy_config_put(
@@ -6581,7 +6661,7 @@ def _refuse_role_fold_conflicts(
 def _replay_tfc(
     settings: ApiSettings, te: Any, profile_path: Path, *, roots: Path,
     roles: dict[str, str], target_node: Optional[str], allow_revert_host_edits: bool,
-    persona_backend: Any, warnings: list[str],
+    persona_backend: Any, warnings: list[str], cancel_event: Any = None,
 ) -> dtos.TrafficPlanStatusDTO:
     """`apply_traffic_profile` on the document's profile, with the twin's
     `personas/` as the overlay (its loader warnings surfaced) and `roles`
@@ -6614,6 +6694,7 @@ def _replay_tfc(
                 target_node=target_node, target=te.deploy_id,
                 persona_backend=persona_backend,
                 allow_revert_host_edits=allow_revert_host_edits,
+                cancel_event=cancel_event,
             )
     except TrafficPlanError as e:
         raise ApiError(e.status, e.message, detail=e.detail) from e
@@ -6634,7 +6715,7 @@ def _completed(tier: str, dto: Any) -> Any:
 
 def _replay_tap(
     settings: ApiSettings, te: Any, plan_path: Path, *, target_node: Optional[str],
-    adapter: Any, config_backend: Any,
+    adapter: Any, config_backend: Any, cancel_event: Any = None,
 ) -> dtos.TapPlanStatusDTO:
     from axrange.o2control.taps import TapPlanError, apply_tap_plan, load_tap_plan
 
@@ -6643,7 +6724,7 @@ def _replay_tap(
         status = apply_tap_plan(
             spec=spec, db_path=settings.db_path, adapter_config=settings.adapter_config,
             target_node=target_node, target=te.deploy_id, adapter=adapter,
-            config_backend=config_backend,
+            config_backend=config_backend, cancel_event=cancel_event,
         )
     except TapPlanError as e:
         raise ApiError(e.status, e.message) from e
@@ -6691,6 +6772,7 @@ def _teardown_tier(
 def deploy_config_apply(
     settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigApplyRequest, *,
     persona_backend: Any = None, tap_adapter: Any = None, tap_config_backend: Any = None,
+    exits: Any = None,
 ) -> dtos.DeployConfigApplyDTO:
     """A2 `POST /api/deploys/{id}/config/apply`: the working copy's delta
     onto the running twin, no redeploy. Refused outright (nothing applied)
@@ -6700,14 +6782,28 @@ def deploy_config_apply(
     to re-apply has no default in the document, or when a role change
     collides with a profile's own `roles:` entry. Each tier is recorded
     `attempted` before its playout runs and `done` when it returns, so a
-    failure half-way leaves a truthful record for Reset."""
+    failure half-way leaves a truthful record for Reset. The exit is
+    registered in `exits` for its whole length (`GET .../config` reports it
+    as `exit`, `POST .../config/cancel` stops it at the next op boundary:
+    `409 cancelled`, the tier left `attempted`)."""
+    te = _te_for_config(settings, deploy_id)
+    _require_live(te)
+    with _exit_in_flight(exits, te, "apply") as ex:
+        return _deploy_config_apply(
+            settings, te, req, ex, persona_backend=persona_backend, tap_adapter=tap_adapter,
+            tap_config_backend=tap_config_backend,
+        )
+
+
+def _deploy_config_apply(
+    settings: ApiSettings, te: Any, req: dtos.DeployConfigApplyRequest, ex: Any, *,
+    persona_backend: Any, tap_adapter: Any, tap_config_backend: Any,
+) -> dtos.DeployConfigApplyDTO:
     import shutil
     import tempfile
 
     from axrange.api import edits
 
-    te = _te_for_config(settings, deploy_id)
-    _require_live(te)
     copies = edits.WorkingCopyStore.beside(settings.db_path)
     wc = copies.get(te.deploy_id)
     if wc is None:
@@ -6787,20 +6883,29 @@ def deploy_config_apply(
             tfc_dto = tap_dto = None
             try:
                 for tier in tiers:
+                    if ex.cancel_requested:
+                        raise _cancelled("apply", tier, te, None)
+                    ex.tier = tier
                     copies.mark_tier(te.deploy_id, tier, edits.APPLIED_ATTEMPTED)
-                    if tier == "tfc":
-                        tfc_dto = _replay_tfc(
-                            settings, te, bundle / str(defaults["tfc"]), roots=td,
-                            roles=roles_by_instance, target_node=req.target_node,
-                            allow_revert_host_edits=req.allow_revert_host_edits,
-                            persona_backend=persona_backend, warnings=warnings,
-                        )
-                    else:
-                        tap_dto = _replay_tap(
-                            settings, te, bundle / str(defaults["tap"]),
-                            target_node=req.target_node, adapter=tap_adapter,
-                            config_backend=tap_config_backend,
-                        )
+                    try:
+                        if tier == "tfc":
+                            tfc_dto = _replay_tfc(
+                                settings, te, bundle / str(defaults["tfc"]), roots=td,
+                                roles=roles_by_instance, target_node=req.target_node,
+                                allow_revert_host_edits=req.allow_revert_host_edits,
+                                persona_backend=persona_backend, warnings=warnings,
+                                cancel_event=ex.cancel,
+                            )
+                        else:
+                            tap_dto = _replay_tap(
+                                settings, te, bundle / str(defaults["tap"]),
+                                target_node=req.target_node, adapter=tap_adapter,
+                                config_backend=tap_config_backend, cancel_event=ex.cancel,
+                            )
+                    except ApiError as e:
+                        if ex.cancel_requested:
+                            raise _cancelled("apply", tier, te, e) from e
+                        raise
                     copies.mark_tier(
                         te.deploy_id, tier, edits.APPLIED_DONE,
                         roles=roles_by_group if tier == "tfc" else None,
@@ -6820,15 +6925,19 @@ def deploy_config_apply(
 def deploy_config_reset(
     settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigResetRequest, *,
     persona_backend: Any = None, tap_adapter: Any = None, tap_config_backend: Any = None,
-    tap_teardown_backend: Any = None, tfc_teardown_backend: Any = None,
+    tap_teardown_backend: Any = None, tfc_teardown_backend: Any = None, exits: Any = None,
 ) -> dtos.DeployConfigResetDTO:
     """A2 `POST /api/deploys/{id}/config/reset`: discard the working copy
-    and revert what Apply pushed (or started to push) from it. Every
-    recorded tier is replayed from the baseline's own default, UNMODIFIED,
-    through the same playout (converge + de-scope; the baseline's `roles:`
-    and te roles stand as authored); a tier the baseline has no default
-    for is torn down through its destroy entry point. The running twin then
-    matches the baseline again."""
+    FIRST, then revert what Apply pushed (or started to push) from it, best
+    effort. Every recorded tier is replayed from the baseline's own default,
+    UNMODIFIED, through the same playout (converge + de-scope; the baseline's
+    `roles:` and te roles stand as authored); a tier the baseline has no
+    default for is torn down through its destroy entry point. A replay that
+    fails does not undo the discard and is not an error: the tier lands in
+    `replay_failed` with its reason in `warnings`, the twin keeps running
+    what the copy applied there, and a reset with `tiers: [...]` tries the
+    replay again. (2026-11-06: a baseline whose persona could not play made
+    every Reset fail and left the copy wedged with no way back.)"""
     from axrange.api import edits
     from axrange.planner.state import DeployStatus
 
@@ -6838,41 +6947,64 @@ def deploy_config_reset(
     warnings: list[str] = []
     reverted: list[str] = []
     torn_down: list[str] = []
+    replay_failed: list[str] = []
     tfc_dto = tap_dto = None
     recorded = [t for t in ("tfc", "tap") if wc is not None and wc.applied and t in (wc.applied.get("tiers") or {})]
-    if recorded and te.status == DeployStatus.DESTROYED:
-        warnings.append(
-            f"deploy {te.deploy_id} is destroyed: nothing to revert; the copy is discarded"
-        )
-    elif recorded:
-        baseline = _read_twin_document(settings, te.scenario_id)
-        folder, _flat = _bundle_location(settings, te.scenario_id)
-        with _hold_te_lease(settings, te):
-            for tier in recorded:
-                rel = edits.tier_file_of(baseline.files, tier)
-                if rel is None:
-                    if _teardown_tier(
-                        settings, te, tier, tap_adapter=tap_adapter,
-                        tap_teardown_backend=tap_teardown_backend, persona_backend=persona_backend,
-                        tfc_teardown_backend=tfc_teardown_backend, warnings=warnings,
-                    ):
-                        torn_down.append(tier)
-                elif tier == "tfc":
-                    tfc_dto = _replay_tfc(
-                        settings, te, folder / rel, roots=folder.parent, roles={},
-                        target_node=req.target_node, allow_revert_host_edits=True,
-                        persona_backend=persona_backend, warnings=warnings,
-                    )
-                    reverted.append("tfc")
-                else:
-                    tap_dto = _replay_tap(
-                        settings, te, folder / rel, target_node=req.target_node,
-                        adapter=tap_adapter, config_backend=tap_config_backend,
-                    )
-                    reverted.append("tap")
-    discarded = copies.delete(te.deploy_id)
+    if req.tiers is not None:
+        unknown = sorted(set(req.tiers) - {"tfc", "tap"})
+        if unknown:
+            raise ApiError(400, f"'tiers' names {unknown}; the replayable tiers are tfc, tap")
+        recorded = [t for t in ("tfc", "tap") if t in req.tiers or t in recorded]
+    with _exit_in_flight(exits, te, "reset") as ex:
+        discarded = copies.delete(te.deploy_id)
+        if recorded and te.status == DeployStatus.DESTROYED:
+            warnings.append(
+                f"deploy {te.deploy_id} is destroyed: nothing to revert; the copy is discarded"
+            )
+        elif recorded:
+            baseline = _read_twin_document(settings, te.scenario_id)
+            folder, _flat = _bundle_location(settings, te.scenario_id)
+            with _hold_te_lease(settings, te):
+                for tier in recorded:
+                    if ex.cancel_requested:
+                        raise _cancelled("reset", tier, te, None)
+                    ex.tier = tier
+                    rel = edits.tier_file_of(baseline.files, tier)
+                    try:
+                        if rel is None:
+                            if _teardown_tier(
+                                settings, te, tier, tap_adapter=tap_adapter,
+                                tap_teardown_backend=tap_teardown_backend, persona_backend=persona_backend,
+                                tfc_teardown_backend=tfc_teardown_backend, warnings=warnings,
+                            ):
+                                torn_down.append(tier)
+                        elif tier == "tfc":
+                            tfc_dto = _replay_tfc(
+                                settings, te, folder / rel, roots=folder.parent, roles={},
+                                target_node=req.target_node, allow_revert_host_edits=True,
+                                persona_backend=persona_backend, warnings=warnings,
+                                cancel_event=ex.cancel,
+                            )
+                            reverted.append("tfc")
+                        else:
+                            tap_dto = _replay_tap(
+                                settings, te, folder / rel, target_node=req.target_node,
+                                adapter=tap_adapter, config_backend=tap_config_backend,
+                                cancel_event=ex.cancel,
+                            )
+                            reverted.append("tap")
+                    except ApiError as e:
+                        if ex.cancel_requested:
+                            raise _cancelled("reset", tier, te, e) from e
+                        replay_failed.append(tier)
+                        warnings.append(
+                            f"{tier}: the baseline replay failed ({e.message}); the copy is "
+                            f"discarded but the twin still runs what it applied to {tier} -- "
+                            f"fix the baseline, then reset again with tiers: [{tier!r}]"
+                        )
     return dtos.DeployConfigResetDTO(
         deploy_id=te.deploy_id, twin_id=te.scenario_id, discarded=discarded,
-        reverted=reverted, torn_down=torn_down, tfc=tfc_dto, tap=tap_dto, warnings=warnings,
+        reverted=reverted, torn_down=torn_down, replay_failed=replay_failed,
+        tfc=tfc_dto, tap=tap_dto, warnings=warnings,
         config=_deploy_config_dto(settings, te),
     )

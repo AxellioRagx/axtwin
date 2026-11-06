@@ -2335,6 +2335,18 @@ class DeployConfigAppliedDTO(BaseModel):
     roles: dict[str, str] = {}
 
 
+class ConfigExitDTO(BaseModel):
+    """An Apply or Reset in flight on this deploy (`GET .../config` `exit`):
+    what it is replaying and for how long, and whether a cancel was asked
+    for. Null when nothing is in flight."""
+
+    kind: str  # apply | reset
+    tier: Optional[str] = None  # the tier being replayed right now, once one is
+    started_at: str
+    elapsed_s: float
+    cancel_requested: bool = False
+
+
 class DeployConfigDTO(BaseModel):
     """`GET|PUT /api/deploys/{id}/config` -- the working copy (the baseline's
     content until first edited) and its classification."""
@@ -2354,6 +2366,9 @@ class DeployConfigDTO(BaseModel):
     apply_allowed: bool = True
     applied: Optional[DeployConfigAppliedDTO] = None
     updated_at: Optional[str] = None
+    # An Apply or Reset in flight on this deploy, for the console's progress
+    # state and Cancel; null otherwise.
+    exit: Optional[ConfigExitDTO] = None
     warnings: list[str] = []
 
 
@@ -2369,6 +2384,10 @@ class DeployConfigApplyRequest(BaseModel):
 
 class DeployConfigResetRequest(BaseModel):
     target_node: Optional[str] = None
+    # Replay these baseline tiers whether or not the copy's record names
+    # them (the console's "Re-apply baseline" after a replay failed): a
+    # subset of `tfc`, `tap`. Default: the tiers the copy recorded.
+    tiers: Optional[list[str]] = None
 
 
 class DeployConfigApplyDTO(BaseModel):
@@ -2391,10 +2410,24 @@ class DeployConfigResetDTO(BaseModel):
     # and the tiers torn down because the baseline never had them.
     reverted: list[str] = []
     torn_down: list[str] = []
+    # The tiers whose baseline replay (or teardown) FAILED after the copy
+    # was discarded: the twin still runs what the copy applied there; the
+    # reason is in `warnings`, and a reset with `tiers: [...]` tries again.
+    replay_failed: list[str] = []
     tfc: Optional[TrafficPlanStatusDTO] = None
     tap: Optional[TapPlanStatusDTO] = None
     warnings: list[str] = []
     config: DeployConfigDTO
+
+
+class ConfigExitCancelDTO(BaseModel):
+    """`POST /api/deploys/{id}/config/cancel`: the cancel was recorded; the
+    exit in flight stops at its next op boundary."""
+
+    deploy_id: str
+    kind: str
+    tier: Optional[str] = None
+    cancel_requested: bool = True
 
 
 # `TwinConfigDetailDTO.document` names `TwinConfigDocumentDTO` before it is

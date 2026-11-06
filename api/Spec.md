@@ -30,7 +30,7 @@ that is **not** listed under a seam below already exists:
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology`,
-`GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `POST /api/validate`,
+`GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `GET|PUT /api/deploys/{id}/config`, `POST /api/deploys/{id}/config/apply|reset|cancel`, `POST /api/validate`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
 `DELETE /api/deploys/{id}`, `GET|POST|DELETE /api/tfc`, `GET|POST|DELETE /api/taps`,
 `GET|POST|DELETE /api/exr`, `GET /openapi.json`.
@@ -175,8 +175,25 @@ document is the bundle's text files keyed by bundle-relative path.
   running twin without a redeploy. v0 scope is exactly what `tfc` and `taps`
   can change ephemerally; a delta they cannot apply (topology, addressing,
   images) is refused with the offending paths named, and nothing is applied.
-- `POST /api/deploys/{id}/config/reset` — discard the working copy and revert
-  anything applied from it; the running twin matches baseline again.
+- `POST /api/deploys/{id}/config/reset` — discard the working copy FIRST,
+  then revert anything applied from it by replaying the baseline's tiers,
+  best effort: a replay that fails is not an error (200) -- the tier lands
+  in `replay_failed` with the reason in `warnings`, the copy stays
+  discarded, and the twin keeps running what the copy applied there until
+  a reset with `{tiers: ["tfc"]}` replays it again (with or without a copy).
+  **2026-11-06:** before this a baseline whose persona could not play made
+  every Reset fail and left the copy wedged with no way back from the console.
+- `GET .../config` carries `exit` while an Apply or Reset is in flight on
+  the deploy (`{kind, tier, started_at, elapsed_s, cancel_requested}`, else
+  null); `POST /api/deploys/{id}/config/cancel` asks it to stop -- the
+  playout's executor polls the flag between ops, the op in flight finishes,
+  the rest are halted, the exit answers `409 {code: cancelled, tier}` and
+  the tier stays recorded `attempted` (Apply or Reset again when ready).
+  A second Apply / Reset while one is in flight is `409 {code: busy}` at
+  once; a cancel with nothing in flight (in this process) is
+  `409 {code: nothing-in-flight}`. The record is in-process (`ConfigExits`
+  on `app.state`): the twin's lease keeps another process out, and a cancel
+  can only reach the process running the playout.
 - The working copy is **server-side state beside the deploy record**, so a
   console on any host sees the same copy (pairs with A5).
 

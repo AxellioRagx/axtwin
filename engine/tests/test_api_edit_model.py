@@ -1251,3 +1251,107 @@ def test_validate_document_is_exclusive_with_the_id_fields_and_checks_its_shape(
     assert _validate(c, dict(files, **{"../x.yaml": "x"})).status_code == 400
     # The plain id form still works beside it.
     assert c.post("/api/validate", json={"config": TWIN}).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# A2 exits (2026-11-06): Reset discards first and replays best-effort; an
+# Apply / Reset in flight is reported and can be cancelled.
+# ---------------------------------------------------------------------------
+class _FailingPersonaBackend(_FakePersonaBackend):
+    """Every drive fails: the persona cannot play on this twin (the live
+    case: a library persona needing a daemon the host does not run)."""
+
+    def run(self, op, resolved_inputs, ctx):
+        self.calls.append(dict(resolved_inputs))
+        raise RuntimeError("smbd is not running on the host")
+
+
+class _BlockingPersonaBackend(_FakePersonaBackend):
+    """The first drive blocks until `release` is set, so a test can look at
+    the exit in flight and cancel it; later drives run at once."""
+
+    def __init__(self):
+        super().__init__()
+        import threading
+
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def run(self, op, resolved_inputs, ctx):
+        if not self.entered.is_set():
+            self.entered.set()
+            assert self.release.wait(10), "the test never released the blocked drive"
+        return super().run(op, resolved_inputs, ctx)
+
+
+def test_reset_discards_the_copy_even_when_the_baseline_replay_fails(env):
+    settings, _ = env
+    _seed_sensors(settings)
+    c, backend, _ = _client(settings)
+    did = _deploy(c)
+    _apply_baseline_tiers(c, did)
+    _put(c, did, _edited(_doc(c), **{"tfc/default.yaml": TFC.replace("web-tier", "dmz-web")}))
+    assert c.post(f"/api/deploys/{did}/config/apply", json={"target_node": "pxtest1"}, headers=AUTH).status_code == 200
+    assert backend.running == {"h-b-dmz-web"}
+    # The baseline's persona cannot play now: Reset still discards the copy,
+    # answers 200, and names the tier whose replay failed with the reason.
+    c2, failing, _ = _client(settings, persona_backend=_FailingPersonaBackend())
+    r = c2.post(f"/api/deploys/{did}/config/reset", json={"target_node": "pxtest1"}, headers=AUTH)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["discarded"] is True and j["reverted"] == [] and j["replay_failed"] == ["tfc"]
+    assert any("tfc: the baseline replay failed" in w and "tiers: ['tfc']" in w for w in j["warnings"]), j["warnings"]
+    assert j["config"]["has_working_copy"] is False and j["config"]["dirty"] is False
+    assert failing.calls, "the replay was attempted"
+    # The twin still runs what the copy applied; a reset naming the tier
+    # replays it once the baseline can play again, with no copy to discard.
+    c3, healthy, _ = _client(settings, persona_backend=backend)
+    r = c3.post(f"/api/deploys/{did}/config/reset", json={"target_node": "pxtest1", "tiers": ["tfc"]}, headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert r.json()["discarded"] is False and r.json()["reverted"] == ["tfc"] and r.json()["replay_failed"] == []
+    assert healthy.running == {"h-b-web-tier"}
+    # An unknown tier name is a 400, nothing touched.
+    assert c3.post(f"/api/deploys/{did}/config/reset", json={"tiers": ["exr"]}, headers=AUTH).status_code == 400
+
+
+def test_the_exit_in_flight_is_reported_and_a_cancel_stops_it_between_ops(env):
+    import threading
+
+    settings, _ = env
+    blocking = _BlockingPersonaBackend()
+    c, _, _ = _client(settings, persona_backend=blocking)
+    did = _deploy(c)
+    assert c.get(f"/api/deploys/{did}/config").json()["exit"] is None
+    # Two drives, so the cancel has a second op to halt.
+    _put(c, did, _edited(_doc(c), **{"tfc/default.yaml": TFC + "    - node: h-a\n      persona: web-tier\n"}))
+    answer: dict = {}
+
+    def apply():
+        answer["r"] = c.post(f"/api/deploys/{did}/config/apply", json={"target_node": "pxtest1"}, headers=AUTH)
+
+    t = threading.Thread(target=apply)
+    t.start()
+    assert blocking.entered.wait(10)
+    try:
+        cfg = c.get(f"/api/deploys/{did}/config").json()
+        assert cfg["exit"]["kind"] == "apply" and cfg["exit"]["tier"] == "tfc"
+        assert cfg["exit"]["cancel_requested"] is False and cfg["exit"]["elapsed_s"] >= 0
+        # A second exit on the same deploy is refused at once, before any lease.
+        r = c.post(f"/api/deploys/{did}/config/reset", headers=AUTH)
+        assert r.status_code == 409 and r.json()["detail"]["code"] == "busy", r.text
+        r = c.post(f"/api/deploys/{did}/config/cancel", headers=AUTH)
+        assert r.status_code == 200 and r.json()["kind"] == "apply" and r.json()["tier"] == "tfc", r.text
+        assert c.get(f"/api/deploys/{did}/config").json()["exit"]["cancel_requested"] is True
+    finally:
+        blocking.release.set()
+        t.join(20)
+    r = answer["r"]
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "cancelled" and r.json()["detail"]["tier"] == "tfc"
+    # The op in flight finished, the other was halted; the tier stays `attempted`.
+    assert len(blocking.running) == 1
+    cfg = c.get(f"/api/deploys/{did}/config").json()
+    assert cfg["exit"] is None and cfg["applied"]["tiers"] == {"tfc": "attempted"}
+    # Nothing in flight: a cancel is 409, not a silent no-op.
+    r = c.post(f"/api/deploys/{did}/config/cancel", headers=AUTH)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "nothing-in-flight"

@@ -83,6 +83,67 @@ class WorkingCopyGone(RuntimeError):
     """The working-copy row vanished under an operation that needed it."""
 
 
+class ExitBusy(RuntimeError):
+    """An Apply or Reset is already in flight on this deploy."""
+
+    def __init__(self, current: "ConfigExit") -> None:
+        super().__init__(f"{current.kind} on {current.deploy_id} is in progress")
+        self.current = current
+
+
+@dataclass
+class ConfigExit:
+    """One Apply or Reset in flight (`ConfigExits`): what it is, when it
+    began, the tier it is replaying, and the operator's cancel flag -- the
+    event the playout's executor polls between ops."""
+
+    deploy_id: str
+    kind: str
+    started_at: float
+    tier: str | None = None
+    cancel: threading.Event = field(default_factory=threading.Event)
+
+    @property
+    def cancel_requested(self) -> bool:
+        return self.cancel.is_set()
+
+
+class ConfigExits:
+    """The in-process registry of exits in flight, one per deploy: `begin`
+    refuses a second (`ExitBusy`), `request_cancel` sets the flag the
+    executor stops at, `end` clears the record. In-process on purpose --
+    the twin's lease already keeps a second process out, and a cancel is
+    only meaningful to the process running the playout."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._by_deploy: dict[str, ConfigExit] = {}
+
+    def begin(self, deploy_id: str, kind: str) -> ConfigExit:
+        with self._lock:
+            current = self._by_deploy.get(deploy_id)
+            if current is not None:
+                raise ExitBusy(current)
+            ex = ConfigExit(deploy_id=deploy_id, kind=kind, started_at=time.time())
+            self._by_deploy[deploy_id] = ex
+            return ex
+
+    def end(self, deploy_id: str) -> None:
+        with self._lock:
+            self._by_deploy.pop(deploy_id, None)
+
+    def get(self, deploy_id: str) -> ConfigExit | None:
+        with self._lock:
+            return self._by_deploy.get(deploy_id)
+
+    def request_cancel(self, deploy_id: str) -> ConfigExit | None:
+        with self._lock:
+            ex = self._by_deploy.get(deploy_id)
+            if ex is not None:
+                ex.cancel.set()
+            return ex
+
+
 # ---------------------------------------------------------------------------
 # The document
 # ---------------------------------------------------------------------------

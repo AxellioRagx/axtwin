@@ -1565,6 +1565,7 @@ def apply_traffic_profile(
     persona_backend: Any = None,
     manifests: Any = None,
     allow_revert_host_edits: bool = False,
+    cancel_event: Any = None,
 ) -> TrafficPlanStatus:
     """Apply a traffic profile: bind personas onto the target twin's hosts
     and run the composed drive-persona ops through the engine executor
@@ -1753,6 +1754,7 @@ def apply_traffic_profile(
             try:
                 result = run_deploy_executor(
                     store, backend, backend, plan, ctx, deploy_id, heartbeat,
+                    cancel_event=cancel_event,
                 )
             finally:
                 _restore_jobs(store, deploy_id, jobs_before)

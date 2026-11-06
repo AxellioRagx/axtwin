@@ -2557,6 +2557,7 @@ def apply_tap_plan(
     adapter: Any = None,
     config_backend: Any = None,
     teardown_backend: Any = None,
+    cancel_event: Any = None,
 ) -> TapPlanStatus:
     """Apply a tap-plan: bind the target TE's tapped interfaces to standing
     O2 sensors and run the composed OP-MIR ops through the engine executor
@@ -2778,7 +2779,7 @@ def apply_tap_plan(
 
             result = run_deploy_executor(
                 store, real_adapter, real_config_backend, plan, ctx, deploy_id,
-                heartbeat,
+                heartbeat, cancel_event=cancel_event,
             )
             status = "completed" if result.succeeded else "failed"
             if result.succeeded and dropped_pairs:

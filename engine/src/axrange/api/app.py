@@ -157,6 +157,10 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     app.state.discovery_backend = None
     app.state.discovery_background = None
     app.state.discovery_runs = _discovery.DiscoveryRuns(db_path=settings.discovery_db)
+    # A2: the Apply / Reset in flight per deploy (progress + cancel), in-process.
+    from axrange.api import edits as _edits
+
+    app.state.config_exits = _edits.ConfigExits()
     # Discovery sources (`api/Spec.md` A7): None -> `discovery_sources.SourceStore`
     # over `settings.discovery_db`, opened on first use; tests inject a store on
     # a temp path. `discovery_tunnel` None -> the real `SshTunnel`; tests inject a
@@ -1348,7 +1352,9 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def deploy_config(
         deploy_id: str, target: Optional[str] = _TARGET_QUERY,
     ) -> dtos.DeployConfigDTO:
-        return service.deploy_config(_for_deploy(target, deploy_id), deploy_id)
+        return service.deploy_config(
+            _for_deploy(target, deploy_id), deploy_id, exits=app.state.config_exits,
+        )
 
     @app.put(
         "/api/deploys/{deploy_id}/config",
@@ -1382,6 +1388,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             persona_backend=app.state.tfc_persona_backend,
             tap_adapter=app.state.tap_adapter,
             tap_config_backend=app.state.tap_config_backend,
+            exits=app.state.config_exits,
         )
 
     @app.post(
@@ -1404,6 +1411,21 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             tap_config_backend=app.state.tap_config_backend,
             tap_teardown_backend=app.state.tap_teardown_backend,
             tfc_teardown_backend=app.state.tfc_teardown_backend,
+            exits=app.state.config_exits,
+        )
+
+    @app.post(
+        "/api/deploys/{deploy_id}/config/cancel",
+        response_model=dtos.ConfigExitCancelDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def deploy_config_cancel(
+        deploy_id: str, target: Optional[str] = _TARGET_QUERY,
+    ) -> dtos.ConfigExitCancelDTO:
+        """Stop the Apply or Reset in flight on this deploy at its next op
+        boundary; 409 when none is (in this process)."""
+        return service.deploy_config_cancel(
+            _for_deploy(target, deploy_id), deploy_id, exits=app.state.config_exits,
         )
 
     # ---- pcaps (deferred) ----
