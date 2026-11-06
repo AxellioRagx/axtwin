@@ -67,7 +67,7 @@ const PERSONAS: Persona[] = [
   { id: "generic-endpoint", os_family: "linux", drive: "shell", source: "catalog", requires: [], summary: "chatter", emits: [] },
 ];
 
-const DEPLOY: DeploySummary = { deploy_id: "dep-1", scenario_id: "corp-live", status: "completed", started_at: 1700000000, updated_at: 1700000100, tier: "te", target: "dev45" };
+export const DEPLOY: DeploySummary = { deploy_id: "dep-1", scenario_id: "corp-live", status: "completed", started_at: 1700000000, updated_at: 1700000100, tier: "te", target: "dev45" };
 const IMPRINT: Imprint = { pit_id: "pit-1", name: "corp capture", derived_from: null, has_assertions: false, twins: [{ id: "corp-cast" }] };
 const CAST_EXPORT: TopologyExport = {
   imprint_id: "corp-cast", pit_id: "pit-1", as_of: 1, network: "corp", vantage: "hq", windows: 1, schema_version: "1",
@@ -91,7 +91,7 @@ const CAST_ROSTER: CastRoster = {
   ],
 };
 
-function seeded(over: Partial<FakeState> = {}) {
+export function seeded(over: Partial<FakeState> = {}) {
   return fakeApi({
     twins: { "corp-auth": twin("corp-auth", { hosts: 2, segments: 2 }), "corp-live": twin("corp-live", { hosts: 2, segments: 2 }), "corp-cast": twin("corp-cast", { hosts: 2, segments: 2, pit_id: "pit-1" }) },
     documents: { "corp-auth": document("corp-auth"), "corp-live": document("corp-live"), "corp-cast": document("corp-cast") },
@@ -108,21 +108,21 @@ function seeded(over: Partial<FakeState> = {}) {
   });
 }
 
-const hosts = () => screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"]).sort();
+export const hosts = () => screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"]).sort();
 const segments = () => screen.getAllByTestId("canvas-segment").map((s) => s.dataset["name"]).sort();
-const host = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
-const segment = (name: string) => screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === name)!;
-const panel = () => within(screen.getByTestId("side-panel"));
+export const host = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
+export const segment = (name: string) => screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === name)!;
+export const panel = () => within(screen.getByTestId("side-panel"));
 /** The inspector's tabs (one open at a time; a node click opens Selection). */
-const tab = (name: string) => {
+export const tab = (name: string) => {
   const t = screen.getByRole("tab", { name: new RegExp(`^${name}`) });
   if (t.getAttribute("aria-selected") !== "true") fireEvent.click(t);
 };
 /** The palette is the rail's "+" popover; open it when closed. */
-const openPalette = () => {
+export const openPalette = () => {
   if (!screen.queryByTestId("popover-palette")) fireEvent.click(screen.getByTestId("rail-add"));
 };
-const item = (kind: string, id: string) => {
+export const item = (kind: string, id: string) => {
   openPalette();
   return screen.getAllByTestId("palette-item").find((i) => i.dataset["kind"] === kind && i.dataset["id"] === id)!;
 };
@@ -131,12 +131,12 @@ const ann = (name: string) => {
   if (!screen.queryByTestId("popover-annotate")) fireEvent.click(screen.getByTestId("rail-annotate"));
   return within(screen.getByTestId("popover-annotate")).getByRole("button", { name });
 };
-const commit = (input: HTMLElement, value: string) => {
+export const commit = (input: HTMLElement, value: string) => {
   fireEvent.change(input, { target: { value } });
   fireEvent.keyDown(input, { key: "Enter" });
 };
-const settle = () => act(() => new Promise((r) => setTimeout(r, 350)));
-const enabled = async (name: string) => {
+export const settle = () => act(() => new Promise((r) => setTimeout(r, 350)));
+export const enabled = async (name: string) => {
   await waitFor(() => expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(false));
   return screen.getByRole("button", { name });
 };
@@ -279,11 +279,11 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    expect(screen.getByTestId("mode").textContent).toContain("edit mode · deploy dep-1 completed");
+    expect(screen.getByTestId("mode").textContent).toContain("edit mode · dep-1 te completed");
     expect(screen.getByTestId("clean-marker").textContent).toBe("working copy equals the baseline");
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("working copy dirty"));
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
     const put = state.writes.find((w) => w.op === "put-deploy-config")!;
     expect(put.id).toBe("dep-1");
     // The baseline is untouched: the catalog read is the original.
@@ -311,7 +311,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const b = renderAt(api, "/twins/corp-live/canvas");
     const canvasB = b.container;
     await within(canvasB).findAllByTestId("canvas-host");
-    expect(within(canvasB).getByTestId("dirty-marker").textContent).toContain("working copy dirty");
+    expect(within(canvasB).getByTestId("dirty-marker").textContent).toContain("unapplied changes");
     expect(within(canvasB).getAllByTestId("canvas-segment").length).toBe(3);
 
     fireEvent.click(within(canvasA).getByRole("button", { name: "Reset" }));
@@ -363,7 +363,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(apply);
     await screen.findByText(/applied via tfc/);
     expect(state.writes.some((w) => w.op === "apply-deploy-config" && w.id === "dep-1")).toBe(true);
-    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual(["tfc"]);
+    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual({ tfc: "done" });
     // A role change with the image unchanged is live as well, naming the role.
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
@@ -546,7 +546,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded({ deploys: [{ ...DEPLOY, status: "running" }] });
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    expect(screen.getByTestId("mode").textContent).toContain("view mode · deploy dep-1 running");
+    expect(screen.getByTestId("mode").textContent).toContain("view mode · dep-1 te running");
     expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
     expect(screen.getByTestId("canvas").dataset["mode"]).toBe("view");
     openPalette();
@@ -652,7 +652,7 @@ describe("the document validate gate and the side-car annotations", () => {
     await screen.findByTestId("layout-dirty");
     fireEvent.click(item("segment", "segment"));
     fireEvent.click(await enabled("Save"));
-    await waitFor(() => expect(screen.getByTestId("exit-note").textContent).toBe("saved, layout too"));
+    await waitFor(() => expect(screen.getByTestId("exit-note").textContent).toContain("saved, layout too"));
     expect(layoutWrites().length).toBe(2);
     expect(String((layoutWrites()[1]!.body as { etag: string | null }).etag)).toMatch(/^layout-etag-\d+$/);
     expect(state.layouts["corp-auth"]!.annotations.map((a) => a.kind)).toEqual(["ellipse", "line"]);

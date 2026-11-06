@@ -37,6 +37,10 @@ export interface Editor {
   load(doc: { id: string; teFile: string; files: Files }, options?: { keepStack?: boolean }): void;
   /** The files were written: they are now the saved text. */
   markSaved(files?: Files): void;
+  /** The command stack as it stands (persisted per working copy by the page). */
+  stack: Stack;
+  /** Put a stack back under the loaded document (a reload of the same working copy). */
+  restoreStack(stack: Stack): void;
 }
 
 export function useEditor(): Editor {
@@ -108,6 +112,13 @@ export function useEditor(): Editor {
     setState(s);
   }, []);
 
+  const restoreStack = useCallback((stack: Stack) => {
+    const cur = stateRef.current;
+    const s = { ...cur, stack: { done: [...stack.done], undone: [...stack.undone] } };
+    stateRef.current = s;
+    setState(s);
+  }, []);
+
   const markSaved = useCallback((files?: Files) => {
     const cur = stateRef.current;
     const s = { ...cur, saved: { ...(files ?? cur.files) } };
@@ -131,7 +142,9 @@ export function useEditor(): Editor {
       undoUntil,
       load,
       markSaved,
+      stack: state.stack,
+      restoreStack,
     }),
-    [doc, model, ident, state, apply, undo, redo, undoUntil, load, markSaved],
+    [doc, model, ident, state, apply, undo, redo, undoUntil, load, markSaved, restoreStack],
   );
 }

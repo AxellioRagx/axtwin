@@ -5,6 +5,7 @@
 import { ApiError } from "../../src/api/client";
 import type { Api } from "../../src/api/discovery";
 import type {
+  ConfigExit,
   DiscoveryPlugin,
   DiscoveryRun,
   DiscoverySource,
@@ -134,6 +135,10 @@ export interface FakeState {
   images: string[] | null;
   /** Each deploy's working copy (A2), by deploy id, once first PUT; absent = the baseline, clean. */
   workingCopies: Record<string, { files: Record<string, string>; applied: DeployConfig["applied"]; updated_at: string }>;
+  /** An Apply or Reset the fake reports in flight per deploy (`GET .../config` `exit`), for the progress / Cancel tests. */
+  exits: Record<string, ConfigExit>;
+  /** The baseline tiers whose replay a Reset reports failed (per deploy). */
+  replayFails: Record<string, string[]>;
   /** Catalog folders the listing reports as unreadable. */
   skippedTwins: Array<{ id: string; reason: string }>;
   /** What the imprint listing warns about (a locked store). */
@@ -164,6 +169,8 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     personas: [],
     documents: {},
     deploys: [],
+    exits: {},
+    replayFails: {},
     images: null,
     workingCopies: {},
     skippedTwins: [],
@@ -534,7 +541,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const { d, doc } = deployOf(deployId);
       validateDocument(d.scenario_id, doc.te_file, files);
       const prev = state.workingCopies[deployId];
-      state.workingCopies[deployId] = { files: { ...files }, applied: prev?.applied ?? null, updated_at: `2026-10-30T00:00:${String(nextId++ % 60).padStart(2, "0")}Z` };
+      state.workingCopies[deployId] = { files: { ...files }, applied: prev?.applied ?? null, updated_at: stamp() };
       return configOf(deployId);
     },
     async applyDeployConfig(deployId) {
@@ -548,19 +555,37 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const tiers = [...new Set(cfg.changes.flatMap((c) => c.via))];
       const roles = Object.assign({}, ...cfg.changes.map((c) => c.roles)) as Record<string, string>;
       const wc = state.workingCopies[deployId];
-      if (wc) wc.applied = { at: "2026-10-30T00:01:00Z", tiers, roles };
+      if (wc) {
+        // As the API records it: the apply touches the copy, so `applied.at` equals `updated_at` until the next PUT.
+        wc.updated_at = stamp();
+        wc.applied = { at: wc.updated_at, tiers: Object.fromEntries(tiers.map((t) => [t, "done"])), roles };
+      }
       return { deploy_id: deployId, twin_id: cfg.twin_id, applied: tiers, roles, warnings: [], config: configOf(deployId) };
     },
     async validateDocument(document) {
       state.writes.push({ op: "validate", id: document.id, body: document });
       return validateResult(document.id, teFileOf(document.files), document.files);
     },
-    async resetDeployConfig(deployId) {
-      state.writes.push({ op: "reset-deploy-config", id: deployId });
+    async resetDeployConfig(deployId, body) {
+      state.writes.push({ op: "reset-deploy-config", id: deployId, body });
       const cfg = configOf(deployId);
       const wc = state.workingCopies[deployId];
       delete state.workingCopies[deployId];
-      return { deploy_id: deployId, twin_id: cfg.twin_id, discarded: Boolean(wc), reverted: wc?.applied?.tiers ?? [], warnings: [], config: configOf(deployId) };
+      const recorded = wc?.applied ? Object.keys(wc.applied.tiers) : [];
+      const tiers = [...new Set([...recorded, ...(body?.tiers ?? [])])];
+      const failed = tiers.filter((t) => (state.replayFails[deployId] ?? []).includes(t));
+      return {
+        deploy_id: deployId, twin_id: cfg.twin_id, discarded: Boolean(wc), reverted: tiers.filter((t) => !failed.includes(t)), replay_failed: failed,
+        warnings: failed.map((t) => `${t}: the baseline replay failed (persona cannot play); the copy is discarded but the twin still runs what it applied to ${t}`),
+        config: configOf(deployId),
+      };
+    },
+    async cancelDeployConfigExit(deployId) {
+      state.writes.push({ op: "cancel-deploy-config-exit", id: deployId });
+      const ex = state.exits[deployId];
+      if (!ex) throw new ApiError({ kind: "conflict", status: 409, message: `no Apply or Reset is in flight on deploy ${deployId}; nothing to cancel`, detail: { code: "nothing-in-flight" }, url: "" });
+      ex.cancel_requested = true;
+      return { deploy_id: deployId, kind: ex.kind, tier: ex.tier, cancel_requested: true };
     },
   };
 
@@ -621,6 +646,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     return { d, doc };
   }
 
+  /** The fake's clock: every write a second later than the last, as ISO text that sorts. */
+  function stamp(): string {
+    return new Date(Date.UTC(2026, 9, 30, 0, 0, nextId++)).toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+
   function configOf(deployId: string): DeployConfig {
     const { d, doc } = deployOf(deployId);
     const wc = state.workingCopies[deployId];
@@ -629,7 +659,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     return {
       deploy_id: deployId, twin_id: d.scenario_id, dirty: changes.length > 0, has_working_copy: Boolean(wc),
       document: { id: doc.id, te_file: doc.te_file, files: { ...files }, skipped: [] },
-      changes, apply_allowed: changes.every((c) => c.kind !== "topology"), applied: wc?.applied ?? null, updated_at: wc?.updated_at ?? null, warnings: [],
+      changes, apply_allowed: changes.every((c) => c.kind !== "topology"), applied: wc?.applied ?? null, updated_at: wc?.updated_at ?? null, exit: state.exits[deployId] ?? null, warnings: [],
     };
   }
 

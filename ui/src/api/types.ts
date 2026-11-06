@@ -606,6 +606,16 @@ export interface PendingChange {
   roles: Record<string, string>;
 }
 
+/** An Apply or Reset in flight on the deploy (`GET .../config` `exit`). */
+export interface ConfigExit {
+  kind: "apply" | "reset" | string;
+  /** The tier being replayed right now, once one is. */
+  tier: string | null;
+  started_at: string;
+  elapsed_s: number;
+  cancel_requested: boolean;
+}
+
 export interface DeployConfig {
   deploy_id: string;
   twin_id: string;
@@ -615,8 +625,11 @@ export interface DeployConfig {
   changes: PendingChange[];
   /** True when every pending change is attribute or inert. */
   apply_allowed: boolean;
-  applied: { at: string; tiers: string[]; roles: Record<string, string> } | null;
+  /** What Apply pushed from this copy: when, which tiers (`done` | `attempted`), the role folds. */
+  applied: { at: string; tiers: Record<string, string> | string[]; roles: Record<string, string> } | null;
   updated_at: string | null;
+  /** The Apply or Reset in flight, or null. */
+  exit?: ConfigExit | null;
   warnings: string[];
 }
 
@@ -634,8 +647,18 @@ export interface DeployConfigReset {
   twin_id: string;
   discarded: boolean;
   reverted: string[];
+  torn_down?: string[];
+  /** The tiers whose baseline replay failed after the discard: the twin still runs what the copy applied there. */
+  replay_failed?: string[];
   warnings: string[];
   config: DeployConfig;
+}
+
+export interface ConfigExitCancel {
+  deploy_id: string;
+  kind: string;
+  tier: string | null;
+  cancel_requested: boolean;
 }
 
 /** One row of `GET /api/deploys`: what the canvas reads to know whether a twin stands. */

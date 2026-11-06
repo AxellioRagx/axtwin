@@ -84,6 +84,9 @@ export interface CanvasProps {
   locked?: boolean;
   /** What the inspector's Notes tab says about this twin. */
   notes: string[];
+  /** The layout side-car's own group (unsaved moves, Save layout, Discard): floats at the
+   *  canvas's bottom edge, beside the drawing it is about, not in the twin's bar. */
+  layoutBar?: ReactNode;
   /** Phase 2: the editing gestures. Absent = Phase 1's read-only canvas. */
   edit?: CanvasEditProps;
   /** Edit mode: the palette, shown as a popover off the rail's `+`. */
@@ -130,7 +133,7 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
-function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, edit, palette, inspector }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -798,6 +801,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             {status.length ? (
               <Panel position="bottom-left" className="cv-chrome-bottom">
                 <StatusStrip lines={status} />
+              </Panel>
+            ) : null}
+            {layoutBar ? (
+              <Panel position="bottom-center" className="cv-chrome-layout">
+                {layoutBar}
               </Panel>
             ) : null}
           </ReactFlow>

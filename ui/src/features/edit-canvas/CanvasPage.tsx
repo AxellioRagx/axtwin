@@ -39,7 +39,7 @@ import { place } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations } from "./edit/annotations";
-import { sameFiles, type Files } from "./edit/commands";
+import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor } from "./edit/useEditor";
@@ -60,6 +60,8 @@ interface Loaded {
   cast: CastRoster | null;
   /** The twin's standing `te` deploy, newest first, or null when undeployed. */
   deploy: DeploySummary | null;
+  /** Every deploy row the API listed: the tier rows (`tfc-<te>`, `tap-<te>`) stand beside the te one. */
+  deploys: DeploySummary[];
   /** The deploy's working copy (A2), when deployed. */
   config: DeployConfig | null;
   /** The catalog entry with its document (A3): the baseline. Null when the catalog has no document for this id. */
@@ -73,6 +75,10 @@ interface Loaded {
 const SYNC_DELAY_MS = 250;
 const VALIDATE_DELAY_MS = 300;
 const POLL_MS = 5000;
+/** While an exit is in flight the poll runs at this pace, for the progress state. */
+const BUSY_POLL_MS = 1000;
+/** A note about a finished exit fades after this; an error stays until the next exit. */
+const NOTE_MS = 8000;
 const CATALOG_DETAIL_LIMIT = 12;
 
 /** The body for one more pin over the document's: the pins of this plane plus
@@ -100,6 +106,41 @@ export function standingDeploy(deploys: readonly DeploySummary[], twinId: string
   return mine[0] ?? null;
 }
 
+/** The tier playouts standing on a te deploy, from the deploy list: a tier row's
+ *  `scenario_id` is `<tier>-<te deploy id>`; the newest row per tier that is not
+ *  destroyed, as `tier -> status`. Pure. */
+export function tierStatus(rows: readonly DeploySummary[], teDeployId: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const tier of ["tfc", "tap"]) {
+    const mine = rows.filter((d) => d.scenario_id === `${tier}-${teDeployId}` && d.status !== "destroyed");
+    mine.sort((a, b) => b.started_at - a.started_at);
+    if (mine[0]) out[tier] = mine[0].status;
+  }
+  return out;
+}
+
+/** The working copy's state word (`SPEC.md` "Shell and chrome"): `dirty` alone
+ *  read as "not applied" to an operator, when it means "differs from the
+ *  baseline". Two states instead: the copy's changes were applied and are not
+ *  yet persisted, or the copy carries changes not applied. Pure. */
+export function docState(config: Pick<DeployConfig, "dirty" | "applied" | "updated_at"> | null, editorDirty: boolean, unsynced: boolean): "clean" | "syncing" | "applied" | "unapplied" {
+  if (unsynced) return "syncing";
+  if (!(config?.dirty || editorDirty)) return "clean";
+  if (config?.applied && config.updated_at && config.applied.at >= config.updated_at) return "applied";
+  return "unapplied";
+}
+
+/** The words an exit's refusal is shown with: a 409 names its code (`busy`,
+ *  `cancelled`, `requires-replan`, ...) rather than the stale tier it mentions. */
+export function exitErrorText(e: unknown): string {
+  if (e instanceof ApiError && e.status === 409 && e.detail && typeof e.detail === "object") {
+    const code = (e.detail as { code?: unknown }).code;
+    if (code === "busy") return `busy: ${e.message}`;
+    if (code === "cancelled") return `cancelled: ${e.message}`;
+  }
+  return errorText(e);
+}
+
 /** What the palette lists: a segment, the node groups and images every
  *  twin-config in the catalog declares (this twin's first), the personas. */
 export function paletteItems(catalog: readonly TwinConfigDetail[], personas: readonly Persona[], ownId: string): PaletteItem[] {
@@ -124,6 +165,35 @@ export function paletteItems(catalog: readonly TwinConfigDetail[], personas: rea
 
 function viewportKey(id: string): string {
   return `axr-canvas-viewport:${id}`;
+}
+
+/** The command stack kept in this browser per working copy, keyed by the deploy
+ *  and valid for one `updated_at` of the copy: a reload of the same copy gets its
+ *  Undo back; a copy changed meanwhile (another console, a reset) drops it. */
+function undoKey(deployId: string): string {
+  return `axr-canvas-undo:${deployId}`;
+}
+
+export function readStoredStack(deployId: string, updatedAt: string | null): Stack | null {
+  if (!updatedAt) return null;
+  try {
+    const raw = localStorage.getItem(undoKey(deployId));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { updated_at?: unknown; stack?: Partial<Stack> };
+    if (v.updated_at !== updatedAt || !v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
+    return { done: v.stack.done, undone: v.stack.undone };
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredStack(deployId: string, updatedAt: string | null, stack: Stack): void {
+  try {
+    if (!updatedAt || (stack.done.length === 0 && stack.undone.length === 0)) localStorage.removeItem(undoKey(deployId));
+    else localStorage.setItem(undoKey(deployId), JSON.stringify({ updated_at: updatedAt, stack }));
+  } catch {
+    // no storage: the stack lives for the page only
+  }
 }
 
 function readViewport(id: string): Viewport | null {
@@ -159,6 +229,7 @@ export function CanvasPage() {
     const cast = twin.pit_id ? await api.getCast(id, signal).catch(() => null) : null;
     const deploys = await api.listDeploys(signal).catch(() => ({ deploys: [], warnings: [] }));
     const deploy = standingDeploy(deploys.deploys, id);
+    const rows = deploys.deploys;
     const config = deploy ? await api.getDeployConfig(deploy.deploy_id, signal) : null;
     let detail: TwinConfigDetail | null = null;
     try {
@@ -178,7 +249,7 @@ export function CanvasPage() {
       paletteNotes.push(`personas not listed: ${errorText(e)}`);
       return { twin: null, personas: [], warnings: [] };
     });
-    return { twin, tree, exportData, topology, cast, deploy, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
+    return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
   }, [id]);
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
 
@@ -205,6 +276,7 @@ export function CanvasPage() {
   const [exitError, setExitError] = useState<unknown>(null);
   const [exitNote, setExitNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [deployRows, setDeployRows] = useState<DeploySummary[]>([]);
   const [saveAsId, setSaveAsId] = useState("");
   const [validation, setValidation] = useState<DocValidation | null>(null);
   const [validating, setValidating] = useState(false);
@@ -217,10 +289,14 @@ export function CanvasPage() {
     if (!data) return;
     setConfig(data.config);
     setDetail(data.detail);
+    setDeployRows(data.deploys);
     const document = data.config?.document ?? data.detail?.document ?? null;
     if (document) {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
       synced.current = { ...document.files };
+      // The same working copy as this browser last edited: its Undo comes back.
+      const stored = data.config ? readStoredStack(data.config.deploy_id, data.config.updated_at) : null;
+      if (stored) editor.restoreStack(stored);
     }
     setSelection({ kind: "none" });
     setServerReason(null);
@@ -309,15 +385,20 @@ export function CanvasPage() {
     return () => clearTimeout(t);
   }, [editor.files, deployed, deployId, locked, api, editor]);
 
-  // Another console's edits or reset show up here (C3.6): a poll, and a Refresh button.
+  // Another console's edits or reset show up here (C3.6): a poll, and a Refresh
+  // button. While an exit is in flight the poll runs faster and carries the
+  // exit's progress (`config.exit`); the tier rows ride along for the pill.
   const refresh = useCallback(async () => {
     if (!deployId) return;
     try {
       const cfg = await api.getDeployConfig(deployId);
       setConfig((prev) => {
-        if (prev && prev.updated_at === cfg.updated_at && prev.dirty === cfg.dirty && prev.has_working_copy === cfg.has_working_copy) return prev;
+        const sameExit = JSON.stringify(prev?.exit ?? null) === JSON.stringify(cfg.exit ?? null);
+        if (prev && sameExit && prev.updated_at === cfg.updated_at && prev.dirty === cfg.dirty && prev.has_working_copy === cfg.has_working_copy) return prev;
         return cfg;
       });
+      const rows = await api.listDeploys().catch(() => null);
+      if (rows) setDeployRows((prev) => (JSON.stringify(prev) === JSON.stringify(rows.deploys) ? prev : rows.deploys));
       const local = editor.files;
       const unsynced = local && synced.current && !sameFiles(local, synced.current);
       if (!unsynced && (!synced.current || !sameFiles(cfg.document.files, synced.current))) {
@@ -328,11 +409,27 @@ export function CanvasPage() {
       setExitError(e);
     }
   }, [api, deployId, editor]);
+  const inFlight = Boolean(busy) || Boolean(config?.exit);
   useEffect(() => {
     if (!deployId) return;
-    const t = setInterval(() => void refresh(), POLL_MS);
+    const t = setInterval(() => void refresh(), inFlight ? BUSY_POLL_MS : POLL_MS);
     return () => clearInterval(t);
-  }, [deployId, refresh]);
+  }, [deployId, refresh, inFlight]);
+
+  // A finished exit's note fades; an error stays until the next exit.
+  useEffect(() => {
+    if (!exitNote) return;
+    const t = setTimeout(() => setExitNote(null), NOTE_MS);
+    return () => clearTimeout(t);
+  }, [exitNote]);
+
+  // The stack rides with the copy's `updated_at`: written once the files are
+  // synced (so the stored stack describes exactly the copy the server holds).
+  useEffect(() => {
+    if (!deployId || !config) return;
+    if (!editor.files || !synced.current || !sameFiles(editor.files, synced.current)) return;
+    writeStoredStack(deployId, config.updated_at, editor.stack);
+  }, [deployId, config, editor.files, editor.stack]);
 
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {
@@ -488,15 +585,29 @@ export function CanvasPage() {
       setConfig(r.config);
       return `applied${r.applied.length ? ` via ${r.applied.join(", ")}` : ""}${Object.keys(r.roles).length ? ` · roles ${Object.entries(r.roles).map(([n, ro]) => `${n} → ${ro}`).join(", ")}` : ""}`;
     });
-  const resetExit = () =>
-    run("reset", async () => {
+  const resetExit = (tiers?: string[]) =>
+    run(tiers ? `re-apply ${tiers.join(", ")}` : "reset", async () => {
       if (!deployId) return null;
-      const r = await api.resetDeployConfig(deployId);
+      const r = await api.resetDeployConfig(deployId, tiers ? { tiers } : undefined);
       setConfig(r.config);
       editor.load({ id: r.config.document.id, teFile: r.config.document.te_file, files: r.config.document.files });
       synced.current = { ...r.config.document.files };
-      return `reset to baseline${r.reverted.length ? ` · reverted ${r.reverted.join(", ")}` : ""}`;
+      void refresh();
+      const failed = r.replay_failed ?? [];
+      if (failed.length) {
+        // The copy is gone; the twin still runs what it applied to these tiers. Not an error: say so and offer the retry.
+        setExitError(new Error(`${r.discarded ? "the working copy is discarded, but " : ""}the baseline replay of ${failed.join(", ")} failed: ${r.warnings.join("; ")}`));
+        return null;
+      }
+      return `${tiers ? `re-applied ${r.reverted.join(", ") || "nothing"} from the baseline` : "reset to baseline"}${!tiers && r.reverted.length ? ` · reverted ${r.reverted.join(", ")}` : ""}`;
     });
+  const cancelExit = () => {
+    if (!deployId) return;
+    api.cancelDeployConfigExit(deployId).then(
+      (c) => setExitNote(`cancel requested: ${c.kind} stops after the op in flight${c.tier ? ` (${c.tier})` : ""}`),
+      (e: unknown) => setExitError(e),
+    );
+  };
   const persist = () =>
     run("persist", async () => {
       if (!deployId || !files) return null;
@@ -581,6 +692,22 @@ export function CanvasPage() {
   );
 
   const baselineModel = useMemo<DocModel | null>(() => (detail?.document ? readDoc({ id: detail.document.id, teFile: detail.document.te_file, files: detail.document.files }) : null), [detail]);
+  // One pending change is one file's delta from the baseline: discarding it puts
+  // that file back to the baseline's text, as an edit (undoable, validated, synced).
+  const baselineFiles = detail?.document?.files ?? null;
+  const onDiscardChange = useCallback(
+    (path: string) => {
+      if (!baselineFiles) return;
+      edit(`discard changes to ${path}`, (d) => {
+        const files = { ...d.files };
+        const base = baselineFiles[path];
+        if (base === undefined) delete files[path];
+        else files[path] = base;
+        return files;
+      });
+    },
+    [edit, baselineFiles],
+  );
 
   const notes = useMemo(() => {
     const out: string[] = [];
@@ -617,6 +744,35 @@ export function CanvasPage() {
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
+  // The per-tier state: the te row from the load, the tier rows from the poll.
+  const tiers = useMemo(() => (data?.deploy ? tierStatus(deployRows, data.deploy.deploy_id) : {}), [deployRows, data?.deploy]);
+  const tierFailed = Object.entries(tiers).filter(([, st]) => st === "failed").map(([t]) => t);
+  const anyFailed = data?.deploy?.status === "failed" || tierFailed.length > 0;
+  const state = docState(config, editor.dirty, unsynced);
+  const exit = config?.exit ?? null;
+  const exitWord = exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
+  // The layout group floats on the canvas, not in the twin bar (SPEC.md "Shell and chrome"): the bar holds the document's exits only.
+  const layoutBar = layout.data ? (
+    <span className="row cv-layout cv-float" role="group" aria-label="Layout" data-testid="layout-bar">
+      {layoutChanges > 0 ? (
+        <span className="cv-dirty" data-testid="layout-dirty" title="moves and annotations are written only by Save layout">
+          ● layout: {layoutChanges} unsaved {layoutChanges === 1 ? "change" : "changes"}
+        </span>
+      ) : draft.savedAt ? (
+        <span className="muted" role="status">
+          layout saved
+        </span>
+      ) : (
+        <span className="muted">layout</span>
+      )}
+      <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
+        {draft.saving ? "Saving…" : "Save layout"}
+      </button>
+      <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
+        Discard
+      </button>
+    </span>
+  ) : null;
 
   // The canvas is the page: the title, the pills and the exits live in the
   // one top bar (`TopbarPortal`); messages float as a strip over the drawing;
@@ -629,12 +785,29 @@ export function CanvasPage() {
             {id}
           </Link>
         </h1>
-        {/* One pill: the origin and the mode together (the bar must not wrap at 1622 px on a cast twin's long id). */}
+        {/* One pill: the origin, the mode and the deploy's state PER TIER (te / tfc / tap), red when a tier failed
+            -- the te tier alone read "completed" over a failed traffic playout. The bar must not wrap at 1622 px. */}
         {built || data ? (
-          <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}`} title={data?.deploy ? `deploy ${data.deploy.deploy_id} is ${data.deploy.status}` : "no deploy stands on this twin"}>
+          <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={data?.deploy ? `deploy ${data.deploy.deploy_id}: te ${data.deploy.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
             {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
             {built && data ? " · " : null}
-            {data ? <span data-testid="mode">{mode} mode{data.deploy ? ` · deploy ${data.deploy.deploy_id} ${data.deploy.status}` : " · undeployed"}</span> : null}
+            {data ? (
+              <span data-testid="mode">
+                {mode} mode
+                {data.deploy ? (
+                  <>
+                    {" · "}
+                    <span className="mono cv-pill-id" title={data.deploy.deploy_id}>{data.deploy.deploy_id}</span>
+                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}`} data-testid="tier-te" data-status={data.deploy.status}> te {data.deploy.status}</span>
+                    {Object.entries(tiers).map(([t, st]) => (
+                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}`} data-testid={`tier-${t}`} data-status={st}> · {t} {st}</span>
+                    ))}
+                  </>
+                ) : (
+                  " · undeployed"
+                )}
+              </span>
+            ) : null}
           </span>
         ) : null}
         {data?.exportData && designAvailable ? (
@@ -648,69 +821,61 @@ export function CanvasPage() {
           </span>
         ) : null}
         <span className="topbar-spacer" />
-        {layout.data ? (
-          <span className="row cv-layout" role="group" aria-label="Layout">
-            {layoutChanges > 0 ? (
-              <span className="cv-dirty" data-testid="layout-dirty" title="moves and annotations are written only by Save layout">
-                ● layout: {layoutChanges} unsaved {layoutChanges === 1 ? "change" : "changes"}
-              </span>
-            ) : draft.savedAt ? (
-              <span className="muted" role="status">
-                layout saved
-              </span>
-            ) : null}
-            <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
-              {draft.saving ? "Saving…" : "Save layout"}
-            </button>
-            <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
-              Discard
-            </button>
-          </span>
-        ) : null}
         {designAvailable && data ? (
           <div className="cv-exits" data-testid="exits">
+            {/* The document's state word: the two deployed states say whether the changes reached the twin, not only that they differ from the baseline. */}
             {dirty ? (
-              <span className="cv-dirty" data-testid="dirty-marker" title={deployed ? "the working copy differs from the baseline" : "unsaved changes"}>
-                ● {deployed ? (unsynced ? "editing… (syncing to the working copy)" : "working copy dirty") : "unsaved changes"}
+              <span className={`cv-dirty${state === "applied" ? " applied" : ""}`} data-testid="dirty-marker" data-state={state} title={deployed ? (state === "applied" ? "every change in the working copy was applied to the running twin; the baseline does not have them yet (Persist)" : state === "syncing" ? "the edit is on its way to the working copy" : "the working copy carries changes the twin does not run yet (Apply)") : "unsaved changes"}>
+                ● {deployed ? (state === "syncing" ? "editing… (syncing to the working copy)" : state === "applied" ? "applied · unpersisted" : "unapplied changes") : "unsaved changes"}
               </span>
             ) : (
-              <span className="cv-clean" data-testid="clean-marker">
+              <span className="cv-clean" data-testid="clean-marker" data-state="clean">
                 {deployed ? "working copy equals the baseline" : "saved"}
               </span>
             )}
-            <button type="button" className="cv-iconbtn" aria-label="Undo" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
-              ↶
-            </button>
-            <button type="button" className="cv-iconbtn" aria-label="Redo" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)} title="redo (Ctrl+Y)">
-              ↷
-            </button>
-            {!deployed ? (
-              <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
-                Save
+            <span className="cv-exit-group" role="group" aria-label="History">
+              <button type="button" className="cv-iconbtn" aria-label="Undo" onClick={editor.undo} disabled={!editor.canUndo || Boolean(locked)} title={editor.lastLabel ? `undo: ${editor.lastLabel}` : "nothing to undo"}>
+                ↶
               </button>
+              <button type="button" className="cv-iconbtn" aria-label="Redo" onClick={editor.redo} disabled={!editor.canRedo || Boolean(locked)} title="redo (Ctrl+Y)">
+                ↷
+              </button>
+            </span>
+            {!deployed ? (
+              <span className="cv-exit-group" role="group" aria-label="Twin config">
+                <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
+                  Save
+                </button>
+              </span>
             ) : (
-              <>
-                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
+              <span className="cv-exit-group" role="group" aria-label="Working copy">
+                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
                   Apply
                 </button>
-                <button type="button" onClick={resetExit} disabled={!config?.dirty || busy !== null || Boolean(locked)}>
+                <button type="button" onClick={() => void resetExit()} disabled={!config?.dirty || busy !== null || Boolean(locked) || Boolean(exit)} title="discard the working copy; what it applied is replayed from the baseline">
                   Reset
                 </button>
-                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked)}>
+                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)}>
                   Persist
                 </button>
                 <button type="button" onClick={() => void refresh()} disabled={busy !== null}>
                   Refresh
                 </button>
+                {tierFailed.length && !exit && busy === null ? (
+                  <button type="button" onClick={() => void resetExit(tierFailed)} data-testid="reapply-baseline" title={`the ${tierFailed.join(" and ")} playout ended failed: replay the baseline's ${tierFailed.join(", ")} onto the running twin`}>
+                    Re-apply {tierFailed.join(", ")} from baseline
+                  </button>
+                ) : null}
                 {topologyPending ? (
                   <Link to={`/twins/${encodeURIComponent(id)}`} data-testid="redeploy-link" title="a topology change needs a new plan: persist it, then deploy the baseline again">
                     Redeploy from baseline
                   </Link>
                 ) : null}
-              </>
+              </span>
             )}
             <form
-              className="cv-saveas"
+              className="cv-saveas cv-exit-group"
+              aria-label="Save as"
               onSubmit={(e) => {
                 e.preventDefault();
                 void saveAs();
@@ -721,14 +886,31 @@ export function CanvasPage() {
                 Save as
               </button>
             </form>
-            {busy ? <span className="muted">{busy}…</span> : null}
+            {exitWord ? (
+              <span className="cv-progress" role="status" data-testid="exit-progress">
+                <span className="cv-spinner" aria-hidden="true" />
+                {exitWord}
+                {deployed && (exit || busy === "apply" || busy === "reset" || busy?.startsWith("re-apply")) ? (
+                  <button type="button" onClick={cancelExit} disabled={Boolean(exit?.cancel_requested)} title="stop after the op in flight; the tier stays recorded attempted" data-testid="cancel-exit">
+                    Cancel
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
           </div>
         ) : null}
       </TopbarPortal>
       <div className="cv-strip" data-testid="canvas-strip">
         <ErrorLine error={error} prefix="could not load the twin" />
         <ErrorLine error={draft.error} prefix="could not save the layout" />
-        <ErrorLine error={exitError} />
+        {exitError ? (
+          <div className="error" role="alert" data-testid="exit-error">
+            {exitErrorText(exitError)}
+            <button type="button" className="cv-dismiss" aria-label="Dismiss" onClick={() => setExitError(null)} title="dismiss">
+              ×
+            </button>
+          </div>
+        ) : null}
         {editProps && blocked ? (
           <div className="error" role="alert" data-testid="blocked-reason">
             blocked: {blocked}
@@ -736,7 +918,14 @@ export function CanvasPage() {
         ) : null}
         {editProps ? <ErrorLine error={serverReason} prefix="the API refused the document" /> : null}
         {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
-        {exitNote ? <p className="notice" role="status" data-testid="exit-note">{exitNote}</p> : null}
+        {exitNote ? (
+          <p className="notice" role="status" data-testid="exit-note">
+            {exitNote}
+            <button type="button" className="cv-dismiss" aria-label="Dismiss" onClick={() => setExitNote(null)} title="dismiss">
+              ×
+            </button>
+          </p>
+        ) : null}
         {loading && !data ? <p className="muted">Loading the twin…</p> : null}
       </div>
       {built && placement ? (
@@ -753,6 +942,7 @@ export function CanvasPage() {
             onViewport={onViewport}
             notes={notes}
             locked={Boolean(locked)}
+            layoutBar={layoutBar}
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, selectedSegment, n, null)} count={copies} onCount={setCopies} selectedSegment={selectedSegment} disabled={Boolean(locked)} note={data.paletteNote} /> } : {})}
             {...(editProps && model
@@ -792,6 +982,7 @@ export function CanvasPage() {
                         validation={validation && files && sameFiles(validation.files, files) ? validation : null}
                         validating={validating || !(validation && files && sameFiles(validation.files, files))}
                         changes={deployed ? (config?.changes ?? []) : null}
+                        onDiscard={deployed && baselineFiles && !locked ? onDiscardChange : undefined}
                       />
                     ),
                     checksBadge: checksBadge({

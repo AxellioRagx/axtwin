@@ -4,6 +4,7 @@ import type {
   CastRequest,
   CastResponse,
   CastRoster,
+  ConfigExitCancel,
   DeployConfig,
   DeployConfigApply,
   DeployConfigReset,
@@ -100,8 +101,10 @@ export interface Api {
   putDeployConfig(deployId: string, files: Record<string, string>): Promise<DeployConfig>;
   /** Push the working copy's attribute delta onto the running twin; refused naming the paths when a change is topology. */
   applyDeployConfig(deployId: string): Promise<DeployConfigApply>;
-  /** Discard the working copy and revert what Apply pushed. */
-  resetDeployConfig(deployId: string): Promise<DeployConfigReset>;
+  /** Discard the working copy and revert what Apply pushed (best effort; `tiers` replays named baseline tiers with or without a copy). */
+  resetDeployConfig(deployId: string, body?: { tiers?: string[] }): Promise<DeployConfigReset>;
+  /** Stop the Apply or Reset in flight at its next op boundary; 409 when none is. */
+  cancelDeployConfigExit(deployId: string): Promise<ConfigExitCancel>;
   /** Validate a document (`{id, files}`) through the Save / Persist path without writing; a FAIL is a 200 with the findings. */
   validateDocument(document: { id: string; files: Record<string, string> }, signal?: AbortSignal): Promise<ValidateResult>;
 }
@@ -151,7 +154,8 @@ export function makeApi(request: Requester): Api {
     getDeployConfig: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/config`, { signal }),
     putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files } }),
     applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {} }),
-    resetDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: {} }),
+    resetDeployConfig: (deployId, body) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: body ?? {} }),
+    cancelDeployConfigExit: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/cancel`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
   };
 }

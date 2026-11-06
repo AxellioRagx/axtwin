@@ -88,12 +88,14 @@ export function SidePanel(p: SidePanelProps) {
   );
 }
 
-/** The inspector's Checks tab. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes">) {
+/** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
+ *  baseline's text (a pending change is one file's delta), when the page has
+ *  the baseline and the canvas is not locked. */
+export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
       <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
-      {p.changes ? <Changes changes={p.changes} /> : null}
+      {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
     </div>
   );
 }
@@ -189,7 +191,7 @@ function Validation({ findings, serverReason, validation, validating }: { findin
   );
 }
 
-function Changes({ changes }: { changes: PendingChange[] }) {
+function Changes({ changes, onDiscard }: { changes: PendingChange[]; onDiscard?: ((path: string) => void) | undefined }) {
   return (
     <section className="cv-side-section" data-testid="pending-changes">
       <h3>Pending changes</h3>
@@ -198,6 +200,11 @@ function Changes({ changes }: { changes: PendingChange[] }) {
         {changes.map((c) => (
           <li key={c.path} data-testid="pending-change" data-kind={c.kind}>
             <span className={`badge ${c.kind === "attribute" ? "ok" : c.kind === "topology" ? "bad" : ""}`}>{c.kind === "attribute" ? "live" : c.kind === "topology" ? "re-plan" : "inert"}</span> <span className="mono">{c.path}</span> <span className="muted">{c.op}</span>
+            {onDiscard ? (
+              <button type="button" className="cv-discard" onClick={() => onDiscard(c.path)} title={`put ${c.path} back to the baseline's text (an undoable edit)`} data-testid="discard-change">
+                Discard
+              </button>
+            ) : null}
             <div className="muted cv-change-reason">
               {c.reason}
               {c.via.length ? ` · via ${c.via.join(", ")}` : ""}
