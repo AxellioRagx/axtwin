@@ -50,7 +50,7 @@ import {
   type Box,
   type Point,
 } from "../layout/geometry";
-import { layout0, overflowAnchorKey, type Level0Options } from "../layout/level0";
+import { layout0, overflowAnchorKey, siteKeyOfOverflowAnchor, type Level0Options } from "../layout/level0";
 import { layout1 } from "../layout/level1";
 import { NO_PINS, type Pins } from "../layout/pins";
 import { stackBands } from "../layout/tiers";
@@ -118,6 +118,8 @@ export type RouterData = {
   uplink: boolean;
   /** The crossing traffic this router carries as the gateway, or `null` when it is not one. */
   crossing: Crossing | null;
+  /** Rendering rule 5: a `kind: host` of a switch or router role drawn router-style, with that role. */
+  device: string | null;
 };
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
 /** The Internet pill: short label and sub-line beside the icon (the slot
@@ -137,9 +139,13 @@ export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserte
 /** `folded`: the leg goes to a group's `+N more` tile for `folded` hidden
  *  segments at once (one edge, not one per hidden segment); it names no
  *  single attachment, so it has no label, no detach, no selection. */
-export type LegData = { kind: "leg"; label: string; from: "router" | "host"; folded?: number };
+export type LegData = { kind: "leg"; label: string; from: "router" | "host"; folded?: number; /** The site group the target segment lies in (the fan collapse groups by it). */ site?: string };
+/** Rendering rule 7 (`canvas/fan.ts`): one leg from a router to a site's top edge for `count` segments... */
+export type FanData = { kind: "fan"; router: string; site: string; count: number; label: string };
+/** ...and the bus inside the site from that entry to each segment's handle. */
+export type BusData = { kind: "bus"; router: string; site: string; segment: string };
 export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
-export type CanvasEdgeData = ArcData | LegData | TrunkData;
+export type CanvasEdgeData = ArcData | LegData | FanData | BusData | TrunkData;
 export type CanvasEdge = Edge<CanvasEdgeData, string>;
 
 export interface Placement {
@@ -508,26 +514,64 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       segAbsX.set(b.id, { left, right: left + b.w });
     }
   }
+  // A router's node is its DRAWN box (`DEVICE_W` wide: the icon with its name
+  // and leg count), not an invisible span over its segments (plane epoch 4):
+  // spans overlapped once rule 5 brought a twin's switches into the band, and
+  // a later node's transparent span shadowed an earlier icon. The span still
+  // decides where the icon goes: its centre, or along it.
   const routerSpans = graph.routers.map((r) => {
     const spans = r.segments
       .map((name) => segAbsX.get(anchorByName[name] === name ? ID.segment(name) : (anchorByName[name] ?? "")))
       .filter((s): s is { left: number; right: number } => !!s);
-    if (!spans.length) return { router: r, left: CANVAS_PAD, w: DEVICE_W, drawnLegs: 0 };
+    if (!spans.length) return { router: r, spanLeft: CANVAS_PAD, spanW: DEVICE_W, left: CANVAS_PAD, w: DEVICE_W, drawnLegs: 0 };
     const left = Math.min(...spans.map((s) => s.left));
     const right = Math.max(...spans.map((s) => s.right));
-    return { router: r, left, w: Math.max(DEVICE_W, right - left), drawnLegs: spans.length };
+    const spanW = Math.max(DEVICE_W, right - left);
+    return { router: r, spanLeft: left, spanW, left: left + spanW / 2 - DEVICE_W / 2, w: DEVICE_W, drawnLegs: spans.length };
   });
-  routerSpans.sort((a, b) => a.left - b.left || (a.router.name < b.router.name ? -1 : 1));
-  const rowRight: number[] = [];
+  routerSpans.sort((a, b) => a.spanLeft - b.spanLeft || (a.router.name < b.router.name ? -1 : 1));
+  // A row holds every router whose box fits beside the others'; a router's
+  // foot stays clear (no box in a lower row under another's icon, where its
+  // legs leave straight down, nor in an upper row over its own). By span
+  // alone each of corp-twin's twelve switches took a row of its own (2026-11-06).
+  const rows: Array<Array<{ l: number; r: number; cx: number }>> = [];
+  const under = (cx: number, b: { l: number; r: number }) => cx >= b.l - DEVICE_GAP_X && cx <= b.r + DEVICE_GAP_X;
+  const W = DEVICE_W;
+  const G = DEVICE_GAP_X;
+  const boxAt = (cx: number) => ({ l: cx - W / 2, r: cx + W / 2, cx });
+  const fits = (box: { l: number; r: number; cx: number }, i: number) => rows[i]!.every((b) => box.r + G <= b.l || box.l >= b.r + G) && rows.every((other, j) => j === i || other.every((b) => !under(b.cx, box) && !under(box.cx, b)));
   const routerRows = routerSpans.map((s) => {
-    let row = rowRight.findIndex((right) => right + DEVICE_GAP_X <= s.left);
-    if (row < 0) {
-      row = rowRight.length;
-      rowRight.push(s.left + s.w);
-    } else rowRight[row] = s.left + s.w;
-    return row;
+    // The icon sits at the span's centre, or slides along the span (it is
+    // still between its segments) to the nearest spot that fits an existing
+    // row; failing every row, a new row, slid right past any foot it would
+    // sit under. A pin overrides either way.
+    const cx0 = s.spanLeft + s.spanW / 2;
+    const lo = s.spanLeft + W / 2;
+    const hi = s.spanLeft + s.spanW - W / 2;
+    const all = rows.flat();
+    const candidates = [cx0, ...all.flatMap((b) => [b.r + G + W / 2 + 1, b.l - G - W / 2 - 1])].filter((x) => x === cx0 || (x >= lo && x <= hi)).sort((a, b) => Math.abs(a - cx0) - Math.abs(b - cx0));
+    for (let i = 0; i < rows.length; i++) {
+      for (const x of candidates) {
+        const box = boxAt(x);
+        if (fits(box, i)) {
+          rows[i]!.push(box);
+          s.left = box.l;
+          return i;
+        }
+      }
+    }
+    let box = boxAt(cx0);
+    const sorted = [...all].sort((a, b) => a.l - b.l);
+    for (let guard = 0; guard < sorted.length + 1; guard++) {
+      const hit = sorted.find((b) => under(b.cx, box) || under(box.cx, b));
+      if (!hit) break;
+      box = boxAt(hit.r + G + W / 2 + 1);
+    }
+    s.left = box.l;
+    rows.push([box]);
+    return rows.length - 1;
   });
-  const infraH = rowRight.length ? rowRight.length * DEVICE_H + (rowRight.length - 1) * DEVICE_GAP_Y : 0;
+  const infraH = rows.length ? rows.length * DEVICE_H + (rows.length - 1) * DEVICE_GAP_Y : 0;
 
   // ---- the tiers, stacked top to bottom with the lifted primitive ----
   // Rendering rule 1: the Internet is drawn only on evidence of non-local
@@ -581,7 +625,7 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       // dragged into a site stays visible and hoverable.
       zIndex: 2,
       ...common,
-      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs, uplink: uplinks.includes(s.router.name), crossing: gateways.includes(s.router.name) ? crossing : null },
+      data: { kind: "router", name: s.router.name, segments: [...s.router.segments], drawnLegs: s.drawnLegs, uplink: uplinks.includes(s.router.name), crossing: gateways.includes(s.router.name) ? crossing : null, device: s.router.kind === "host" ? (s.router.role ?? "host") : null },
     });
   });
   for (const s of sites) {
@@ -659,8 +703,15 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
       edges.push({ id: `trunk:internet>${name}`, type: "trunk", source: ID.internet, target: ID.router(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "trunk", bytes: crossing?.bytes ?? 0, flows: crossing?.flows ?? 0 } });
     }
   }
+  // The site a drawn tile or a folded segment lies in: the fan collapse
+  // (`canvas/fan.ts`) groups a router's legs by it.
+  const siteOfSegment = new Map<string, string>();
+  for (const t of l0.tiles) siteOfSegment.set(t.segment.name, t.siteKey);
+  for (const o of l0.overflow) for (const h of o.hidden) siteOfSegment.set(h.name, o.siteKey);
   for (const s of routerSpans) {
     const foldedTo = new Map<string, number>();
+    // A device (rule 5) is a host; its legs are the config's and it is drawn router-style.
+    const from = s.router.kind === "host" ? "host" : "router";
     for (const name of s.router.segments) {
       const anchor = anchorByName[name];
       if (!anchor) continue;
@@ -668,13 +719,13 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
         continue;
       }
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from: "router" } });
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from, site: siteOfSegment.get(name) } });
     }
     // A router that joins segments behind a group's `+N more` tile draws ONE
     // leg to that tile, however many it joins there (a 45-leg router drew a
     // wedge of labelled lines to the same tile).
     for (const [anchor, n] of foldedTo) {
-      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
+      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined } });
     }
   }
   for (const leg of options.extraLegs ?? []) {

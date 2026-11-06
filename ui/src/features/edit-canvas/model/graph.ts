@@ -56,6 +56,11 @@ export interface Conduit {
 export interface RouterLegs {
   name: string;
   segments: readonly string[];
+  /** `host` (rendering rule 5, 2026-11-06): a `kind: host` node of a switch or
+   *  router role attached to several segments, drawn router-style; its legs
+   *  are the config's, not a router's, so they mark no tile as gatewayed. */
+  kind?: "router" | "host";
+  role?: string | null;
 }
 
 /** One `segments[]` entry of the twin config, as the cast summary publishes
@@ -755,8 +760,11 @@ export function buildGraph(exportData: TopologyExport, cast: CastInput): Console
   const routers: RouterLegs[] = (cast.routers ?? []).map((r) => ({
     name: r.name,
     segments: [...new Set(r.segments ?? [])],
+    ...(r.kind ? { kind: r.kind } : {}),
+    ...(r.role !== undefined ? { role: r.role } : {}),
   }));
-  const routerNames = new Set(routers.flatMap((r) => r.segments));
+  const trueRouters = routers.filter((r) => r.kind !== "host");
+  const routerNames = new Set(trueRouters.flatMap((r) => r.segments));
   // `== null`: a wire `null` is "not published" exactly like a missing key.
   const castOmits: Array<"conduits" | "routers"> = [];
   if (cast.conduits == null) castOmits.push("conduits");
@@ -781,9 +789,9 @@ export function buildGraph(exportData: TopologyExport, cast: CastInput): Console
   // second copy of one lookup (S6).
   const northSouth = northSouthOf(nodeById, exportData.edges);
   const wanEdge: WanEdge | null =
-    northSouth.crossingEdges > 0 || routers.length > 0
+    northSouth.crossingEdges > 0 || trueRouters.length > 0
       ? {
-          inferred: routers.length === 0,
+          inferred: trueRouters.length === 0,
           evidenceClass: northSouth.evidenceClass,
           bytes: northSouth.total.bytes,
           flows: northSouth.total.flows,

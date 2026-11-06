@@ -427,6 +427,128 @@ is kept; the site group has no border element and folds.
    cancelled` in 4 s and Reset replayed the baseline; the attach select took
    a keyboard pick. **Done.**
 
+**Edge routing on large twins** (track 3, decided 2026-11-06 by the user
+after corp-twin's 37 structural legs still crossed every tile: one router,
+`hq-mx`, fanned straight lines from a point, and the MS120 switch -- a
+`kind: host` with ten `nets[]` -- fanned legs out of the middle of its first
+segment's tile). Built the same day. One correction to the brief's premise:
+corp-twin is authored and has no cast evidence; every leg the MS120 fanned
+was a config attachment (`nets[]`), not observed adjacency, and no code path
+ever drew a leg from anything but the config. Rule 5 therefore adds the
+device rendering and pins the "config only" rule with a test; the
+"adjacency observed, not attached" badge, the dashed observed legs and the
+inspector's *attach to these segments* are NOT built -- no observed
+adjacency reaches the canvas (a cast host has one segment; the cast's
+routers come from the config's tree), so there is nothing to draw or to
+attach. They wait for a data source, which would be new scope.
+
+5. **Legs are the config's; a switch is a device.** A `kind: host` node
+   draws exactly its `net` / `nets[]` legs; nothing inferred from a cast is
+   ever a leg (observed flows are the arcs of rule 2). A host whose role is
+   in the device set (`model/roles.ts` `DEVICE_ROLES`: `l2-switch`,
+   `l3-switch`, `router`, `firewall` -- the API enumerates no role
+   vocabulary, so the set is the canvas's, and `authoredGraph` takes an
+   override) and whose attachments span more than one segment is drawn
+   router-style between its segments (`RouterLegs.kind: "host"`,
+   `RouterData.device`): the switch icon, `role: l2-switch` under its name,
+   a *Device* row on its card and in the inspector (`kind: host · role:
+   l2-switch · attached by the config`), its legs solid and `from: "host"`.
+   Its legs mark no tile as gatewayed (`hasRouterLeg` is the routers'). It
+   pins as `host:<name>` like the chip it replaces; the selection and the
+   Hosts list find it by whichever node draws it (`Canvas.tsx` `drawnId`).
+   The band packs its rows by the routers' drawn boxes (a router's node is
+   that box since plane epoch 4, `DEVICE_W` wide at its span's centre or
+   slid along the span to share a row) and keeps each router's foot clear,
+   so its legs leave into open space.
+   A multi-homed host of any other role keeps its chip and its leg.
+6. **Orthogonal legs in the gutters.** A leg leaves a router from the
+   bottom of its icon and lands on its segment's TOP edge, on one of the
+   tile's handles -- one per attached router, spread across the top edge by
+   the routers' x, so parallel legs never overlap. Between the two it is a
+   right-angled polyline (rounded corners, `legs.ts` `polylinePath`)
+   routed by A* over the channel grid a margin outside every box's edges
+   (`canvas/route.ts`: length plus a bend penalty; the obstacles are the
+   tiles, the chrome, each router's drawn box and any chip dragged clear of
+   its tile -- the site tint is not one). The geometry is wired by the
+   canvas over the LIVE node boxes (`canvas/wiring.ts` `wire`, a deferred
+   memo so a drag's frames are not held up; `RoutesContext` carries it to
+   `LegEdge`, which falls back to the straight clipped line until wired or
+   when a port is walled in). A multi-homed chip's leg leaves its tile
+   through the tile's top edge at the chip's x. The pane's hit-test reads
+   each leg's `data-pts` polyline (`nearestPolyline`), so a click, hover or
+   menu finds a routed leg as before.
+7. **The fan collapses per site.** A router with legs into more than N
+   segments of one site group (N: the rail's **Fan-out** button, 2 / 4 /
+   8 / all, default 4, kept per user as `axr-canvas-fan`) draws ONE leg to
+   the site's top edge -- entering at the router's x clamped into the site,
+   several fans spread 14 px apart -- badged `N segments`, and a quieter
+   bus inside the site from that entry to each segment's handle
+   (`canvas/fan.ts` `fanOut`; `FanData` / `BusData`). A router's legs
+   behind a group's `+N more` tile go through the same fan (`N segments ·
+   k behind +N more`), the bus landing on the overflow tile. Selecting the
+   router, or a click on the site's tint, expands that site's fan to
+   individual legs. A device's legs fan the same way.
+8. **One badge style.** The `×N` badge sits inside the chip's bounds at its
+   bottom-right (`.cv-count-badge`, absolute; a labelled chip keeps the
+   corner clear), bare or labelled. A collapsed role band (`RungsNode`) is
+   the band's ring with the same badge -- `31 × EP` as text is gone; the
+   role's label shows with *Labels: all*.
+9. **The labels button says its mode.** Its tooltip reads `Labels: all /
+   selected / none` and its icon changes with the mode (`Icon.labelsMode`:
+   every line, one line, the lines struck).
+
+Acceptance (Vitest, `ui/test/canvas.routing.test.tsx`; the leg geometry is
+checked over the computed layout, not a screenshot, since jsdom draws no
+edge): on a corp-twin-shaped design (a router into six segments of one site
+and three of another, an `l2-switch` host on three, a workstation on two) the
+placement draws no leg from a host other than its config nets and a cast
+with cross-segment flows draws arcs and no leg; the switch is a router-style
+node wearing its role, with three legs, named a host in the inspector; with
+every leg drawn and with the fans collapsed, every wired edge leaves its
+router's bottom-centre downward, lands on its tile's top edge from above and
+crosses no tile's interior, and two routers into one tile land at different
+x; `fanOut` collapses past N, expands for the router's name or the site's
+key, and folds the overflow leg; the rail's Fan-out button cycles and is
+kept; the count badge is one element; the labels icon differs per mode.
+The grid router is tested on its own (around a box, straight when clear,
+walled in).
+
+**Manual checklist, track 3, 2026-11-06** (the running build on :8080,
+Playwright 1622 × 980, `scratchpad/t3.cjs`, the probe re-running the
+interior check over every drawn leg's `data-pts` against every tile; read
+by eye on the shots):
+
+7. `/canvas/corp-twin` (design view): 26 tiles, 54 structural edges, all
+   routed, zero tile crossings; `hq-mx` fans into `10.180` (10 segments ·
+   4 behind +N more), `misc` (11 · 5) and `10.120` (10 · 4) with the badge on
+   each trunk, 17 bus edges inside the sites; the twelve switch-class hosts
+   (`ms120`, `mx-sw`, the 8325h pair, the 9k pair, the access switches) are
+   router-style nodes in the band -- seven on the first row, the rest slid
+   along their spans or on rows below -- each wearing `role: l2-switch` /
+   `l3-switch`, their
+   legs solid and orthogonal, parallel legs sharing the channel above the
+   sites; no leg leaves a tile's interior any more. **Seen.**
+8. corp-twin, `hq-mx` selected: the three fans expand to 51 legs, zero
+   crossings; Esc folds them back. *Fan-out: all* draws the same 51 (the
+   folded overflow legs included); the rail cycles 4 → 8 → all → 2 and the
+   tooltip reads the value. `ms120`'s hover card reads `Device · kind: host
+   · role: l2-switch · attached by the config` and lists its ten legs. **Seen.**
+9. `/canvas/canvas-test`: unchanged -- `gw` at y 24, the tint at 116, two
+   legs (now right-angled, routed), the workstation's `×2` badge inside its
+   ring's bounds. **Seen.**
+10. `/canvas/pit-395a61f04e-1780405200` (the largest cast twin, design
+    view, 40 segments, six drawn): `gw` fans `40 segments · 34 behind +N
+    more` to the one site, the bus running along the site's header to each
+    tile's handle and down to the `+34 more` tile; every `×N` badge inside
+    its chip. **Seen.**
+11. Not built (no data source): the "adjacency observed, not attached"
+    device, its dashed legs and the inspector's *attach to these
+    segments*. Changed on the way: a router's node is now its drawn box
+    (`DEVICE_W` wide, plane epoch 4), no longer an invisible span over its
+    segments -- in a shared row a later span shadowed an earlier icon; the
+    band packs rows by that box, a router sliding along its span to fit one,
+    and keeps every router's foot clear. A long name ellipsizes at the box.
+
 ## Notes
 
 - Prerequisites are the A3 then A2 seams and the `host:` pin kind in the

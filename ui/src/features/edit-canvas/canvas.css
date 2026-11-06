@@ -164,7 +164,12 @@
 /* Rendering rule 4: with no label the chip is its ring alone (the node is
    sized to it, so the hit box is the drawn box); the count badge rides its corner. */
 .cv-host.bare { padding: 0; justify-content: center; gap: 0; border-radius: 50%; }
-.cv-host.bare .cv-count-badge { position: absolute; top: -7px; right: -10px; }
+/* Rendering rule 8: ONE badge style -- the `×N` sits inside the chip's bounds at
+   its bottom-right corner, bare or labelled (a labelled chip keeps the corner clear). */
+.cv-host .cv-count-badge { position: absolute; right: 1px; bottom: 1px; padding: 0 3px; font-size: 10px; line-height: 12px; min-width: 0; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); }
+.cv-host:has(.cv-count-badge):not(.bare) { padding-right: 24px; }
+/* A collapsed role band (rule 8): the band's ring with its count as the same badge. */
+.cv-rungs.bare .cv-count-badge { right: -4px; bottom: -3px; }
 .cv-host.ghost { opacity: 0.55; border-style: dashed; }
 .cv-host.glow { border-color: var(--glow); box-shadow: 0 0 0 3px var(--glow), 0 0 14px 4px var(--glow); transition: box-shadow 0.3s ease; }
 .cv-rungs { background: var(--panel); border-style: dashed; cursor: default; }
@@ -185,6 +190,13 @@
 .cv-icon-name { font-weight: 600; white-space: nowrap; }
 /* Rendering rule 1: the gateway is a badge on its router's icon. */
 .cv-router .cv-icon-box { position: relative; overflow: visible; }
+/* The name keeps to the node's width (plane epoch 4: a router's node is its drawn
+   box): a long one ellipsizes, the full name is the node's title and its card.
+   `flex: none`, or the overflow rule lets the item shrink and clip its own text. */
+.cv-router .cv-icon-name { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Rule 5: a host of a switch or router role drawn router-style wears its role under its name. */
+.cv-router .cv-device-role { font-size: 10.5px; color: var(--muted); line-height: 1.1; }
+.cv-router[data-device] .cv-icon-box { border-radius: 6px; }
 .cv-wan-badge { position: absolute; top: -7px; right: -7px; width: 15px; height: 15px; border-radius: 50%; background: var(--panel); border: 1px solid var(--muted); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
 .cv-wan-badge svg { width: 9px; height: 9px; }
 .cv-icon-sub { font-size: 11px; white-space: nowrap; }
@@ -203,10 +215,16 @@
 .react-flow__edge-path.cv-arc { stroke: var(--muted); fill: none; }
 .react-flow__edge-path.cv-arc-asserted { stroke-dasharray: 6 4; }
 .react-flow__edge-path.cv-arc.glow, g.glow .react-flow__edge-path { stroke: var(--glow); filter: drop-shadow(0 0 4px var(--glow)); }
-.react-flow__edge-path.cv-leg { stroke: var(--ink); stroke-width: 1.5; }
+.react-flow__edge-path.cv-leg { stroke: var(--ink); stroke-width: 1.5; fill: none; }
 .react-flow__edge-path.cv-leg-folded { stroke: var(--muted); stroke-dasharray: 5 4; }
+/* Rule 7: the fan's one leg to a site wears its count; the bus inside the site is quieter. */
+.react-flow__edge-path.cv-leg-fan { stroke: var(--ink); stroke-width: 2; }
+.react-flow__edge-path.cv-leg-bus { stroke: var(--muted); stroke-width: 1.25; }
+[data-testid="canvas-leg"][data-fan] .react-flow__edge-textwrapper { display: block; }
+[data-testid="canvas-leg"][data-fan] .react-flow__edge-textbg { fill: var(--panel); }
+[data-testid="canvas-leg"][data-fan] .react-flow__edge-text { font-size: 11px; fill: var(--ink); }
 /* A leg's label draws only while the leg is selected or hovered. */
-[data-testid="canvas-leg"]:not(.selected):not(.hover) .react-flow__edge-textwrapper { display: none; }
+[data-testid="canvas-leg"]:not(.selected):not(.hover):not([data-fan]) .react-flow__edge-textwrapper { display: none; }
 /* A leg is drawn above the boxes but takes no pointer events: a drag or a click
    on a box under it reaches the box, and the pane hit-tests the legs itself
    (`Canvas.tsx` legAt) for the click, the hover label and the menu. */

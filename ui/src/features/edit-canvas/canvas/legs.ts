@@ -58,6 +58,89 @@ export function parseLegPath(d: string): Pick<Line, "from" | "to"> | null {
   return { from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
 }
 
+/** The corner radius an orthogonal leg turns with (the smoothstep look). */
+export const LEG_CORNER = 6;
+
+/**
+ * The SVG path of an orthogonal polyline with rounded corners (rendering
+ * rule 6): each corner is cut `LEG_CORNER` short on both runs (less on a
+ * short run) and bridged with a quadratic curve through the corner point.
+ */
+export function polylinePath(pts: readonly Point[], radius = LEG_CORNER): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0]!.x} ${pts[0]!.y}`;
+  let d = `M ${pts[0]!.x} ${pts[0]!.y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1]!;
+    const c = pts[i]!;
+    const b = pts[i + 1]!;
+    const inLen = Math.hypot(c.x - a.x, c.y - a.y);
+    const outLen = Math.hypot(b.x - c.x, b.y - c.y);
+    const r = Math.min(radius, inLen / 2, outLen / 2);
+    if (r <= 0 || inLen === 0 || outLen === 0) continue;
+    const p1 = { x: c.x - ((c.x - a.x) / inLen) * r, y: c.y - ((c.y - a.y) / inLen) * r };
+    const p2 = { x: c.x + ((b.x - c.x) / outLen) * r, y: c.y + ((b.y - c.y) / outLen) * r };
+    d += ` L ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`;
+  }
+  const last = pts[pts.length - 1]!;
+  return `${d} L ${last.x} ${last.y}`;
+}
+
+/** The polyline as the `data-pts` attribute the pane's hit-test reads back, and its inverse. */
+export function encodePoints(pts: readonly Point[]): string {
+  return pts.map((p) => `${p.x},${p.y}`).join(" ");
+}
+
+export function decodePoints(s: string | null | undefined): Point[] {
+  if (!s) return [];
+  const out: Point[] = [];
+  for (const pair of s.trim().split(/\s+/)) {
+    const [x, y] = pair.split(",").map(Number);
+    if (x === undefined || y === undefined || Number.isNaN(x) || Number.isNaN(y)) return [];
+    out.push({ x, y });
+  }
+  return out;
+}
+
+/** The point halfway along a polyline by length: where its label sits. */
+export function polylineMid(pts: readonly Point[]): Point {
+  if (pts.length === 0) return { x: 0, y: 0 };
+  if (pts.length === 1) return pts[0]!;
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+  let left = total / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len >= left) {
+      const t = len === 0 ? 0 : left / len;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    left -= len;
+  }
+  return pts[pts.length - 1]!;
+}
+
+/** The distance from a point to a polyline. */
+export function distanceToPolyline(p: Point, pts: readonly Point[]): number {
+  if (pts.length === 1) return Math.hypot(p.x - pts[0]!.x, p.y - pts[0]!.y);
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < pts.length; i++) best = Math.min(best, distanceToSegment(p, pts[i - 1]!, pts[i]!));
+  return best;
+}
+
+/** The id of the polyline nearest `at` within `tolerance` (flow units), else null. */
+export function nearestPolyline(at: Point, legs: ReadonlyArray<{ id: string; pts: readonly Point[] }>, tolerance: number): string | null {
+  let best: { id: string; d: number } | null = null;
+  for (const leg of legs) {
+    if (!leg.pts.length) continue;
+    const d = distanceToPolyline(at, leg.pts);
+    if (d <= tolerance && (!best || d < best.d)) best = { id: leg.id, d };
+  }
+  return best?.id ?? null;
+}
+
 /** The distance from a point to a line segment. */
 export function distanceToSegment(p: Point, from: Point, to: Point): number {
   const dx = to.x - from.x;

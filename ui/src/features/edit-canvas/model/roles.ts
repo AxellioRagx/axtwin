@@ -90,6 +90,16 @@ export const INFRA_DEVICE_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The roles that make a `kind: host` node a NETWORK DEVICE on the canvas
+ * (rendering rule 5, 2026-11-06): attached to more than one segment, such a
+ * host is drawn router-style between its segments rather than as a chip in
+ * its first segment fanning legs out of the tile. The API enumerates no role
+ * vocabulary (the tree carries each group's role as written), so this is the
+ * configurable set the canvas reads; `authoredGraph` takes an override.
+ */
+export const DEVICE_ROLES: ReadonlySet<string> = new Set(["l2-switch", "l3-switch", "router", "firewall"]);
+
+/**
  * A total order key for a role band or matrix axis. Named roles keep their
  * fixed index; `unroled-endpoint` and `external` sit at the very end in that
  * order; an unknown role sorts into the infrastructure/endpoint seam,

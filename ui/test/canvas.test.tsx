@@ -349,7 +349,7 @@ describe("the one write: a dragged node's position as a pin", () => {
   it("keys sites, segments and nodes; chrome, collapsed bands and +N tiles are not pinnable", () => {
     expect(pinKeyOf({ data: { kind: "site", key: "site:10.80", label: "10.80", shown: 1, total: 1, northSouthBytes: 0 } })).toBe("site:10.80");
     expect(pinKeyOf({ data: { kind: "segment", name: "seg-a", cidr: "10.80.20.0/24", deployedCidr: null, zoneType: null, hosts: 0, ghosts: 0, evidenceMix: [], roleBadges: [], hasRouterLeg: false } })).toBe("segment:10.80.20.0/24");
-    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0, uplink: false, crossing: null } })).toBe("host:gw01");
+    expect(pinKeyOf({ data: { kind: "router", name: "gw01", segments: [], drawnLegs: 0, uplink: false, crossing: null, device: null } })).toBe("host:gw01");
     expect(pinKeyOf({ data: { kind: "overflow", siteKey: "site:10.80", hidden: 3, total: 9, expanded: false } })).toBeNull();
     expect(pinKeyOf({ data: { kind: "internet", label: "", sub: "", title: "" } })).toBeNull();
   });

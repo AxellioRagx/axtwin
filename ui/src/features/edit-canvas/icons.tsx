@@ -192,6 +192,29 @@ export const Icon = {
       <path d="M2 12.5l3-9 3 9M3.2 9.5h3.6M10 6.5h4.5M10 9.5h4.5M10 12.5h3" />
     </Svg>
   ),
+  /** Rendering rule 9: the labels button's icon says which mode is on --
+   *  every line (all), one line (selected), the lines struck (none). */
+  labelsMode: (mode: "all" | "selected" | "none") => (
+    <Svg>
+      <path d="M2 12.5l3-9 3 9M3.2 9.5h3.6" />
+      {mode === "all" ? <path d="M10 6.5h4.5M10 9.5h4.5M10 12.5h3" /> : null}
+      {mode === "selected" ? <path d="M10 9.5h4.5" /> : null}
+      {mode === "none" ? <path d="M10 7l4.5 4.5M14.5 7L10 11.5" /> : null}
+    </Svg>
+  ),
+  /** A switch: a box with ports along its bottom (rendering rule 5's device). */
+  switch: () => (
+    <Svg>
+      <rect x="1.5" y="4.5" width="13" height="7" rx="1.5" />
+      <path d="M4 8h1M7 8h1M10 8h1M3 11.5v2M8 11.5v2M13 11.5v2" />
+    </Svg>
+  ),
+  /** The fan-out limit (rendering rule 7): one line fanning into several. */
+  fan: () => (
+    <Svg>
+      <path d="M8 2v5M8 7l-5 6M8 7v6M8 7l5 6" />
+    </Svg>
+  ),
   chevronRight: () => (
     <Svg>
       <path d="M6 3l5 5-5 5" />

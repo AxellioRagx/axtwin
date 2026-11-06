@@ -13,8 +13,9 @@ import { evidenceClassName, saturationFor } from "./model/evidence";
 import { glyphCapacity, type DetailLevel } from "./model/detail";
 import { CHIP_W, TILE_H, TILE_W } from "./layout/geometry";
 import { roleBadgeLabel } from "./model/roles";
-import { clipLine, legPath } from "./canvas/legs";
+import { clipLine, encodePoints, legPath, polylineMid, polylinePath, type Point } from "./canvas/legs";
 import { HANDLE, type CanvasEdge, type CanvasNode, type Rect } from "./canvas/placement";
+import { clipBox, ROUTER_ICON } from "./canvas/wiring";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
 
@@ -30,6 +31,11 @@ export const DetailContext = createContext<DetailLevel>("full");
 export type LabelsMode = "all" | "selected" | "none";
 export const LABELS_MODES: readonly LabelsMode[] = ["all", "selected", "none"];
 export const LabelsContext = createContext<LabelsMode>("selected");
+
+/** Rendering rule 6 (2026-11-06): the legs' polylines, wired by the canvas
+ *  over the live node boxes (`canvas/wiring.ts`) and read by edge id; a leg
+ *  with no entry falls back to its straight line. */
+export const RoutesContext = createContext<ReadonlyMap<string, Point[]>>(new Map());
 
 /** How many role glyphs a compact tile carries before folding the rest. */
 export const TILE_GLYPH_MAX = 6;
@@ -267,14 +273,19 @@ export function HostNode(p: P) {
   );
 }
 
+/** A collapsed role band: the band's ring with its count as the one `×N`
+ *  badge style (rendering rule 8), the role's label only when labels are on. */
 export function RungsNode(p: P) {
   const d = p.data;
+  const labels = useContext(LabelsContext);
   if (d.kind !== "rungs") return null;
   const words = d.rungs.map((r) => `${r.count} ${r.rung}`).join(" · ");
+  const labelled = labels === "all";
   return (
-    <div className="cv-host cv-rungs" data-testid="canvas-rungs" style={{ width: p.width, height: p.height }} title={`${d.count} ${d.role} hosts, over the band budget: ${words}`}>
+    <div className={`cv-host cv-rungs${labelled ? "" : " bare"}`} data-testid="canvas-rungs" style={{ width: p.width, height: p.height }} title={`${d.count} ${d.role} hosts, over the band budget: ${words}`}>
       <span className="cv-ring" data-role={d.roleLabel}><RoleIcon label={d.roleLabel} /></span>
-      <span className="cv-host-label">{d.count} × {d.roleLabel}</span>
+      {labelled ? <span className="cv-host-label">{d.roleLabel}</span> : null}
+      <span className="badge cv-count-badge" data-testid="count-badge">×{d.count}</span>
       <Handles />
     </div>
   );
@@ -294,34 +305,48 @@ export function RouterNode(p: P) {
   const armed = edit?.attachFrom === d.name;
   const gateway = d.uplink || d.crossing !== null;
   const wan = d.uplink ? "the config's uplink" : d.crossing ? "the gateway by observed crossing traffic" : null;
+  // Rendering rule 5: a host of a switch or router role on several segments is
+  // drawn here, router-style, with its role under its name; its legs are the
+  // config's attachments (nothing observed is ever drawn as a leg).
+  const device = d.device;
+  const deviceWord = device ? `kind: host · role: ${device} · attached by the config` : null;
   return (
     <div
       className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}`}
       data-testid="canvas-router"
       data-node-id={d.name}
       data-gateway={gateway || undefined}
+      data-device={device ?? undefined}
       {...posAttrs(p, `host:${d.name}`)}
       style={{ width: p.width, height: p.height }}
+      title={deviceWord ?? undefined}
       ref={card.el}
       onMouseEnter={card.enter}
       onMouseLeave={card.close}
       onPointerDown={card.close}
-      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "router", name: d.name }) : undefined}
+      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: device ? "host" : "router", name: d.name }) : undefined}
     >
       {/* Name and leg count above, the icon flush with the box's bottom edge:
           the legs leave from the bottom-centre handle, so they meet the icon.
           A gateway wears a small WAN badge on the icon; the figures are on
           the card and in the inspector, never on the plane. */}
       <span className="mono cv-icon-name">{d.name}</span>
+      {device ? <span className="cv-device-role" data-testid="device-role">role: {device}</span> : null}
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
       <span className="cv-icon-box" aria-hidden="true">
-        <Icon.router />
+        {device && device.endsWith("switch") ? <Icon.switch /> : <Icon.router />}
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
       </span>
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
           <dl className="facts">
+            {deviceWord ? (
+              <>
+                <dt>Device</dt>
+                <dd>{deviceWord}</dd>
+              </>
+            ) : null}
             <dt>Legs</dt>
             <dd className="mono">{d.segments.join(", ") || "none"}</dd>
             {wan ? (
@@ -442,44 +467,51 @@ export function ArcEdge(e: E) {
   );
 }
 
-/** The side of a router's drawn icon box (`.cv-icon-box`), flush with the
- *  bottom-centre of a node that spans the segments it joins. */
-export const ROUTER_ICON = 34;
+export { ROUTER_ICON };
 
-/** The box a leg is clipped against: the node's box on the plane, from React
- *  Flow's internals (measured when the DOM has laid it out, else the size the
- *  placement gave it) -- for a router, its icon box, since the node itself
- *  is an invisible span over its segments. */
+/** The box a leg is clipped against in the straight-line fallback: the
+ *  node's box on the plane, from React Flow's internals (measured when the
+ *  DOM has laid it out, else the size the placement gave it) -- for a
+ *  router, its icon box, since the node itself is an invisible span. */
 function boxOf(n: InternalNode): Rect {
   const w = n.measured.width ?? n.width ?? 0;
   const h = n.measured.height ?? n.height ?? 0;
   const { x, y } = n.internals.positionAbsolute;
-  if (n.type === "router") return { x: x + w / 2 - ROUTER_ICON / 2, y: y + h - ROUTER_ICON, w: ROUTER_ICON, h: ROUTER_ICON };
-  return { x, y, w, h };
+  return clipBox(n, { x, y, w, h });
 }
 
-/** A router's or a multi-homed host's leg onto a segment: a straight line
- *  from the one box's border towards the other's centre (`legs.ts`), so it
- *  points at its target from whichever side. In edit mode it is an
+/** A router's or a multi-homed host's leg onto a segment, a fan's leg onto a
+ *  site, or a bus inside the site: the orthogonal polyline the canvas wired
+ *  through the gutters (rendering rule 6, `RoutesContext`), with rounded
+ *  corners; until it is wired, a straight line from the one box's border
+ *  towards the other's centre (`legs.ts`). In edit mode a leg is an
  *  ATTACHMENT of the working document: labelled with the pinned address (or
  *  the segment). It takes no pointer events (`canvas.css`): the pane finds
- *  it under the pointer for the click, the hover label and the menu. */
+ *  it under the pointer by its `data-pts` for the click, the hover label
+ *  and the menu. */
 export function LegEdge(e: E) {
   const edit = useEdit();
+  const routes = useContext(RoutesContext);
   const src = useInternalNode(e.source);
   const dst = useInternalNode(e.target);
-  const line = src && dst ? clipLine(boxOf(src), boxOf(dst)) : null;
-  const [path, labelX, labelY] = line ? [legPath(line), line.mid.x, line.mid.y] : getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
-  const folded = e.data?.kind === "leg" ? (e.data.folded ?? 0) : 0;
-  const parts = folded ? null : legParts(e.id);
+  const kind = e.data?.kind;
+  const routed = routes.get(e.id);
+  const line = !routed && src && dst ? clipLine(boxOf(src), boxOf(dst)) : null;
+  const pts: Point[] = routed ?? (line ? [line.from, line.to] : [{ x: e.sourceX, y: e.sourceY }, { x: e.targetX, y: e.targetY }]);
+  const mid = polylineMid(pts);
+  const [path, labelX, labelY] = routed ? [polylinePath(routed), mid.x, mid.y] : line ? [legPath(line), line.mid.x, line.mid.y] : getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
+  const folded = kind === "leg" ? (e.data as { folded?: number }).folded ?? 0 : 0;
+  const parts = folded || kind !== "leg" ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
   // The label (the pinned address, else the segment) draws only while the
   // leg is selected or hovered (`canvas.css`): forty labelled legs from one
-  // router were a wedge of text. A folded leg names its count instead.
-  const label = folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
+  // router were a wedge of text. A folded leg names its count instead; a
+  // fan's badge (its count) is always on.
+  const label = kind === "fan" ? (e.data as { label: string }).label : kind === "bus" ? (e.data as { segment: string }).segment : folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
+  const cls = kind === "fan" ? " cv-leg-fan" : kind === "bus" ? " cv-leg-bus" : folded ? " cv-leg-folded" : "";
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-from={e.data?.kind === "leg" ? e.data.from : undefined} data-folded={folded || undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`}>
-      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${folded ? " cv-leg-folded" : ""}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
+    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-from={kind === "leg" ? (e.data as { from: string }).from : undefined} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`}>
+      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${cls}`} style={e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
     </g>
   );
 }

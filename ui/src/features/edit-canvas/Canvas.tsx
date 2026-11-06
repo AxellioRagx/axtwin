@@ -30,10 +30,12 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { TopologyExport } from "../../api/types";
-import { nearestLeg, parseLegPath } from "./canvas/legs";
+import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
+import { decodePoints, nearestPolyline } from "./canvas/legs";
+import { wire } from "./canvas/wiring";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
@@ -47,7 +49,7 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, RoutesContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import { CHIP_H } from "./layout/geometry";
 import "./canvas.css";
@@ -117,6 +119,21 @@ function readLabels(): LabelsMode {
 }
 function nextLabels(m: LabelsMode): LabelsMode {
   return LABELS_MODES[(LABELS_MODES.indexOf(m) + 1) % LABELS_MODES.length]!;
+}
+/** The fan-out limit N (rendering rule 7), kept per user in this browser. */
+const FAN_KEY = "axr-canvas-fan";
+function readFan(): number {
+  try {
+    const v = localStorage.getItem(FAN_KEY);
+    if (v === "all") return Number.POSITIVE_INFINITY;
+    const n = Number(v);
+    return v !== null && FAN_CHOICES.includes(n) ? n : FAN_DEFAULT;
+  } catch {
+    return FAN_DEFAULT;
+  }
+}
+function nextFan(n: number): number {
+  return FAN_CHOICES[(FAN_CHOICES.indexOf(n) + 1) % FAN_CHOICES.length]!;
 }
 
 export function Canvas(props: CanvasProps) {
@@ -209,6 +226,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   // Site groups folded to their label (rendering rule 3): their segments and chips are hidden.
   const [folded, setFolded] = useState<string[]>([]);
   const toggleFolded = useCallback((key: string) => setFolded((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
+  // The fan-out limit (rendering rule 7) and the sites whose fans the operator opened by a click on the tint.
+  const [fanN, setFanN] = useState<number>(readFan);
+  useEffect(() => {
+    try {
+      localStorage.setItem(FAN_KEY, fanLabel(fanN));
+    } catch {
+      // no storage: the choice lives for the page
+    }
+  }, [fanN]);
+  const [fanOpen, setFanOpen] = useState<string[]>([]);
+  const toggleFanOpen = useCallback((key: string) => setFanOpen((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
   useEffect(() => {
     if (bucket === "mid") return;
     setAutoLevel((prev) => nextLevel(prev, bucket === "hi" ? 1 : 0));
@@ -385,13 +413,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       const shell = shellRef.current;
       if (!shell) return null;
       const at = rf.screenToFlowPosition({ x: clientX, y: clientY }, { snapToGrid: false }); // the snap would move the point off the leg
-      const legs: Array<{ id: string; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+      const legs: Array<{ id: string; pts: Array<{ x: number; y: number }> }> = [];
       for (const g of shell.querySelectorAll<SVGGElement>("g[data-leg]")) {
-        const d = g.querySelector("path.react-flow__edge-path")?.getAttribute("d");
-        const line = d ? parseLegPath(d) : null;
-        if (line && g.dataset["leg"]) legs.push({ id: g.dataset["leg"], ...line });
+        const pts = decodePoints(g.dataset["pts"]);
+        if (pts.length && g.dataset["leg"]) legs.push({ id: g.dataset["leg"], pts });
       }
-      return nearestLeg(at, legs, 8 / rf.getZoom());
+      return nearestPolyline(at, legs, 8 / rf.getZoom());
     },
     [rf],
   );
@@ -421,6 +448,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     [legUnder],
   );
 
+  // The node a twin node is drawn as: a router, or a host of a device role on
+  // several segments (rule 5), is the router-style node; else the chip.
+  const drawnId = useCallback((name: string) => (rf.getNode(ID.router(name)) ? ID.router(name) : ID.host(name)), [rf]);
+
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
@@ -436,6 +467,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
           return;
         }
       }
+      // A click on the tint itself (rule 7): open or close the site's fans.
+      if (node.data.kind === "site") {
+        if (!legAt(e.clientX, e.clientY)) toggleFanOpen(node.data.key);
+        return;
+      }
       if (!edit) {
         const d = node.data;
         if (d.kind === "host") setRoSel({ kind: "host", id: d.nodeId });
@@ -450,7 +486,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       if (d.kind === "host" || d.kind === "router") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
-        select({ kind: "node", names }, names.map((n) => (edit.model.te.nodes.find((x) => x.name === n)?.kind === "router" ? ID.router(n) : ID.host(n))));
+        select({ kind: "node", names }, names.map(drawnId));
       } else if (d.kind === "segment") {
         // While a gesture is armed a segment is its TARGET, not the selection's subject.
         if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
@@ -474,7 +510,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       }
       if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
     },
-    [onToggleSite, toggleFolded, edit, editing, attachArmed, attachFrom, select, legAt],
+    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, legAt, drawnId],
   );
 
 
@@ -567,14 +603,21 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
   const selectedLeg = edit?.selection.kind === "leg" ? `leg:${edit.selection.node}>${edit.selection.segment}` : null;
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
-  const edges = useMemo(
-    () =>
-      placement.edges.flatMap((e) => {
-        if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
-        return e.id === selectedLeg ? [{ ...e, selected: true }] : [e];
-      }),
-    [placement.edges, selectedLeg, scope, glow.arcs],
-  );
+  // Rule 7: a selected router opens every fan it has; a click on a site's tint opens that site's.
+  const fansOpen = useMemo(() => {
+    const open = new Set(fanOpen);
+    for (const n of selectedNodes) if (n.data.kind === "router") open.add(n.data.name);
+    return open;
+  }, [fanOpen, selectedNodes]);
+  const edges = useMemo(() => {
+    const structural = fanOut(placement.edges.filter((e) => e.type === "leg"), fanN, fansOpen);
+    const others = placement.edges.flatMap((e) => {
+      if (e.type === "leg") return [];
+      if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+      return [e];
+    });
+    return [...others, ...structural.map((e) => (e.id === selectedLeg ? { ...e, selected: true } : e))];
+  }, [placement.edges, selectedLeg, scope, glow.arcs, fanN, fansOpen]);
 
   const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, onContextMenu]);
 
@@ -694,7 +737,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     return () => window.removeEventListener("keydown", down);
   }, [rf, edit, locked, togglePopover]);
 
-  const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
+  const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : drawnId(id)), [centreOn, drawnId]);
 
   const viewTools: RailButton[] = [
     { name: "Select", key: "V", icon: <Icon.select />, pressed: tool === "select", onClick: () => setTool("select") },
@@ -704,7 +747,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
     { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300 }) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
-    { name: `Labels: ${labels}`, key: "N", icon: <Icon.labels />, pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
+    { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
+    { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];
@@ -748,9 +792,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
         out = { ...out, hidden: true };
       }
       if (n.type === "host" && labels !== "all" && !(labels === "selected" && n.selected)) out = { ...out, width: CHIP_H };
+      if (n.type === "rungs" && labels !== "all") out = { ...out, width: CHIP_H };
       return out;
     });
   }, [nodes, detail, folded, labels]);
+
+  // Rule 6: the legs' polylines over the boxes as they stand. Deferred, so a
+  // drag's frames are not held up by the routing; the legs follow a beat behind.
+  const wiredNodes = useDeferredValue(shownNodes);
+  const routes = useMemo(() => wire(wiredNodes, edges).routes, [wiredNodes, edges]);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
     if (!menu) return [];
@@ -796,6 +846,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
       <LabelsContext.Provider value={labels}>
+      <RoutesContext.Provider value={routes}>
         <div
           ref={shellRef}
           onMouseMove={onShellMouseMove}
@@ -969,6 +1020,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
             </ul>
           ) : null}
         </div>
+      </RoutesContext.Provider>
       </LabelsContext.Provider>
       </DetailContext.Provider>
       </EditContext.Provider>
@@ -1003,6 +1055,7 @@ function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel
       <div className="cv-ro" data-testid="ro-router">
         <h3 className="mono">{sel.id}</h3>
         <dl className="facts">
+          {rd?.device ? <><dt>device</dt><dd data-testid="ro-device">kind: host · role: {rd.device} · attached by the config</dd></> : null}
           <dt>legs</dt><dd>{r ? r.segments.join(", ") : "none"}</dd>
           {rd?.uplink || rd?.crossing ? <><dt>WAN</dt><dd>{rd.uplink ? "the config's uplink" : "the gateway by observed crossing traffic"}</dd></> : null}
           {rd?.crossing ? <><dt>crossing</dt><dd data-testid="ro-crossing">{crossingText(rd.crossing)}</dd></> : null}

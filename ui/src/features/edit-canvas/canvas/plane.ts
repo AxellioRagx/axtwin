@@ -42,7 +42,11 @@ import { SITE_BUDGET } from "../model/budgets";
 // Epoch 3 (2026-11-06, rendering rule 1): the WAN band is gone -- the
 // gateway is a badge on its router -- so the router band and the sites sit
 // higher; a pin saved under the old bands would put a router inside a site.
-export const CANVAS_PLANE_EPOCH = 3;
+// Epoch 4 (2026-11-06, rendering rule 5): a router's node is its drawn box
+// (`DEVICE_W` wide), no longer a span over the segments it joins; a pin
+// saved for the span's left edge would put the icon `(span - DEVICE_W) / 2`
+// to the left of where it was.
+export const CANVAS_PLANE_EPOCH = 4;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],
