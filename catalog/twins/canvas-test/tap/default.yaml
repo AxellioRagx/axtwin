@@ -1,0 +1,9 @@
+# Tap plan: canvas-test / default -- the office <-> servers boundary to the
+# external packetXpress sink XPress-SW-A (declared in adapter.conf
+# EXTERNAL_SENSORS; its capture is confirmed on the appliance, not here).
+tap-plan:
+  target: canvas-test
+  bindings:
+    - selector: { scope: boundary, target: [office, servers] }
+      sensors: [XPress-SW-A]
+      mode: exclusive

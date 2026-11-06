@@ -1,0 +1,12 @@
+# canvas-test -- the root manifest: which file is each tier's default.
+twin:
+  id: canvas-test
+  description: "A two-segment test twin designed on the canvas: office workstations and a file server behind a router, tapped to XPress-SW-A."
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tfc:
+      default: tfc/default.yaml
+    tap:
+      default: tap/default.yaml

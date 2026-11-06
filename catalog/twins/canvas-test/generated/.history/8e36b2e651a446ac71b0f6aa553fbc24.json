@@ -1,0 +1,9 @@
+{
+  "files": {
+    "te.yaml": "# canvas-test -- designed on the axTwin canvas; the twin config (te tier).\ntwin_config:\n  id: canvas-test\n  description: \"A two-segment test twin designed on the canvas: office workstations and a file server behind a router, tapped to XPress-SW-A.\"\n\n  segments:\n    - { name: office, cidr: 10.70.10.0/24, zone_type: vlan }\n\n  nodes: []\n",
+    "twin.yaml": "# canvas-test -- the root manifest: which file is each tier's default.\ntwin:\n  id: canvas-test\n  description: \"A two-segment test twin designed on the canvas: office workstations and a file server behind a router, tapped to XPress-SW-A.\"\n  containment: uncontained\n  tiers:\n    te:\n      default: te.yaml\n"
+  },
+  "schema": "axr-baseline-history/1",
+  "twin_id": "canvas-test",
+  "written_at": "2026-11-06T00:18:33Z"
+}

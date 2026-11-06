@@ -1,0 +1,26 @@
+# canvas-test -- designed on the axTwin canvas; the twin config (te tier).
+twin_config:
+  id: canvas-test
+  description: "A two-segment test twin designed on the canvas: office workstations and a file server behind a router, tapped to XPress-SW-A."
+
+  segments:
+    - { name: office, cidr: 10.70.10.0/24, zone_type: vlan }
+    - { name: servers, cidr: 10.70.20.0/24, zone_type: vlan }
+
+  nodes:
+    - name: corp-workstation
+      role: corp-workstation
+      image: debian-12-cloud@v1
+      count: 2
+      net: office
+    - name: file-server
+      role: file-server
+      image: ubuntu-server-22@v5
+      nets:
+        - { segment: servers, ip: 10.70.20.10 }
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: office }
+        - { segment: servers }

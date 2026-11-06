@@ -1,0 +1,17 @@
+# canvas-test -- the file server's side of the office<->servers conversation.
+# Scripted (the library's file-server persona drives a real smbd this twin
+# does not install).
+persona:
+  id: file-share
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: smb
+      ports: [445]
+      peer_role: corp-workstation
+      transport: tcp
+      direction: EW
+      cadence: cyclic:60s
+      volume: low
+  requires: [corp-workstation]
+  knobs: { intensity: 1.0, schedule: 24x7, seed_jitter: true }
