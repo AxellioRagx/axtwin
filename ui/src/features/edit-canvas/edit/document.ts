@@ -143,7 +143,8 @@ export function placeNodes(doc: WorkingDoc, model: DocModel, req: PlaceRequest):
   if (req.segment) {
     if (!model.te.segments.some((s) => s.name === req.segment)) throw new Error(`no segment named '${req.segment}'`);
     const fanOut = req.fanOut !== undefined && req.fanOut !== 1;
-    if (!fanOut) {
+    // A router placed on a segment gets that leg unpinned, as `attach` does.
+    if (!fanOut && req.kind !== "router") {
       const a = allocateHostAddresses(model.te.segments.find((s) => s.name === req.segment)!.cidr, names.length, takenAddresses(model.te, req.segment));
       if (!a.ok) throw new Error(a.error);
       addresses = a.addresses;
@@ -193,7 +194,11 @@ export function attach(doc: WorkingDoc, model: DocModel, node: string, segment: 
   if (!seg) throw new Error(`no segment named '${segment}'`);
   if (n.nets.some((l) => l.segment === segment)) throw new Error(`'${node}' is already on ${segment}`);
   let ip: string | null = null;
-  if (n.countValue === 1 && typeof n.count === "number") {
+  // A router's leg is left unpinned: the engine gives a lone router leg the
+  // segment's gateway address (network+1), which is what the segment's hosts
+  // route through. Pinning the next free host address here would park the
+  // router at .10 with nothing at the gateway.
+  if (n.kind !== "router" && n.countValue === 1 && typeof n.count === "number") {
     const a = allocateHostAddresses(seg.cidr, 1, takenAddresses(model.te, segment));
     if (!a.ok) throw new Error(a.error);
     ip = a.addresses[0]!;

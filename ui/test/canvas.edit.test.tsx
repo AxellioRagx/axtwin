@@ -901,6 +901,8 @@ describe("a router joins segments: it places without one", () => {
     fireEvent.change(within(p).getByLabelText("Attach to segment"), { target: { value: "net-lan" } });
     fireEvent.click(within(p).getByRole("button", { name: "Attach" }));
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-lan"]));
+    // A router's leg is NOT pinned to the next free host address: the engine puts a lone router leg at the gateway (network+1).
+    expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-lan") as HTMLInputElement).value).toBe("");
     tab("Checks");
     await waitFor(() => expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false));
     // With a segment selected, Router places with that segment as its first leg.
@@ -910,6 +912,7 @@ describe("a router joins segments: it places without one", () => {
     await waitFor(() => expect(routers()).toEqual(["gw", "router", "router-1"]));
     fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-dmz"]));
+    expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-dmz") as HTMLInputElement).value).toBe("");
   });
 
   it("a group copied from a router stays a router; an armed host image gets no 'Place here' on the pane", async () => {
