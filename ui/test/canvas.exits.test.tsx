@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../src/api/client";
 import type { DeploySummary } from "../src/api/types";
 import { docState, exitErrorText, tierStatus } from "../src/features/edit-canvas/CanvasPage";
-import { DEPLOY, host, panel, seeded, tab } from "./canvas.edit.test";
+import { DEPLOY, host, panel, seeded, tab } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TFC_FAILED: DeploySummary = { deploy_id: "tfc-dep-1-aa", scenario_id: "tfc-dep-1", status: "failed", started_at: 1700000200, updated_at: 1700000300, tier: "tfc", target: "dev45" };

@@ -233,6 +233,41 @@ function packSiteBoxes(boxes: Array<{ w: number; h: number; rel: Point }>, colsW
   return { w, h };
 }
 
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function overlaps(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/**
+ * The nearest free spot for a box whose packed slot is under a PINNED box:
+ * to the right of what it overlaps, and onto a new row under everything
+ * when the row is full. An operator's pins are fixed; a box without one
+ * (a segment just added, or one placed before the pins moved) goes into
+ * free space instead of under a neighbour (2026-11-05: `segment-3` landed
+ * under `office` at a 12 px offset, and a fresh load hid it there). Pure.
+ */
+export function freeSlot(at: Point, size: { w: number; h: number }, occupied: readonly Rect[], origin: Point, rowWidth: number): Point {
+  let x = at.x;
+  let y = at.y;
+  const right = Math.max(origin.x + rowWidth, ...occupied.map((r) => r.x + r.w + SITE_PAD));
+  for (let guard = 0; guard < 400; guard++) {
+    const hit = occupied.find((r) => overlaps({ x, y, w: size.w, h: size.h }, r));
+    if (!hit) return { x, y };
+    x = hit.x + hit.w + TILE_GAP_X;
+    if (x + size.w > right) {
+      x = origin.x + SITE_PAD;
+      y = Math.max(y, ...occupied.map((r) => r.y + r.h)) + TILE_GAP_Y;
+    }
+  }
+  return { x, y };
+}
+
 /** The shape a fitView should meet: a window is about this wide for its
  *  height, and the plane is judged with the tiers above the sites counted. */
 export const PLANE_ASPECT_TARGET = 1.8;
@@ -328,6 +363,11 @@ interface PlacedSite {
   h: number;
   boxes: PlacedBox[];
 }
+
+/** A leg's layer: above a site (z 0), its segment boxes (z 1) and their chips
+ *  (z 2), so a leg that crosses another box is drawn, not hidden behind it
+ *  (2026-11-05: the router→servers leg showed only as a stub between boxes). */
+export const EDGE_Z = 3;
 
 export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: PlacementOptions = {}): Placement {
   const l0 = layout0(graph, NO_PINS, options);
@@ -520,9 +560,24 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
   });
   for (const s of sites) {
     const siteAbs = pinned(s.key, s.abs);
-    nodes.push({ id: ID.site(s.key), type: "site", position: siteAbs, width: s.w, height: s.h, ...common, data: s.data });
-    for (const b of s.boxes) {
-      const boxAbs = pinned(b.pinKey, { x: siteAbs.x + b.rel.x, y: siteAbs.y + b.rel.y });
+    // Pinned boxes are fixed; the others take their packed slot unless a pinned
+    // box sits there, then the nearest free spot. The site grows to hold them all.
+    const placedBoxes = s.boxes.map((b) => {
+      const p = b.pinKey ? pins[b.pinKey] : undefined;
+      return { b, abs: p ? { x: p.x, y: p.y } : { x: siteAbs.x + b.rel.x, y: siteAbs.y + b.rel.y }, fixed: Boolean(p) };
+    });
+    const occupied: Rect[] = placedBoxes.filter((x) => x.fixed).map((x) => ({ x: x.abs.x, y: x.abs.y, w: x.b.w, h: x.b.h }));
+    if (occupied.length) {
+      for (const pb of placedBoxes) {
+        if (pb.fixed) continue;
+        pb.abs = freeSlot(pb.abs, { w: pb.b.w, h: pb.b.h }, occupied, siteAbs, s.w);
+        occupied.push({ x: pb.abs.x, y: pb.abs.y, w: pb.b.w, h: pb.b.h });
+      }
+    }
+    const siteW = Math.max(s.w, ...placedBoxes.map((x) => x.abs.x + x.b.w - siteAbs.x + SITE_PAD));
+    const siteH = Math.max(s.h, ...placedBoxes.map((x) => x.abs.y + x.b.h - siteAbs.y + SITE_PAD));
+    nodes.push({ id: ID.site(s.key), type: "site", position: siteAbs, width: siteW, height: siteH, ...common, data: s.data });
+    for (const { b, abs: boxAbs } of placedBoxes) {
       nodes.push({
         id: b.id,
         type: b.type,
@@ -591,20 +646,20 @@ export function place(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Placem
         foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
         continue;
       }
-      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: name, from: "router" } });
+      edges.push({ id: `leg:${s.router.name}>${name}`, type: "leg", source: ID.router(s.router.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, from: "router" } });
     }
     // A router that joins segments behind a group's `+N more` tile draws ONE
     // leg to that tile, however many it joins there (a 45-leg router drew a
     // wedge of labelled lines to the same tile).
     for (const [anchor, n] of foldedTo) {
-      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
+      edges.push({ id: `legs:${s.router.name}>${anchor}`, type: "leg", source: ID.router(s.router.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} behind +N more`, from: "router", folded: n } });
     }
   }
   for (const leg of options.extraLegs ?? []) {
     const anchor = anchorByName[leg.segment];
     if (!anchor) continue;
     const target = anchor === leg.segment ? ID.segment(leg.segment) : anchor;
-    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
+    edges.push({ id: `leg:${leg.host}>${leg.segment}`, type: "leg", source: ID.host(leg.host), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: leg.ip ?? leg.segment, from: "host" } });
   }
   for (const arc of l0.arcs) {
     const src = anchorByName[arc.a] === arc.a ? ID.segment(arc.a) : arc.a;

@@ -18,6 +18,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
+  useNodesInitialized,
   useNodesState,
   useOnViewportChange,
   useReactFlow,
@@ -609,7 +610,18 @@ function CanvasInner({ graph, exportData, placement, onPin, onToggleSite, initia
       ]
     : null;
 
-  const viewportProps = initialViewport ? { defaultViewport: initialViewport } : { fitView: true };
+  // Fit ONCE, when the first nodes are measured, unless the session kept a
+  // viewport; never on an edit (2026-11-05: the view jumped after a placement).
+  // Zoom to fit (F) is the explicit way.
+  const viewportProps = initialViewport ? { defaultViewport: initialViewport } : {};
+  const nodesReady = useNodesInitialized();
+  const fitted = useRef(Boolean(initialViewport));
+  useEffect(() => {
+    if (nodesReady && !fitted.current) {
+      fitted.current = true;
+      void rf.fitView();
+    }
+  }, [nodesReady, rf]);
 
   // Compact: the chips (and a segment's rungs) leave the DOM; React Flow hides
   // their edges with them. State keeps them, so a selection survives a zoom.

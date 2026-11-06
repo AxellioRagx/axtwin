@@ -35,7 +35,7 @@ import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
 import { Canvas, type CanvasEditProps } from "./Canvas";
 import { authoredGraph } from "./canvas/authored";
 import { castInput } from "./canvas/cast";
-import { place } from "./canvas/placement";
+import { absolutePosition, pinKeyOf, place } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations } from "./edit/annotations";
@@ -472,7 +472,29 @@ export function CanvasPage() {
     return null;
   }, [data, id, model, view, docPending]);
 
-  const placement = useMemo(() => (built ? place(built.graph, pins, { expanded, extraLegs: built.extraLegs }) : null), [built, pins, expanded]);
+  // In the design view a site's or segment's computed position SETTLES for the
+  // session: a later mutation packs only what has no position yet, into free
+  // space, so adding a node never shuffles its neighbours (2026-11-05: every
+  // add/remove re-placed the segments and lost the drag). A drag's pin wins
+  // over a settled position; Discard returns to the settled one.
+  const settled = useRef<Record<string, { x: number; y: number }>>({});
+  useEffect(() => {
+    settled.current = {};
+  }, [id]);
+  const placement = useMemo(() => {
+    if (!built) return null;
+    const design = built.kind === "design";
+    const p = place(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs });
+    if (design && !p.overBudget) {
+      for (const n of p.nodes) {
+        const key = pinKeyOf(n);
+        if (!key || !(key.startsWith("site:") || key.startsWith("segment:")) || key in settled.current) continue;
+        const abs = absolutePosition(p.nodes, n.id);
+        if (abs) settled.current[key] = abs;
+      }
+    }
+    return p;
+  }, [built, pins, expanded]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(

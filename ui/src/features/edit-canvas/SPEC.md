@@ -219,7 +219,25 @@ page, not a card in one:
   (measured headless): one pill carries origin and mode, Undo / Redo are
   glyph buttons, Save-as is an 8 em field, the title ellipsizes past 240 px;
   below about 1500 px the exits wrap to a second row and the drawing
-  shrinks by it.
+  shrinks by it. **2026-11-06 (canvas review):** the state pill reads every
+  tier (`te completed · tfc failed · tap completed`, red when one failed,
+  with a "Re-apply <tier> from baseline" exit); the document's word is
+  *applied · unpersisted* or *unapplied changes*; an Apply or Reset in
+  flight shows its tier and elapsed time with a Cancel; the exits are
+  grouped history | working copy | save-as behind separators, and the
+  layout group (unsaved moves, Save layout, Discard) floats at the canvas's
+  bottom edge (`layoutBar`), so the bar stays one row with "layout: 1
+  unsaved change" showing. A note on the strip fades after 8 s; an error
+  stays until dismissed.
+- **Positions.** The view fits ONCE, when the first nodes are measured (or
+  the session's viewport is restored), never on an edit; F / Zoom to fit is
+  the explicit way. In the design view a site's or segment's computed
+  position settles for the session (`CanvasPage` `settled`): a mutation
+  packs only what has no position yet, so adding a node never shuffles its
+  neighbours. A box without a pin never lands under a pinned one: it takes
+  the nearest free spot (`placement.ts` `freeSlot`) and the site grows to
+  hold it. Legs draw above the boxes they cross (`EDGE_Z` 3, over site 0 /
+  segment 1 / chip 2).
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
