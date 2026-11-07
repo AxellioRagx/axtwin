@@ -167,6 +167,17 @@ afterEach(() => {
 });
 
 describe("members on the canvas and in the inspector", () => {
+  it("R3-8: a double-click anywhere on a ×N icon (not only its badge) opens and closes the chips; a ×1 icon has none", async () => {
+    const { api } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
+    renderAt(api, "/twins/mem/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.doubleClick(hostIcon("ws"));
+    expect(within(await screen.findByTestId("member-chips")).getAllByTestId("member-chip").length).toBe(4);
+    fireEvent.doubleClick(hostIcon("ws"));
+    await waitFor(() => expect(screen.queryByTestId("member-chips")).toBeNull());
+    fireEvent.doubleClick(hostIcon("srv"));
+    expect(screen.queryByTestId("member-chips")).toBeNull();
+  });
   it("the ×N badge wears a dot for overrides; a double-click opens the chips; a chip opens the member panel, whose Detach makes a ×1 group", async () => {
     const { api, state } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
     renderAt(api, "/twins/mem/canvas");

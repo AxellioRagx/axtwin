@@ -34,10 +34,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import type { TopologyExport } from "../../api/types";
 import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
-import { decodePoints, nearestPolyline, type Point } from "./canvas/legs";
+import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
+import { hostsKey } from "./canvas/tree";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
 import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
@@ -49,7 +50,7 @@ import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
 import { subtreeOrNull } from "./edit/subtree";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, RoutesContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -613,6 +614,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+      // A pill's host fold (`+N`, the per-segment host budget) opens or closes in place.
+      const hostFold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-host-fold]") : null;
+      if (hostFold?.dataset["hostFold"]) {
+        onToggleSite(hostsKey(hostFold.dataset["hostFold"]));
+        return;
+      }
       const fold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-site-collapse]") : null;
       if (fold?.dataset["siteCollapse"]) {
         toggleFolded(fold.dataset["siteCollapse"]);
@@ -776,13 +783,21 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   // Double-click a segment (or a site) to zoom to it: past the detail
   // threshold the tile expands to its chips.
+  const [membersOpen, setMembersOpen] = useState<ReadonlySet<string>>(() => new Set());
   const onNodeDoubleClick = useCallback(
     (_e: React.MouseEvent, node: CanvasNode) => {
+      // R3-8: a double-click anywhere on a `×N` group's icon (not only its badge) opens its member chips.
+      if (node.data.kind === "host" && edit) {
+        const name = node.data.nodeId;
+        const group = edit.model.te.nodes.find((n) => n.name === name);
+        if (group && group.countValue > 1) setMembersOpen((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+        return;
+      }
       if (node.data.kind !== "segment" && node.data.kind !== "site") return;
       setZoomTarget(node.id);
       void rf.fitView({ nodes: [{ id: node.id }], duration: 300, maxZoom: 1.5, padding: 0.15 });
     },
-    [rf],
+    [rf, edit],
   );
 
   // The edges are controlled, so the selected leg's flag is derived here.
@@ -812,7 +827,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   const rehomeTarget = legDrag?.over ?? null;
   // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
-  const [membersOpen, setMembersOpen] = useState<ReadonlySet<string>>(() => new Set());
   const onToggleMembers = useCallback((name: string) => setMembersOpen((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; }), []);
   const onSelectMember = useCallback((name: string, index: number) => { if (edit) { edit.onSelection({ kind: "member", node: name, index }); setInspectorTab("selection"); } }, [edit]);
   const onMoveMember = useCallback((from: string, index: number, into: string) => edit?.onMoveMember?.(from, index, into), [edit]);
@@ -1007,7 +1021,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   // The tree plane draws a leg as the straight line between its two boxes
   // (`LegEdge`'s fallback); the gutter routing of the bus plane is gone with it.
-  const routes = useMemo<ReadonlyMap<string, Point[]>>(() => new Map(), []);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
     if (!menu) return [];
@@ -1057,7 +1070,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       <LabelsContext.Provider value={labels}>
       <OverlayContext.Provider value={overlay}>
       <ProvFilterContext.Provider value={provFilter}>
-      <RoutesContext.Provider value={routes}>
         <div
           ref={shellRef}
           onMouseMove={onShellMouseMove}
@@ -1244,7 +1256,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             </ul>
           ) : null}
         </div>
-      </RoutesContext.Provider>
       </ProvFilterContext.Provider>
       </OverlayContext.Provider>
       </LabelsContext.Provider>

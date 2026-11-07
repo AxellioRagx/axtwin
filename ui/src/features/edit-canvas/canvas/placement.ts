@@ -69,6 +69,10 @@ export type SegmentData = {
   carrier?: string | null;
   /** The tree's hue for this branch (its carrier's). */
   hue?: string;
+  /** Host icons folded behind the pill's `+N` (the per-segment host budget); 0 when all are drawn. */
+  hiddenChips?: number;
+  /** Whether the host budget is lifted for this pill (its `+N` was clicked). */
+  hostsOpen?: boolean;
   deployedCidr: string | null;
   zoneType: string | null;
   hosts: number;
@@ -126,7 +130,7 @@ export type RouterData = {
   /** Rule 2: the router's one hue (`canvas/hues.ts`), on its ring, its legs and its buses' dots. */
   hue: string;
 };
-export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean };
+export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean; /** A site fold's own words (`10.20 · 6 segments`); absent on a `+N more` fold. */ label?: string; /** The hosts behind the fold. */ hosts?: number };
 /** A switch (or a router drawn as a device in the tree): the device tree's own node
  *  (`docs/design/topology-layers.md` §2.2, §7.2). */
 export type DeviceData = {
@@ -175,7 +179,12 @@ export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
 /** A `links[]` entry drawn between two devices, or a device's carrying of a segment (topology-layers §2.3). */
 export type LinkData = { kind: "link"; a: string; aPort: string; b: string; bPort: string; mode: string; native: string | null; vlans: string[]; state: string; hue: string; source?: Source | null; label: string; index: number };
 export type CarryData = { kind: "carry"; device: string; segment: string; label: string; hue: string };
-export type CanvasEdgeData = ArcData | LegData | StubData | FanData | BusData | TrunkData | LinkData | CarryData;
+/** A segment whose only members are routers (a `/30` such as `fab-link`): a router-to-router link labelled with it. */
+export type SegLinkData = { kind: "seglink"; segment: string; cidr: string; a: string; b: string; hue: string; source?: Source | null; label: string };
+/** The orthogonal polyline the tree routed through the gutters (`canvas/tree.ts` `routeTree`), absolute on the
+ *  plane, and where its two end nodes stood when it was routed: an edge whose end has since moved draws a smoothstep. */
+export type EdgeRoute = { points: Array<{ x: number; y: number }>; at: [{ x: number; y: number }, { x: number; y: number }] };
+export type CanvasEdgeData = (ArcData | LegData | StubData | FanData | BusData | TrunkData | LinkData | CarryData | SegLinkData) & { route?: EdgeRoute };
 export type CanvasEdge = Edge<CanvasEdgeData, string>;
 
 export interface Placement {

@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { HUE_GREY, hueOf } from "../src/features/edit-canvas/canvas/hues";
 import { ID, type CanvasNode } from "../src/features/edit-canvas/canvas/placement";
-import { TREE_ID, carriersOf, linkSegments, placeTree, pillSize, treeDepths } from "../src/features/edit-canvas/canvas/tree";
+import { HUE_NEUTRAL, TREE_ID, carriersOf, linkSegments, placeTree, pillSize, treeDepths } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { validateTe } from "../src/features/edit-canvas/edit/validate";
@@ -222,22 +222,23 @@ describe("placeTree on the switch-test shape", () => {
     expect(office.data.kind === "segment" && office.data.source).toBe("discovered");
     expect(office.data.kind === "segment" && office.data.confidence).toBe(0.9);
   });
-  it("draws the links between devices (and to a host), the router's legs and the carry branch, in the router's hue", () => {
+  it("draws the links between devices (and to a host), the router's legs and the carry branch; one router is neutral (R3-5)", () => {
     const p = placed("tree-test", TREE_TE);
     const links = p.edges.filter((e) => e.type === "link");
     expect(links.map((e) => e.id).sort()).toEqual(["link:0", "link:1"]);
     const trunk = links.find((e) => e.id === "link:0")!;
     expect([trunk.source, trunk.target]).toEqual([ID.router("gw"), TREE_ID.device("access-sw")]);
-    expect(trunk.data?.kind === "link" && trunk.data.hue).toBe(hueOf(0));
+    expect(trunk.data?.kind === "link" && trunk.data.hue).toBe(HUE_NEUTRAL);
     expect(trunk.data?.kind === "link" && trunk.data.label).toBe("eth1 — SFP1 · trunk · office");
     const down = links.find((e) => e.id === "link:1")!;
     expect([down.source, down.target]).toEqual([TREE_ID.device("access-sw"), ID.host("file-server")]);
     expect(down.data?.kind === "link" && down.data.state).toBe("down");
     expect(down.data?.kind === "link" && down.data.source).toBe("unconfirmed");
     const legs = p.edges.filter((e) => e.type === "leg" && e.data?.kind === "leg").map((e) => e.id).sort();
-    expect(legs).toEqual(["leg:gw>office", "leg:gw>servers"]);
+    // office is reached through gw's own trunk to access-sw: no leg of gw's own to it (R3-4, it crossed the trunk).
+    expect(legs).toEqual(["leg:gw>servers"]);
     const carry = p.edges.find((e) => e.id === TREE_ID.carry("access-sw", "office"))!;
-    expect(carry.data?.kind === "carry" && carry.data.hue).toBe(hueOf(0));
+    expect(carry.data?.kind === "carry" && carry.data.hue).toBe(HUE_NEUTRAL);
     expect(p.edges.filter((e) => e.type === "arc")).toEqual([]);
   });
   it("a pin is an absolute top-left for a pill, a device and a host (epoch 6)", () => {
@@ -288,11 +289,11 @@ describe("placeTree on a corp-shaped design", () => {
     // Expanding the carrier lifts its fold.
     const open = placed("corp-tree", BIG_TE, { fan: 2, expanded: ["carrier:core"] });
     expect(open.hiddenSegments).toBe(1);
-    // The branch wears the router's hue down to its pills.
+    // One router: the branch is neutral down to its pills (R3-5).
     const a1 = p.byId.get(ID.segment("a1"))!.data;
-    expect(a1.kind === "segment" && a1.hue).toBe(hueOf(0));
+    expect(a1.kind === "segment" && a1.hue).toBe(HUE_NEUTRAL);
     const dev = p.byId.get(TREE_ID.device("access"))!.data;
-    expect(dev.kind === "device" && dev.hue).toBe(hueOf(0));
+    expect(dev.kind === "device" && dev.hue).toBe(HUE_NEUTRAL);
     expect(HUE_GREY).not.toBe(hueOf(0));
   });
 });

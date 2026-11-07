@@ -7,18 +7,18 @@
  * drop in that hue, an observed arc with a `log(bytes)` width, and the fixed
  * chrome (Internet). Nothing here edits anything.
  */
-import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, useInternalNode, type EdgeProps, type InternalNode, type NodeProps } from "@xyflow/react";
+import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, useInternalNode, type EdgeProps, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
 import type { DetailLevel } from "./model/detail";
 import { roleBadgeLabel, SWITCH_ROLES, switchBadge } from "./model/roles";
-import { clipLine, encodePoints, legPath, polylineMid, polylinePath, type Point } from "./canvas/legs";
+import { encodePoints, type Point } from "./canvas/legs";
+import { midOf, roundedPath } from "./canvas/orthogonal";
 import { BUS_BADGE_W, BUS_LABEL_W } from "./canvas/bus";
-import { PILL_LABEL_W, PILL_PAD_RIGHT } from "./canvas/tree";
-import { HANDLE, type CanvasEdge, type CanvasNode, type Rect } from "./canvas/placement";
-import { clipBox, ROUTER_ICON } from "./canvas/wiring";
+import { PILL_LABEL_W, PILL_PAD_RIGHT, TREE_HOST_BUDGET } from "./canvas/tree";
+import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
 
@@ -35,10 +35,6 @@ export type LabelsMode = "all" | "selected" | "none";
 export const LABELS_MODES: readonly LabelsMode[] = ["all", "selected", "none"];
 export const LabelsContext = createContext<LabelsMode>("selected");
 
-/** The legs' polylines, wired by the canvas over the live node boxes
- *  (`canvas/wiring.ts`) and read by edge id; a leg with no entry falls back
- *  to its straight line. */
-export const RoutesContext = createContext<ReadonlyMap<string, Point[]>>(new Map());
 
 /** The provenance overlay (`docs/design/topology-layers.md` §3.3): off, a
  *  small dot marks an asserted or authored item; on, the four states render
@@ -142,6 +138,7 @@ export function SiteNode(p: P) {
 export function SegmentNode(p: P) {
   const d = p.data;
   const edit = useEdit();
+  const labels = useContext(LabelsContext);
   const detail = useContext(DetailContext);
   const overlay = useContext(OverlayContext);
   const dim = useDim(d.kind === "segment" ? d.source : null);
@@ -176,7 +173,7 @@ export function SegmentNode(p: P) {
     >
       <div className="cv-bus-label">
         <span className="mono cv-segment-name">{d.name}</span>
-        <span className="mono muted cv-segment-cidr">{d.cidr}</span>
+        {labels !== "none" ? <span className="mono muted cv-segment-cidr">{d.cidr}</span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </div>
       {detail === "compact" ? (
@@ -196,7 +193,19 @@ export function SegmentNode(p: P) {
           ) : null}
         </div>
       ) : null}
-      <div className="cv-bus-line" aria-hidden="true" />
+      {d.hiddenChips || d.hostsOpen ? (
+        <button
+          type="button"
+          className={`cv-host-fold nodrag${d.hostsOpen ? " open" : ""}`}
+          data-host-fold={d.name}
+          data-testid="host-fold"
+          style={d.hostsOpen ? undefined : { left: PILL_LABEL_W + TREE_HOST_BUDGET * 38, top: 10 }}
+          title={d.hostsOpen ? "fold the hosts back to the budget" : `${d.hiddenChips} more host icon${d.hiddenChips === 1 ? "" : "s"}: click to show them`}
+        >
+          {d.hostsOpen ? "fold" : `+${d.hiddenChips}`}
+        </button>
+      ) : null}
+      {pill ? null : <div className="cv-bus-line" aria-hidden="true" />}
       <span className="cv-bus-dots" data-testid="bus-dots" aria-label={served.length ? `routers: ${served.map((s) => s.router).join(", ")}` : "no router"}>
         {served.map((s) => (
           <span key={s.router} className="cv-bus-dot" data-router={s.router} style={{ background: s.hue }} title={`${s.router} has a port here`} />
@@ -573,9 +582,9 @@ export function OverflowNode(p: P) {
   const d = p.data;
   if (d.kind !== "overflow") return null;
   return (
-    <div className="cv-overflow" data-testid="canvas-overflow" style={{ width: p.width, height: p.height }} title={d.expanded ? "collapse this group to its busiest segments" : "show every segment of this group"}>
-      <span>{d.expanded ? `showing all ${d.total}` : `+${d.hidden} more`}</span>
-      <span className="muted">{d.expanded ? "click to collapse" : `of ${d.total} segments`}</span>
+    <div className={`cv-overflow${d.label && !d.expanded ? " cv-site-fold" : ""}`} data-testid="canvas-overflow" data-fold={d.siteKey} data-expanded={d.expanded || undefined} style={{ width: p.width, height: p.height }} title={d.expanded ? "fold these back" : d.label ? `site ${d.label}: click to show its segments` : "show the rest of this branch"}>
+      <span>{d.expanded ? (d.label ? `${d.label} · fold` : `fold ${d.total} back`) : d.label ? d.label : `+${d.hidden} more`}</span>
+      <span className="muted">{d.expanded ? "click to collapse" : `${d.label ? "" : `of ${d.total} segments · `}${d.hosts ?? 0} host${d.hosts === 1 ? "" : "s"}`}</span>
       <Handles />
     </div>
   );
@@ -651,17 +660,23 @@ export function ArcEdge(e: E) {
   );
 }
 
-export { ROUTER_ICON };
+/** The side of a router's drawn icon box (`.cv-icon-box`), flush with the bottom-centre of its node. */
+export const ROUTER_ICON = 34;
 
-/** The box a leg is clipped against in the straight-line fallback: the
- *  node's box on the plane, from React Flow's internals (measured when the
- *  DOM has laid it out, else the size the placement gave it) -- for a
- *  router, its icon box. */
-function boxOf(n: InternalNode): Rect {
-  const w = n.measured.width ?? n.width ?? 0;
-  const h = n.measured.height ?? n.height ?? 0;
-  const { x, y } = n.internals.positionAbsolute;
-  return clipBox(n, { x, y, w, h });
+/** The tree's orthogonal route for this edge (`canvas/tree.ts`), while both ends still stand where
+ *  it was routed (a dragged end -- or a host chip's pill -- voids it: the edge then draws a
+ *  smoothstep until Re-layout). */
+function useTreeRoute(e: E): Point[] | null {
+  const route = (e.data as { route?: EdgeRoute } | undefined)?.route;
+  const src = useInternalNode(e.source);
+  const dst = useInternalNode(e.target);
+  const srcTop = useInternalNode(src?.parentId ?? e.source);
+  const dstTop = useInternalNode(dst?.parentId ?? e.target);
+  if (!route || !srcTop || !dstTop) return null;
+  const a = srcTop.internals.positionAbsolute;
+  const b = dstTop.internals.positionAbsolute;
+  const [ra, rb] = route.at;
+  return Math.abs(a.x - ra.x) < 0.5 && Math.abs(a.y - ra.y) < 0.5 && Math.abs(b.x - rb.x) < 0.5 && Math.abs(b.y - rb.y) < 0.5 ? route.points : null;
 }
 
 /** The radius of the port dot where a drop meets its bus. */
@@ -670,7 +685,7 @@ export const PORT_DOT = 3.5;
 /** A router's leg onto a bus (rule 2, in the router's hue, a port dot where
  *  it meets the line), a multi-homed host's stub (rule 4), a fan's trunk
  *  onto a site, or the rail inside the site: the orthogonal polyline the
- *  canvas wired through the gutters (`RoutesContext`), with rounded
+ *  tree routed through the gutters (`canvas/orthogonal.ts`), with rounded
  *  corners; until it is wired, a straight line from the one box's border
  *  towards the other's centre (`legs.ts`). In edit mode a leg is an
  *  ATTACHMENT of the working document: labelled with the pinned address (or
@@ -679,15 +694,17 @@ export const PORT_DOT = 3.5;
  *  the menu and the re-home drag. */
 export function LegEdge(e: E) {
   const edit = useEdit();
-  const routes = useContext(RoutesContext);
   const src = useInternalNode(e.source);
   const dst = useInternalNode(e.target);
   const kind = e.data?.kind;
-  const routed = routes.get(e.id);
-  const line = !routed && src && dst ? clipLine(boxOf(src), boxOf(dst)) : null;
-  const pts: Point[] = routed ?? (line ? [line.from, line.to] : [{ x: e.sourceX, y: e.sourceY }, { x: e.targetX, y: e.targetY }]);
-  const mid = polylineMid(pts);
-  const [path, labelX, labelY] = routed ? [polylinePath(routed), mid.x, mid.y] : line ? [legPath(line), line.mid.x, line.mid.y] : getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY });
+  const tree = useTreeRoute(e);
+  const routed = tree;
+  // No route (an end was dragged): an orthogonal smoothstep between the handles, never a diagonal through a box.
+  const step = routed ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const pts: Point[] = routed ?? [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }];
+  const mid = midOf(pts);
+  const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : [step![0], step![1], step![2]];
+  void src;
   const folded = kind === "leg" || kind === "stub" ? ((e.data as { folded?: number }).folded ?? 0) : 0;
   const parts = folded || (kind !== "leg" && kind !== "stub") ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
@@ -711,7 +728,8 @@ export function LegEdge(e: E) {
 
 /** The trunk from the Internet down to each gateway router. */
 export function TrunkEdge(e: E) {
-  const [path] = getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top });
+  const routed = useTreeRoute(e);
+  const [path] = routed ? [roundedPath(routed)] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top });
   return <BaseEdge id={e.id} path={path} className="cv-trunk" style={e.style} />;
 }
 
@@ -721,9 +739,20 @@ export function TrunkEdge(e: E) {
  *  inspector can show its row. */
 export function LinkEdge(e: E) {
   const overlay = useContext(OverlayContext);
+  const labels = useContext(LabelsContext);
+  const routed = useTreeRoute(e);
   const d = e.data;
-  if (!d || d.kind !== "link") return null;
-  const [path, labelX, labelY] = getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
+  const mid = routed ? midOf(routed) : null;
+  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  if (d.kind === "seglink") {
+    // A segment only routers are on (fab-link): one router-to-router wire, labelled with the segment.
+    return (
+      <g data-testid="canvas-seglink" data-segment={d.segment} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.segment} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+      </g>
+    );
+  }
   const weak = d.state !== "up" || d.source === "unconfirmed";
   return (
     <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>

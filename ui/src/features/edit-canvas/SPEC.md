@@ -253,6 +253,48 @@ Track A — provenance and validation:
       `canvas.round3.test.tsx`; Evidence on corp-apcn-reader-20261028 shows 111 in Notes
       and no box (`A-evidence-notes.png`).
 
+Track B — the hierarchical device tree (brief "Canvas rendering"):
+
+- [x] Ranks: edge routers (an uplink, else the router with most segments) → other routers
+      by hops → switches by hops (a router-less component rooted at its most-linked switch)
+      → pills → hosts. With switches, a segment is a label (on its trunk and on its host
+      leaf) and a router whose branch reaches a pill by a trunk draws no leg of its own to it;
+      with none, router → pills → hosts. A segment only routers are on (`fab-link`) is a
+      router-to-router link labelled with it — `canvas.tree.test.tsx`,
+      `canvas.orthogonal.test.ts`; datacenter shows `fab-r1 —fab-link— fab-r2` (`B1-datacenter.png`).
+- [x] R3-4: orthogonal edges routed through the gutters between ranks (`canvas/orthogonal.ts`:
+      down from the source, horizontal only in a gutter, one lane per parent, down a long
+      edge's reserved dagre column, into the target from above); a dragged end draws a
+      smoothstep until Re-layout. The geometry test runs `placeTree` over canvas-test,
+      datacenter, switch-test, corp-enterprise and corp-twin, folded and fully open, and
+      asserts every structural edge is routed, axis-aligned and crosses no box —
+      `canvas.orthogonal.test.ts`. Eye: switch-test's gw→office no longer crosses the trunk;
+      corp-enterprise's fan is orthogonal (`B2-*.png`).
+- [x] R3-5: a hue per router only with two or more routers; a one-router twin is neutral
+      (`HUE_NEUTRAL`) — `canvas.orthogonal.test.ts`; canvas-test, switch-test, corp-enterprise,
+      corp-twin neutral, datacenter three hues.
+- [x] Folding, folded by default: per carrier, segments of one site (two-octet prefix) fold
+      into one site pill (`10.20 · 11 segments`), the carrier shows `fan` items and `+N more`,
+      an opened fold leaves a `fold` tile to close it; a pill shows eight host icons and `+N`;
+      `×N` folds a group; a click opens in place and the tree re-ranks (the session's settled
+      positions are dropped on a fold change, kept on a document edit) — `canvas.test.tsx`,
+      `canvas.orthogonal.test.ts`, `canvas.round3.test.tsx`; corp-twin and
+      corp-apcn-reader-20261028 open folded.
+- [x] R3-8: a double-click anywhere on a `×N` icon opens and closes its member chips (each
+      selectable, draggable onto another group: track 5c) — `canvas.members.test.tsx`.
+- [x] Positions: side-car pins override dagre; Re-layout (beside Save layout) drops them as
+      one unsaved change — `canvas.round3.test.tsx`.
+- [x] Archived the bus plane's geometry (`archive/ui-bus-plane/`: `wiring.ts`, `route.ts`,
+      `layout/plane.ts`, `layout/viewport.ts`). `layout/level0.ts` / `level1.ts` stay: the tree
+      reads what they decide is drawn and discards their positions.
+- [x] R3-6, measured on the :8080 build (headless chromium, 1622×980): first paint was
+      ~7 s on every twin (datacenter 6.5 s, corp-twin 7.1 s) because the page's load listed
+      and read EVERY twin-config for the palette before drawing; the palette now loads after
+      the drawing — corp-twin 3.0 s, pit-395a61f04e-1780405200 2.0 s. Pan holds 61 fps (worst
+      frame 17 ms) folded; corp-twin with every fold open (168 nodes) re-renders in ~250 ms
+      and each zoom step settles in ~300 ms. The 30 s freeze did not reproduce: the per-render
+      A* wiring of the bus plane (`route.ts`, now archived) was already disabled at 5a.
+
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it

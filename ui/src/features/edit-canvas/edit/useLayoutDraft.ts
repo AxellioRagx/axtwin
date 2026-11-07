@@ -53,6 +53,8 @@ export interface LayoutDraft {
   setAnnotations(list: Annotation[]): void;
   save(): Promise<boolean>;
   discard(): void;
+  /** Drop every position override: the tree lays itself out again (one unsaved change). */
+  relayout(): void;
 }
 
 export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: string, loaded: LayoutDoc | null): LayoutDraft {
@@ -120,6 +122,12 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     }
   }, [api, id]);
 
+  /** Re-layout: drop every position override so the tree's own layout (dagre's) shows; one unsaved change, written by Save layout. */
+  const relayout = useCallback(() => {
+    setPins(NO_PINS);
+    setChanges((n) => n + 1);
+  }, []);
+
   const discard = useCallback(() => {
     const current = docRef.current;
     setPins(pinsOf(current));
@@ -139,5 +147,5 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [changes]);
 
-  return { doc, pins, annotations, changes, saving, error, note, savedAt, onPin, onPinMany, setAnnotations, save, discard };
+  return { doc, pins, annotations, changes, saving, error, note, savedAt, onPin, onPinMany, setAnnotations, save, discard, relayout };
 }

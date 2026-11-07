@@ -12,7 +12,8 @@ import { documentGraph } from "../src/features/edit-canvas/edit/document";
 import { readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import { provenanceCounts, validationState } from "../src/features/edit-canvas/SidePanel";
-import { item, openPalette, seeded, segments } from "./helpers/canvasFixtures";
+import { CANVAS_PLANE } from "../src/features/edit-canvas/canvas/plane";
+import { item, openPalette, seeded, segments, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -101,5 +102,52 @@ describe("R3-9: the blocked banner clears on the next change", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(segments()).not.toContain("segment-3"));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();
+  });
+});
+
+// ---- track B on the page: the host fold and Re-layout ----
+
+function withTwin(id: string, te: string, layout?: { pins: Record<string, { x: number; y: number }> }) {
+  const base = seeded();
+  return seeded({
+    twins: { ...base.state.twins, [id]: { ...base.state.twins["corp-auth"]!, id } },
+    documents: { ...base.state.documents, [id]: { id, te_file: "te.yaml", files: { "te.yaml": te, "twin.yaml": twinYaml(id) }, skipped: [] } },
+    twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
+    ...(layout ? { layouts: { [id]: { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: "e1", schema: "axr-layout/1", imprint: id, pins: layout.pins, plane: CANVAS_PLANE, annotations: [] } } } : {}),
+  });
+}
+
+const BUSY = `twin_config:
+  id: busy
+  segments:
+    - { name: lan, cidr: 10.5.1.0/24 }
+  nodes:
+${Array.from({ length: 11 }, (_, i) => `    - { name: h${i}, role: workstation, image: img@v1, net: lan }`).join("\n")}
+    - { name: gw, kind: router, image: vyos@v1, net: lan }
+`;
+
+describe("the tree on the page (track B)", () => {
+  it("a pill past the host budget shows eight icons and +3; a click opens all eleven, `fold` closes them", async () => {
+    const { api } = withTwin("busy", BUSY);
+    renderAt(api, "/twins/busy/canvas");
+    await screen.findAllByTestId("canvas-host");
+    expect(screen.getAllByTestId("canvas-host").length).toBe(8);
+    fireEvent.click(screen.getByTestId("host-fold"));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(11));
+    expect(screen.getByTestId("host-fold").textContent).toBe("fold");
+    fireEvent.click(screen.getByTestId("host-fold"));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(8));
+  });
+  it("Re-layout drops the side-car's positions (an unsaved change Save layout writes)", async () => {
+    const { api, state } = withTwin("busy", BUSY, { pins: { "host:gw": { x: 900, y: 700 } } });
+    renderAt(api, "/twins/busy/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const gwAt = () => screen.getAllByTestId("canvas-router").find((r) => r.dataset["nodeId"] === "gw")!.dataset["y"];
+    expect(gwAt()).toBe("700");
+    fireEvent.click(screen.getByTestId("relayout"));
+    await waitFor(() => expect(gwAt()).not.toBe("700"));
+    expect(screen.getByTestId("layout-dirty").textContent).toContain("1 unsaved");
+    fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
+    await waitFor(() => expect(state.layouts["busy"]?.pins).toEqual({}));
   });
 });

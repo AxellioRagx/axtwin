@@ -314,9 +314,10 @@ describe("the design canvas (C2, read-only)", () => {
     expect(canvas.dataset["locked"]).toBe("false");
   });
 
-  it("sixty segments under no router fold to the fan and a `+N more` pill, never a denser canvas", async () => {
-    // Twelve sites of five segments and no router: on the tree plane they all
-    // hang under no carrier, so the fan (4) shows four pills and folds the rest.
+  it("sixty segments in twelve sites fold by site, then by the fan, and open in place, never a denser canvas", async () => {
+    // Twelve sites of five segments and no router: on the tree they all hang
+    // under no carrier; each site folds into one site pill, the fan (4) shows
+    // four of them and folds the other eight behind `+N more`.
     const segments: TopologyExport["segments"] = [];
     const nodes: TopologyExport["nodes"] = [];
     for (let s = 0; s < 12; s++) {
@@ -329,13 +330,18 @@ describe("the design canvas (C2, read-only)", () => {
     const big: TopologyExport = { ...CAST, imprint_id: "big", segments, nodes, edges: [{ src: nodes[0]!.id, dst: nodes[7]!.id, proto: "tcp", bytes: 10, flows: 1, evidence_class: "observed" }], census: { entities_total: 60, with_role: 60, placed: 60, local: 60 } };
     const { api } = seeded({ twins: { big: twin("big", { hosts: 60, segments: 60 }) }, exports: { big }, trees: {} });
     renderAt(api, "/twins/big/canvas");
-    await screen.findAllByTestId("canvas-segment");
-    expect(screen.getAllByTestId("canvas-segment").length).toBe(4);
-    expect(screen.getByTestId("canvas-overflow").textContent).toContain("+56 more");
+    await screen.findAllByTestId("canvas-overflow");
+    const folds = () => screen.getAllByTestId("canvas-overflow").map((o) => o.textContent ?? "");
+    expect(screen.queryAllByTestId("canvas-segment")).toEqual([]);
+    expect(folds().filter((t) => t.includes("5 segments")).length).toBe(4);
+    expect(folds().some((t) => t.includes("+40 more"))).toBe(true);
     expect(screen.queryByTestId("canvas-fallback")).toBeNull();
-    // The fold opens in place.
-    fireEvent.click(screen.getByTestId("canvas-overflow"));
-    await waitFor(() => expect(screen.getAllByTestId("canvas-segment").length).toBe(60));
+    // The branch's fold opens in place: twelve site pills.
+    fireEvent.click(screen.getAllByTestId("canvas-overflow").find((o) => (o.textContent ?? "").includes("+40 more"))!);
+    await waitFor(() => expect(folds().filter((t) => t.includes("5 segments")).length).toBe(12));
+    // A site pill opens to its five segments.
+    fireEvent.click(screen.getAllByTestId("canvas-overflow").find((o) => (o.textContent ?? "").startsWith("10.1 ·"))!);
+    await waitFor(() => expect(screen.getAllByTestId("canvas-segment").length).toBe(5));
   });
 
   it("links from the twin page to its canvas", async () => {

@@ -70,10 +70,6 @@ interface Loaded {
   config: DeployConfig | null;
   /** The catalog entry with its document (A3): the baseline. Null when the catalog has no document for this id. */
   detail: TwinConfigDetail | null;
-  /** The palette's sources: every twin-config's detail the API could serve, and the personas. */
-  catalog: TwinConfigDetail[];
-  personas: Persona[];
-  paletteNote: string | null;
 }
 
 const SYNC_DELAY_MS = 250;
@@ -261,20 +257,28 @@ export function CanvasPage() {
     } catch (e) {
       if (!(e instanceof ApiError && e.kind === "not-found")) throw e;
     }
-    const paletteNotes: string[] = [];
+    return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail };
+  }, [id]);
+  // The palette's catalog -- every other twin's config and the persona library -- loads AFTER
+  // the drawing (R3-6, 2026-11-07: listing and reading every twin-config held first paint ~6 s
+  // on a 14-node twin); until it lands the palette offers this twin's own items.
+  const paletteLoad = useLoad<{ others: TwinConfigDetail[]; personas: Persona[]; note: string | null }>(async (signal) => {
+    const notes: string[] = [];
     const list = await api.listTwinConfigs(signal).catch((e: unknown) => {
-      paletteNotes.push(`twin-configs not listed: ${errorText(e)}`);
+      notes.push(`twin-configs not listed: ${errorText(e)}`);
       return { twin_configs: [] };
     });
     const others = list.twin_configs.filter((c) => c.id !== id && !c.error).slice(0, CATALOG_DETAIL_LIMIT);
     const details = await Promise.all(others.map((c) => api.getTwinConfig(c.id, signal).catch(() => null)));
-    const catalog = [...(detail ? [detail] : []), ...details.filter((d): d is TwinConfigDetail => d !== null)];
     const personaList = await api.listPersonas(signal).catch((e: unknown) => {
-      paletteNotes.push(`personas not listed: ${errorText(e)}`);
+      notes.push(`personas not listed: ${errorText(e)}`);
       return { twin: null, personas: [], warnings: [] };
     });
-    return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail, catalog, personas: personaList.personas, paletteNote: paletteNotes.join("; ") || null };
+    return { others: details.filter((d): d is TwinConfigDetail => d !== null), personas: personaList.personas, note: notes.join("; ") || null };
   }, [id]);
+  const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(paletteLoad.data?.others ?? [])], [data?.detail, paletteLoad.data]);
+  const personas = paletteLoad.data?.personas ?? [];
+  const paletteNote = paletteLoad.loading && !paletteLoad.data ? "loading the other twins' items…" : (paletteLoad.data?.note ?? null);
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
 
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
@@ -528,9 +532,15 @@ export function CanvasPage() {
   useEffect(() => {
     settled.current = {};
   }, [id]);
+  // A fold opened or closed, or the Fan-out changed: the tree re-ranks around it (brief "Folding"),
+  // so the session's settled positions are dropped; a document edit keeps them (round 2).
+  const foldState = useRef("");
   const placement = useMemo(() => {
     if (!built) return null;
     const design = built.kind === "design";
+    const folds = `${fan}|${[...expanded].sort().join(",")}`;
+    if (foldState.current && foldState.current !== folds) settled.current = {};
+    foldState.current = folds;
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
     const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource });
     if (design && !p.overBudget) {
@@ -559,7 +569,7 @@ export function CanvasPage() {
   );
 
   // ---- the palette's placement ----
-  const items = useMemo(() => (data ? paletteItems(data.catalog, data.personas, id) : []), [data, id]);
+  const items = useMemo(() => (data ? paletteItems(catalog, personas, id) : []), [data, catalog, personas, id]);
   // Rule 6 (track 4): "Add segment" inserts the new bus under the selected site -- the
   // site of the segment it was asked beside, else of the selection, else of the first segment.
   const selectionRef = useRef<Selection>(selection);
@@ -962,6 +972,18 @@ export function CanvasPage() {
       <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
         Discard
       </button>
+      <button
+        type="button"
+        data-testid="relayout"
+        onClick={() => {
+          settled.current = {};
+          draft.relayout();
+        }}
+        disabled={draft.saving || (Object.keys(pins).length === 0 && Object.keys(settled.current).length === 0)}
+        title="drop every moved position and let the tree lay itself out again (Save layout keeps it)"
+      >
+        Re-layout
+      </button>
     </span>
   ) : null;
 
@@ -1141,7 +1163,7 @@ export function CanvasPage() {
             locked={Boolean(locked)}
             layoutBar={layoutBar}
             {...(editProps ? { edit: editProps } : {})}
-            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={data.paletteNote} /> } : {})}
+            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={paletteNote} /> } : {})}
             {...(editProps && model
               ? {
                   inspector: {
@@ -1153,7 +1175,7 @@ export function CanvasPage() {
                         selection={selection}
                         locked={Boolean(locked)}
                         images={[...new Set(items.filter((i) => i.kind === "image").map((i) => i.id))]}
-                        personas={data?.personas ?? []}
+                        personas={personas}
                         canPromote={pit !== null}
                         promoteBlock={promoteBlock}
                         apply={edit}
