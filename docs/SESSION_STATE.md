@@ -4,10 +4,11 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **not pushed** (the
-user pushes). This session: `205140c` track A, `d279d3e` track B, `4b8ce61` track C, then this
-handoff. Before it: the topology-layers build (`42c00de` … `1551658`). Rule: commit each track
-as it lands, staged by path; never `git add -A`; never push.
+**Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **pushed** to origin
+on the user's request (in sync with `origin/wip/design-platforms-canvas`). This session:
+`205140c` track A, `d279d3e` track B, `4b8ce61` track C, then this handoff. Before it: the
+topology-layers build (`42c00de` … `1551658`). Rule: commit each track as it lands, staged by
+path; never `git add -A`; push only when the user asks.
 
 ## What this session did: review round 3
 
