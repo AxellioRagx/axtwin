@@ -183,6 +183,49 @@ criteria of its own beyond them.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 
+### The device tree checklist (topology-layers, tracks 5a–5d, 2026-11-07)
+
+Each line names where it is proven: a Vitest file, or the eye check's shot in
+the session scratchpad (`t5-*`, `t5b-*`, `t5c-*`, `t5d-*`, `t6-*`).
+
+- [x] `kind: switch`, `links[]`, `members[]`, `source` read from the twin config
+      and carried through the document pipeline — `canvas.tree.test.tsx`.
+- [x] The tree: routers at rank 0, switches by depth, each pill under its deepest
+      carrier, hosts on the pill, the `L2` / `L3` / `FW` badge — `canvas.tree.test.tsx`;
+      switch-test, corp-tree (`t5-*.png`).
+- [x] Links drawn between devices, dashed when down / blocked / unconfirmed,
+      clickable to the link row — `canvas.tree.test.tsx`; `t5-switch-test.png`.
+- [x] One hue per router down its branch; folds per carrier on the Fan-out;
+      the 120-box budget — `canvas.tree.test.tsx`; datacenter, corp-twin (`t6-*.png`).
+- [x] The provenance overlay (`O`): dots off, badges and borders on — `canvas.tree.test.tsx`.
+- [x] Plane epoch 6: absolute pins; a pill drags free — `canvas.tree.test.tsx`.
+- [x] The inspector by tier: Identity & placement / Traffic / Taps / Members /
+      Provenance — `canvas.inspector.test.tsx`; `t5b-switch-node.png`.
+- [x] The link panel edits ports, mode, native, VLANs, state — `canvas.inspector.test.tsx`.
+- [x] Taps as chips on pills and devices; the tap panel; Add / Remove on a segment;
+      a plan created on a twin without one; a segment tap moved by drag —
+      `canvas.inspector.test.tsx`; `t5b-switch-tap.png`.
+- [x] Confirm / mark unconfirmed / assert through the seam as `confirm` / `doubt` /
+      `device_kind` / `link` / `tap` records keyed by the cast roster; blocked with the
+      reason otherwise — `canvas.inspector.test.tsx`.
+- [x] The Checks tab's Provenance summary and its canvas filter —
+      `canvas.inspector.test.tsx`; `t5b-corp-tree-checks.png`.
+- [x] Members: the `×N·` dot, chips on double-click, the member panel, Detach, Move,
+      chip drag between groups, the split form, merge — `canvas.members.test.tsx`;
+      `t5c-members.png`.
+- [x] Subtree select (Alt-click, menu), its count, Ctrl+D parked copy with `-2` names
+      and the next free `/24`, Duplicate onto a device, attach device-device and
+      device-host, a parked device dropped on a device — `canvas.subtree.test.tsx`;
+      `t5d-*.png`.
+- [x] The engine side: IR 4, the seven rules, the planner skipping an imageless
+      switch, A2's three kinds, the seam v2 — `engine/tests/test_topology_layers.py`,
+      `discovery/tests/test_synth_topology_layers.py`; the dev45 deploy of switch-test.
+- [ ] Not built (recorded in rules 11 and 12 above): multi-select member rows, the
+      split recorded as an assertion, a zoom threshold for the chips, the floating
+      copy under the cursor, drop on empty canvas, site-prefix re-allocation under
+      another site, the marquee as a subtree; the planner's L2 port table for an
+      imaged switch is the expander's and not drawn.
+
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it
