@@ -229,7 +229,15 @@ def check_net_080(ctx: ValidatorContext) -> list[Finding]:
 
 
 def check_net_090(ctx: ValidatorContext) -> list[Finding]:
-    """Switch has ≥ 1 net entry and bridges within a single broadcast domain."""
+    """Switch has ≥ 1 net entry.
+
+    The second half this rule carried until 2026-11-07 -- "no `nets[]` entry
+    of a switch declares an IP" -- is RETIRED with the device tree
+    (`docs/design/topology-layers.md` §2.2, Authority: user): a switch's
+    ports are address-less, but a management SVI (the MS120's) or an L3
+    switch's VRRP leg (the 9k pair's) legitimately carries one, and the
+    twin-config expander already marks a switch's address-less legs L2. A
+    compatible relaxation: no previously valid IR becomes invalid."""
     findings = []
     if ctx.ir.layers is None:
         return findings
@@ -237,9 +245,7 @@ def check_net_090(ctx: ValidatorContext) -> list[Finding]:
         kind = node_kind(node)
         if kind != "switch":
             continue
-        # Switches: validate at least one net is declared. The "single broadcast
-        # domain" semantic is structural — multi-homed routers route, switches
-        # bridge — checked here by ensuring a switch has nets but no IP per entry.
+        # Switches: validate at least one net is declared.
         n = len(node.nets or [])
         if n == 0 and node.net is None:
             findings.append(
@@ -250,17 +256,6 @@ def check_net_090(ctx: ValidatorContext) -> list[Finding]:
                     location=f"layers.infra.nodes[{i}]",
                 )
             )
-        if node.nets:
-            for j, entry in enumerate(node.nets):
-                if entry.ip is not None:
-                    findings.append(
-                        make_finding(
-                            "NET-090",
-                            node_id=node.id or f"<index {i}>",
-                            detail=f"switch nets[{j}] should not declare an IP",
-                            location=f"layers.infra.nodes[{i}].nets[{j}]",
-                        )
-                    )
     return findings
 
 

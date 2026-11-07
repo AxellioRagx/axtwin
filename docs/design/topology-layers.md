@@ -58,7 +58,10 @@ is offered conversion to `kind: switch` (§9 D2); nothing converts on its own.
 
 A switch may carry `image`, `requires` and `resources` like any node. With an
 image it deploys as a VM (corp-twin's bridge VMs are this); without one it
-deploys as nothing but the vnets its links carry (§2.5).
+deploys as nothing but the vnets its links carry (§2.5). A switch's own
+`nets[]` legs are L2 ports unless given an address: a management SVI (the
+MS120's) or an L3 switch's VRRP leg (the 9k pair's) is addressed, and NET-090
+no longer refuses it (track 5a's eye check on corp-tree found the refusal).
 
 ### 2.3 Links
 

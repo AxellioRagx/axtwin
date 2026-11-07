@@ -14,13 +14,19 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestId, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestId, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSensors, type TapModel } from "./tap";
 import {
+  addLink as teAddLink,
   addNode,
   addSegment as teAddSegment,
   copyNames,
   emptyTe,
   readTe,
+  removeLink as teRemoveLink,
+  setLinkField as teSetLinkField,
+  setMemberRole as teSetMemberRole,
+  type NewLink,
   removeNode as teRemoveNode,
   removeSegment as teRemoveSegment,
   renameNode as teRenameNode,
@@ -49,11 +55,22 @@ export interface DocModel {
   /** The traffic profile the side panel edits, or `null` when the bundle has none yet. */
   tfcPath: string | null;
   tfc: TfcModel | null;
+  /** The tap plan the inspector's Taps block edits (topology-layers §8), or `null` when the bundle has none. */
+  tapPath: string | null;
+  tap: TapModel | null;
   /** The canvas's own structural findings (`validate.ts`); the API's are shown beside them. */
   findings: ValidationFinding[];
 }
 
 export const DEFAULT_TFC_PATH = "tfc/default.yaml";
+export const DEFAULT_TAP_PATH = "tap/default.yaml";
+
+export function tapPathOf(doc: WorkingDoc, manifest: Manifest | null): string | null {
+  if (manifest?.tap && doc.files[manifest.tap] !== undefined) return manifest.tap;
+  if (doc.files[DEFAULT_TAP_PATH] !== undefined) return DEFAULT_TAP_PATH;
+  const any = Object.keys(doc.files).find((p) => p.startsWith("tap/") && p.endsWith(".yaml"));
+  return any ?? null;
+}
 
 export function tfcPathOf(doc: WorkingDoc, manifest: Manifest | null): string | null {
   if (manifest?.tfc && doc.files[manifest.tfc] !== undefined) return manifest.tfc;
@@ -69,7 +86,9 @@ export function readDoc(doc: WorkingDoc): DocModel {
   const manifest = manifestText === undefined ? null : readManifest(manifestText);
   const tfcPath = tfcPathOf(doc, manifest);
   const tfc = tfcPath ? readTfc(doc.files[tfcPath]!) : null;
-  return { te, manifest, tfcPath, tfc, findings: validateTe(te) };
+  const tapPath = tapPathOf(doc, manifest);
+  const tap = tapPath ? readTap(doc.files[tapPath]!) : null;
+  return { te, manifest, tfcPath, tfc, tapPath, tap, findings: validateTe(te) };
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +350,53 @@ export function setPersona(doc: WorkingDoc, model: DocModel, by: "node" | "role"
 export function clearPersona(doc: WorkingDoc, model: DocModel, by: "node" | "role", target: string): Files {
   if (!model.tfcPath) return doc.files;
   return { ...doc.files, [model.tfcPath]: removeAssignment(doc.files[model.tfcPath]!, by, target) };
+}
+
+// ---- the device tree (topology-layers §2.3, §5, §8) ----
+export function setMemberRole(doc: WorkingDoc, node: string, index: number, role: string | null): Files {
+  return withTe(doc, (t) => teSetMemberRole(t, node, index, role));
+}
+
+export function addLink(doc: WorkingDoc, link: NewLink): Files {
+  return withTe(doc, (t) => teAddLink(t, link));
+}
+
+export function removeLink(doc: WorkingDoc, index: number): Files {
+  return withTe(doc, (t) => teRemoveLink(t, index));
+}
+
+export function setLinkField(doc: WorkingDoc, index: number, key: Parameters<typeof teSetLinkField>[2], value: string | string[] | null): Files {
+  return withTe(doc, (t) => teSetLinkField(t, index, key, value));
+}
+
+/** Add a tap on a segment (or a device port) through the tap plan, creating
+ *  the plan and wiring the manifest when the bundle has none. A `taps`
+ *  change: live. */
+export function addTap(doc: WorkingDoc, model: DocModel, binding: Parameters<typeof addTapBinding>[1]): Files {
+  const files = { ...doc.files };
+  let path = model.tapPath;
+  if (!path) {
+    path = DEFAULT_TAP_PATH;
+    files[path] = emptyTap(doc.id);
+    if (files[MANIFEST] !== undefined) files[MANIFEST] = wireTapDefault(files[MANIFEST]!, path);
+  }
+  files[path] = addTapBinding(files[path]!, binding);
+  return files;
+}
+
+export function removeTap(doc: WorkingDoc, model: DocModel, index: number): Files {
+  if (!model.tapPath) return doc.files;
+  return { ...doc.files, [model.tapPath]: removeTapBinding(doc.files[model.tapPath]!, index) };
+}
+
+export function moveTap(doc: WorkingDoc, model: DocModel, index: number, segment: string): Files {
+  if (!model.tapPath) return doc.files;
+  return { ...doc.files, [model.tapPath]: moveTapBinding(doc.files[model.tapPath]!, index, segment) };
+}
+
+export function setTapSensorsOf(doc: WorkingDoc, model: DocModel, index: number, sensors: string[]): Files {
+  if (!model.tapPath) return doc.files;
+  return { ...doc.files, [model.tapPath]: setTapSensors(doc.files[model.tapPath]!, index, sensors) };
 }
 
 /** The files a Save-As writes: the same document under a new id. */

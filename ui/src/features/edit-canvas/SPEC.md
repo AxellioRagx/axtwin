@@ -409,8 +409,39 @@ one its `confidence`.
    free; a host icon dropped on another pill moves there; "Add a segment"
    lands the new pill under the selection's carrier at dagre's next free
    slot.
+9. **Taps** (topology-layers §8, **built 2026-11-07, track 5b**): every
+   binding of the tap plan is an amber `tap` chip on the top edge of what it
+   names -- a `segment` tap on its pill, a `boundary` tap on both pills, a
+   `port` tap on the device (or, for a host's port, on the pill the port is
+   on, at the left). A click opens the tap's panel; a segment tap drags onto
+   another pill and moves there (`moveTap`, a `taps` change). The tap plan
+   is `tap/*.yaml` read and spliced by `edit/tap.ts`; "Add tap" on a segment
+   with no plan creates `tap/default.yaml` and wires `twin.yaml`'s tier.
+10. **The inspector by tier** (§7.4, built with 9): a node's panel is
+   *Identity & placement · topology* (name, kind, role, image, count,
+   attachments, links and ports), *Traffic · tfc, live* (persona, intensity,
+   schedule), *Taps · tap, live* (port taps on a device), *Members* (a ×N
+   group: one row per instance, its `members[]` role override and its
+   tfc persona by instance id) and *Provenance* (source and confidence;
+   **Confirm** / **Mark unconfirmed** through the assertions seam as
+   `confirm` / `doubt` marks keyed by the cast roster -- a node's observed
+   members, a segment's observed CIDR, a link's two ports on those keys;
+   **Assert: a switch** as a `device_kind` override; a link's and a tap's
+   panels assert them as `link` / `tap` adds; every action is blocked with
+   the reason on a twin that was not cast or on a subject the roster cannot
+   key). A segment's panel carries its taps (rows, sensors, Add / Remove)
+   and provenance; the link panel edits ports, mode, native, the segments
+   carried and state. The *Checks* tab's **Provenance** summary counts the
+   sources over segments, nodes and links; a row filters the canvas (the
+   rest dims, `cv-dim`).
 
-Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`): the reader carries
+Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
+taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and
+splices, `links[]` / `members[]` edits, the five blocks, a member's role,
+the link panel's state / mode / vlans, tap chips and the segment panel's
+Add / Remove, the plan created on a twin without one, the Checks summary
+and its filter, and on a cast twin the confirm / doubt / assert-switch /
+assert-link / assert-tap records the seam receives): the reader carries
 `kind: switch`, `links[]`, `members[]` and `source`; `treeDepths`,
 `carriersOf`, `linkSegments`, `pillSize`; on the switch-test shape one
 router, one device with the `L2` badge, two pills (office carried by the
@@ -432,7 +463,10 @@ four pills and two folds; **corp-tree** (corp-twin converted: 12 switches, 13
 trunk links, an untracked fixture) as hq-mx and mx-sw over ms120 over the
 six access switches, the 9k pair and the 8325 pair chained below, 28 pills
 drawn and 26 folded; the largest cast twin as one router, four pills and a
-`+36 more` fold.
+`+36 more` fold. **5b (`t5b-*.png`):** switch-test's switch panel in its
+blocks, its boundary tap as a chip on both pills with the tap panel on
+click, corp-tree's Checks tab with the Provenance rows and the `asserted`
+filter dimming the whole canvas.
 
 ## Notes
 

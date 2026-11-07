@@ -292,6 +292,14 @@ def test_net_130_isolated_network_needs_exactly_one_anchor(manifests):
     assert "NET-130" not in _ids(result)
 
 
+def test_net_090_allows_an_addressed_leg_on_a_switch(manifests):
+    """A management SVI (corp-tree's MS120) or an L3 switch's VRRP leg carries
+    an address; the old "no IP on a switch leg" half of NET-090 is retired."""
+    result = validate_full(text=_ir(sw_extra=", image: win11-finance@v4, requires: [windows]").replace(
+        "- { id: sw, kind: switch, nets: [{ net: office }]", "- { id: sw, kind: switch, nets: [{ net: office, ip: 10.71.10.15 }]"), manifests=manifests)
+    assert "NET-090" not in _ids(result), result.findings
+
+
 def test_net_140_parked_switch_warns_only(manifests):
     parked = "- { id: lonely, kind: switch, nets: [{ net: office }] }"
     result = validate_full(text=_ir(extra_nodes=parked), manifests=manifests)

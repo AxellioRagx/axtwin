@@ -48,7 +48,7 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, RoutesContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, RoutesContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -72,6 +72,8 @@ export interface CanvasEditProps {
   onRemoveSegment(name: string): void;
   /** Add a bus under the site of `near` (a segment name), else of the selection. */
   onAddSegment(near?: string): void;
+  /** A segment tap's chip was dropped on another pill (topology-layers §8): a `taps` change. */
+  onMoveTap?(index: number, segment: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
 }
@@ -90,6 +92,8 @@ export interface CanvasProps {
   /** The rail's Fan-out: how many pills a carrier shows before folding (the page re-places). */
   fan?: number;
   onFan?: (n: number) => void;
+  /** The Checks tab's provenance filter: the one source left bright, or null. */
+  provFilter?: string | null;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
@@ -188,7 +192,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -354,6 +358,16 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       if (!at) return;
       // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
       void onPinMany;
+      // A segment tap's chip dropped on another pill moves the tap there (§8); dropped elsewhere it springs back.
+      if (node.data.kind === "tap") {
+        const current = rf.getNodes();
+        const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
+        const at = absolutePosition(moved, node.id);
+        const under = at ? segmentAt(moved.filter((n) => n.id !== node.id), { x: at.x + (node.measured?.width ?? node.width ?? 0) / 2, y: at.y + (node.measured?.height ?? node.height ?? 0) / 2 + 20 }) : null;
+        if (editing && edit?.onMoveTap && node.data.scope === "segment" && under && under !== node.data.target) edit.onMoveTap(Number(node.data.id), under);
+        else setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
+        return;
+      }
       // A host icon dropped inside another bus's lane moves there (the attach gesture by drop);
       // on a lane it is already on, it just takes the spot.
       if (editing && edit && node.data.kind === "host") {
@@ -378,9 +392,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const select = useCallback(
     (next: Selection, ids: string[]) => {
       if (!edit) return;
-      const key = JSON.stringify(next);
-      if (key !== lastSel.current) {
-        lastSel.current = key;
+      // Compared against the page's CURRENT selection, not the last one sent: the page resets
+      // its selection on a reload (a re-cast, a deploy), and the same node must open again.
+      if (JSON.stringify(next) !== JSON.stringify(selectionRef.current)) {
         edit.onSelection(next);
         if (next.kind !== "none") setInspectorTab("selection");
       }
@@ -388,7 +402,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     },
     [edit, setNodes],
   );
-  const lastSel = useRef<string>("");
   const selectionRef = useRef<Selection>({ kind: "none" });
   if (edit) selectionRef.current = edit.selection;
 
@@ -574,6 +587,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       const d = node.data;
       const cur = selectionRef.current;
+      if (d.kind === "tap") {
+        select({ kind: "tap", index: Number(d.id) }, [node.id]);
+        return;
+      }
       if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
@@ -623,11 +640,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : ""));
       const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
       const next: Selection = hosts.length ? { kind: "node", names: hosts } : segs.length ? { kind: "segment", names: segs } : { kind: "none" };
-      const key = JSON.stringify(next);
-      if (key !== lastSel.current) {
-        lastSel.current = key;
-        edit.onSelection(next);
-      }
+      if (JSON.stringify(next) !== JSON.stringify(selectionRef.current)) edit.onSelection(next);
     },
     [edit],
   );
@@ -952,6 +965,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       <DetailContext.Provider value={detail}>
       <LabelsContext.Provider value={labels}>
       <OverlayContext.Provider value={overlay}>
+      <ProvFilterContext.Provider value={provFilter}>
       <RoutesContext.Provider value={routes}>
         <div
           ref={shellRef}
@@ -1140,6 +1154,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           ) : null}
         </div>
       </RoutesContext.Provider>
+      </ProvFilterContext.Provider>
       </OverlayContext.Provider>
       </LabelsContext.Provider>
       </DetailContext.Provider>

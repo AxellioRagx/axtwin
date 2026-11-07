@@ -274,7 +274,7 @@ class TeText {
     if (!tc || tc.kind !== "map") throw new Error("the twin config has no `twin_config:` mapping to edit");
     return tc;
   }
-  seq(key: "segments" | "nodes"): YSeq | null {
+  seq(key: "segments" | "nodes" | "links"): YSeq | null {
     const s = get(this.tc, key);
     if (!s) return null;
     if (s.kind !== "seq") {
@@ -303,7 +303,7 @@ class TeText {
 /** Where a new item of a list goes, and at what indent, matching the list's
  *  own style; for an empty or absent list, a fresh `key:` line is written
  *  under `twin_config` and the indent follows the mapping's. */
-function listSlot(t: TeText, key: "segments" | "nodes"): { at: number; dashIndent: number; blankBefore: boolean } {
+function listSlot(t: TeText, key: "segments" | "nodes" | "links"): { at: number; dashIndent: number; blankBefore: boolean } {
   const seq = t.seq(key);
   if (seq && !seq.flow && seq.items.length) {
     const last = seq.items[seq.items.length - 1]!;
@@ -321,7 +321,7 @@ function listSlot(t: TeText, key: "segments" | "nodes"): { at: number; dashInden
     return { at: e.line + 1, dashIndent: tc.indent + 2, blankBefore: false };
   }
   // No list at all: put one after the last entry that precedes it in the usual order.
-  const order = ["id", "description", "params", "segments", "nodes"];
+  const order = ["id", "description", "params", "segments", "nodes", "links"];
   const idx = order.indexOf(key);
   let at = contentEnd(t.lines, tc.end);
   for (const prior of tc.entries) {
@@ -522,4 +522,119 @@ export function copyNames(base: string, count: number, taken: ReadonlySet<string
     if (n > count + taken.size + 1000) break;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Members (topology-layers §5) and links (§2.3)
+// ---------------------------------------------------------------------------
+/** Set (or with `null` remove) one instance's role override on a `count: N`
+ *  group: `members: [{ index, role }]`, one flow-map entry per instance. */
+export function setMemberRole(text: string, name: string, index: number, role: string | null): string {
+  const t = new TeText(text);
+  const it = t.node(name);
+  const m = it.value as YMap;
+  const e = entry(m, "members");
+  const seq = e && e.value.kind === "seq" && !e.value.flow ? e.value : null;
+  const found = seq?.items.find((x) => scalarText(get(x.value, "index")) === String(index)) ?? null;
+  if (found) {
+    if (role === null) {
+      if (seq!.items.length === 1 && e) removeSpan(t.lines, e.start, e.end, m.indent);
+      else removeSpan(t.lines, found.start, found.end, seq!.indent);
+      return t.out();
+    }
+    if (found.value.kind === "map" && found.value.flow) rewriteFlowMap(t.lines, found.value, "role", encodeScalar(role));
+    else if (found.value.kind === "map") {
+      const re = entry(found.value, "role");
+      if (re) replaceValueOnLine(t.lines, re, encodeScalar(role));
+      else insertLines(t.lines, contentEnd(t.lines, found.end), [`${" ".repeat(found.value.indent)}role: ${encodeScalar(role)}`]);
+    }
+    return t.out();
+  }
+  if (role === null) return text;
+  const line = (dashIndent: number) => `${" ".repeat(dashIndent)}- { index: ${index}, role: ${encodeScalar(role)} }`;
+  if (seq && seq.items.length) insertLines(t.lines, contentEnd(t.lines, seq.end), [line(seq.indent)]);
+  else if (e) {
+    const raw = t.lines[e.line]!;
+    t.lines[e.line] = raw.slice(0, raw.indexOf("members") + "members:".length);
+    insertLines(t.lines, e.line + 1, [line(m.indent + 2)]);
+  } else {
+    const at = insertionLine(t, it, "members");
+    insertLines(t.lines, at, [`${" ".repeat(m.indent)}members:`, line(m.indent + 2)]);
+  }
+  return t.out();
+}
+
+export interface NewLink {
+  a: { device: string; port: string };
+  b: { device: string; port: string };
+  mode: "trunk" | "access";
+  native?: string | null;
+  vlans: string[];
+  state?: "up" | "down" | "blocked" | null;
+  source?: TeSource | null;
+}
+
+function linkLines(dashIndent: number, link: NewLink): string[] {
+  const pad = " ".repeat(dashIndent + 2);
+  const out = [`${" ".repeat(dashIndent)}- a: { device: ${encodeScalar(link.a.device)}, port: ${encodeScalar(link.a.port)} }`, `${pad}b: { device: ${encodeScalar(link.b.device)}, port: ${encodeScalar(link.b.port)} }`, `${pad}mode: ${link.mode}`];
+  if (link.native) out.push(`${pad}native: ${encodeScalar(link.native)}`);
+  out.push(`${pad}vlans: [${link.vlans.map((v) => encodeScalar(v)).join(", ")}]`);
+  if (link.state && link.state !== "up") out.push(`${pad}state: ${link.state}`);
+  if (link.source) out.push(`${pad}source: ${link.source}`);
+  return out;
+}
+
+/** Append a `links[]` entry. */
+export function addLink(text: string, link: NewLink): string {
+  const t = new TeText(text);
+  const slot = listSlot(t, "links");
+  insertLines(t.lines, slot.at, linkLines(slot.dashIndent, link));
+  return t.out();
+}
+
+export function removeLink(text: string, index: number): string {
+  const t = new TeText(text);
+  const seq = t.seq("links");
+  const it = seq?.items[index];
+  if (!seq || !it) return text;
+  if (seq.items.length === 1) {
+    const e = entry(t.tc, "links");
+    if (e) removeSpan(t.lines, e.start, e.end, t.tc.indent);
+  } else removeSpan(t.lines, it.start, it.end, seq.indent);
+  return t.out();
+}
+
+/** Set one field of a `links[]` entry: `mode`, `state`, `native`, `vlans`
+ *  (a list), or an end's `device` / `port` (`a.port`). `null` removes an
+ *  optional key. */
+export function setLinkField(text: string, index: number, key: "mode" | "state" | "native" | "vlans" | "a.device" | "a.port" | "b.device" | "b.port", value: string | string[] | null): string {
+  const t = new TeText(text);
+  const seq = t.seq("links");
+  const it = seq?.items[index];
+  if (!it || it.value.kind !== "map") throw new Error(`no link at index ${index}`);
+  const m = it.value;
+  if (key.includes(".")) {
+    const [end, field] = key.split(".") as ["a" | "b", "device" | "port"];
+    const endNode = get(m, end);
+    if (!endNode || endNode.kind !== "map") throw new Error(`link ${index} has no ${end} end`);
+    if (typeof value !== "string" || !value.trim()) throw new Error(`a link end's ${field} is a non-empty string`);
+    if (endNode.flow) rewriteFlowMap(t.lines, endNode, field, encodeScalar(value.trim()));
+    else {
+      const fe = entry(endNode, field);
+      if (fe) replaceValueOnLine(t.lines, fe, encodeScalar(value.trim()));
+      else insertLines(t.lines, contentEnd(t.lines, endNode.end), [`${" ".repeat(endNode.indent)}${field}: ${encodeScalar(value.trim())}`]);
+    }
+    return t.out();
+  }
+  const raw = value === null ? null : Array.isArray(value) ? `[${value.map((v) => encodeScalar(v)).join(", ")}]` : key === "mode" || key === "state" ? value : encodeScalar(value);
+  const e = entry(m, key);
+  if (e) {
+    if (raw === null) removeSpan(t.lines, e.start, e.end, m.indent);
+    else {
+      const line = t.lines[e.line]!;
+      t.lines[e.line] = line.slice(0, e.valueCol) + raw;
+      if (e.end > e.line + 1) removeSpan(t.lines, e.line + 1, e.end, m.indent);
+    }
+  } else if (raw !== null) insertLines(t.lines, contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}${key}: ${raw}`]);
+  return t.out();
 }

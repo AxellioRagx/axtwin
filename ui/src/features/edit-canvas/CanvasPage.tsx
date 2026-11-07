@@ -41,7 +41,7 @@ import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
-import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc } from "./edit/document";
+import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor } from "./edit/useEditor";
@@ -50,7 +50,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
-import { Checks, SidePanel, checksBadge, type Selection } from "./SidePanel";
+import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
   twin: TwinSummary;
@@ -513,7 +513,8 @@ export function CanvasPage() {
   const placement = useMemo(() => {
     if (!built) return null;
     const design = built.kind === "design";
-    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan });
+    const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
+    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps });
     if (design && !p.overBudget) {
       // The tree's own positions settle for the session (a pill, a device, a
       // router): a later mutation places only what has no position yet.
@@ -525,7 +526,7 @@ export function CanvasPage() {
       }
     }
     return p;
-  }, [built, pins, expanded, fan]);
+  }, [built, pins, expanded, fan, model?.tap]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
@@ -696,22 +697,30 @@ export function CanvasPage() {
   // ---- promote to assertion (a cast twin only) ----
   const pit = data?.twin.pit_id ?? null;
   const promote = useCallback(
-    (records: { override: Record<string, unknown>[]; suppress: Record<string, unknown>[] }, what: string) =>
+    (records: { override?: Record<string, unknown>[]; suppress?: Record<string, unknown>[]; add?: Record<string, unknown>[]; confirm?: Record<string, unknown>[]; doubt?: Record<string, unknown>[] }, what: string) =>
       run("promote", async () => {
         if (!pit) throw new Error("this twin was not cast from an imprint; there is nothing to assert on");
         const current = await api.getAssertions(pit);
         const same = (a: Record<string, unknown>, b: Record<string, unknown>) => a["key"] === b["key"] && a["field"] === b["field"];
-        const override = [...current.override.filter((o) => !records.override.some((r) => same(r, o))), ...records.override];
-        const suppress = [...current.suppress.filter((s) => !records.suppress.some((r) => r["key"] === s["key"])), ...records.suppress];
+        const byKey = (a: Record<string, unknown>, b: Record<string, unknown>) => a["key"] === b["key"];
+        const merge = (have: Record<string, unknown>[] | undefined, want: Record<string, unknown>[] | undefined, eq: (a: Record<string, unknown>, b: Record<string, unknown>) => boolean) => [...(have ?? []).filter((o) => !(want ?? []).some((r) => eq(r, o))), ...(want ?? [])];
+        const override = merge(current.override, records.override, same);
+        const suppress = merge(current.suppress, records.suppress, byKey);
+        const add = merge(current.add, records.add, byKey);
+        // A confirm lifts the same key out of doubt and the other way round (§3.2: the two blocks are exclusive per key).
+        const confirm = merge(current.confirm, records.confirm, byKey).filter((c) => !(records.doubt ?? []).some((d) => byKey(d, c)));
+        const doubt = merge(current.doubt, records.doubt, byKey).filter((d) => !(records.confirm ?? []).some((c) => byKey(c, d)));
         const body: Record<string, unknown> = {
-          schema: current.schema,
+          schema: "axr-assertions/2",
           imprint: current.imprint,
           as_of: current.as_of ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
           source: current.source ?? "operator:canvas",
-          add: current.add,
+          add,
           override,
           suppress,
         };
+        if (confirm.length) body["confirm"] = confirm;
+        if (doubt.length) body["doubt"] = doubt;
         if (current.etag) body["etag"] = current.etag;
         await api.putAssertions(pit, body);
         await api.castImprint(pit, { twin_id: id, replace: true });
@@ -763,6 +772,89 @@ export function CanvasPage() {
     [model, observedCidrOf, membersOf, promote],
   );
 
+  // ---- the Provenance block (topology-layers §3.2, §3.3): confirm / doubt / assert through the seam ----
+  // A device's key is its one observed member (a switch or router the cast keyed); a link's key is
+  // the two ports on those keys; a segment's its observed CIDR; a tap's `segment:<cidr>` or `port:<key>#<port>`.
+  const deviceKey = useCallback((node: string): string | null => membersOf(node)[0] ?? null, [membersOf]);
+  const linkKey = useCallback(
+    (index: number): string | null => {
+      const l = model?.te.links[index];
+      if (!l) return null;
+      const ka = deviceKey(l.a.device);
+      const kb = deviceKey(l.b.device);
+      if (!ka || !kb) return null;
+      return [`${ka}#${l.a.port}`, `${kb}#${l.b.port}`].sort().join("|");
+    },
+    [model, deviceKey],
+  );
+  const tapKey = useCallback(
+    (index: number): string | null => {
+      const b = model?.tap?.bindings[index];
+      if (!b) return null;
+      if (b.scope === "segment") {
+        const cidr = observedCidrOf(b.targets[0] ?? "");
+        return cidr ? `segment:${cidr}` : null;
+      }
+      if (b.scope === "port" && b.segment) {
+        const k = deviceKey(b.targets[0] ?? "");
+        return k ? `port:${k}#${b.segment}` : null;
+      }
+      return null;
+    },
+    [model, observedCidrOf, deviceKey],
+  );
+  const provenanceBlock = useCallback(
+    (subject: ProvenanceSubject): string | null => {
+      if (pit === null) return "this twin was not cast from an imprint; there is nothing to confirm or doubt";
+      if (!cast) return "the cast roster could not be read; nothing to key an assertion by";
+      if ("node" in subject) return membersOf(subject.node).length ? null : `${subject.node} has no observed members in the cast; nothing to key it by`;
+      if ("segment" in subject) return observedCidrOf(subject.segment) ? null : `${subject.segment} has no observed network in the cast; nothing to key it by`;
+      if ("link" in subject) return linkKey(subject.link) ? null : "one end of this link is a device the cast did not key; nothing to key the link by";
+      return tapKey(subject.tap) ? null : "this tap sits on nothing the cast keyed (a segment's observed network or a device port); nothing to key it by";
+    },
+    [pit, cast, membersOf, observedCidrOf, linkKey, tapKey],
+  );
+  const onProvenance = useCallback(
+    (action: ProvenanceAction) => {
+      if (!model) return;
+      const note = "from the design canvas";
+      if (action.kind === "confirm" || action.kind === "doubt") {
+        const sub = action.subject;
+        const keys = "node" in sub ? membersOf(sub.node) : "segment" in sub ? [observedCidrOf(sub.segment)] : "link" in sub ? [linkKey(sub.link)] : [];
+        const marks = keys.filter((k): k is string => Boolean(k)).map((key) => ({ key, note }));
+        if (!marks.length) return;
+        const what = "node" in sub ? sub.node : "segment" in sub ? sub.segment : "link" in sub ? `link ${sub.link}` : `tap ${sub.tap}`;
+        void promote(action.kind === "confirm" ? { confirm: marks } : { doubt: marks }, `${action.kind === "confirm" ? "confirmed" : "marked unconfirmed"}: ${what}`);
+        return;
+      }
+      if (action.kind === "assert-device") {
+        const override = membersOf(action.node).map((key) => ({ key, field: "device_kind", value: action.deviceKind, note: `${note}: ${action.node} is a ${action.deviceKind}` }));
+        void promote({ override }, `${action.node} is a ${action.deviceKind}`);
+        return;
+      }
+      if (action.kind === "assert-link") {
+        const l = model.te.links[action.index];
+        const key = linkKey(action.index);
+        if (!l || !key) return;
+        const vlans = l.vlans.map((v) => observedCidrOf(v)).filter((c): c is string => Boolean(c));
+        const native = l.native ? observedCidrOf(l.native) : null;
+        const rec: Record<string, unknown> = { kind: "link", key, mode: l.mode, note: `${note}: ${l.a.device}#${l.a.port} — ${l.b.device}#${l.b.port}` };
+        if (vlans.length) rec["vlans"] = vlans;
+        if (native) rec["native"] = native;
+        if (l.state !== "up") rec["state"] = l.state;
+        void promote({ add: [rec] }, `link ${l.a.device}#${l.a.port} — ${l.b.device}#${l.b.port}`);
+        return;
+      }
+      if (action.kind !== "assert-tap") return;
+      const b = model.tap?.bindings[action.index];
+      const key = tapKey(action.index);
+      if (!b || !key) return;
+      void promote({ add: [{ kind: "tap", key, sensors: b.sensors, note: `${note}: tap on ${b.scope} ${b.targets.join(" ")}` }] }, `tap on ${b.targets.join(" ")}`);
+    },
+    [model, membersOf, observedCidrOf, linkKey, tapKey, promote],
+  );
+  const [provFilter, setProvFilter] = useState<string | null>(null);
+
   const baselineModel = useMemo<DocModel | null>(() => (detail?.document ? readDoc({ id: detail.document.id, teFile: detail.document.te_file, files: detail.document.files }) : null), [detail]);
   // One pending change is one file's delta from the baseline: discarding it puts
   // that file back to the baseline's text, as an edit (undoable, validated, synced).
@@ -810,6 +902,7 @@ export function CanvasPage() {
       onRemoveNode: (name) => void edit(`remove ${name}`, (d, m) => removeNode(d, m, name)),
       onRemoveSegment: (name) => void edit(`remove segment ${name}`, (d, m) => removeSegment(d, m, name)),
       onAddSegment,
+      onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       annotations,
       onAnnotations: setAnnotations,
     };
@@ -1010,6 +1103,7 @@ export function CanvasPage() {
             exportData={built.exportData}
             placement={placement}
             fan={fan}
+            provFilter={provFilter}
             onFan={setFan}
             onPin={onPin}
             onPinMany={onPinMany}
@@ -1051,6 +1145,9 @@ export function CanvasPage() {
                         blocked={blocked}
                         onRenamed={(kind, from, to) => setSelection((sel) => (sel.kind === kind ? { kind, names: sel.names.map((n) => (n === from ? to : n)) } : sel))}
                         observedSegments={(node) => observedSegments(data?.exportData ?? null, cast, node, model.te.nodes.find((n) => n.name === node)?.nets.map((l) => l.segment) ?? [])}
+                        onProvenance={pit !== null ? onProvenance : undefined}
+                        provenanceBlock={provenanceBlock}
+                        onSelect={setSelection}
                       />
                     ),
                     checks: (
@@ -1061,6 +1158,7 @@ export function CanvasPage() {
                         validating={validating || !(validation && files && sameFiles(validation.files, files))}
                         changes={deployed ? (config?.changes ?? []) : null}
                         onDiscard={deployed && baselineFiles && !locked ? onDiscardChange : undefined}
+                        provenance={{ filter: provFilter, onFilter: setProvFilter }}
                       />
                     ),
                     checksBadge: checksBadge({

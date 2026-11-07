@@ -44,6 +44,14 @@ export const RoutesContext = createContext<ReadonlyMap<string, Point[]>>(new Map
  *  small dot marks an asserted or authored item; on, the four states render
  *  (solid / accent border + badge / dashed) and the taps light up. */
 export const OverlayContext = createContext<boolean>(false);
+/** The Checks tab's provenance filter (§3.3): the one source left bright, or `null`. */
+export const ProvFilterContext = createContext<string | null>(null);
+
+/** `cv-dim` when a provenance filter is on and this item's source is not the one. */
+function useDim(source: string | null | undefined): string {
+  const filter = useContext(ProvFilterContext);
+  return filter && (source ?? "authored") !== filter ? " cv-dim" : "";
+}
 
 /** The provenance mark an icon wears: nothing for a discovered item with the
  *  overlay off; a dot for an asserted or authored one; with the overlay on,
@@ -136,6 +144,7 @@ export function SegmentNode(p: P) {
   const edit = useEdit();
   const detail = useContext(DetailContext);
   const overlay = useContext(OverlayContext);
+  const dim = useDim(d.kind === "segment" ? d.source : null);
   if (d.kind !== "segment") return null;
   const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
   const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing || edit.rehomeTarget === d.name));
@@ -152,7 +161,7 @@ export function SegmentNode(p: P) {
   const hostsWord = `${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`;
   return (
     <div
-      className={`cv-segment cv-bus cv-pill ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
+      className={`cv-segment cv-bus cv-pill ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-segment"
       data-cidr={d.cidr}
       data-name={d.name}
@@ -250,6 +259,7 @@ export function HostNode(p: P) {
   const edit = useEdit();
   const card = useHoverCard(p.dragging);
   const overlay = useContext(OverlayContext);
+  const dim = useDim(d.kind === "host" ? d.source : null);
   if (d.kind !== "host") return null;
   const lit = glow.hosts.has(d.nodeId);
   // In edit mode the icon is a node GROUP of the working document: its count and pinned address ride along.
@@ -261,7 +271,7 @@ export function HostNode(p: P) {
   const sw = d.role !== null && SWITCH_ROLES.has(d.role);
   return (
     <div
-      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
+      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-host"
       data-node-id={d.nodeId}
       data-source={d.source ?? undefined}
@@ -338,11 +348,12 @@ export function DeviceNode(p: P) {
   const edit = useEdit();
   const card = useHoverCard(p.dragging);
   const overlay = useContext(OverlayContext);
+  const dim = useDim(d.kind === "device" ? d.source : null);
   if (d.kind !== "device") return null;
   const armed = edit?.attachFrom === d.name;
   return (
     <div
-      className={`cv-router cv-device${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
+      className={`cv-router cv-device${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-device"
       data-node-id={d.name}
       data-device-kind={d.deviceKind}
@@ -385,12 +396,14 @@ export function DeviceNode(p: P) {
   );
 }
 
-/** A tap chip on a segment or a link (§8): amber, the sensor names on hover. */
+/** A tap chip on a segment or a device (§8): amber, the sensor names on
+ *  hover; a click opens its row, a segment tap drags to another pill. */
 export function TapNode(p: P) {
   const d = p.data;
+  const overlay = useContext(OverlayContext);
   if (d.kind !== "tap") return null;
   return (
-    <div className="cv-tap" data-testid="canvas-tap" data-target={d.target} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : ""}`}>
+    <div className={`cv-tap${p.selected ? " selected" : ""}${overlay ? " cv-ov-tap" : ""}`} data-testid="canvas-tap" data-tap={d.id} data-target={d.target} data-scope={d.scope} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : " (no sensor named)"}`}>
       <span className="cv-tap-chip">tap</span>
       <ProvenanceMark source={d.source} />
       <Handles />
@@ -427,13 +440,14 @@ export function RouterNode(p: P) {
   const edit = useEdit();
   const card = useHoverCard(p.dragging);
   const overlay = useContext(OverlayContext);
+  const dim = useDim(d.kind === "router" ? d.source : null);
   if (d.kind !== "router") return null;
   const armed = edit?.attachFrom === d.name;
   const gateway = d.uplink || d.crossing !== null;
   const wan = d.uplink ? "the config's uplink" : d.crossing ? "the gateway by observed crossing traffic" : null;
   return (
     <div
-      className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
+      className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-router"
       data-node-id={d.name}
       data-gateway={gateway || undefined}
@@ -657,7 +671,7 @@ export function LinkEdge(e: E) {
   const [path, labelX, labelY] = getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   const weak = d.state !== "up" || d.source === "unconfirmed";
   return (
-    <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+    <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
       <BaseEdge id={e.id} path={path} className={`cv-link${e.selected ? " selected" : ""}${weak ? " cv-link-weak" : ""}`} style={{ ...e.style, stroke: d.hue }} label={e.selected ? d.label : undefined} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
     </g>
   );

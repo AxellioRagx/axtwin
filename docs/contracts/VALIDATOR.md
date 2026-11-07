@@ -296,7 +296,7 @@ from a genuinely-missing manifest entry or a wholesale-unloaded registry) still 
 | `NET-060` | warning | Two networks in different scenarios share a VLAN ID (fires only when validator is given a multi-scenario context, e.g. `axrange validate --scenarios target-environments/*.yaml`; dormant by default) |
 | `NET-070` | error | Defense `observes:` references a network the defense tool's host cannot see (host's `net:` / `nets:` doesn't include the observed network, and `tap_from:` is not `external-mirror`) |
 | `NET-080` | error | Router node has at least one network attachment (`net:` singular or `nets:`) |
-| `NET-090` | error | Switch node has at least one `nets:` entry and routes only within a single broadcast domain |
+| `NET-090` | error | Switch node has at least one `nets:` entry. Its "no entry declares an IP" half is **retired** 2026-11-07 with the device tree (`docs/design/topology-layers.md` §2.2): a management SVI or an L3 switch's VRRP leg carries an address; the expander marks a switch's address-less legs L2. A compatible relaxation, same id |
 | `NET-100` | warning | A network has no nodes attached (orphan network — usually an authoring leftover) |
 | `NET-120` | error | No device uses one `port` name on two links (`a` and `b` ends counted together) (the device tree, 2026-11-07) |
 | `NET-130` | error | A link's two ends are different devices; a network marked `isolated: true` shares its CIDR with exactly one non-isolated network (its anchor). NET-010 states the overlap rule for the non-isolated set; this states the anchor rule the twin-config expander enforces today (2026-11-07) |

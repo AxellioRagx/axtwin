@@ -412,7 +412,7 @@ _RULES_LIST: list[Rule] = [
        "Router node has at least one net: entry",
        message_template="Router '{node_id}' has 0 network attachments; a router needs ≥ 1 LAN net"),
     _R("NET-090", RuleCategory.NETWORK_SANITY, ERR, 3,
-       "Switch has at least one net: entry and routes only within a single broadcast domain",
+       "Switch has at least one net: entry (an addressed leg is a management SVI, allowed since the device tree, 2026-11-07)",
        message_template="Switch '{node_id}' configuration invalid: {detail}"),
     _R("NET-100", RuleCategory.NETWORK_SANITY, WARN, 3,
        "Orphan network (no nodes attached)",

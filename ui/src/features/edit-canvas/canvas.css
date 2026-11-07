@@ -352,7 +352,20 @@ table.cv-matrix th:first-child { text-align: left; }
 .react-flow__edge-path.cv-link { stroke: var(--hue, var(--ink)); stroke-width: 2.25; fill: none; }
 .react-flow__edge-path.cv-link-weak { stroke-dasharray: 6 4; opacity: 0.75; }
 .react-flow__edge-path.cv-link.selected, g.cv-link-edge.selected .react-flow__edge-path.cv-link { stroke: var(--accent); stroke-width: 3; }
-.cv-tap { display: flex; align-items: center; justify-content: center; }
+.cv-tap { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.cv-tap.selected .cv-tap-chip { box-shadow: 0 0 0 2px var(--accent); }
+.cv-dim { opacity: 0.28; }
+.cv-link-row { background: none; border: none; padding: 0; color: var(--ink); cursor: pointer; text-align: left; font: inherit; }
+.cv-link-row:hover { text-decoration: underline; }
+.cv-members { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cv-members th, .cv-members td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.cv-members input, .cv-members select { width: 100%; }
+.cv-prov-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cv-prov-row { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; color: var(--ink); cursor: pointer; font: inherit; }
+.cv-prov-row:hover { border-color: var(--line); }
+.cv-prov-row.pressed { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.cv-prov-row .cv-prov-badge { position: static; }
+.cv-checks-list { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .cv-tap-chip { font-size: 10px; line-height: 1.5; padding: 0 7px; border-radius: 999px; background: #f0a62a; color: #231a00; border: 1px solid #b57a0f; font-weight: 600; }
 /* provenance (§3.3): off, a dot on asserted / authored; on, a badge per state and the state's own border */
 .cv-prov-dot { position: absolute; right: -2px; top: -2px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--bg); background: var(--accent); }
@@ -366,5 +379,8 @@ table.cv-matrix th:first-child { text-align: left; }
 .canvas-shell.overlay .cv-ov-authored { outline-color: #2f9e44; }
 .canvas-shell.overlay .cv-ov-unconfirmed { outline: 2px dashed #e08a1e; outline-offset: 1px; }
 .canvas-shell.overlay .cv-router.cv-ov-asserted, .canvas-shell.overlay .cv-router.cv-ov-authored, .canvas-shell.overlay .cv-router.cv-ov-unconfirmed { outline: none; }
+/* an edge wears its state in its stroke, never an outline (an outline on a <g> is its whole bounding box) */
+.canvas-shell.overlay g.cv-ov-edge-unconfirmed .react-flow__edge-path.cv-link { stroke-dasharray: 6 4; }
+.canvas-shell.overlay g.cv-ov-edge-asserted .react-flow__edge-path.cv-link { stroke-width: 3; }
 .canvas-shell.overlay .cv-router.cv-ov-asserted .cv-icon-box, .canvas-shell.overlay .cv-router.cv-ov-authored .cv-icon-box { box-shadow: 0 0 0 2px var(--accent); }
 .canvas-shell.overlay .cv-router.cv-ov-unconfirmed .cv-icon-box { border-style: dashed; }

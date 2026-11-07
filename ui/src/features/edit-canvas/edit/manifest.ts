@@ -38,17 +38,25 @@ export function setManifestId(text: string, id: string): string {
 
 /** Wire `twin.tiers.tfc.default` to `path` when the manifest has no tfc tier. */
 export function wireTfcDefault(text: string, path: string): string {
+  return wireTierDefault(text, "tfc", path);
+}
+
+export function wireTapDefault(text: string, path: string): string {
+  return wireTierDefault(text, "tap", path);
+}
+
+function wireTierDefault(text: string, tier: "tfc" | "tap", path: string): string {
   const doc = parseYaml(text);
   const lines = [...doc.lines];
   const tw = get(doc.root, "twin");
   if (!tw || tw.kind !== "map") return text;
   const tiers = entry(tw, "tiers");
   if (!tiers) {
-    insertLines(lines, contentEnd(lines, tw.end), [`${" ".repeat(tw.indent)}tiers:`, `${" ".repeat(tw.indent + 2)}tfc:`, `${" ".repeat(tw.indent + 4)}default: ${encodeScalar(path)}`]);
+    insertLines(lines, contentEnd(lines, tw.end), [`${" ".repeat(tw.indent)}tiers:`, `${" ".repeat(tw.indent + 2)}${tier}:`, `${" ".repeat(tw.indent + 4)}default: ${encodeScalar(path)}`]);
     return joinLines(lines, doc.trailingNewline);
   }
   if (tiers.value.kind !== "map") return text;
-  const tfc = entry(tiers.value, "tfc");
+  const tfc = entry(tiers.value, tier);
   if (tfc && tfc.value.kind === "map") {
     const d = entry(tfc.value, "default");
     if (d) replaceValueOnLine(lines, d, encodeScalar(path));
@@ -56,6 +64,6 @@ export function wireTfcDefault(text: string, path: string): string {
     return joinLines(lines, doc.trailingNewline);
   }
   const ind = tiers.value.indent;
-  insertLines(lines, contentEnd(lines, tiers.end), [`${" ".repeat(ind)}tfc:`, `${" ".repeat(ind + 2)}default: ${encodeScalar(path)}`]);
+  insertLines(lines, contentEnd(lines, tiers.end), [`${" ".repeat(ind)}${tier}:`, `${" ".repeat(ind + 2)}default: ${encodeScalar(path)}`]);
   return joinLines(lines, doc.trailingNewline);
 }

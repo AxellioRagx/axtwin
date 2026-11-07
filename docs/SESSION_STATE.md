@@ -7,7 +7,7 @@ because it will be believed. -->
 **Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **not pushed** (the
 user pushes). Commits since origin's `f24648d`: `42c00de` track 4 (bus plane), `5df0eb2` the
 brief, `f55d2db` the design doc, `e169f32` track 2, `0d2e3cc` track 3, `ccc680b` track 4 (A2
-kinds), then track 5a (this commit). Rule: commit each track as it lands, staged by path.
+kinds), then `ed3f183` track 5a, then 5b (this commit). Rule: commit each track as it lands, staged by path.
 
 ## What this session did (the topology-layers build, `docs/design/topology-layers.md`)
 
@@ -32,7 +32,7 @@ corp-twin itself); a dev45 deploy of a small switch fixture **after tearing down
 - **Track 4 (`ccc680b`)** — A2 kinds `traffic` / `taps` / `topology` / `inert`; `members[].role` is
   traffic keyed by instance id; provenance-only te edits inert; the Checks badges read
   live · traffic / live · taps / re-plan.
-- **Track 5a (this commit)** — the canvas is the device tree: `canvas/tree.ts` (dagre), `DeviceNode`,
+- **Track 5a (`ed3f183`)** — the canvas is the device tree: `canvas/tree.ts` (dagre), `DeviceNode`,
   `LinkEdge`, the provenance overlay (rail `O`), pills under their carriers, per-carrier folds on
   the Fan-out, plane epoch 6 (absolute `segment:` pins), the reader/validator/document pipeline
   carrying switches, links, members and source; `canvas.bus.test.tsx` replaced by
@@ -46,10 +46,13 @@ corp-twin itself); a dev45 deploy of a small switch fixture **after tearing down
 
 ## Not built yet (tracks 5b–5d, 6)
 
-- **5b**: the inspector by tier (Identity & placement / Traffic / Taps / Provenance blocks); the
-  Provenance block's confirm / assert / mark-unconfirmed through the seam (promote); the Checks
-  tab's Provenance summary filtering the canvas; taps as amber chips (the `TapNode` exists, nothing
-  places one yet); link editing (ports, mode) in the link row (today read-only).
+- **5b (done, this commit)**: the inspector by tier (Identity & placement / Traffic / Taps /
+  Members / Provenance); confirm / mark-unconfirmed / assert through the seam (`promote` now
+  carries `add` / `confirm` / `doubt`); the Checks tab's Provenance summary and filter; taps as
+  chips (`edit/tap.ts`; a segment tap drags between pills); the link panel editable; NET-090's
+  "no IP on a switch leg" half retired (a management SVI is allowed); a canvas fix: a re-select
+  of the same node after a reload opened nothing (`lastSel` compared against a stale key).
+  `ui/test/canvas.inspector.test.tsx` (22). Seen: `t5b-*.png`.
 - **5c**: the Members tab, split / merge / detach, member chips on the canvas.
 - **5d**: subtree select, Ctrl+D duplicate with CIDR re-allocation, drop-to-attach writing
   `links[]`, the attach tool's device-to-device form.
@@ -59,7 +62,7 @@ corp-twin itself); a dev45 deploy of a small switch fixture **after tearing down
 
 - **Tests:** engine 4230 passed (3 environmental failures: the user's untracked catalog folders
   `corp-apcn-reader-20261028` without `twin.yaml`, `test2` / `test-twin-2` with no nodes);
-  discovery 2471 passed; ui typecheck clean, 20 files / 280 tests.
+  discovery 2471 passed; ui typecheck clean, 21 files / 301 tests.
 - Untracked, the user's call: the catalog folders above, `catalog/twins/corp-tree` (keep: the eye
   fixture), `ui/dist.old/`.
 

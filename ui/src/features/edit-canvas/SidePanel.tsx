@@ -15,24 +15,31 @@ import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "
 import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
 import {
+  addTap,
   attach,
   clearPersona,
   detach,
   duplicateOnto,
   mergeSegments,
+  removeLink,
   removeNode,
   removeSegment,
+  removeTap,
   renameNode,
   renameSegment,
   setAttachmentAddress,
+  setLinkField,
+  setMemberRole,
   setNodeField,
   setPersona,
   setSegmentField,
+  setTapSensorsOf,
   type DocModel,
   type WorkingDoc,
 } from "./edit/document";
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
+import { tapsOn } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
 export type Selection =
@@ -42,6 +49,8 @@ export type Selection =
   | { kind: "leg"; node: string; segment: string }
   /** A `links[]` entry, by its list index (the device tree, topology-layers §2.3). */
   | { kind: "link"; index: number }
+  /** A tap binding, by its index in the tap plan (§8). */
+  | { kind: "tap"; index: number }
   | { kind: "annotation"; id: string };
 
 export interface SidePanelProps {
@@ -78,7 +87,22 @@ export interface SidePanelProps {
   /** Rule 3 (track 4): the segments a switch-class host was OBSERVED on and is not attached to
    *  (`canvas/evidence.ts` `observedSegments`), evidence the inspector offers to attach. */
   observedSegments?: ((node: string) => string[]) | undefined;
+  /** The Provenance block's actions through the assertions seam (topology-layers §3.2, §3.3):
+   *  confirm / doubt a node, a segment or a link; assert a host's device kind; assert an
+   *  authored link or tap. Absent on a twin that was not cast. */
+  onProvenance?: ((action: ProvenanceAction) => void) | undefined;
+  /** Why a provenance action is not possible for this subject (nothing in the cast roster keys it), or null. */
+  provenanceBlock?: ((subject: ProvenanceSubject) => string | null) | undefined;
+  /** Select something from a panel (a link row, a tap row). */
+  onSelect?: ((sel: Selection) => void) | undefined;
 }
+
+export type ProvenanceSubject = { node: string } | { segment: string } | { link: number } | { tap: number };
+export type ProvenanceAction =
+  | { kind: "confirm" | "doubt"; subject: ProvenanceSubject }
+  | { kind: "assert-device"; node: string; deviceKind: "switch" | "router" | "host" }
+  | { kind: "assert-link"; index: number }
+  | { kind: "assert-tap"; index: number };
 
 const ZONE_TYPES = ["", "vlan", "simple", "dmz", "mgmt", "ot"];
 
@@ -92,6 +116,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "segment" && selection.names.length > 1 ? <SegmentsPanel {...p} names={selection.names} /> : null}
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
+      {selection.kind === "tap" ? <TapPanel {...p} index={selection.index} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
     </aside>
@@ -101,12 +126,46 @@ export function SidePanel(p: SidePanelProps) {
 /** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
  *  baseline's text (a pending change is one file's delta), when the page has
  *  the baseline and the canvas is not locked. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined }) {
+export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void } | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
       <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
       {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
+      {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} /> : null}
     </div>
+  );
+}
+
+/** The counts per source over the document's segments, nodes and links
+ *  (topology-layers §3.3); a row filters the canvas to that state. */
+export function provenanceCounts(model: DocModel): Record<"discovered" | "asserted" | "authored" | "unconfirmed", number> {
+  const counts = { discovered: 0, asserted: 0, authored: 0, unconfirmed: 0 };
+  const bump = (s: string | null) => {
+    const k = (s ?? "authored") as keyof typeof counts;
+    if (k in counts) counts[k] += 1;
+  };
+  for (const s of model.te.segments) bump(s.source);
+  for (const n of model.te.nodes) bump(n.source);
+  for (const l of model.te.links) bump(l.source);
+  return counts;
+}
+
+function ProvenanceSummary({ model, filter, onFilter }: { model: DocModel; filter: string | null; onFilter(source: string | null): void }) {
+  const counts = provenanceCounts(model);
+  return (
+    <section className="cv-side-section" data-testid="provenance-summary">
+      <h3>Provenance</h3>
+      <p className="muted hint">where the twin's segments, nodes and links came from; a row filters the canvas (the overlay shows the marks)</p>
+      <ul className="cv-prov-rows">
+        {(["discovered", "asserted", "authored", "unconfirmed"] as const).map((k) => (
+          <li key={k}>
+            <button type="button" className={`cv-prov-row${filter === k ? " pressed" : ""}`} aria-pressed={filter === k} data-testid={`prov-row-${k}`} onClick={() => onFilter(filter === k ? null : k)}>
+              <span className={`cv-prov-badge cv-prov-${k}`} aria-hidden="true">{k === "discovered" ? "D" : k === "asserted" ? "A" : k === "authored" ? "+" : "?"}</span> {k} <span className="badge">{counts[k]}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -254,6 +313,83 @@ function TwinPanel(p: SidePanelProps) {
   );
 }
 
+/** The Provenance block (topology-layers §3.1, §3.3): where the subject came
+ *  from and how firmly, and the actions through the seam on a cast twin. */
+function Provenance(p: SidePanelProps & { subject: ProvenanceSubject; source: string | null; confidence: number | null; extra?: ReactNode }) {
+  const block = p.provenanceBlock?.(p.subject) ?? (p.onProvenance ? null : "this twin was not cast from an imprint; there is nothing to confirm or doubt");
+  const act = (kind: "confirm" | "doubt") => p.onProvenance?.({ kind, subject: p.subject });
+  return (
+    <>
+      <h4>Provenance</h4>
+      <dl className="facts" data-testid="provenance">
+        <dt>Source</dt>
+        <dd data-testid="provenance-source">{p.source ?? "authored"}{typeof p.confidence === "number" ? ` · confidence ${p.confidence.toFixed(2)}` : ""}</dd>
+      </dl>
+      <div className="row cv-inline">
+        <button type="button" disabled={p.locked || block !== null} title={block ?? "pin what discovery found as asserted: it survives a re-cast"} onClick={() => act("confirm")} data-testid="prov-confirm">
+          Confirm
+        </button>
+        <button type="button" disabled={p.locked || block !== null} title={block ?? "mark this as unconfirmed (weak evidence); re-derived by the next cast unless pinned"} onClick={() => act("doubt")} data-testid="prov-doubt">
+          Mark unconfirmed
+        </button>
+        {p.extra}
+      </div>
+      {block ? <p className="muted hint">{block}</p> : null}
+    </>
+  );
+}
+
+/** The ×N group's members (topology-layers §5): one row per instance, the
+ *  role override (te) and the persona (tfc, by instance id) editable. */
+function Members(p: SidePanelProps & { name: string }) {
+  const n = p.model.te.nodes.find((x) => x.name === p.name);
+  if (!n || n.countValue <= 1) return null;
+  const ro = p.locked;
+  const rows = Array.from({ length: n.countValue }, (_, i) => i + 1);
+  const instance = (i: number) => `${n.name}${String(i).padStart(2, "0")}`;
+  return (
+    <>
+      <h4>Members</h4>
+      <table className="cv-members" data-testid="members">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>instance</th>
+            <th>role</th>
+            <th>persona</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((i) => {
+            const m = n.members.find((x) => x.index === i) ?? null;
+            const bound = p.model.tfc?.assignments.find((a) => a.by === "node" && a.target === instance(i)) ?? null;
+            const inherited = effectiveAssignment(p.model.tfc, n.name, m?.role ?? n.role);
+            return (
+              <tr key={i} data-testid="member-row" data-index={i} data-overridden={m ? "true" : undefined}>
+                <td>{i}</td>
+                <td className="mono">{instance(i)}</td>
+                <td>
+                  <Text ariaLabel={`Role of ${instance(i)}`} value={m?.role ?? ""} placeholder={n.role ?? "inherits"} disabled={ro} onCommit={(v) => p.apply(`role of ${instance(i)}`, (d) => setMemberRole(d, n.name, i, v.trim() || null))} />
+                </td>
+                <td>
+                  <select aria-label={`Persona of ${instance(i)}`} value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${instance(i)}`, (d, mo) => clearPersona(d, mo, "node", instance(i))); else p.apply(`persona of ${instance(i)}`, (d, mo) => setPersona(d, mo, "node", instance(i), { persona: v })); }}>
+                    <option value="">{inherited ? `(${inherited.persona})` : "none"}</option>
+                    {p.personas.map((ps) => (
+                      <option key={ps.id} value={ps.id}>{ps.id}</option>
+                    ))}
+                    {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+                  </select>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="muted hint">a member's role override is a traffic change while the group's image stands; its persona is the traffic profile's binding of that instance</p>
+    </>
+  );
+}
+
 function NodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
@@ -265,15 +401,26 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const baseRole = p.baseline?.te.nodes.find((x) => x.name === n.name)?.role;
   const roleChanged = p.baseline !== null && baseRole !== undefined && baseRole !== n.role && n.role;
   const otherSegments = p.model.te.segments.filter((s) => !n.nets.some((l) => l.segment === s.name));
-  const isSwitch = n.role !== null && SWITCH_ROLES.has(n.role);
+  const isSwitch = n.kind === "switch" || (n.role !== null && SWITCH_ROLES.has(n.role));
   const observed = isSwitch && p.observedSegments ? p.observedSegments(n.name).filter((seg) => p.model.te.segments.some((s) => s.name === seg)) : [];
+  const links = p.model.te.links.filter((l) => l.a.device === n.name || l.b.device === n.name);
+  const tapsHere = (p.model.tap?.bindings ?? []).filter((b) => b.scope === "port" && b.targets.includes(n.name));
+  const title = n.kind === "router" ? "Router" : n.kind === "switch" ? "Switch" : "Node group";
   return (
-    <section className="cv-side-section" data-testid="node-panel">
+    <section className="cv-side-section" data-testid="node-panel" data-tier-blocks="identity,traffic,taps,members,provenance">
       <h3>
-        {n.kind === "router" ? "Router" : "Node group"} <span className="mono">{n.name}</span>
+        {title} <span className="mono">{n.name}</span>
       </h3>
+      <h4>Identity &amp; placement <span className="muted">· topology</span></h4>
       <Field label="Name">
         <Text ariaLabel="Node name" value={n.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename ${n.name} → ${v}`, (d, m) => renameNode(d, m, n.name, v)) === null) p.onRenamed?.("node", n.name, v); }} />
+      </Field>
+      <Field label="Kind" hint="a switch is a device wired by links; without an image it deploys as nothing but its segments' vnets">
+        <select aria-label="Kind" value={n.kind} disabled={ro} onChange={(e) => p.apply(`kind of ${n.name}`, (d) => setNodeField(d, n.name, "kind", e.target.value === "host" ? null : e.target.value))}>
+          <option value="host">host</option>
+          <option value="router">router</option>
+          <option value="switch">switch</option>
+        </select>
       </Field>
       <Field label="Role" hint="a role change that keeps the image applies live; with a new image it is a re-plan">
         <Text ariaLabel="Role" value={n.role ?? ""} disabled={ro} onCommit={(v) => p.apply(`role of ${n.name}`, (d) => setNodeField(d, n.name, "role", v.trim() || null))} />
@@ -283,8 +430,8 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           Promote to assertion: {n.name} is a {n.role}
         </PromoteButton>
       ) : null}
-      <Field label="Image" hint="an image the catalog names, or any ref; the API validates it against the manifests">
-        <Text ariaLabel="Image" value={n.image} disabled={ro} mono list="cv-images" onCommit={(v) => { if (v.trim()) p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v.trim())); }} />
+      <Field label="Image" hint={n.kind === "switch" ? "empty: the switch deploys as its segments' vnets only; with an image, a VM with one L2 port per carried segment" : "an image the catalog names, or any ref; the API validates it against the manifests"}>
+        <Text ariaLabel="Image" value={n.image} placeholder={n.kind === "switch" ? "none (vnets only)" : undefined} disabled={ro} mono list="cv-images" onCommit={(v) => p.apply(`image of ${n.name}`, (d) => setNodeField(d, n.name, "image", v.trim() || null))} />
         <datalist id="cv-images">
           {p.images.map((i) => (
             <option key={i} value={i} />
@@ -294,14 +441,8 @@ function NodePanel(p: SidePanelProps & { name: string }) {
       <Field label="Count" hint="instances fanned out at deploy; a number or a ${PARAM:default}">
         <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(v.trim()) ? Number(v.trim()) : v.trim() || null))} />
       </Field>
-      <Field label="Kind">
-        <select aria-label="Kind" value={n.kind} disabled={ro} onChange={(e) => p.apply(`kind of ${n.name}`, (d) => setNodeField(d, n.name, "kind", e.target.value === "router" ? "router" : null))}>
-          <option value="host">host</option>
-          <option value="router">router</option>
-        </select>
-      </Field>
-      <h4>Attachments</h4>
-      {isSwitch ? <p className="muted hint" data-testid="switch-note">a switch is a member of its segments, not a gateway to them: its attachments are the config's `nets[]`</p> : null}
+      <h5>Attachments</h5>
+      {isSwitch ? <p className="muted hint" data-testid="switch-note">a switch's attachments are its own ports (address-less unless a management address is given); the segments its links carry are below</p> : null}
       {n.nets.length === 0 ? <p className="muted">on no segment</p> : null}
       <ul className="cv-legs" data-testid="attachments">
         {n.nets.map((l) => (
@@ -345,7 +486,23 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </button>
         </div>
       ) : null}
-      <h4>Persona</h4>
+      <h5>Links and ports</h5>
+      {links.length === 0 ? <p className="muted">no link names this device{n.kind === "switch" ? ": wire it with the Attach tool from another device, or add a link in the Link panel" : ""}</p> : null}
+      <ul className="cv-legs" data-testid="device-links">
+        {links.map((l) => {
+          const mine = l.a.device === n.name ? l.a : l.b;
+          const other = l.a.device === n.name ? l.b : l.a;
+          const segs = [...(l.native ? [l.native] : []), ...l.vlans.filter((v) => v !== l.native)];
+          return (
+            <li key={l.index} data-testid="device-link" data-index={l.index}>
+              <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "link", index: l.index })} title="open the link's row">
+                <span className="mono">{mine.port}</span> — <span className="mono">{other.device}#{other.port}</span> <span className="muted">· {l.mode}{segs.length ? ` · ${segs.join(", ")}` : ""}{l.state !== "up" ? ` · ${l.state}` : ""}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <h4>Traffic <span className="muted">· tfc, live</span></h4>
       <Field label={bound ? "Bound to this group" : assignment ? `Inherited from role ${assignment.target}` : "Not bound"} hint="written to the traffic profile; applies live on a deployed twin">
         <select
           aria-label="Persona"
@@ -376,6 +533,35 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </Field>
         </>
       ) : null}
+      {tapsHere.length || n.kind !== "host" ? (
+        <>
+          <h4>Taps <span className="muted">· tap, live</span></h4>
+          {tapsHere.length === 0 ? <p className="muted">no port tap on this device; a segment's panel adds a tap on the segment</p> : null}
+          <ul className="cv-legs" data-testid="node-taps">
+            {tapsHere.map((b) => (
+              <li key={b.index} data-testid="tap-row" data-index={b.index}>
+                <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "tap", index: b.index })}>
+                  port {b.segment ?? "?"} → {b.sensors.join(", ") || "no sensor"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <Members {...p} name={n.name} />
+      <Provenance
+        {...p}
+        subject={{ node: n.name }}
+        source={n.source}
+        confidence={n.confidence}
+        extra={
+          p.onProvenance && n.kind !== "router" ? (
+            <button type="button" disabled={ro || (p.provenanceBlock?.({ node: n.name }) ?? null) !== null} title={n.kind === "switch" ? "record in the imprint's assertions that this host is a switch" : "record in the imprint's assertions that this host is a switch, and make it one"} onClick={() => p.onProvenance?.({ kind: "assert-device", node: n.name, deviceKind: "switch" })} data-testid="prov-assert-switch">
+              Assert: a switch
+            </button>
+          ) : null
+        }
+      />
       <h4>Actions</h4>
       <div className="row cv-inline">
         <select aria-label="Duplicate onto segment" value={dupTarget} disabled={ro} onChange={(e) => setDupTarget(e.target.value)}>
@@ -451,6 +637,9 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
       </Field>
       <h4>On this segment</h4>
       {on.length === 0 ? <p className="muted">nothing attached</p> : <p className="mono">{on.map((n) => `${n.name}${n.countValue > 1 ? ` ×${n.countValue}` : ""}`).join(", ")}</p>}
+      <SegmentTaps {...p} segment={s.name} />
+      <Provenance {...p} subject={{ segment: s.name }} source={s.source} confidence={s.confidence} />
+      <h4>Actions</h4>
       <button type="button" className="danger" disabled={ro} onClick={() => p.apply(`remove segment ${s.name}`, (d, m) => removeSegment(d, m, s.name))}>
         Remove segment{on.length ? ` (detaches ${on.length})` : ""}
       </button>
@@ -513,27 +702,131 @@ function LegPanel(p: SidePanelProps & { node: string; segment: string }) {
   );
 }
 
+/** The taps on a segment (§8): one row per binding that names it, the
+ *  sensors editable, Remove, and Add tap -- a `taps` change, live. */
+function SegmentTaps(p: SidePanelProps & { segment: string }) {
+  const [sensors, setSensors] = useState("");
+  const ro = p.locked;
+  const taps = tapsOn(p.model.tap, p.segment);
+  const known = [...new Set((p.model.tap?.bindings ?? []).flatMap((b) => b.sensors))];
+  return (
+    <>
+      <h4>Taps <span className="muted">· tap, live</span></h4>
+      {taps.length === 0 ? <p className="muted">no tap on this segment</p> : null}
+      <ul className="cv-legs" data-testid="segment-taps">
+        {taps.map((b) => (
+          <li key={b.index} data-testid="tap-row" data-index={b.index} data-scope={b.scope}>
+            <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "tap", index: b.index })} title="open the tap's row">
+              {b.scope}{b.scope === "boundary" ? ` ${b.targets.join(" ↔ ")}` : ""} → {b.sensors.join(", ") || "no sensor"}
+            </button>
+            <button type="button" disabled={ro} onClick={() => p.apply(`remove tap ${b.index} on ${p.segment}`, (d, m) => removeTap(d, m, b.index))}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="row cv-inline">
+        <input type="text" aria-label="Tap sensors" placeholder={known[0] ? `sensors, e.g. ${known[0]}` : "sensor names, comma-separated"} value={sensors} disabled={ro} onChange={(e) => setSensors(e.target.value)} list="cv-sensors" />
+        <datalist id="cv-sensors">
+          {known.map((k) => (
+            <option key={k} value={k} />
+          ))}
+        </datalist>
+        <button type="button" disabled={ro} data-testid="add-tap" onClick={() => { if (p.apply(`tap on ${p.segment}`, (d, m) => addTap(d, m, { scope: "segment", target: p.segment, sensors: sensors.split(",").map((x) => x.trim()).filter(Boolean), source: "authored" })) === null) setSensors(""); }}>
+          Add tap
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** A tap binding (§8): where it sits, its sensors (editable), Remove, provenance. */
+function TapPanel(p: SidePanelProps & { index: number }) {
+  const b = p.model.tap?.bindings[p.index];
+  if (!b) return <p className="muted">no tap at index {p.index}</p>;
+  const ro = p.locked;
+  return (
+    <section className="cv-side-section" data-testid="tap-panel">
+      <h3>
+        Tap <span className="mono">{b.scope} {b.targets.join(" ↔ ")}{b.segment ? ` (${b.segment})` : ""}</span>
+      </h3>
+      <h4>Taps <span className="muted">· tap, live</span></h4>
+      <Field label="Sensors" hint="comma-separated sensor names the tap delivers to (the tap plan's sensors[])">
+        <Text ariaLabel="Sensors" value={b.sensors.join(", ")} disabled={ro} mono onCommit={(v) => p.apply(`sensors of tap ${b.index}`, (d, m) => setTapSensorsOf(d, m, b.index, v.split(",").map((x) => x.trim()).filter(Boolean)))} />
+      </Field>
+      <dl className="facts">
+        <dt>Mode</dt>
+        <dd>{b.mode ?? "exclusive"}</dd>
+      </dl>
+      <Provenance {...p} subject={{ tap: b.index }} source={b.source} confidence={null} extra={p.onProvenance && !b.source ? <button type="button" disabled={ro || (p.provenanceBlock?.({ tap: b.index }) ?? null) !== null} onClick={() => p.onProvenance?.({ kind: "assert-tap", index: b.index })} data-testid="prov-assert-tap">Assert this tap</button> : null} />
+      <h4>Actions</h4>
+      <button type="button" className="danger" disabled={ro} onClick={() => p.apply(`remove tap ${b.index}`, (d, m) => removeTap(d, m, b.index))}>
+        Remove tap
+      </button>
+    </section>
+  );
+}
+
 /** A `links[]` entry (the device tree, topology-layers §2.3): its two ports,
- *  mode, the segments it carries, its state and provenance. */
+ *  mode, the segments it carries, its state -- all editable -- and provenance. */
 function LinkPanel(p: SidePanelProps & { index: number }) {
   const link = p.model.te.links[p.index];
   if (!link) return <p className="muted">no link at index {p.index}</p>;
-  const segs = [...(link.native ? [link.native] : []), ...link.vlans.filter((v) => v !== link.native)];
+  const ro = p.locked;
+  const segs = p.model.te.segments.map((s) => s.name);
+  const toggle = (seg: string) => {
+    const next = link.vlans.includes(seg) ? link.vlans.filter((v) => v !== seg) : [...link.vlans, seg];
+    p.apply(`vlans of link ${link.index}`, (d) => setLinkField(d, link.index, "vlans", next));
+  };
   return (
     <section className="cv-side-section" data-testid="link-panel">
       <h3>
         Link <span className="mono">{link.a.device}#{link.a.port} — {link.b.device}#{link.b.port}</span>
       </h3>
-      <dl className="facts">
-        <dt>Mode</dt>
-        <dd>{link.mode}{link.native ? <span className="muted"> · native {link.native}</span> : null}</dd>
-        <dt>Segments</dt>
-        <dd className="mono">{segs.join(", ") || "none"}</dd>
-        <dt>State</dt>
-        <dd>{link.state}</dd>
-        <dt>Provenance</dt>
-        <dd>{link.source ?? "authored"}{typeof link.confidence === "number" ? ` (${link.confidence.toFixed(2)})` : ""}</dd>
-      </dl>
+      <h4>Identity &amp; placement <span className="muted">· topology</span></h4>
+      <Field label={`Port on ${link.a.device}`}>
+        <Text ariaLabel={`Port on ${link.a.device}`} value={link.a.port} disabled={ro} mono onCommit={(v) => { if (v.trim()) p.apply(`port of link ${link.index}`, (d) => setLinkField(d, link.index, "a.port", v.trim())); }} />
+      </Field>
+      <Field label={`Port on ${link.b.device}`}>
+        <Text ariaLabel={`Port on ${link.b.device}`} value={link.b.port} disabled={ro} mono onCommit={(v) => { if (v.trim()) p.apply(`port of link ${link.index}`, (d) => setLinkField(d, link.index, "b.port", v.trim())); }} />
+      </Field>
+      <Field label="Mode" hint="a trunk carries its VLANs tagged and the native untagged; an access link carries one segment">
+        <select aria-label="Link mode" value={link.mode} disabled={ro} onChange={(e) => p.apply(`mode of link ${link.index}`, (d) => setLinkField(d, link.index, "mode", e.target.value))}>
+          <option value="trunk">trunk</option>
+          <option value="access">access</option>
+        </select>
+      </Field>
+      {link.mode === "trunk" ? (
+        <Field label="Native">
+          <select aria-label="Native VLAN" value={link.native ?? ""} disabled={ro} onChange={(e) => p.apply(`native of link ${link.index}`, (d) => setLinkField(d, link.index, "native", e.target.value || null))}>
+            <option value="">(none)</option>
+            {segs.map((sg) => (
+              <option key={sg} value={sg}>{sg}</option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+      <Field label="Segments carried" hint="the segments the link's `vlans[]` names">
+        <div className="cv-checks-list" data-testid="link-vlans">
+          {segs.map((sg) => (
+            <label key={sg} className="cv-check">
+              <input type="checkbox" checked={link.vlans.includes(sg)} disabled={ro} onChange={() => toggle(sg)} /> <span className="mono">{sg}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <Field label="State" hint="down or blocked deploys nothing and draws dashed">
+        <select aria-label="Link state" value={link.state} disabled={ro} onChange={(e) => p.apply(`state of link ${link.index}`, (d) => setLinkField(d, link.index, "state", e.target.value === "up" ? null : e.target.value))}>
+          <option value="up">up</option>
+          <option value="down">down</option>
+          <option value="blocked">blocked</option>
+        </select>
+      </Field>
+      <Provenance {...p} subject={{ link: link.index }} source={link.source} confidence={link.confidence} extra={p.onProvenance && link.source !== "asserted" ? <button type="button" disabled={ro || (p.provenanceBlock?.({ link: link.index }) ?? null) !== null} onClick={() => p.onProvenance?.({ kind: "assert-link", index: link.index })} data-testid="prov-assert-link">Assert this link</button> : null} />
+      <h4>Actions</h4>
+      <button type="button" className="danger" disabled={ro} onClick={() => { p.apply(`remove link ${link.index}`, (d) => removeLink(d, link.index)); p.onSelect?.({ kind: "none" }); }}>
+        Remove link
+      </button>
     </section>
   );
 }

@@ -46,7 +46,24 @@ export interface TreeOptions extends Level0Options {
   tree?: TreeStructure;
   /** How many pills a carrier shows before folding the rest into `+N more` (the rail's Fan-out). */
   fan?: number;
+  /** The tap plan's bindings (topology-layers §8): a chip on each segment or device a tap sits on. */
+  taps?: readonly TreeTap[];
 }
+
+export interface TreeTap {
+  index: number;
+  scope: string;
+  /** The segments (a `segment` / `boundary` tap) or the device (a `port` tap) it sits on. */
+  targets: string[];
+  /** A `port` tap's segment: where the chip goes when the port is a host's (the host sits on a pill). */
+  segment?: string | null;
+  sensors: string[];
+  source: string | null;
+}
+
+/** The size of a tap chip on a pill's or a device's top edge. */
+export const TAP_CHIP_W = 44;
+export const TAP_CHIP_H = 18;
 
 /** The pill's label column, left of its icons. */
 export const PILL_LABEL_W = 132;
@@ -396,6 +413,20 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
         nodes.push({ id: `${id}:rungs:${c.rungs.role}`, type: "rungs", parentId: id, position: rel, width: BUS_ICON, height: BUS_ICON, draggable: false, ...common, data: c.rungs });
       }
     });
+  }
+  // Taps (§8): an amber chip on the top edge of every pill (or device) a binding names.
+  for (const tap of options.taps ?? []) {
+    for (const target of tap.targets) {
+      // A port tap on a device rides the device; on a host it rides the pill the port is on, at the left.
+      const onHost = tap.scope === "port" && !deviceNames.has(target);
+      const pill = (seg: string | null | undefined) => (seg && anchorByName[seg] === seg ? ID.segment(seg) : null);
+      const parentId = tap.scope === "port" ? (deviceNames.has(target) ? nodeIdOf(target) : pill(tap.segment)) : pill(target);
+      if (!parentId) continue;
+      const parent = nodes.find((n) => n.id === parentId);
+      if (!parent) continue;
+      const w = parent.width ?? DEVICE_W;
+      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: tap.scope === "segment", selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? null } });
+    }
   }
   for (const [carrier, f] of folded) {
     const id = TREE_ID.carrierOverflow(carrier);
