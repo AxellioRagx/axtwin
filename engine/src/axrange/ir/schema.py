@@ -111,6 +111,38 @@ class DhcpConfig(IRBase):
     range: Optional[list[Any]] = None
 
 
+#: `source:` vocabulary (IR_SCHEMA §3.6, `scenario_schema_version` 4; the
+#: device tree, `docs/design/topology-layers.md` §3.1). Absent == authored.
+SOURCES: tuple[str, ...] = ("discovered", "asserted", "authored", "unconfirmed")
+
+
+class LinkEnd(IRBase):
+    """One end of a `links[]` entry: a node id and a port name on it."""
+
+    device: Optional[str] = None
+    port: Optional[str] = None
+
+
+class Link(IRBase):
+    """`layers.infra.links[]` (IR_SCHEMA §3.3, additive at `4`): a wire
+    between two device ports, or a device port and a host. A trunk carries
+    `vlans[]` tagged and `native` untagged; an access link carries exactly
+    one network, named in `vlans[]`. The planner emits nothing for a link
+    (a switch VM's NICs come from its `nets[]`, which the twin-config
+    expander derives from its links); a link that is not `up` carries
+    nothing."""
+
+    a: Optional[LinkEnd] = None
+    b: Optional[LinkEnd] = None
+    mode: Optional[str] = None  # trunk | access (STR-210)
+    native: Optional[str] = None  # network id; trunk only
+    vlans: Optional[list[str]] = None  # network ids (REF-280)
+    state: Optional[str] = None  # up | down | blocked (STR-210); absent == up
+    source: Optional[str] = None  # §3.6
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
+
+
 class Network(IRBase):
     id: Optional[str] = None
     cidr: Optional[str] = None
@@ -132,6 +164,9 @@ class Network(IRBase):
                                      # net (int or dotted); router↔router ⇒ p2p adjacency.
     vni: Optional[int] = None  # fabric slice: EVPN L2VNI — leaves attached to this net
                                # become VTEPs bridging it; a shared vni ⇒ stretched L2.
+    source: Optional[str] = None  # IR_SCHEMA §3.6 provenance (schema 4); absent == authored
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class Node(IRBase):
@@ -168,6 +203,9 @@ class Node(IRBase):
                                  # inventory, axrange.planner.inventory.build_twin_inventory).
                                  # Optional; additive; unrelated to `kind` (host/router/switch,
                                  # a topology-shape tag) or an identity/overlay role.
+    source: Optional[str] = None  # IR_SCHEMA §3.6 provenance (schema 4); absent == authored
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class InstallAction(IRBase):
@@ -282,6 +320,7 @@ class Activity(IRBase):
 class Infra(IRBase):
     networks: list[Network] = Field(default_factory=list)
     nodes: list[Node] = Field(default_factory=list)
+    links: list[Link] = Field(default_factory=list)  # IR_SCHEMA §3.3 (schema 4)
 
 
 class Layers(IRBase):

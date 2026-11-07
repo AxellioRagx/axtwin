@@ -1,9 +1,9 @@
 # Topology layers: the device tree, provenance, and the canvas
 
 **Status:** decided 2026-11-07 (user, `docs/design/topology-layers.brief.md`),
-to be built on `wip/design-platforms-canvas` in the order of §12. The
-contract changes in §10 and the decisions in §11 are **not yet signed off**;
-no code starts before they are.
+to be built on `wip/design-platforms-canvas` in the order of §12. §10 and
+§11 were signed off by the user the same day; §10 is applied to the contract
+files as of track 2 and the tracks of §12 are being built in order.
 **Supersedes:** the "Rendering rules" of `ui/src/features/edit-canvas/SPEC.md`
 (tracks 1-4, 2026-11-06) and that spec's premise that a twin has no link
 objects; `api/Spec.md` A2's two-way *live* / *re-plan* classification as the
@@ -405,12 +405,15 @@ commit. The text below is the proposed wording; nothing here is in effect.
 +> `3` are; STR-020 recognises `{1, 2, 3, 4}`.
 ```
 
-§3.2, the node table:
+§3.2, the node table (`members[]` is a **twin-config** field: the expander
+applies it before the IR exists, so the IR carries the overridden `role` on
+the instance and no `members[]`; the twin-config shape is enforced in
+`twinconfig/expand.py` like `listen:`):
 
 ```diff
  | `role` | no | string | … |
-+| `members` | no | list[obj] | **Additive, `4`.** `[{index, role}, …]` on a node the twin config fans out by `count`; `index` is `1…count` and names the instance the expander mints (`{name}{index:02d}`). Only `role` here: traffic fields per instance are the tfc tier's `assignments[]`. |
-+| `source` | no | enum | **Additive, `4`.** `discovered \| asserted \| authored \| unconfirmed`; see §3.6. |
++| `source`, `confidence`, `vantage` | no | | **Additive, `4`.** Provenance, §3.6. |
++| `image` on `kind: switch` | no | string | **`4`.** A switch may omit `image:`; it then deploys as nothing and the planner emits no VM for it. |
 ```
 
 §3.2, replacing the "Switches with `kind: switch` are rare" paragraph:
@@ -492,7 +495,7 @@ New §3.6:
 -| `STR-020` | error | `scenario_schema_version` present and recognized (`{1, 2}` — widened 2026-07-24, …) |
 +| `STR-020` | error | `scenario_schema_version` present and recognized (`{1, 2, 3, 4}`: widened 2026-07-24, 2026-07-28 and 2026-11-07, `docs/design/topology-layers.md`) |
 +| `STR-210` | error | Every `links[]` entry has `a` and `b` as `{device, port}` with non-blank strings, `mode` ∈ {`trunk`, `access`}, `state` ∈ {`up`, `down`, `blocked`} if present, `native` only with `mode: trunk`, and `vlans` a non-empty list (exactly one entry under `access`) |
-+| `STR-220` | error | Every `source` is ∈ {`discovered`, `asserted`, `authored`, `unconfirmed`}; `confidence` is a float in `0.0`–`1.0` and present only with `discovered` or `unconfirmed`; every `members[]` entry has an int `index` in `1…count` and the indexes are unique |
++| `STR-220` | error | Every `source` on a network, node or link is ∈ {`discovered`, `asserted`, `authored`, `unconfirmed`}; `confidence` is a float in `0.0`–`1.0` and present only with `discovered` or `unconfirmed` (a `members[]` index outside `1…count`, or repeated, is a twin-config shape error at expansion) |
 ```
 
 §5.3, two new rows:
@@ -507,7 +510,7 @@ New §3.6:
 ```diff
 +| `NET-120` | error | No device uses one `port` name on two links (`a` and `b` ends counted together) |
 +| `NET-130` | error | A link's two ends are different devices; a network marked `isolated: true` shares its CIDR with exactly one non-isolated network (its anchor), and no two non-isolated networks share one CIDR (NET-010 states the overlap rule; this states the anchor rule the twin-config expander enforces today) |
-+| `NET-140` | warning | A `kind: switch` node has no link and no `nets:` entry (a parked device: the canvas blocks Apply and Save on it) |
++| `NET-140` | warning | A `kind: switch` node is named by no `links[]` entry: a parked device (the canvas blocks Apply and Save on it) or the pre-device-tree `nets:` spelling; a switch with no `nets:` at all is halted by STR-070 first |
 ```
 
 §5, the count paragraph:

@@ -1026,6 +1026,10 @@ def topology(settings: ApiSettings, scenario: str, *,
             image=node.image,
             requires=node.requires,
             status=status_by_node.get(node.id),
+            role=node.role,
+            source=node.source,
+            confidence=node.confidence,
+            vantage=node.vantage,
         ))
         # edges: single `net` + multi-homed `nets`
         if node.net:
@@ -1036,8 +1040,21 @@ def topology(settings: ApiSettings, scenario: str, *,
                     source=node.id, target=nr.net, ip=nr.ip
                 ))
 
+    # The device tree's wiring (IR_SCHEMA §3.3): every link, as the canvas
+    # draws it; a link that is not `up` is still listed, with its state.
+    links: list[dtos.TopologyLinkDTO] = []
+    for link in (infra.links if infra else []):
+        if link.a is None or link.b is None or not link.a.device or not link.b.device:
+            continue
+        links.append(dtos.TopologyLinkDTO(
+            a=link.a.device, a_port=link.a.port or "", b=link.b.device, b_port=link.b.port or "",
+            mode=link.mode or "trunk", native=link.native, vlans=list(link.vlans or []),
+            state=link.state or "up", source=link.source, confidence=link.confidence,
+            vantage=link.vantage,
+        ))
+
     return dtos.TopologyDTO(
-        scenario_id=scenario_id, deploy_id=deploy_id, nodes=nodes, edges=edges
+        scenario_id=scenario_id, deploy_id=deploy_id, nodes=nodes, edges=edges, links=links,
     )
 
 

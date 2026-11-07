@@ -67,6 +67,12 @@ class TopologyNodeDTO(BaseModel):
     # live op status overlay (joined from state.db); None when no deploy / pre-deploy.
     # one of: completed | running | failed | halted-due-to-upstream | pending
     status: Optional[str] = None
+    # the device tree (docs/design/topology-layers.md, 2026-11-07): the node's
+    # `role:` and its provenance (`source` absent == authored).
+    role: Optional[str] = None
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class TopologyEdgeDTO(BaseModel):
@@ -77,12 +83,30 @@ class TopologyEdgeDTO(BaseModel):
     ip: Optional[str] = None
 
 
+class TopologyLinkDTO(BaseModel):
+    """One `layers.infra.links[]` entry: a wire between two device ports
+    (docs/design/topology-layers.md §2.3)."""
+
+    a: str  # node id
+    a_port: str
+    b: str  # node id
+    b_port: str
+    mode: str  # trunk | access
+    native: Optional[str] = None  # network id
+    vlans: list[str] = []  # network ids
+    state: str = "up"  # up | down | blocked
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
+
+
 class TopologyDTO(BaseModel):
     scenario_id: str
     # deploy whose status annotates the nodes (None if not annotated)
     deploy_id: Optional[str] = None
     nodes: list[TopologyNodeDTO]
     edges: list[TopologyEdgeDTO]
+    links: list[TopologyLinkDTO] = []
 
 
 # --------------------------------------------------------------------------

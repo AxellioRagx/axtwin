@@ -47,6 +47,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from axrange.ir.capabilities import install_action_kind
 from axrange.ir.schema import IR, NetRef, Network, Node, Resources
 from axrange.manifest.loader import ManifestRegistry
@@ -137,6 +139,9 @@ def _binding_for_node(
             return image_id, binding.versions[0]
         return image_id, None
     return image_id, binding.get_version(version_id)
+
+
+_log = logging.getLogger(__name__)
 
 
 def _is_router(node: Node) -> bool:
@@ -370,15 +375,32 @@ def emit_ops(
     nodes = list(ir.layers.infra.nodes)
 
     # ---- Slice gating ------------------------------------------------------
-    # The slice only supports `kind: host` nodes; routers/switches and any
-    # apps/overlays/activity are out of scope (docs/ADAPTER.md §6).
+    # `host`, `router` and -- since the device tree (`docs/design/
+    # topology-layers.md` §2.5, 2026-11-07) -- `switch`. A switch WITH an
+    # image is a VM like a host (one L2 NIC per segment its `nets[]` list,
+    # which the twin-config expander derives from its links; the ordering
+    # pass already treats a multi-legged non-router as a forwarder). A
+    # switch WITHOUT an image deploys as nothing: its segments' vnets exist
+    # on their own, so it leaves the node set here and emits no op. It stays
+    # in the IR for the topology routes and the validator.
     for n in nodes:
         k = str(n.kind).lower().split(".")[-1] if n.kind is not None else "host"
-        if k not in ("host", "router"):
+        if k not in ("host", "router", "switch"):
             raise EmissionError(
-                f"node {n.id!r} kind={n.kind!r}: only kind=host and kind=router "
-                "are supported (switch not implemented)"
+                f"node {n.id!r} kind={n.kind!r}: only kind=host, kind=router and "
+                "kind=switch are supported"
             )
+    imageless_switches = [
+        n.id for n in nodes
+        if n.kind is not None and str(n.kind).lower().split(".")[-1] == "switch"
+        and not n.image
+    ]
+    if imageless_switches:
+        _log.info(
+            "pass1: %d imageless switch(es) emit no VM (their segments' vnets "
+            "carry them): %s", len(imageless_switches), imageless_switches,
+        )
+        nodes = [n for n in nodes if n.id not in imageless_switches]
     # apps + activity: config-class provisioning (OP-APP, docs/SLICE_CONFIG.md)
     # and the inline-steps activity engine (OP-ACT, docs/SLICE_ACTIVITY.md) are
     # both supported — emitted after the per-host ops below.

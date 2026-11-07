@@ -293,6 +293,94 @@ def check_net_100(ctx: ValidatorContext) -> list[Finding]:
 # catalog.py). See that file's comment for the full rationale.
 
 
+def check_net_120(ctx: ValidatorContext) -> list[Finding]:
+    """No device uses one port name on two links (both ends counted)."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    seen: dict[tuple[str, str], int] = {}
+    for i, link in enumerate(ctx.ir.layers.infra.links):
+        for end in (link.a, link.b):
+            if end is None or not end.device or not end.port:
+                continue
+            key = (end.device, end.port)
+            if key in seen:
+                findings.append(make_finding(
+                    "NET-120", device=end.device, port=end.port, first=seen[key], second=i,
+                    location=f"layers.infra.links[{i}]",
+                ))
+            else:
+                seen[key] = i
+    return findings
+
+
+def check_net_130(ctx: ValidatorContext) -> list[Finding]:
+    """A link's two ends are different devices; an `isolated: true` network
+    shares its CIDR with exactly one non-isolated network (its anchor) --
+    the twin-config expander's rule, repeated on the IR (NET-010 states the
+    overlap rule for the non-isolated set)."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    infra = ctx.ir.layers.infra
+    for i, link in enumerate(infra.links):
+        if link.a is not None and link.b is not None and link.a.device and link.a.device == link.b.device:
+            findings.append(make_finding(
+                "NET-130", detail=f"links[{i}]: both ends are device '{link.a.device}'",
+                location=f"layers.infra.links[{i}]",
+            ))
+    plain = []
+    for net in infra.networks:
+        if net.isolated:
+            continue
+        parsed = _parse_network(net.cidr or "")
+        if parsed is not None:
+            plain.append((net.id, parsed))
+    for i, net in enumerate(infra.networks):
+        if not net.isolated:
+            continue
+        parsed = _parse_network(net.cidr or "")
+        if parsed is None:
+            continue  # NET-020
+        anchors = [nid for nid, p in plain if p == parsed]
+        if len(anchors) != 1:
+            findings.append(make_finding(
+                "NET-130",
+                detail=(
+                    f"network '{net.id}' is isolated with cidr {parsed}, which must equal "
+                    f"exactly one non-isolated network's (found {len(anchors)}"
+                    f"{': ' + ', '.join(str(a) for a in anchors) if anchors else ''})"
+                ),
+                location=f"layers.infra.networks[{i}]",
+            ))
+    return findings
+
+
+def check_net_140(ctx: ValidatorContext) -> list[Finding]:
+    """A `kind: switch` node that no `links[]` entry names is unwired: a
+    parked device, or the pre-device-tree `nets:` spelling. A warning (the
+    canvas blocks Apply and Save on a parked one). A switch with no `nets:`
+    at all never reaches this pass: STR-070 halts on it."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    infra = ctx.ir.layers.infra
+    linked = set()
+    for link in infra.links:
+        for end in (link.a, link.b):
+            if end is not None and end.device:
+                linked.add(end.device)
+    for i, node in enumerate(infra.nodes):
+        if node_kind(node) != "switch":
+            continue
+        if node.id not in linked:
+            findings.append(make_finding(
+                "NET-140", node_id=node.id or f"<index {i}>",
+                location=f"layers.infra.nodes[{i}]",
+            ))
+    return findings
+
+
 CHECKS: list[Check] = [
     check_net_010,
     check_net_020,
@@ -304,4 +392,7 @@ CHECKS: list[Check] = [
     check_net_080,
     check_net_090,
     check_net_100,
+    check_net_120,
+    check_net_130,
+    check_net_140,
 ]

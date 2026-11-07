@@ -1,0 +1,50 @@
+# switch-test -- canvas-test's shape with ONE imageless access switch between
+# the router and the office workstations (docs/design/topology-layers.md,
+# track 2's dev45 fixture, 2026-11-07). The switch deploys as nothing: its
+# links say `office` reaches the workstations through `access-sw`, the vnet
+# `office` is what the engine stands up, so the deploy is canvas-test's.
+twin_config:
+  id: switch-test
+  description: "canvas-test with an imageless access switch: office workstations behind access-sw, a file server, one router, tapped to XPress-SW-A."
+
+  segments:
+    - { name: office, cidr: 10.71.10.0/24, zone_type: vlan }
+    - { name: servers, cidr: 10.71.20.0/24, zone_type: vlan }
+
+  nodes:
+    - name: corp-workstation
+      role: corp-workstation
+      image: debian-12-cloud@v1
+      count: 2
+      net: office
+      members:
+        - { index: 2, role: jump-host, source: authored }
+    - name: file-server
+      role: file-server
+      image: ubuntu-server-22@v5
+      nets:
+        - { segment: servers, ip: 10.71.20.10 }
+    - name: access-sw
+      kind: switch
+      role: l2-switch
+      source: authored
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: office }
+        - { segment: servers }
+
+  links:
+    - a: { device: gw, port: eth1 }
+      b: { device: access-sw, port: SFP1 }
+      mode: trunk
+      native: office
+      vlans: [office]
+      source: authored
+    - a: { device: access-sw, port: P24 }
+      b: { device: file-server, port: eth0 }
+      mode: access
+      vlans: [servers]
+      state: down
+      source: authored

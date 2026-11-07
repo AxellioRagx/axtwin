@@ -2,7 +2,7 @@
 
 Authoritative spec for the Scenario IR. Companion to `docs/ARCHITECTURE.md` §2 (high-level picture) and `docs/IMAGE_MANIFEST.md` (image side of the contract). The CHANGELOG entries dated 2026-05-21 — "IR concrete schema", "IR capability taxonomy", "Image manifest + binding" — capture the rationale; this document captures the surface.
 
-**Status:** ratified for v1. Changes to this spec must bump `scenario_schema_version` and add a CHANGELOG entry.
+**Status:** ratified for v1. Changes to this spec must bump `scenario_schema_version` and name the design document that records them (git history is the changelog; root `CLAUDE.md` rule 3).
 
 > **"Scenario" vs "target environment" (naming — decided 2026-07-09, not renamed):** a **scenario (IR)**
 > is this *authored spec* — the versioned recipe; the term "Scenario IR" and the `scenario` code/API
@@ -103,6 +103,15 @@ The validator rejects an IR whose `scenario_schema_version` it does not recogniz
 > resolved against the twin's full published topology (`hosts[].nets[]`, §3.2) at tap-apply time —
 > `axrange tap plan`/`axrange tap deploy` — never in the Scenario IR. See `docs/WORK_ORDER_tap_eligibility.md`
 > for the full rationale.
+>
+> **`scenario_schema_version` widened 3→4 (Authority: user, 2026-11-07, `docs/design/topology-layers.md`
+> §10).** Additive. `layers.infra` gains `links[]` (§3.3); every network, node and link may carry
+> `source`, `confidence` and `vantage` (§3.6). A `kind: switch` node is wired by `links[]` and may
+> carry no `image:` (§3.2). Declaring `4` is optional, as `2` and `3` are; STR-020 recognises
+> `{1, 2, 3, 4}`. The twin-config expander declares `4` only for a config that uses one of these
+> fields, so every shipped twin config still expands to a byte-identical `scenario_schema_version: 1`
+> IR. Per-instance `members[]` overrides are a **twin-config** field (expanded before the IR exists),
+> enforced in `twinconfig/expand.py` like `listen:` (§4), not an IR field.
 
 ---
 
@@ -230,6 +239,8 @@ A multi-homed node uses `nets:` (a list) instead of `net:` (a single id):
 > deploy.
 | `default_agents_off` | no | list[string] | **Additive, A3 Stage A** (`docs/design/08-exercise-measurement.md`). Opt THIS node out of one or more baked-in default agents when `scenario.default_agents` is not `false` (§2). Values: `"defense"` \| `"exporter"`. `"adversary"` is accepted too, but only matters if this node is also listed in an `overlays.adversary[].targets:` — it is never a blanket default, so listing it here just drops the node from that entry's fan-out. |
 | `role` | no | string | **Additive** (`docs/WORK_ORDER_traffic_tier.md`, `docs/design/02-twin-model.md`; Authority: user, 2026-07-24; parsed regardless of the declared `scenario_schema_version` — a `version: 1` IR with `role:` gets it too, it is not gated on v2). A **persona-assignable role tag** (e.g. `corp-workstation`, `domain-controller`) — what the Traffic tier (`tfc`) binds a persona onto. Sourced from `clone-vm`'s `node_role` input into `hosts[].role` in the published twin inventory (`axrange.planner.inventory.build_twin_inventory`); `None`/absent when undeclared, never fabricated. Unrelated to `kind` (a topology-shape tag: host/router/switch) or to any identity/overlay role. A twin config's `nodes[].role` (`docs/design/02-twin-model.md`) is the same tag, propagated by the expander. |
+| `source`, `confidence`, `vantage` | no | | **Additive, `4`** (`docs/design/topology-layers.md`). Provenance, §3.6. |
+| `image` on `kind: switch` | no | string | **`4`.** A switch may omit `image:`; it then deploys as nothing (its networks' vnets exist on their own) and the planner emits no VM for it. A host or router still requires one. |
 
 **Router/switch specifics:**
 
@@ -251,7 +262,36 @@ A multi-homed node uses `nets:` (a list) instead of `net:` (a single id):
 | `static_routes` | no | list[obj] | Router-only. `[{to: <cidr>, via: <ip>}, ...]`. |
 | `joins` | no | str | AD domain FQDN this (Windows) host joins — the explicit host→domain join field (W2; emits `join-host-to-domain`, superseding the inferred `I1`). Requires a `role: adds` DC providing the domain. `docs/SLICE_WINDOWS_AD.md` §6.3. |
 
-Switches with `kind: switch` are rare in v1; Proxmox SDN handles inter-vnet switching natively. When present, a switch references the networks it bridges via `nets: [<id>, ...]` (string-only list, no per-net IP).
+A `kind: switch` node is a device wired by `links[]` (§3.3; `docs/design/topology-layers.md` §2, Authority: user, 2026-11-07). Its `nets[]` entries carry no address (an L2 port; a management SVI with an address is the exception), and the twin-config expander derives them from the switch's links. With an `image` it is deployed as a VM with one L2 NIC per network its links carry; without one it is deployed as nothing: the networks its links carry exist on their own, and the switch is topology for the operator. The older `nets: [<id>, ...]` string-list spelling is accepted and read as one address-less leg per network.
+
+### 3.3 Links
+
+**Additive, `4`** (`docs/design/topology-layers.md` §2.3). Device-to-device wiring, and a device-to-host attachment spelled as a wire.
+
+```yaml
+infra:
+  links:
+    - a: { device: ms120, port: P14 }
+      b: { device: sgs-5240, port: Po48 }
+      mode: trunk                    # trunk | access
+      native: vlan1                  # optional; a network id
+      vlans: [vlan20, vlan64]        # network ids; trunk: 1+, access: exactly 1
+      state: up                      # optional; up | down | blocked
+      source: discovered             # §3.6
+      confidence: 0.6
+      vantage: XPress-SW-A:1-4
+```
+
+| Field | Required | Type | Notes |
+|---|---|---|---|
+| `a`, `b` | yes | obj | `{device: <node id>, port: <string>}`; `port` unique per device (NET-120); `a.device != b.device` (NET-130); both resolve to nodes (REF-270). |
+| `mode` | yes | enum | `trunk` \| `access` (STR-210). |
+| `native` | no | string | Network id; trunk only (STR-210, REF-280). |
+| `vlans` | yes | list[string] | Network ids (REF-280); an access link lists exactly one (STR-210). |
+| `state` | no | enum | `up` (default) \| `down` \| `blocked`. The planner emits nothing for a link; one that is not `up` carries nothing, so the switch gets no leg for it. |
+| `source`, `confidence`, `vantage` | no | | §3.6. |
+
+A link whose one end is a `kind: host` node is that host's attachment to the link's one network, equivalent to a `net:` / `nets[]` entry; the host keeps its address there. A link deploys nothing of its own: it is the reason a switch VM has a NIC on a network.
 
 ### 3.4 `fabric:` — dynamic routing + overlay (fabric slice)
 
@@ -327,6 +367,18 @@ Hosts use the segment `gateway` as their default gateway; the leaf routes betwee
 global table via the WAN gateway `configure-router` discovers, where its WAN + masquerade reach out.
 **Limitations (fabric slice):** single tenant; the VyOS IRB+egress config is authored from the FRR
 symmetric-IRB recipe and is **live-verify pending**.
+
+### 3.6 Provenance fields
+
+**Additive, `4`** (`docs/design/topology-layers.md` §3.1). Where a value came from, never how to draw it (the layout side-car carries presentation). The cast's provenance side-car remains the per-field record; `source` summarises it.
+
+| Field | On | Type | Notes |
+|---|---|---|---|
+| `source` | network, node, link | enum | `discovered` (a cast wrote it from a capture) \| `asserted` (an operator assertion the cast re-applied) \| `authored` (written by hand or by the console) \| `unconfirmed` (a cast's verdict on weak evidence, re-derived each cast). Absent means `authored`. STR-220. |
+| `confidence` | the same; `discovered` or `unconfirmed` only | float | `0.0`–`1.0` (STR-220). |
+| `vantage` | the same | string | `<appliance>:<streams>`, the PIT's `ir_pit.vantage` (`SPEC_network_ir.md`). |
+
+The twin manifest (`twin.yaml`) carries the same `vantage` as a list beside `containment`, copied from the PIT at cast, so a twin states what its capture could and could not have seen without the store.
 
 ---
 

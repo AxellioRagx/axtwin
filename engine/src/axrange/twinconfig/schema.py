@@ -58,6 +58,25 @@ class TCBase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=False)
 
 
+#: `source:` -- where a thing came from (`docs/design/topology-layers.md`
+#: §3.1). `discovered` and `unconfirmed` are a cast's verdicts and may carry
+#: `confidence`/`vantage`; `asserted` is an operator assertion the cast
+#: re-applied; `authored` (the default when absent) is hand- or console-
+#: written. Never presentation: the layout side-car carries that.
+SOURCES: tuple[str, ...] = ("discovered", "asserted", "authored", "unconfirmed")
+
+
+class TwinConfigProvenance(TCBase):
+    """The three provenance fields a segment, node, link or member override
+    may carry (`docs/design/topology-layers.md` §3.1). All optional, and an
+    entry that sets none of them expands byte-identically to before: the
+    expander emits them only when set."""
+
+    source: Optional[str] = None       # one of SOURCES; absent == authored
+    confidence: Optional[float] = None  # 0.0..1.0; discovered / unconfirmed only
+    vantage: Optional[str] = None       # `<appliance>:<streams>`, the PIT's vantage
+
+
 class TwinConfigObservation(TCBase):
     """One `observation:` block — what the imprint compiler actually SAW of
     this entity (`docs/WORK_ORDER_deploy_gate.md` §3,
@@ -98,7 +117,7 @@ class TwinConfigObservation(TCBase):
     role_confidence: Optional[float] = None
 
 
-class TwinConfigSegment(TCBase):
+class TwinConfigSegment(TwinConfigProvenance):
     """One `segments[]` entry -> an IR `networks[]` entry.
 
     `zone_type` is per-segment DOCUMENTATION of author intent, but the
@@ -211,7 +230,49 @@ class TwinConfigNodeLeg(TCBase):
     # `TwinConfigSegment.tap`'s comment above.
 
 
-class TwinConfigNode(TCBase):
+class TwinConfigMember(TwinConfigProvenance):
+    """One `nodes[].members[]` entry -- a per-instance override on a
+    `count: N` group (`docs/design/topology-layers.md` §5). `index` is
+    `1..count` and names the instance the expander mints
+    (`instance_ids`: `{name}{index:02d}`). Only the te-tier field lives
+    here: a member's persona, intensity and schedule are the tfc tier's
+    `assignments[] {node: <instance id>}` (delta D7)."""
+
+    index: Any  # an int once params are substituted (`count` has the same shape)
+    role: Optional[str] = None
+
+
+class TwinConfigLinkEnd(TCBase):
+    """One end of a link: a device and the port on it. `port` is free text
+    (`P14`, `SFP25`, `Po48`) and unique on its device."""
+
+    device: str
+    port: str
+
+
+#: `links[].mode` and `links[].state` vocabularies (topology-layers §2.3).
+LINK_MODES: tuple[str, ...] = ("trunk", "access")
+LINK_STATES: tuple[str, ...] = ("up", "down", "blocked")
+
+
+class TwinConfigLink(TwinConfigProvenance):
+    """One `links[]` entry -- a wire between two device ports, or between a
+    device port and a host (`docs/design/topology-layers.md` §2.3). A trunk
+    carries `vlans[]` tagged and `native` untagged; an access link carries
+    exactly one segment, named in `vlans[]`. A link deploys nothing of its
+    own: it is why a switch VM has a NIC on a segment, and a host-end link
+    is that host's attachment to the link's segment. `state: down` or
+    `blocked` deploys nothing and draws dashed."""
+
+    a: TwinConfigLinkEnd
+    b: TwinConfigLinkEnd
+    mode: str  # one of LINK_MODES
+    native: Optional[str] = None  # a segment name; trunk only
+    vlans: list[str] = Field(default_factory=list)  # segment names
+    state: Optional[str] = None  # one of LINK_STATES; absent == up
+
+
+class TwinConfigNode(TwinConfigProvenance):
     """One `nodes[]` entry. `count > 1` fans out `count` identical clones
     (ids `{name}01`, `{name}02`, ... — `name` alone when `count == 1`), each
     given its own auto-allocated IP on its segment(s) unless the entry (or a
@@ -237,9 +298,16 @@ class TwinConfigNode(TCBase):
     """
 
     name: str
-    kind: str = "host"  # "host" | "router"
-    image: str
+    kind: str = "host"  # "host" | "router" | "switch" (NODE_KINDS in expand.py)
+    # Required on a host and a router. OPTIONAL on a `kind: switch`
+    # (`docs/design/topology-layers.md` §2.5, decision 3): an imageless
+    # switch deploys as nothing but the vnets its links carry; one with an
+    # image deploys as a VM with one L2 NIC per segment its links carry.
+    # `expand.py` refuses a host or router without one.
+    image: Optional[str] = None
     role: Optional[str] = None
+    # Per-instance overrides on a `count: N` group (topology-layers §5).
+    members: Optional[list[TwinConfigMember]] = None
     # `persona:` REMOVED (2026-08-04, Authority: user,
     # `docs/WORK_ORDER_role_persona_tier.md`) -- it was INERT here: read only
     # by a catalog typo-warning, never written to the IR, never reaching the
@@ -398,6 +466,8 @@ class TwinConfig(TCBase):
     segments: list[TwinConfigSegment] = Field(default_factory=list)
     conduits: list[TwinConfigConduit] = Field(default_factory=list)
     nodes: list[TwinConfigNode] = Field(default_factory=list)
+    # Device-to-device (and device-to-host) wiring (topology-layers §2.3).
+    links: list[TwinConfigLink] = Field(default_factory=list)
     identity: Optional[TwinConfigIdentity] = None
     data: list[TwinConfigData] = Field(default_factory=list)
     fabric: Optional[dict[str, Any]] = None  # gated top-level fabric: passthrough (datacenter FABRIC)

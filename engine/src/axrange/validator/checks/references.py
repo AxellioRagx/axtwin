@@ -622,6 +622,46 @@ def check_ref_260(ctx: ValidatorContext) -> list[Finding]:
     return findings
 
 
+def _link_ends(ctx: ValidatorContext):
+    for i, link in enumerate(ctx.ir.layers.infra.links):
+        for side, end in (("a", link.a), ("b", link.b)):
+            yield i, side, end
+
+
+def check_ref_270(ctx: ValidatorContext) -> list[Finding]:
+    """Every `links[].a.device` / `.b.device` names a defined node (any kind)."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    node_ids = {n.id for n in ctx.ir.layers.infra.nodes if n.id}
+    for i, side, end in _link_ends(ctx):
+        dev = end.device if end is not None else None
+        if dev and dev not in node_ids:
+            findings.append(make_finding(
+                "REF-270", index=i, side=side, device=dev,
+                location=f"layers.infra.links[{i}].{side}.device",
+            ))
+    return findings
+
+
+def check_ref_280(ctx: ValidatorContext) -> list[Finding]:
+    """Every `links[].vlans[]` entry and `links[].native` names a defined network."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    net_ids = {n.id for n in ctx.ir.layers.infra.networks if n.id}
+    for i, link in enumerate(ctx.ir.layers.infra.links):
+        refs = [("native", link.native)] if link.native else []
+        refs += [(f"vlans[{j}]", v) for j, v in enumerate(link.vlans or [])]
+        for field_name, net in refs:
+            if isinstance(net, str) and net and net not in net_ids:
+                findings.append(make_finding(
+                    "REF-280", index=i, field=field_name, net_id=net,
+                    location=f"layers.infra.links[{i}].{field_name}",
+                ))
+    return findings
+
+
 CHECKS: list[Check] = [
     check_ref_010,
     check_ref_020,
@@ -650,4 +690,6 @@ CHECKS: list[Check] = [
     check_ref_240,
     check_ref_250,
     check_ref_260,
+    check_ref_270,
+    check_ref_280,
 ]

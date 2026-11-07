@@ -77,10 +77,16 @@ from axrange.twinconfig.gate import (
 from axrange.twinconfig.params import resolve_params, substitute
 from axrange.twinconfig.registry import load_twin_config_raw
 from axrange.twinconfig.schema import (
+    LINK_MODES,
+    LINK_STATES,
+    SOURCES,
     TwinConfig,
     TwinConfigConduit,
+    TwinConfigLink,
+    TwinConfigMember,
     TwinConfigNode,
     TwinConfigObservation,
+    TwinConfigProvenance,
     TwinConfigSegment,
 )
 
@@ -92,6 +98,19 @@ _log = logging.getLogger(__name__)
 # ranges without needing per-segment author bookkeeping.
 _VLAN_BASE = 10
 _VLAN_STEP = 10
+
+#: `nodes[].kind` vocabulary (`docs/design/topology-layers.md` §2.2). A
+#: `switch` is a device wired by `links[]`: never a gateway, no address on
+#: its ports, and -- unlike a host or a router -- allowed to carry no
+#: `image:` (then it deploys as nothing but the vnets its links carry).
+NODE_KINDS: tuple[str, ...] = ("host", "router", "switch")
+
+#: The IR schema version the expander declares. `1` for every config that
+#: uses none of the device-tree fields (byte-identical IR, so `ir_hash`/
+#: `plan_id` cannot move -- LES-126); `4` once a config carries a switch, a
+#: link, a member override or a provenance field (IR_SCHEMA §1.5, 3->4).
+_IR_VERSION_BASE = 1
+_IR_VERSION_DEVICE_TREE = 4
 
 
 # ---------------------------------------------------------------------------
@@ -183,12 +202,21 @@ class _NodeInstance:
 _L2_IP_LITERAL = "none"
 
 
-def _legs_for(spec: TwinConfigNode) -> list[_Leg]:
+def _legs_for(spec: TwinConfigNode, link_segments: tuple[str, ...] = ()) -> list[_Leg]:
+    """A spec's legs: its declared `net:` / `nets[]`, then -- for a device
+    the twin's `links[]` name -- every segment those links carry that it did
+    not declare (`link_segments`, in link order). On a `kind: switch` a leg
+    with no address is L2 (a switch port carries no address unless the
+    author gives it one, the MS120's management SVI being the case); on a
+    host a link-carried leg is an ordinary addressed attachment."""
+    is_switch = spec.kind == "switch"
+    legs: list[_Leg] = []
     if spec.nets:
-        legs: list[_Leg] = []
         for j, leg in enumerate(spec.nets):
             ip_is_none = isinstance(leg.ip, str) and leg.ip.strip().lower() == _L2_IP_LITERAL
-            if leg.ip is None and "ip" in leg.model_fields_set and not leg.l2:
+            if is_switch and leg.ip is None and leg.l2 is None:
+                ip_is_none = True
+            if leg.ip is None and "ip" in leg.model_fields_set and not leg.l2 and not is_switch:
                 # `ip: null` / `ip: ~` reads like "no address" but is YAML null
                 # -- the same as omitting `ip:`, i.e. ALLOCATE one. Say so.
                 _log.warning(
@@ -217,12 +245,179 @@ def _legs_for(spec: TwinConfigNode) -> list[_Leg]:
                     "segment's address; put the bridge on a `kind: host` device VM"
                 )
             legs.append(_Leg(segment=leg.segment, ip=None if l2 else leg.ip, l2=l2))
-        return legs
-    if spec.net:
-        return [_Leg(segment=spec.net)]
-    raise TwinConfigShapeError(
-        f"node {spec.name!r} declares neither 'net:' nor 'nets:'"
-    )
+    elif spec.net:
+        legs.append(_Leg(segment=spec.net, l2=is_switch))
+    declared = {leg.segment for leg in legs}
+    for seg in link_segments:
+        if seg in declared:
+            continue
+        declared.add(seg)
+        legs.append(_Leg(segment=seg, l2=is_switch))
+    if not legs:
+        if is_switch:
+            raise TwinConfigShapeError(
+                f"node {spec.name!r} is a switch with no 'net:', 'nets:' and no "
+                "link carrying a segment -- wire it in `links:` or attach it"
+            )
+        raise TwinConfigShapeError(
+            f"node {spec.name!r} declares neither 'net:' nor 'nets:'"
+        )
+    return legs
+
+
+def _check_provenance(what: str, entry: TwinConfigProvenance) -> None:
+    """`source:` is one of SOURCES; `confidence:` is 0..1 and only on a
+    cast's verdict (`discovered` / `unconfirmed`). Checked where the author
+    writes it, like `listen:` (IR_SCHEMA §4's precedent); STR-220 repeats it
+    on the expanded IR."""
+    if entry.source is not None and entry.source not in SOURCES:
+        raise TwinConfigShapeError(
+            f"{what}: source {entry.source!r} is not one of {', '.join(SOURCES)}"
+        )
+    if entry.confidence is not None:
+        try:
+            c = float(entry.confidence)
+        except (TypeError, ValueError):
+            raise TwinConfigShapeError(
+                f"{what}: confidence {entry.confidence!r} is not a number"
+            ) from None
+        if not 0.0 <= c <= 1.0:
+            raise TwinConfigShapeError(f"{what}: confidence {c} is outside 0.0..1.0")
+        if entry.source not in ("discovered", "unconfirmed"):
+            raise TwinConfigShapeError(
+                f"{what}: confidence is a cast's measure and belongs only on "
+                f"`source: discovered` or `source: unconfirmed` (found "
+                f"{entry.source or 'no source'})"
+            )
+
+
+def _emit_provenance(
+    entry: dict[str, Any], src: TwinConfigProvenance, *, source: Optional[str] = None,
+) -> None:
+    """Copy the provenance fields onto an IR entry, only when set, so an
+    entry without them is byte-identical to before. `source` (a member
+    override's) wins over the group's."""
+    if source or src.source:
+        entry["source"] = source or src.source
+    if src.confidence is not None:
+        entry["confidence"] = float(src.confidence)
+    if src.vantage:
+        entry["vantage"] = src.vantage
+
+
+def _check_node_shape(spec: TwinConfigNode) -> None:
+    """Kind, image and provenance -- the per-node shape rules the device
+    tree added (`docs/design/topology-layers.md` §2.2, §3.1, §5)."""
+    what = f"twin_config.nodes[{spec.name!r}]"
+    if spec.kind not in NODE_KINDS:
+        raise TwinConfigShapeError(
+            f"{what}: kind {spec.kind!r} is not one of {', '.join(NODE_KINDS)}"
+        )
+    if not spec.image and spec.kind != "switch":
+        raise TwinConfigShapeError(
+            f"{what}: a {spec.kind} needs an `image:` (only a `kind: switch` may "
+            "omit it, and then deploys as nothing but its segments' vnets)"
+        )
+    _check_provenance(what, spec)
+    for k, m in enumerate(spec.members or []):
+        _check_provenance(f"{what}.members[{k}]", m)
+
+
+def _apply_members(spec: TwinConfigNode, count: int) -> dict[int, TwinConfigMember]:
+    """`members[]` by index, checked: every index an int in 1..count, no
+    index twice (topology-layers §5)."""
+    out: dict[int, TwinConfigMember] = {}
+    for k, m in enumerate(spec.members or []):
+        what = f"twin_config.nodes[{spec.name!r}].members[{k}]"
+        try:
+            idx = int(m.index)
+        except (TypeError, ValueError):
+            raise TwinConfigShapeError(f"{what}: index {m.index!r} is not a whole number") from None
+        if not 1 <= idx <= count:
+            raise TwinConfigShapeError(
+                f"{what}: index {idx} is outside 1..{count} (the group's count)"
+            )
+        if idx in out:
+            raise TwinConfigShapeError(f"{what}: index {idx} is overridden twice")
+        out[idx] = m
+    return out
+
+
+def _link_segments(link: TwinConfigLink) -> list[str]:
+    """The segments a link carries, native first, in authored order."""
+    segs: list[str] = []
+    for seg in ([link.native] if link.native else []) + list(link.vlans):
+        if seg not in segs:
+            segs.append(seg)
+    return segs
+
+
+def _link_label(link: TwinConfigLink) -> str:
+    return f"{link.a.device}#{link.a.port} <-> {link.b.device}#{link.b.port}"
+
+
+def _check_links(
+    config_id: str, links: list[TwinConfigLink],
+    specs_by_name: dict[str, TwinConfigNode], seg_names: set[str],
+) -> None:
+    """The twin-config shape of `links[]` (`docs/design/topology-layers.md`
+    §2.3; the IR rules STR-210 / REF-270 / REF-280 / NET-120 / NET-130
+    repeat it on the expanded IR): both ends name a node that is emitted
+    and is a single device (never a `count > 1` group); a port is used once
+    per device; the two ends differ; `mode` and `state` are in vocabulary;
+    `native` only on a trunk; an access link carries exactly one segment;
+    every segment named exists."""
+    ports_used: dict[tuple[str, str], str] = {}
+    for i, link in enumerate(links):
+        what = f"twin_config.links[{i}] ({_link_label(link)})"
+        if link.mode not in LINK_MODES:
+            raise TwinConfigShapeError(
+                f"{what}: mode {link.mode!r} is not one of {', '.join(LINK_MODES)}"
+            )
+        if link.state is not None and link.state not in LINK_STATES:
+            raise TwinConfigShapeError(
+                f"{what}: state {link.state!r} is not one of {', '.join(LINK_STATES)}"
+            )
+        if link.native and link.mode != "trunk":
+            raise TwinConfigShapeError(f"{what}: `native:` is a trunk's field")
+        if link.mode == "access" and len(link.vlans) != 1:
+            raise TwinConfigShapeError(
+                f"{what}: an access link carries exactly one segment in `vlans:` "
+                f"(found {len(link.vlans)})"
+            )
+        if link.mode == "trunk" and not link.vlans and not link.native:
+            raise TwinConfigShapeError(f"{what}: a trunk names the segments it carries")
+        for seg in _link_segments(link):
+            if seg not in seg_names:
+                raise TwinConfigShapeError(f"{what}: unknown segment {seg!r}")
+        if link.a.device == link.b.device:
+            raise TwinConfigShapeError(f"{what}: both ends are {link.a.device!r}")
+        for end in (link.a, link.b):
+            if not end.port or not end.port.strip():
+                raise TwinConfigShapeError(f"{what}: {end.device!r} has a blank port")
+            spec = specs_by_name.get(end.device)
+            if spec is None:
+                raise TwinConfigShapeError(
+                    f"{what}: {end.device!r} is not an emitted node (unknown, or "
+                    "excluded by `when:`)"
+                )
+            try:
+                is_group = int(spec.count) > 1
+            except (TypeError, ValueError):
+                is_group = False
+            if is_group:
+                raise TwinConfigShapeError(
+                    f"{what}: {end.device!r} is a count > 1 group -- a link names "
+                    "one device; attach a group to a segment with `net:`"
+                )
+            key = (end.device, end.port)
+            if key in ports_used:
+                raise TwinConfigShapeError(
+                    f"{what}: port {end.port!r} on {end.device!r} is already used "
+                    f"by {ports_used[key]}"
+                )
+            ports_used[key] = _link_label(link)
+        _check_provenance(what, link)
 
 
 def _declared_segments(spec: TwinConfigNode) -> list[str]:
@@ -481,6 +676,18 @@ def _build_ir(
     anchor_of = _isolated_anchors(tc.id, segments)
 
     node_specs = [n for n in tc.nodes if _included(n.when, params)]
+    for spec in node_specs:
+        _check_node_shape(spec)
+    for seg in segments:
+        _check_provenance(f"twin_config.segments[{seg.name!r}]", seg)
+
+    # ---- Links (topology-layers §2.3): shape-checked against the `when:`-
+    # included node set and the included segments. A link naming an excluded
+    # node is a hard error like a conduit's missing router; a link naming a
+    # node the DEPLOY GATE removes is dropped below with a printed reason.
+    specs_by_name = {n.name: n for n in node_specs}
+    _check_links(tc.id, tc.links, specs_by_name, set(seg_by_name))
+    links: list[TwinConfigLink] = list(tc.links)
 
     # ---- Gate 2: the deploy gate (`docs/WORK_ORDER_deploy_gate.md`) -------
     # `active` is what makes this whole feature invisible to a config with no
@@ -522,6 +729,10 @@ def _build_ir(
         for spec in node_specs if spec.kind != "router"
         for seg in _declared_segments(spec)
     }
+    for link in links:
+        for end in (link.a, link.b):
+            if specs_by_name[end.device].kind != "router":
+                occupied_before.update(_link_segments(link))
 
     kept_specs: list[TwinConfigNode] = []
     # (row, would-be node ids) per gated-out spec. Turned into a node_id ->
@@ -555,9 +766,35 @@ def _build_ir(
         report.gated.append(row)
         gated_rows.append((row, would_be))
     node_specs = kept_specs
+    kept_names = {spec.name for spec in node_specs}
+    surviving_links: list[TwinConfigLink] = []
+    for link in links:
+        gone = [e.device for e in (link.a, link.b) if e.device not in kept_names]
+        if gone:
+            report.gated.append(GatedEntity(
+                kind="link", name=_link_label(link),
+                reason=f"device(s) {gone} not emitted",
+            ))
+            continue
+        surviving_links.append(link)
+    links = surviving_links
+    # The segments each device's links carry, in link order: a switch gets an
+    # L2 leg on each, a host or router an ordinary leg (`_legs_for`). A link
+    # that is `down` or `blocked` deploys nothing, so it carries nothing here.
+    link_segs_by_device: dict[str, list[str]] = {}
+    for link in links:
+        if (link.state or "up") != "up":
+            continue
+        for end in (link.a, link.b):
+            bucket = link_segs_by_device.setdefault(end.device, [])
+            for seg in _link_segments(link):
+                if seg not in bucket:
+                    bucket.append(seg)
 
     # ---- Fan out count>1 into concrete node instances ----------------------
     instances: list[_NodeInstance] = []
+    member_role: dict[str, str] = {}
+    member_source: dict[str, str] = {}
     for spec in node_specs:
         # `spec.count` is typed `Any` on the model (schema.py's docstring
         # explains why -- an UNSUBSTITUTED load may still hold a raw
@@ -586,8 +823,16 @@ def _build_ir(
                 f"node {spec.name!r}: count {count} must be >= 1 "
                 "(0/negative silently 'disables' the node -- not supported)"
             )
-        for node_id in instance_ids(spec.name, count):
-            instances.append(_NodeInstance(node_id=node_id, spec=spec, legs=_legs_for(spec)))
+        members = _apply_members(spec, count)
+        link_segs = tuple(link_segs_by_device.get(spec.name, ()))
+        for k, node_id in enumerate(instance_ids(spec.name, count), start=1):
+            instances.append(_NodeInstance(node_id=node_id, spec=spec, legs=_legs_for(spec, link_segs)))
+            m = members.get(k)
+            if m is not None:
+                if m.role:
+                    member_role[node_id] = m.role
+                if m.source:
+                    member_source[node_id] = m.source
 
     seen_ids: dict[str, int] = {}
     for inst in instances:
@@ -712,6 +957,17 @@ def _build_ir(
         # gating decision (routers are never gated) -- a cascade consequence,
         # reported as loudly as one, because emitting a node with an empty
         # `nets:` would fail far downstream with an unrelated-looking error.
+        pruned_links: list[TwinConfigLink] = []
+        for link in links:
+            lost = [seg for seg in _link_segments(link) if seg in dropped_segments]
+            if lost:
+                report.gated.append(GatedEntity(
+                    kind="link", name=_link_label(link),
+                    reason=f"segment(s) {lost} not emitted",
+                ))
+                continue
+            pruned_links.append(link)
+        links = pruned_links
         stranded = [inst for inst in instances if not inst.legs]
         for inst in stranded:
             report.gated.append(GatedEntity(
@@ -910,6 +1166,7 @@ def _build_ir(
             entry["vni"] = s.vni
         if s.isolated:
             entry["isolated"] = True
+        _emit_provenance(entry, s)
         networks_ir.append(entry)
 
     nodes_ir: list[dict[str, Any]] = []
@@ -917,9 +1174,11 @@ def _build_ir(
     bindings_ir: list[dict[str, Any]] = []
     for inst in instances:
         spec = inst.spec
-        node_entry: dict[str, Any] = {
-            "id": inst.node_id, "kind": spec.kind, "image": spec.image,
-        }
+        node_entry: dict[str, Any] = {"id": inst.node_id, "kind": spec.kind}
+        # An imageless switch (topology-layers §2.5) emits no `image:` key at
+        # all; the planner then emits no VM for it.
+        if spec.image:
+            node_entry["image"] = spec.image
         # `role:` is the OPTIONAL semantic BASELINE since the role/persona
         # split (`docs/WORK_ORDER_role_persona_tier.md` §4.5) -- `name:` is
         # what `node_id` fans out from now. Emitted only when the config
@@ -928,8 +1187,9 @@ def _build_ir(
         # supply the whole map. (Every shipped config still sets `role:`, so
         # its expanded IR -- and therefore its `ir_hash`/`plan_id` -- is
         # unchanged by the split.)
-        if spec.role:
-            node_entry["role"] = spec.role
+        if member_role.get(inst.node_id) or spec.role:
+            node_entry["role"] = member_role.get(inst.node_id) or spec.role
+        _emit_provenance(node_entry, spec, source=member_source.get(inst.node_id))
         if spec.requires:
             node_entry["requires"] = list(spec.requires)
         if spec.resources:
@@ -975,8 +1235,30 @@ def _build_ir(
             apps_ir.append(app_entry)
             bindings_ir.append({"app": app_id, "host": inst.node_id})
 
+    links_ir: list[dict[str, Any]] = []
+    for link in links:
+        link_entry: dict[str, Any] = {
+            "a": {"device": link.a.device, "port": link.a.port},
+            "b": {"device": link.b.device, "port": link.b.port},
+            "mode": link.mode,
+        }
+        if link.native:
+            link_entry["native"] = link.native
+        link_entry["vlans"] = list(link.vlans)
+        if link.state:
+            link_entry["state"] = link.state
+        _emit_provenance(link_entry, link)
+        links_ir.append(link_entry)
+
+    uses_device_tree = bool(links_ir) or any(
+        spec.kind == "switch" or spec.members or spec.source is not None
+        for spec in node_specs
+    ) or any(s.source is not None for s in segments)
+
     ir: dict[str, Any] = {
-        "scenario_schema_version": 1,
+        "scenario_schema_version": (
+            _IR_VERSION_DEVICE_TREE if uses_device_tree else _IR_VERSION_BASE
+        ),
         "scenario": {
             "id": tc.id,
             "version": 1,
@@ -989,6 +1271,10 @@ def _build_ir(
         },
         "bindings": bindings_ir,
     }
+
+    # `links:` only when the config has any (byte-identical IR otherwise).
+    if links_ir:
+        ir["layers"]["infra"]["links"] = links_ir
 
     # Only emitted when the config states it: leaving the key ABSENT (not
     # `None`) preserves the IR's own "unset == ON" semantics byte-for-byte,

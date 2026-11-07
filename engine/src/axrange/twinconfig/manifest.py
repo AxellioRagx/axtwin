@@ -100,6 +100,12 @@ class TwinManifest(_Frozen):
     description: Optional[str] = None
     cluster: Optional[str] = None  # the adapter.conf target this twin is meant for
     containment: str
+    # The tap points the capture a cast twin came from was taken at
+    # (`<appliance>:<streams>`, the PIT's `ir_pit.vantage` / `vantages`),
+    # copied in at cast (docs/design/topology-layers.md delta D9) so a twin
+    # states what its capture could and could not have seen without the
+    # store. Absent on a hand-authored twin.
+    vantage: tuple[str, ...] = ()
     tiers: TwinManifestTiers
 
 

@@ -30,10 +30,14 @@ def test_catalog_total_count() -> None:
     # tap-agnostic, docs/WORK_ORDER_tap_eligibility.md, Authority: user,
     # 2026-07-28 -- eligibility moves entirely into the tap plan) = 112
     # + 2 PSN (PSN-100 transport enum, PSN-110 peer_scope enum -- the
-    # high-volume persona wave's two new emit fields, 2026-07-28) = 114.
+    # high-volume persona wave's two new emit fields, 2026-07-28) = 114
+    # + 2 STR (STR-210 links shape, STR-220 provenance) + 2 REF (REF-270/280
+    # link references) + 3 NET (NET-120 port reuse, NET-130 link ends and the
+    # isolated anchor, NET-140 parked switch) = 121 with the device tree
+    # (docs/design/topology-layers.md §10, Authority: user, 2026-11-07).
     # The catalog comment in catalog.py records the divergence from the spec's
     # headline number.
-    assert len(RULES) == 114
+    assert len(RULES) == 121
 
 
 def test_no_duplicate_rule_ids() -> None:

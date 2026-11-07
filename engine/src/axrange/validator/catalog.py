@@ -119,6 +119,27 @@ _RULES_LIST: list[Rule] = [
        message_template="Reference resolved via alias '{alias}' → '{canonical}' on '{location}'"),
     _R("STR-180", STR, INFO, 1, "Unknown top-level key observed",
        message_template="Unknown top-level key '{key}' — preserved for forward compatibility"),
+    # STR-210 / STR-220: the device tree (`docs/design/topology-layers.md`
+    # §10, Authority: user, 2026-11-07; `scenario_schema_version` 3 -> 4,
+    # additive). STR 20 -> 22.
+    _R("STR-210", STR, ERR, 1,
+       "Every links[] entry is well-formed (a/b {device, port}, mode, state, native, vlans)",
+       description=(
+           "IR_SCHEMA §3.3: `a` and `b` are `{device, port}` with non-blank strings; "
+           "`mode` is trunk | access; `state` (if present) is up | down | blocked; "
+           "`native` only with `mode: trunk`; `vlans` a non-empty list, exactly one "
+           "entry under `access`."
+       ),
+       message_template="links[{index}] is malformed: {detail}",
+       related=("REF-270", "REF-280", "NET-120", "NET-130")),
+    _R("STR-220", STR, ERR, 1,
+       "Provenance fields are well-formed (source in the closed set; confidence 0..1 on a cast's verdict only)",
+       description=(
+           "IR_SCHEMA §3.6: `source` is one of discovered, asserted, authored, "
+           "unconfirmed; `confidence` is a float in 0.0..1.0 and present only with "
+           "`discovered` or `unconfirmed`."
+       ),
+       message_template="{entity}: {detail}"),
     # STR-190 "Every tap: flag is a boolean (node / leg / network)" RETIRED
     # 2026-07-28 (`docs/WORK_ORDER_tap_eligibility.md`, Authority: user) --
     # `tap:` is removed from IR_SCHEMA entirely, so there is no longer a
@@ -305,6 +326,16 @@ _RULES_LIST: list[Rule] = [
            "deploy does not run these (Exercise-tier scope-shift) — run them via "
            "`axrange exr deploy` against the deployed twin"
        )),
+    # REF-270 / REF-280: the device tree's link references (`docs/design/
+    # topology-layers.md` §10, Authority: user, 2026-11-07). REF 25 -> 27.
+    _R("REF-270", RuleCategory.REFERENCE_INTEGRITY, ERR, 2,
+       "Every links[].a.device / .b.device resolves to a defined node",
+       message_template="links[{index}].{side}.device '{device}' is not a defined node",
+       related=("STR-210", "REF-280")),
+    _R("REF-280", RuleCategory.REFERENCE_INTEGRITY, ERR, 2,
+       "Every links[].vlans[] entry and links[].native resolves to a defined network",
+       message_template="links[{index}].{field} names unknown network '{net_id}'",
+       related=("STR-210", "REF-270", "REF-110")),
 
     # -------------------------------------------------------------------
     # CAP — Capability (Pass 3, accumulate)
@@ -386,6 +417,26 @@ _RULES_LIST: list[Rule] = [
     _R("NET-100", RuleCategory.NETWORK_SANITY, WARN, 3,
        "Orphan network (no nodes attached)",
        message_template="Network '{net_id}' has no nodes attached"),
+    # NET-120 / NET-130 / NET-140: the device tree (`docs/design/
+    # topology-layers.md` §10, Authority: user, 2026-11-07). NET 10 -> 13.
+    _R("NET-120", RuleCategory.NETWORK_SANITY, ERR, 3,
+       "No device uses one port name on two links",
+       message_template="Device '{device}' port '{port}' is used by links[{first}] and links[{second}]",
+       related=("STR-210",)),
+    _R("NET-130", RuleCategory.NETWORK_SANITY, ERR, 3,
+       "A link's two ends are different devices; an isolated network has exactly one non-isolated anchor with its CIDR",
+       description=(
+           "The twin-config expander's isolated-anchor rule, repeated on the IR: an "
+           "`isolated: true` network is the same subnet on the far side of an L2 "
+           "bridge and nothing else. NET-010 states the overlap rule for the "
+           "non-isolated set."
+       ),
+       message_template="{detail}",
+       related=("NET-010", "STR-210")),
+    _R("NET-140", RuleCategory.NETWORK_SANITY, WARN, 3,
+       "A kind: switch node is named by no links[] entry (parked, or the pre-device-tree spelling)",
+       message_template="Switch '{node_id}' is wired by no link: add a links[] entry for it (a switch with only nets: is the pre-device-tree spelling)",
+       related=("NET-090",)),
     # NET-110 "Tapped segment has at least one node attached" RETIRED
     # 2026-07-28 (`docs/WORK_ORDER_tap_eligibility.md`, Authority: user) --
     # `networks[].tap` no longer exists to check; a tap plan's `segment`
@@ -680,17 +731,21 @@ def list_rules(pass_: int | None = None, category: RuleCategory | None = None) -
 #  REF 26->25 (REF-200 retired) / total 114->112 with
 #  `docs/WORK_ORDER_tap_eligibility.md` (Authority: user) — the twin
 #  substrate becomes tap-agnostic; capture eligibility/scope/target moves
-#  entirely into the standalone tap plan, 2026-07-28 — each bumped
-#  atomically with the assertions below.)
+#  entirely into the standalone tap plan, 2026-07-28; STR 20->22 (STR-210
+#  links shape, STR-220 provenance) + REF 25->27 (REF-270/280 link refs) +
+#  NET 10->13 (NET-120 port reuse, NET-130 link ends + isolated anchor,
+#  NET-140 parked switch) / total 114->121 with the device tree,
+#  `docs/design/topology-layers.md` §10, Authority: user, 2026-11-07 — each
+#  bumped atomically with the assertions below.)
 # This implementation encodes what the §5 tables list (the actual contract); the
 # §1/§5 headline numbers are stale and to be corrected via CHANGELOG.
 _BY_CAT = {c: sum(1 for r in RULES.values() if r.category == c) for c in RuleCategory}
-assert _BY_CAT[RuleCategory.STRUCTURAL] == 20, _BY_CAT  # -STR-190 +STR-200
+assert _BY_CAT[RuleCategory.STRUCTURAL] == 22, _BY_CAT  # -STR-190 +STR-200; +STR-210/220 device tree
 assert _BY_CAT[RuleCategory.INCLUDE_CONSISTENCY] == 5, _BY_CAT
-assert _BY_CAT[RuleCategory.REFERENCE_INTEGRITY] == 25, _BY_CAT  # -REF-200
+assert _BY_CAT[RuleCategory.REFERENCE_INTEGRITY] == 27, _BY_CAT  # -REF-200; +REF-270/280 device tree
 assert _BY_CAT[RuleCategory.CAPABILITY] == 6, _BY_CAT
 assert _BY_CAT[RuleCategory.LIFECYCLE] == 6, _BY_CAT
-assert _BY_CAT[RuleCategory.NETWORK_SANITY] == 10, _BY_CAT  # -NET-110
+assert _BY_CAT[RuleCategory.NETWORK_SANITY] == 13, _BY_CAT  # -NET-110; +NET-120/130/140 device tree
 assert _BY_CAT[RuleCategory.OVERLAY] == 4, _BY_CAT
 assert _BY_CAT[RuleCategory.ACTIVITY] == 7, _BY_CAT  # +ACT-060/070, schedule executor 2026-07-10
 assert _BY_CAT[RuleCategory.DEFENSE] == 5, _BY_CAT
@@ -699,4 +754,4 @@ assert _BY_CAT[RuleCategory.CLUSTER] == 7, _BY_CAT
 # PSN-010..090 persona library 2026-07-24; +PSN-100/110 (transport +
 # peer_scope enums) with the high-volume persona wave, 2026-07-28.
 assert _BY_CAT[RuleCategory.PERSONA] == 11, _BY_CAT
-assert sum(_BY_CAT.values()) == 114  # 112 + PSN-100 + PSN-110, 2026-07-28
+assert sum(_BY_CAT.values()) == 121  # 114 + the device tree's 7 (STR-210/220, REF-270/280, NET-120/130/140), 2026-11-07

@@ -98,7 +98,7 @@ def _group(node: TwinConfigNode, tc: TwinConfig, *, imprint_id: str) -> dtos.Tre
         image=node.image,
         count=count,
         instances=instance_ids(node.name, count),
-        segments=_node_segments(node),
+        segments=_segments_with_links(node, tc),
         requires=list(node.requires or []),
         resources=dict(node.resources) if node.resources else None,
         listen=[dtos.TreeListenDTO(port=entry.port, proto=entry.proto) for entry in (node.listen or [])],
@@ -106,6 +106,22 @@ def _group(node: TwinConfigNode, tc: TwinConfig, *, imprint_id: str) -> dtos.Tre
         joins=node.joins,
         observation=_observation(node.observation),
     )
+
+
+def _segments_with_links(node: TwinConfigNode, tc: TwinConfig) -> list[str]:
+    """The node's declared segments plus every segment an `up` link of the
+    twin carries to it (a `kind: switch` wired only by `links[]` sits in
+    the segments its trunks carry -- docs/design/topology-layers.md §2.3)."""
+    segs = list(_node_segments(node))
+    for link in tc.links:
+        if (link.state or "up") != "up":
+            continue
+        if node.name not in (link.a.device, link.b.device):
+            continue
+        for seg in ([link.native] if link.native else []) + list(link.vlans):
+            if seg not in segs:
+                segs.append(seg)
+    return segs
 
 
 def _count(node: TwinConfigNode, tc: TwinConfig, *, imprint_id: str) -> int:

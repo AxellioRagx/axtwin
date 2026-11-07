@@ -59,7 +59,10 @@ def check_str_020(ctx: ValidatorContext) -> list[Finding]:
     v = ctx.ir.scenario_schema_version
     if v is None:
         return [make_finding("STR-020", value="<missing>")]
-    if v not in (1, 2, 3):
+    # `4` (Authority: user, 2026-11-07, `docs/design/topology-layers.md`
+    # §10): additive -- `layers.infra.links[]`, provenance fields and a
+    # `kind: switch` wired by links. Declaring it is optional like `2`/`3`.
+    if v not in (1, 2, 3, 4):
         return [make_finding("STR-020", value=v)]
     return []
 
@@ -430,6 +433,79 @@ def check_str_200(ctx: ValidatorContext) -> list[Finding]:
     return findings
 
 
+#: `links[].mode` / `.state` / provenance `source` vocabularies (IR_SCHEMA
+#: §3.3, §3.6). Spelled here beside the check, like the kind set.
+LINK_MODES: tuple[str, ...] = ("trunk", "access")
+LINK_STATES: tuple[str, ...] = ("up", "down", "blocked")
+SOURCES: tuple[str, ...] = ("discovered", "asserted", "authored", "unconfirmed")
+
+
+def check_str_210(ctx: ValidatorContext) -> list[Finding]:
+    """Every `links[]` entry is well-formed (IR_SCHEMA §3.3): `a` and `b`
+    are `{device, port}` with non-blank strings, `mode` is trunk | access,
+    `state` (if present) is up | down | blocked, `native` only on a trunk,
+    `vlans` a non-empty list with exactly one entry under `access`."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    for i, link in enumerate(ctx.ir.layers.infra.links):
+        loc = f"layers.infra.links[{i}]"
+        problems: list[str] = []
+        for side, end in (("a", link.a), ("b", link.b)):
+            if end is None or not isinstance(end.device, str) or not end.device.strip():
+                problems.append(f"{side}.device missing")
+            if end is None or not isinstance(end.port, str) or not end.port.strip():
+                problems.append(f"{side}.port missing")
+        if link.mode not in LINK_MODES:
+            problems.append(f"mode {link.mode!r} not in {list(LINK_MODES)}")
+        if link.state is not None and link.state not in LINK_STATES:
+            problems.append(f"state {link.state!r} not in {list(LINK_STATES)}")
+        if link.native is not None and link.mode != "trunk":
+            problems.append("native: on a non-trunk link")
+        vlans = link.vlans
+        if not isinstance(vlans, list) or not vlans or not all(
+            isinstance(v, str) and v.strip() for v in vlans
+        ):
+            if not (link.mode == "trunk" and link.native and not vlans):
+                problems.append("vlans: must be a non-empty list of network ids")
+        elif link.mode == "access" and len(vlans) != 1:
+            problems.append(f"an access link carries exactly one network (found {len(vlans)})")
+        if problems:
+            findings.append(make_finding("STR-210", index=i, detail="; ".join(problems), location=loc))
+    return findings
+
+
+def check_str_220(ctx: ValidatorContext) -> list[Finding]:
+    """Provenance fields (IR_SCHEMA §3.6): `source` is in the closed set;
+    `confidence` is a number in 0..1 and present only with `discovered` or
+    `unconfirmed`."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    infra = ctx.ir.layers.infra
+    entries = (
+        [(f"layers.infra.networks[{i}]", n.id or f"<index {i}>", n) for i, n in enumerate(infra.networks)]
+        + [(f"layers.infra.nodes[{i}]", n.id or f"<index {i}>", n) for i, n in enumerate(infra.nodes)]
+        + [(f"layers.infra.links[{i}]", f"links[{i}]", l) for i, l in enumerate(infra.links)]
+    )
+    for loc, label, entry in entries:
+        src = getattr(entry, "source", None)
+        conf = getattr(entry, "confidence", None)
+        problems: list[str] = []
+        if src is not None and src not in SOURCES:
+            problems.append(f"source {src!r} not in {list(SOURCES)}")
+        if conf is not None:
+            if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not 0.0 <= float(conf) <= 1.0:
+                problems.append(f"confidence {conf!r} is not a number in 0.0..1.0")
+            elif src not in ("discovered", "unconfirmed"):
+                problems.append(
+                    f"confidence present with source {src or 'absent'} (only discovered / unconfirmed carry one)"
+                )
+        if problems:
+            findings.append(make_finding("STR-220", entity=label, detail="; ".join(problems), location=loc))
+    return findings
+
+
 def check_str_180(ctx: ValidatorContext) -> list[Finding]:
     """Info: unknown top-level keys."""
     findings: list[Finding] = []
@@ -474,4 +550,6 @@ CHECKS: list[Check] = [
     # STR-190 RETIRED (docs/WORK_ORDER_tap_eligibility.md) -- superseded by
     # STR-200 below; the id is never reused (docs/VALIDATOR.md §3.3).
     check_str_200,
+    check_str_210,
+    check_str_220,
 ]

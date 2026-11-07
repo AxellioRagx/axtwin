@@ -1,0 +1,12 @@
+# switch-test -- the root manifest: which file is each tier's default.
+twin:
+  id: switch-test
+  description: "canvas-test with an imageless access switch: office workstations behind access-sw, a file server, one router, tapped to XPress-SW-A."
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tfc:
+      default: tfc/default.yaml
+    tap:
+      default: tap/default.yaml

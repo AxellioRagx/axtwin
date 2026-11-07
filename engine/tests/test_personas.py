@@ -1330,7 +1330,7 @@ def test_psn_rule_count_is_unchanged_by_the_command_drive_kind():
     makes the intent explicit and greppable."""
     psn = [r for r in list_rules() if r.category == RuleCategory.PERSONA]
     assert len(psn) == 11
-    assert len(list_rules()) == 114
+    assert len(list_rules()) == 121  # 114 + the device tree's 7 (2026-11-07); the PSN count is what these tests pin
 
 
 # --- render: determinism, compilability, one template per proto ------------
@@ -2325,7 +2325,7 @@ def test_psn_030_accepts_browser_and_the_rule_count_is_unchanged():
     assert "browser" in DRIVE_KINDS
     bad = Persona(id="x", os_family="linux", drive="teleport")
     assert "PSN-030" in {f.rule_id for f in validate_persona(bad)}
-    assert len(list_rules()) == 114
+    assert len(list_rules()) == 121  # 114 + the device tree's 7 (2026-11-07); the PSN count is what these tests pin
     assert len([r for r in list_rules() if r.category == RuleCategory.PERSONA]) == 11
 
 
@@ -3197,7 +3197,7 @@ def test_windows_command_engine_adds_no_drive_kind_and_no_psn_rule():
     from axrange.personas.schema import DRIVE_KINDS
 
     assert DRIVE_KINDS == ("scripted", "replay", "real-service", "command", "browser")
-    assert len(list_rules()) == 114
+    assert len(list_rules()) == 121  # 114 + the device tree's 7 (2026-11-07); the PSN count is what these tests pin
     # A windows `drive: command` persona is VALID against the catalog rules --
     # nothing in the validator had to learn about this engine.
     p = _win_persona(Emit(proto="kerberos", peer_role="domain-controller"))
