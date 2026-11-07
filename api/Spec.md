@@ -340,17 +340,24 @@ as a twin-config. **The baseline is written by Persist and Save and by nothing
 else.**
 
 **Apply is classified by which tier file the delta touches**, because the
-bundle's tier split is the edit-type split:
+bundle's tier split is the edit-type split. Three kinds, one per tier
+(`docs/design/topology-layers.md` §4; **built 2026-11-07**, track 4), plus
+`inert`:
 
 | Delta touches | Kind | Apply does |
 |---|---|---|
-| `tfc/`, `personas/`, `tap/` (persona assignment, intensity, schedule, cadence, tap bindings) | attribute | the tier's own playout re-applies; it converges and de-scopes, VMs untouched |
-| `te.yaml` (segments, nodes, attachments, counts, images) | topology | refused as `requires-replan` with the diff, until plan-diff (`docs/contracts/PLANNER.md` §9) exists; the working copy stays dirty |
-| `role` | either | attribute when the node's image is unchanged (a persona re-assignment); topology when it is not |
+| `tfc/`, `personas/` (persona assignment, intensity, schedule, cadence) | traffic | the tfc playout re-applies; it converges and de-scopes, VMs untouched |
+| `tap/` (tap bindings, selectors, sensor targets) | taps | the tap playout re-applies |
+| `twin.yaml` re-wiring tier files | traffic (`via: [tfc, tap]` when both) or taps | the named playouts re-apply their defaults |
+| `te.yaml` (segments, nodes, attachments, links, counts, images, switches) | topology | refused as `requires-replan` with the diff, until plan-diff (`docs/contracts/PLANNER.md` §9) exists; the working copy stays dirty |
+| `role` on a group, or a `members[].role` override | traffic / topology | traffic when the group's image is unchanged (the tfc playout re-asserts the group's or the instance's role); topology when the image changed too |
+| `source`, `confidence`, `vantage` on a segment, node or link | inert | nothing on the running twin reads provenance; Persist carries it |
 
 A2 `GET …/config` reports the classification per pending change so the
-console shows an edit's blast radius before Apply. (Three kinds from
-2026-11-07: `docs/design/topology-layers.md` §4.) Persist and Save-As are
+console shows an edit's blast radius before Apply (*live · traffic*,
+*live · taps*, *re-plan*); Apply pushes the live kinds through their tiers
+and is refused while a topology change is pending. The earlier single
+`attribute` kind (whose tier only `via` named) is gone from the wire. Persist and Save-As are
 not classified: they write a baseline, they touch no deploy.
 
 Two edit layers, one rule: a change that says *discovery was wrong* (this

@@ -60,9 +60,21 @@ TMP_SUFFIX = ".tmp"
 
 MANIFEST = "twin.yaml"
 
-KIND_ATTRIBUTE = "attribute"
+#: The change kinds (`docs/design/topology-layers.md` §4, 2026-11-07): one per deploy tier.
+#: `traffic` and `taps` are the two LIVE kinds -- the tier's own playout re-applies them --
+#: and replace the earlier single `attribute` kind, whose tier only `via` named.
+KIND_TRAFFIC = "traffic"
+KIND_TAPS = "taps"
 KIND_TOPOLOGY = "topology"
 KIND_INERT = "inert"
+LIVE_KINDS = (KIND_TRAFFIC, KIND_TAPS)
+
+
+def live_kind(via: list[str]) -> str:
+    """The live kind a change's tiers name: `traffic` when the tfc playout is among them
+    (a manifest re-wiring both tiers is a traffic change with `via: [tfc, tap]`), else
+    `taps`."""
+    return KIND_TRAFFIC if "tfc" in via else KIND_TAPS
 
 #: The refusal codes Apply answers with.
 REQUIRES_REPLAN = "requires-replan"
@@ -618,16 +630,25 @@ def _row(r: tuple[Any, ...]) -> WorkingCopy:
 class PendingChange:
     path: str              # the document file
     op: str                # added | removed | modified
-    kind: str              # attribute | topology | inert
+    kind: str              # traffic | taps | topology | inert
     via: list[str] = field(default_factory=list)   # tiers whose playout re-applies
     paths: list[str] = field(default_factory=list)  # the differing paths inside the file
     reason: str = ""
-    #: For a te `role` change classified attribute: node name -> new role.
+    #: For a te `role` change classified traffic: node GROUP name -> new role, and for a
+    #: `members[]` role override the INSTANCE id (`{name}{index:02d}`) -> new role.
     roles: dict[str, str] = field(default_factory=dict)
 
 
 _ROLE_PATH = re.compile(r"^twin_config\.nodes\[(?P<name>[^\]]+)\]\.role$")
 _IMAGE_PATH = re.compile(r"^twin_config\.nodes\[(?P<name>[^\]]+)\]\.image$")
+#: A `members[]` override on a group (topology-layers §5): a role per instance, re-asserted
+#: by the tfc playout like a group's role.
+_MEMBERS_PATH = re.compile(
+    r"^twin_config\.nodes\[(?P<name>[^\]]+)\]\.members(?:\[\d+\](?:\.\w+)?|\.length| \(order\))?$")
+#: Provenance (topology-layers §3.1) on a segment, a node or a link: nothing on the running
+#: twin reads it, so a change to it is inert like a note.
+_PROVENANCE_PATH = re.compile(
+    r"^twin_config\.(?:nodes|segments|links)\[[^\]]+\]\.(?:source|confidence|vantage)$")
 _MANIFEST_ATTRIBUTE_PREFIXES = (
     "twin.tiers.tfc", "twin.tiers.tap", "twin.tiers.exr", "twin.description",
 )
@@ -714,16 +735,25 @@ def classify_te(path: str, before: str, after: str) -> PendingChange | None:
     nodes_a, nodes_b = _node_by_name(a), _node_by_name(b)
     roles: dict[str, str] = {}
     re_imaged: list[str] = []
+    member_groups: list[str] = []
+    provenance_only = True
     for p in paths:
+        if _PROVENANCE_PATH.match(p):
+            continue
+        provenance_only = False
         m = _ROLE_PATH.match(p)
         if m is None:
             m_img = _IMAGE_PATH.match(p)
             if m_img is not None and m_img.group("name") in nodes_a and m_img.group("name") in nodes_b:
                 re_imaged.append(m_img.group("name"))
                 continue
+            m_mem = _MEMBERS_PATH.match(p)
+            if m_mem is not None and m_mem.group("name") in nodes_a and m_mem.group("name") in nodes_b:
+                member_groups.append(m_mem.group("name"))
+                continue
             return PendingChange(
                 path=path, op="modified", kind=KIND_TOPOLOGY, paths=paths,
-                reason="segments, nodes, attachments, counts or images changed: "
+                reason="segments, nodes, attachments, links, counts or images changed: "
                        "the twin must be re-planned",
             )
         name = m.group("name")
@@ -733,6 +763,22 @@ def classify_te(path: str, before: str, after: str) -> PendingChange | None:
                 reason=f"node {name!r} added or removed: the twin must be re-planned",
             )
         roles[name] = str(nodes_b[name].get("role") or "")
+    if provenance_only:
+        return PendingChange(
+            path=path, op="modified", kind=KIND_INERT, paths=paths,
+            reason="provenance only (source, confidence, vantage): nothing on the running "
+                   "twin reads it; Persist carries it",
+        )
+    for name in sorted(set(member_groups)):
+        # A member override keeps or changes one INSTANCE's role: live, like the group's
+        # own role, unless the group was re-imaged (caught below). The instance ids are
+        # what the tfc playout's `roles:` block addresses.
+        before = _member_roles(nodes_a[name])
+        after = _member_roles(nodes_b[name])
+        group_role = str(nodes_b[name].get("role") or "")
+        for idx in sorted(set(before) | set(after)):
+            if before.get(idx) != after.get(idx):
+                roles[f"{name}{idx:02d}"] = after.get(idx) or group_role
     if re_imaged:
         named = ", ".join(repr(n) for n in sorted(set(re_imaged)))
         return PendingChange(
@@ -744,10 +790,25 @@ def classify_te(path: str, before: str, after: str) -> PendingChange | None:
             ) + " -- the twin must be re-planned",
         )
     return PendingChange(
-        path=path, op="modified", kind=KIND_ATTRIBUTE, via=["tfc"], paths=paths,
+        path=path, op="modified", kind=KIND_TRAFFIC, via=["tfc"], paths=paths,
         reason="role re-assignment with the image unchanged: the tfc playout re-asserts it",
         roles=roles,
     )
+
+
+def _member_roles(node: dict[str, Any]) -> dict[int, str]:
+    """`{index: role}` for a group's `members[]` entries that carry a role."""
+    out: dict[int, str] = {}
+    for m in node.get("members") or []:
+        if not isinstance(m, dict):
+            continue
+        try:
+            idx = int(m.get("index"))
+        except (TypeError, ValueError):
+            continue
+        if m.get("role"):
+            out[idx] = str(m["role"])
+    return out
 
 
 def classify_manifest(path: str, before: str, after: str) -> PendingChange | None:
@@ -766,7 +827,7 @@ def classify_manifest(path: str, before: str, after: str) -> PendingChange | Non
             if any(_under(p, f"twin.tiers.{tier}") for p in paths)
         ]
         return PendingChange(
-            path=path, op="modified", kind=KIND_ATTRIBUTE, via=via, paths=paths,
+            path=path, op="modified", kind=live_kind(via), via=via, paths=paths,
             reason="tier wiring changed: the named tiers' playouts re-apply their defaults",
         )
     return PendingChange(
@@ -803,21 +864,21 @@ def classify_file(
     top = PurePosixPath(path).parts[0]
     if top == "tfc":
         if path in reach_after.tfc or path in reach_before.tfc:
-            return PendingChange(path=path, op=op, kind=KIND_ATTRIBUTE, via=["tfc"], paths=[path],
+            return PendingChange(path=path, op=op, kind=KIND_TRAFFIC, via=["tfc"], paths=[path],
                                  reason="traffic profile (or its roles_from): the tfc playout re-applies")
         return PendingChange(path=path, op=op, kind=KIND_INERT, paths=[path],
                              reason="not the tfc default nor reached from it: no playout reads it")
     if top == "personas":
         pid = persona_id_of(after) or persona_id_of(before)
         if pid and (pid in reach_after.personas or pid in reach_before.personas):
-            return PendingChange(path=path, op=op, kind=KIND_ATTRIBUTE, via=["tfc"], paths=[path],
+            return PendingChange(path=path, op=op, kind=KIND_TRAFFIC, via=["tfc"], paths=[path],
                                  reason=f"twin-local persona {pid!r} the default profile assigns: "
                                         "the tfc playout re-applies")
         return PendingChange(path=path, op=op, kind=KIND_INERT, paths=[path],
                              reason="persona the default profile does not assign: no playout reads it")
     if top == "tap":
         if path in (reach_after.tap, reach_before.tap):
-            return PendingChange(path=path, op=op, kind=KIND_ATTRIBUTE, via=["tap"], paths=[path],
+            return PendingChange(path=path, op=op, kind=KIND_TAPS, via=["tap"], paths=[path],
                                  reason="tap plan default: the tap playout re-applies")
         return PendingChange(path=path, op=op, kind=KIND_INERT, paths=[path],
                              reason="not the tap default: no playout reads it")
@@ -868,7 +929,7 @@ def classify(
 def tiers_to_apply(changes: Iterable[PendingChange]) -> list[str]:
     tiers: set[str] = set()
     for c in changes:
-        if c.kind == KIND_ATTRIBUTE:
+        if c.kind in LIVE_KINDS:
             tiers.update(c.via)
     return [t for t in ("tfc", "tap") if t in tiers]
 
@@ -876,6 +937,6 @@ def tiers_to_apply(changes: Iterable[PendingChange]) -> list[str]:
 def role_overrides(changes: Iterable[PendingChange]) -> dict[str, str]:
     out: dict[str, str] = {}
     for c in changes:
-        if c.kind == KIND_ATTRIBUTE:
+        if c.kind in LIVE_KINDS:
             out.update(c.roles)
     return out

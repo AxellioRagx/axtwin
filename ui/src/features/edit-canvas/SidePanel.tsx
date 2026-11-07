@@ -4,7 +4,8 @@
  * group, segment, attachment or annotation, or the twin's own properties
  * when nothing is selected. `Checks` is the inspector's other tab: the
  * validation state and -- on a deployed twin -- every pending change with
- * the blast radius the API classified it with (*live* or *re-plan*). Every
+ * the blast radius the API classified it with (*live · traffic*, *live · taps*
+ * or *re-plan*; `docs/design/topology-layers.md` §4). Every
  * field writes through the editor's `apply`, which blocks an invalid edit
  * with its reason (shown on the canvas's strip, not here).
  */
@@ -205,7 +206,7 @@ function Changes({ changes, onDiscard }: { changes: PendingChange[]; onDiscard?:
       <ul className="cv-changes">
         {changes.map((c) => (
           <li key={c.path} data-testid="pending-change" data-kind={c.kind}>
-            <span className={`badge ${c.kind === "attribute" ? "ok" : c.kind === "topology" ? "bad" : ""}`}>{c.kind === "attribute" ? "live" : c.kind === "topology" ? "re-plan" : "inert"}</span> <span className="mono">{c.path}</span> <span className="muted">{c.op}</span>
+            <span className={`badge ${c.kind === "traffic" || c.kind === "taps" ? "ok" : c.kind === "topology" ? "bad" : ""}`}>{c.kind === "traffic" ? "live · traffic" : c.kind === "taps" ? "live · taps" : c.kind === "topology" ? "re-plan" : "inert"}</span> <span className="mono">{c.path}</span> <span className="muted">{c.op}</span>
             {onDiscard ? (
               <button type="button" className="cv-discard" onClick={() => onDiscard(c.path)} title={`put ${c.path} back to the baseline's text (an undoable edit)`} data-testid="discard-change">
                 Discard

@@ -334,7 +334,7 @@ def test_a2_2_put_changes_only_the_working_copy_visible_to_a_second_client(env):
     assert j["dirty"] is True and j["has_working_copy"] is True
     assert j["document"]["files"] == files
     assert [(ch["path"], ch["kind"], ch["via"]) for ch in j["changes"]] == [
-        ("tfc/default.yaml", "attribute", ["tfc"]),
+        ("tfc/default.yaml", "traffic", ["tfc"]),
     ]
     assert j["apply_allowed"] is True
     # The baseline read is unchanged, on the wire and on disk.
@@ -388,7 +388,7 @@ def test_classifies_a_persona_change_as_attribute(env):
     j = _put(c, did, _edited(_doc(c), **{"tfc/default.yaml": TFC.replace("web-tier", "dmz-web")}))
     (ch,) = j["changes"]
     assert ch == {
-        "path": "tfc/default.yaml", "op": "modified", "kind": "attribute", "via": ["tfc"],
+        "path": "tfc/default.yaml", "op": "modified", "kind": "traffic", "via": ["tfc"],
         "paths": ["tfc/default.yaml"], "reason": ch["reason"], "roles": {},
     }
     assert j["apply_allowed"] is True
@@ -399,7 +399,7 @@ def test_classifies_a_persona_change_as_attribute(env):
            "personas/local.yaml": "persona:\n  id: local\n  os_family: linux\n  drive: scripted\n  emits: []\n"},
     ))
     assert {(ch["path"], ch["op"], ch["kind"], tuple(ch["via"])) for ch in j["changes"]} == {
-        ("tap/default.yaml", "modified", "attribute", ("tap",)),
+        ("tap/default.yaml", "modified", "taps", ("tap",)),
         ("personas/local.yaml", "added", "inert", ()),  # not assigned by the default profile
     }
     # A twin-local persona the default profile DOES assign is attribute.
@@ -409,8 +409,8 @@ def test_classifies_a_persona_change_as_attribute(env):
            "personas/local.yaml": "persona:\n  id: local\n  os_family: linux\n  drive: scripted\n  emits: []\n"},
     ))
     assert {(ch["path"], ch["kind"], tuple(ch["via"])) for ch in j["changes"]} == {
-        ("tfc/default.yaml", "attribute", ("tfc",)),
-        ("personas/local.yaml", "attribute", ("tfc",)),
+        ("tfc/default.yaml", "traffic", ("tfc",)),
+        ("personas/local.yaml", "traffic", ("tfc",)),
     }
     # An exr spec or prose is inert: Apply has nothing to do, Persist carries it.
     j = _put(c, did, _edited(_doc(c), **{"README.md": "changed\n", "exr/x.yaml": "exercise: {}\n"}))
@@ -449,7 +449,7 @@ def test_classifies_a_role_change_both_ways(env):
     # The image unchanged: an attribute change the tfc playout re-asserts.
     j = _put(c, did, _edited(_doc(c), **{"te.yaml": TE.replace("role: generic", "role: app-tier")}))
     (ch,) = j["changes"]
-    assert ch["kind"] == "attribute" and ch["via"] == ["tfc"]
+    assert ch["kind"] == "traffic" and ch["via"] == ["tfc"]
     assert ch["paths"] == ["twin_config.nodes[h-b].role"]
     assert ch["roles"] == {"h-b": "app-tier"}
     assert j["apply_allowed"] is True
@@ -473,7 +473,7 @@ def test_classifies_manifest_rewiring_as_attribute_and_te_rewiring_as_topology(e
     })
     j = _put(c, did, files)
     by_path = {ch["path"]: ch for ch in j["changes"]}
-    assert by_path["twin.yaml"]["kind"] == "attribute" and by_path["twin.yaml"]["via"] == ["tfc"]
+    assert by_path["twin.yaml"]["kind"] == "traffic" and by_path["twin.yaml"]["via"] == ["tfc"]
     assert by_path["tfc/busy.yaml"]["op"] == "added"
     j = _put(c, did, _edited(_doc(c), **{"twin.yaml": MANIFEST.replace("default: te.yaml", "default: te2.yaml"), "te2.yaml": TE}))
     assert by_path  # the te tier moved: topology
@@ -564,7 +564,7 @@ def test_a2_5_apply_with_a_topology_delta_is_refused_and_applies_nothing(env):
     assert body["detail"]["files"] == ["te.yaml"]
     assert "twin_config.segments[dmz]" in body["detail"]["paths"]
     assert {ch["path"]: ch["kind"] for ch in body["detail"]["changes"]} == {
-        "te.yaml": "topology", "tfc/default.yaml": "attribute",
+        "te.yaml": "topology", "tfc/default.yaml": "traffic",
     }
     assert backend.calls == [] and adapter.calls == []
     assert c.get("/api/tfc", params={"target": did}).json()["status"] == "not-applied"
@@ -811,7 +811,7 @@ def test_reset_tears_down_a_tier_the_baseline_lacks(env):
     files = _edited(_doc(c), **{"twin.yaml": MANIFEST, "tap/default.yaml": TAP})
     j = _put(c, did, files)
     assert {(ch["path"], ch["kind"]) for ch in j["changes"]} == {
-        ("twin.yaml", "attribute"), ("tap/default.yaml", "attribute"),
+        ("twin.yaml", "taps"), ("tap/default.yaml", "taps"),
     }
     r = c.post(f"/api/deploys/{did}/config/apply", json={"target_node": "pxtest1"}, headers=AUTH)
     assert r.status_code == 200, r.text
@@ -1016,7 +1016,7 @@ def test_classifier_ignores_comment_only_edits_and_unreached_tier_files(env):
         "tfc/roles.yaml": "traffic-profile:\n  roles:\n    - node: h-b\n      role: lan-host\n",
     }))
     assert {(ch["path"], ch["kind"]) for ch in j["changes"]} == {
-        ("tfc/default.yaml", "attribute"), ("tfc/roles.yaml", "attribute"),
+        ("tfc/default.yaml", "traffic"), ("tfc/roles.yaml", "traffic"),
     }
     # Anything else unrecognised is topology (fail closed); nested prose too.
     j = _put(c, did, _edited(_doc(c), **{"scripts/x.sh": "#!/bin/sh\n", "docs/notes.md": "x\n"}))

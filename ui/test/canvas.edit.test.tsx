@@ -234,7 +234,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
-    expect(change.dataset["kind"]).toBe("attribute");
+    expect(change.dataset["kind"]).toBe("traffic");
     expect(change.textContent).toContain("live");
     expect(change.textContent).toContain("tfc/default.yaml");
     const apply = screen.getByRole("button", { name: "Apply" });
@@ -663,9 +663,9 @@ describe("pure pieces of the edit canvas", () => {
 
   it("the fake control plane classifies by the tier file touched, as the API does", () => {
     const base = document("x").files;
-    expect(classify(base, { ...base, "tfc/default.yaml": TFC + "    - node: web01\n      persona: generic-endpoint\n" }, "te.yaml")).toMatchObject([{ path: "tfc/default.yaml", kind: "attribute", via: ["tfc"] }]);
-    expect(classify(base, { ...base, "tap/default.yaml": "tap-plan: {}\n" }, "te.yaml")).toMatchObject([{ path: "tap/default.yaml", op: "added", kind: "attribute", via: ["tap"] }]);
-    expect(classify(base, { ...base, "te.yaml": base["te.yaml"]!.replace("role: web-tier", "role: api-tier") }, "te.yaml")).toMatchObject([{ kind: "attribute", roles: { web01: "api-tier" } }]);
+    expect(classify(base, { ...base, "tfc/default.yaml": TFC + "    - node: web01\n      persona: generic-endpoint\n" }, "te.yaml")).toMatchObject([{ path: "tfc/default.yaml", kind: "traffic", via: ["tfc"] }]);
+    expect(classify(base, { ...base, "tap/default.yaml": "tap-plan: {}\n" }, "te.yaml")).toMatchObject([{ path: "tap/default.yaml", op: "added", kind: "taps", via: ["tap"] }]);
+    expect(classify(base, { ...base, "te.yaml": base["te.yaml"]!.replace("role: web-tier", "role: api-tier") }, "te.yaml")).toMatchObject([{ kind: "traffic", roles: { web01: "api-tier" } }]);
     expect(classify(base, { ...base, "te.yaml": base["te.yaml"]!.replace("role: web-tier", "role: api-tier").replace("ubuntu-server-22@v5", "ubuntu-server-24@v1") }, "te.yaml")).toMatchObject([{ kind: "topology" }]);
     expect(classify(base, { ...base, "exr/x.yaml": "exercise: {}\n" }, "te.yaml")).toMatchObject([{ kind: "inert" }]);
   });

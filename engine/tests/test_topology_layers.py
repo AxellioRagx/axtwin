@@ -447,3 +447,68 @@ def test_console_files_validates_the_device_tree_records():
             doubt=[{"key": "address:10.9.0.4", "note": "b"}])
     with _pytest.raises(ConsoleFileShapeError, match="not one of"):
         put(add=[], **{"schema": "axr-assertions/9"})
+
+
+# ---------------------------------------------------------------------------
+# A2: three change kinds (track 4) -- the members and provenance rules
+# ---------------------------------------------------------------------------
+_TE_GROUP = textwrap.dedent("""
+    twin_config:
+      id: t
+      segments: [{ name: office, cidr: 10.71.10.0/24 }]
+      nodes:
+        - name: ws
+          role: corp-workstation
+          image: img@v1
+          count: 3
+          net: office
+          source: discovered
+          confidence: 0.9
+    """).lstrip()
+
+
+def test_a_members_role_override_is_a_traffic_change_keyed_by_instance():
+    from axrange.api import edits
+
+    after = _TE_GROUP.replace("      net: office\n",
+                              "      net: office\n      members:\n"
+                              "        - { index: 2, role: jump-host }\n")
+    assert after != _TE_GROUP
+    ch = edits.classify_te("te.yaml", _TE_GROUP, after)
+    assert ch.kind == edits.KIND_TRAFFIC and ch.via == ["tfc"]
+    assert ch.roles == {"ws02": "jump-host"}
+    # removing the override hands the instance the group's role back
+    back = edits.classify_te("te.yaml", after, _TE_GROUP)
+    assert back.kind == edits.KIND_TRAFFIC and back.roles == {"ws02": "corp-workstation"}
+
+
+def test_a_members_override_with_a_new_image_is_topology():
+    from axrange.api import edits
+
+    after = (_TE_GROUP.replace("image: img@v1", "image: img@v2")
+             .replace("      net: office\n",
+                      "      net: office\n      members:\n        - { index: 1, role: x }\n"))
+    assert edits.classify_te("te.yaml", _TE_GROUP, after).kind == edits.KIND_TOPOLOGY
+
+
+def test_a_provenance_only_edit_is_inert_and_a_link_edit_is_topology():
+    from axrange.api import edits
+
+    prov = _TE_GROUP.replace("confidence: 0.9", "confidence: 0.4").replace(
+        "source: discovered", "source: unconfirmed")
+    ch = edits.classify_te("te.yaml", _TE_GROUP, prov)
+    assert ch.kind == edits.KIND_INERT and "provenance" in ch.reason
+    linked = _TE_GROUP + "      links:\n        - { a: { device: ws, port: p }, b: { device: gw, port: q }, mode: access, vlans: [office] }\n"
+    assert edits.classify_te("te.yaml", _TE_GROUP, linked).kind == edits.KIND_TOPOLOGY
+
+
+def test_tiers_to_apply_reads_the_two_live_kinds():
+    from axrange.api import edits
+
+    changes = [
+        edits.PendingChange(path="tfc/default.yaml", op="modified", kind=edits.KIND_TRAFFIC, via=["tfc"]),
+        edits.PendingChange(path="tap/default.yaml", op="modified", kind=edits.KIND_TAPS, via=["tap"]),
+        edits.PendingChange(path="README.md", op="modified", kind=edits.KIND_INERT),
+    ]
+    assert edits.tiers_to_apply(changes) == ["tfc", "tap"]
+    assert edits.live_kind(["tfc", "tap"]) == edits.KIND_TRAFFIC and edits.live_kind(["tap"]) == edits.KIND_TAPS

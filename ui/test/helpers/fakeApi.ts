@@ -713,11 +713,11 @@ export function classify(baseline: Record<string, string>, working: Record<strin
       if (op !== "modified") out.push({ path, op, kind: "topology", via: [], paths: [path], reason: `${path} ${op}: the twin must be re-planned`, roles: {} });
       else out.push(classifyTe(path, before!, after!));
     } else if (path === "twin.yaml") {
-      out.push({ path, op, kind: "attribute", via: ["tfc", "tap"], paths: [path], reason: "tier wiring changed: the named tiers' playouts re-apply their defaults", roles: {} });
+      out.push({ path, op, kind: "traffic", via: ["tfc", "tap"], paths: [path], reason: "tier wiring changed: the named tiers' playouts re-apply their defaults", roles: {} });
     } else if (top === "tfc" || top === "personas") {
-      out.push({ path, op, kind: "attribute", via: ["tfc"], paths: [path], reason: top === "tfc" ? "traffic profile: the tfc playout re-applies" : "twin-local persona: the tfc playout re-applies", roles: {} });
+      out.push({ path, op, kind: "traffic", via: ["tfc"], paths: [path], reason: top === "tfc" ? "traffic profile: the tfc playout re-applies" : "twin-local persona: the tfc playout re-applies", roles: {} });
     } else if (top === "tap") {
-      out.push({ path, op, kind: "attribute", via: ["tap"], paths: [path], reason: "tap plan: the tap playout re-applies", roles: {} });
+      out.push({ path, op, kind: "taps", via: ["tap"], paths: [path], reason: "tap plan: the tap playout re-applies", roles: {} });
     } else if (top === "exr" || /\.(md|txt)$/i.test(path)) {
       out.push({ path, op, kind: "inert", via: [], paths: [path], reason: "nothing on the running twin reads this file; Persist carries it", roles: {} });
     } else {
@@ -769,5 +769,5 @@ function classifyTe(path: string, before: string, after: string): PendingChange 
     }
   }
   if (topology) return { path, op: "modified", kind: "topology", via: [], paths, reason: "segments, nodes, attachments, counts or images changed: the twin must be re-planned", roles: {} };
-  return { path, op: "modified", kind: "attribute", via: ["tfc"], paths, reason: "role re-assignment with the image unchanged: the tfc playout re-asserts it", roles };
+  return { path, op: "modified", kind: "traffic", via: ["tfc"], paths, reason: "role re-assignment with the image unchanged: the tfc playout re-asserts it", roles };
 }
