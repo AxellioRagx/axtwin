@@ -7,7 +7,7 @@ because it will be believed. -->
 **Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **not pushed** (the
 user pushes). Commits since origin's `f24648d`: `42c00de` track 4 (bus plane), `5df0eb2` the
 brief, `f55d2db` the design doc, `e169f32` track 2, `0d2e3cc` track 3, `ccc680b` track 4 (A2
-kinds), then `ed3f183` track 5a, then `08f70c1` 5b, then 5c (this commit). Rule: commit each track as it lands, staged by path.
+kinds), then `ed3f183` track 5a, then `08f70c1` 5b, then `5e9f5ed` 5c, then 5d (this commit). Rule: commit each track as it lands, staged by path.
 
 ## What this session did (the topology-layers build, `docs/design/topology-layers.md`)
 
@@ -59,15 +59,19 @@ corp-twin itself); a dev45 deploy of a small switch fixture **after tearing down
   flow link re-serialises whole when a field changes (`setLinkField`). Not built: multi-select
   rows, the split recorded as an assertion, a zoom threshold for the chips.
   `ui/test/canvas.members.test.tsx` (22). Seen: `t5c-members.png`.
-- **5d**: subtree select, Ctrl+D duplicate with CIDR re-allocation, drop-to-attach writing
-  `links[]`, the attach tool's device-to-device form.
+- **5d (done, this commit)**: `edit/subtree.ts` (subtree of a device, duplicate with `-2` names
+  and the next free `/24` per segment, attach device-device / device-host with free ports), the
+  subtree panel, Alt-click / menu Select subtree, Ctrl+D parked copy, Duplicate onto a device,
+  the attach tool's second click on a node, a parked device dropped on a device. Known: on a
+  deployed twin the expander refuses a parked switch, so the A2 sync reverts a Ctrl+D copy
+  with the reason (duplicate onto a device there). `ui/test/canvas.subtree.test.tsx` (23).
 - **6**: the acceptance checklist is in the SPEC; the eye check above covers 5a only.
 
 ## Current state
 
 - **Tests:** engine 4230 passed (3 environmental failures: the user's untracked catalog folders
   `corp-apcn-reader-20261028` without `twin.yaml`, `test2` / `test-twin-2` with no nodes);
-  discovery 2471 passed; ui typecheck clean, 22 files / 323 tests.
+  discovery 2471 passed; ui typecheck clean, 23 files / 346 tests.
 - Untracked, the user's call: the catalog folders above, `catalog/twins/corp-tree` (keep: the eye
   fixture), `ui/dist.old/`.
 

@@ -48,6 +48,7 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
+import { subtreeOrNull } from "./edit/subtree";
 import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, RoutesContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
@@ -76,6 +77,10 @@ export interface CanvasEditProps {
   onMoveTap?(index: number, segment: string): void;
   /** A member chip was dropped on another group (§5): that one member moves there (a topology change). */
   onMoveMember?(from: string, index: number, into: string): void;
+  /** Ctrl+D / the menu: copy the subtree under `root`, parked (§6.2); the page selects the copy. */
+  onDuplicateSubtree?(root: string): void;
+  /** The attach tool between two devices or a device and a host, or a parked device dropped on another (§6.3, §6.4): one `links[]` entry. */
+  onLink?(from: string, to: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
 }
@@ -159,6 +164,18 @@ export function Canvas(props: CanvasProps) {
 }
 
 /** The segment whose box holds `at` (absolute canvas coordinates), by name. Pure. */
+/** The device (a switch or a router) whose box contains `at`, by name. Pure. */
+export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
+  for (const n of nodes) {
+    if (n.data.kind !== "device" && n.data.kind !== "router") continue;
+    const abs = absolutePosition(nodes, n.id);
+    const w = n.measured?.width ?? n.width ?? 0;
+    const h = n.measured?.height ?? n.height ?? 0;
+    if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
+  }
+  return null;
+}
+
 export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
   for (const n of nodes) {
     if (n.data.kind !== "segment") continue;
@@ -370,6 +387,18 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         else setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
         return;
       }
+      // A parked device (no link names it) dropped on another device attaches there (§6.3).
+      if (editing && edit?.onLink && (node.data.kind === "device" || node.data.kind === "router")) {
+        const name = node.data.name;
+        const parked = !edit.model.te.links.some((l) => l.a.device === name || l.b.device === name);
+        const w = node.measured?.width ?? node.width ?? 0;
+        const h = node.measured?.height ?? node.height ?? 0;
+        const under = parked ? deviceAt(moved.filter((n) => n.id !== node.id), { x: at.x + w / 2, y: at.y + h / 2 }) : null;
+        if (under && under !== name) {
+          edit.onLink(under, name);
+          return;
+        }
+      }
       // A host icon dropped inside another bus's lane moves there (the attach gesture by drop);
       // on a lane it is already on, it just takes the spot.
       if (editing && edit && node.data.kind === "host") {
@@ -406,6 +435,27 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   );
   const selectionRef = useRef<Selection>({ kind: "none" });
   if (edit) selectionRef.current = edit.selection;
+  // A subtree selection the page set (after a duplicate) is mirrored into React Flow's flags,
+  // so the drawing agrees and the echo in onSelectionChange reads as the subtree.
+  const subtreeKey = edit?.selection.kind === "subtree" ? edit.selection.root : null;
+  useEffect(() => {
+    if (!edit || subtreeKey === null) return;
+    const t = subtreeOrNull(edit.model, subtreeKey);
+    if (!t) return;
+    const ids = new Set([...t.devices.map((d) => (graph.routers.some((r) => r.name === d) ? ID.router(d) : `device:${d}`)), ...t.segments.map(ID.segment), ...t.hosts.map(ID.host)]);
+    setNodes((ns) => ns.map((n) => (n.selected === ids.has(n.id) ? n : { ...n, selected: ids.has(n.id) })));
+  }, [subtreeKey, edit?.model, graph, setNodes, edit]);
+  /** Alt-click / the menu's Select subtree (§6.1): the device and everything below it, as one selection. */
+  const selectSubtree = useCallback(
+    (root: string) => {
+      if (!edit) return;
+      const t = subtreeOrNull(edit.model, root);
+      if (!t) return;
+      const ids = [...t.devices.map((d) => (graph.routers.some((r) => r.name === d) ? ID.router(d) : `device:${d}`)), ...t.segments.map(ID.segment), ...t.hosts.map(ID.host)];
+      select({ kind: "subtree", root }, ids);
+    },
+    [edit, graph, select],
+  );
 
   // Alt bypasses snap while held; Esc leaves the attach mode, disarms the
   // palette and closes a popover.
@@ -593,6 +643,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         select({ kind: "tap", index: Number(d.id) }, [node.id]);
         return;
       }
+      if ((d.kind === "router" || d.kind === "device") && e.altKey && editing) {
+        selectSubtree(d.name);
+        return;
+      }
       if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
@@ -618,9 +672,21 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           return;
         }
       }
-      if (attachArmed && (node.data.kind === "host" || node.data.kind === "router" || node.data.kind === "device")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
+      if (attachArmed && (node.data.kind === "host" || node.data.kind === "router" || node.data.kind === "device")) {
+        const name = node.data.kind === "host" ? node.data.nodeId : node.data.name;
+        // The second click of the tool on a node (not a segment) wires a link when a device is at either end (§6.4).
+        if (attachFrom && attachFrom !== name && edit.onLink) {
+          const kindOf = (n: string) => edit.model.te.nodes.find((x) => x.name === n)?.kind ?? "host";
+          if (kindOf(attachFrom) !== "host" || kindOf(name) !== "host") {
+            edit.onLink(attachFrom, name);
+            setAttachFrom(null);
+            return;
+          }
+        }
+        setAttachFrom(name);
+      }
     },
-    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, legAt, graph],
+    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, selectSubtree, legAt, graph],
   );
 
   // A click on a link edge (the device tree, §2.3) selects it for the inspector's link row.
@@ -638,6 +704,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const onSelectionChange = useCallback(
     ({ nodes: sel }: { nodes: Node[]; edges: Edge[] }) => {
       if (!edit || sel.length < 2) return;
+      // A subtree selection (§6.1) is many nodes by design: React Flow echoing it back (also
+      // while the page re-places after a duplicate) is not a marquee. A pane click clears it first.
+      if (selectionRef.current.kind === "subtree") return;
       const data = sel.map((n) => n.data as CanvasNode["data"]);
       const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : ""));
       const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
@@ -842,8 +911,18 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      // Ctrl+D duplicates the selected subtree (or the selected device's), parked (§6.2).
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d" && edit?.onDuplicateSubtree && !edit.locked) {
+        const sel = selectionRef.current;
+        const root = sel.kind === "subtree" ? sel.root : sel.kind === "node" && sel.names.length === 1 ? sel.names[0]! : null;
+        if (root) {
+          e.preventDefault();
+          edit.onDuplicateSubtree(root);
+        }
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       switch (e.key) {
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
@@ -946,6 +1025,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (!edit) return [];
     if (t.kind === "host" || t.kind === "router") {
       const group = edit.model.te.nodes.find((n) => n.name === t.name);
+      if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
+      if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => edit.onDuplicateSubtree!(t.name) });
       items.push({
         label: "Attach to a segment… (then click one)",
         run: () => {

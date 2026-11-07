@@ -51,6 +51,7 @@ import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
 import { moveMember } from "./edit/members";
+import { attachDevices, duplicateSubtree } from "./edit/subtree";
 import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
@@ -905,6 +906,11 @@ export function CanvasPage() {
       onAddSegment,
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
+      onDuplicateSubtree: (root) => {
+        const r = { root: "" };
+        if (edit(`duplicate ${root}'s subtree`, (d, m) => { const out = duplicateSubtree(d, m, root, null); r.root = out.root; return out.files; }) === null) setSelection({ kind: "subtree", root: r.root });
+      },
+      onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,
       onAnnotations: setAnnotations,
     };

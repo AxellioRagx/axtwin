@@ -452,6 +452,29 @@ one its `confidence`.
    assertion keyed by the members' entity keys (§5), a zoom threshold that
    opens the chips.
 
+12. **Subtree select, duplicate, attach** (§6, **built 2026-11-07, track
+   5d**, `edit/subtree.ts`): Alt-click a switch or router (or the menu's
+   *Select subtree*) selects it and everything below it -- the deeper
+   devices, the segments whose deepest carrier is in the subtree, the host
+   groups on them or wired to them, the links among them; the panel counts
+   it (`1 switch · 2 segments · 6 hosts`). **Ctrl+D** (or the menu) copies
+   the subtree parked: names `-2`, `-3`…; every copied segment takes the
+   next free `/24` in its two-octet prefix (`edit/allocate.ts`) and its
+   hosts addresses in it; roles, images, counts, member overrides and
+   traffic bindings copy; taps never do; the copy is selected. The subtree
+   panel's *Duplicate onto…* a device writes the copy's uplink as a trunk
+   from the device's next free port, with the original uplink's native and
+   VLANs mapped. **Attach**: the rail tool's second click on a device or a
+   host (one end a device) writes one `links[]` entry -- a trunk carrying
+   what the deeper device carries, or an access link on the host's first
+   segment -- with free ports at both ends; a parked device dragged onto
+   another device attaches the same way. A parked switch is CV-048 on the
+   canvas and NET-140 in the engine, but the expander refuses it outright,
+   so on a **deployed** twin the working copy's sync reverts a parked copy
+   with the reason in the strip: duplicate onto a device there. Not built:
+   the floating copy under the cursor, drop on empty canvas, site-prefix
+   re-allocation when dropped under another site, marquee as a subtree.
+
 Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
 taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and
 splices, `links[]` / `members[]` edits, the five blocks, a member's role,
@@ -489,6 +512,15 @@ member panel with the role `jump-host` and *Detach as its own group*.
 `ui/test/canvas.members.test.tsx` (22): split / merge / detach / move-one
 over the document, the badge dot, the chips, the member panel's Detach,
 the chip drag onto another group, the split form and the merge select.
+**5d (`t5d-subtree.png`, `t5d-dup.png`, `t5d-dup-deployed.png`):**
+corp-tree's `labswitch` subtree selected and counted, Ctrl+D's parked
+`labswitch-2` with its two pills at the top right and the panel reading
+"none (parked)", and the deployed switch-test refusing the parked copy with
+the expander's reason. `ui/test/canvas.subtree.test.tsx` (23): depths,
+carriage, the subtree of a switch / of core / of a host, free ports,
+duplicate onto a device and parked, the refusals, attach device-device and
+device-host, Alt-click + Ctrl+D on the page, the panel's duplicate onto a
+device, the attach tool between a device and a host and between devices.
 
 ## Notes
 

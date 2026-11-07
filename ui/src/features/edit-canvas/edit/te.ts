@@ -420,7 +420,8 @@ export function addNode(text: string, node: NewNode): string {
   lines.push(`${dash}- name: ${encodeScalar(node.name)}`);
   if (node.role) lines.push(`${pad}role: ${encodeScalar(node.role)}`);
   if (node.kind === "router" || node.kind === "switch") lines.push(`${pad}kind: ${node.kind}`);
-  lines.push(`${pad}image: ${encodeScalar(node.image)}`);
+  // An imageless switch deploys as nothing but its segments' vnets: no `image:` line.
+  if (node.image || node.kind !== "switch") lines.push(`${pad}image: ${encodeScalar(node.image)}`);
   if (node.requires?.length) lines.push(`${pad}requires: [${node.requires.map(encodeScalar).join(", ")}]`);
   if (node.resources && Object.keys(node.resources).length) lines.push(`${pad}resources: { ${Object.entries(node.resources).map(([k, v]) => `${k}: ${encodeScalar(v)}`).join(", ")} }`);
   if (node.count !== undefined && node.count !== 1) lines.push(`${pad}count: ${typeof node.count === "number" ? node.count : encodeScalar(node.count)}`);

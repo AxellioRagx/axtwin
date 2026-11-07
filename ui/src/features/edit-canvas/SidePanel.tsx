@@ -21,6 +21,7 @@ import {
   detach,
   duplicateOnto,
   mergeSegments,
+  readDoc,
   removeLink,
   removeNode,
   removeSegment,
@@ -40,6 +41,7 @@ import {
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
+import { duplicateSubtree, subtreeOf } from "./edit/subtree";
 import { tapsOn } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
@@ -54,6 +56,8 @@ export type Selection =
   | { kind: "tap"; index: number }
   /** One member of a `×N` group (§5). */
   | { kind: "member"; node: string; index: number }
+  /** A device and everything below it (§6). */
+  | { kind: "subtree"; root: string }
   | { kind: "annotation"; id: string };
 
 export interface SidePanelProps {
@@ -121,6 +125,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
       {selection.kind === "tap" ? <TapPanel {...p} index={selection.index} /> : null}
       {selection.kind === "member" ? <MemberPanel {...p} node={selection.node} index={selection.index} /> : null}
+      {selection.kind === "subtree" ? <SubtreePanel {...p} root={selection.root} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
     </aside>
@@ -411,6 +416,59 @@ function Members(p: SidePanelProps & { name: string }) {
         </button>
       </div>
     </>
+  );
+}
+
+/** A device's subtree (§6): what it holds, Duplicate parked or onto a device
+ *  (Ctrl+D on the canvas parks the copy), Remove the lot. */
+function SubtreePanel(p: SidePanelProps & { root: string }) {
+  const [target, setTarget] = useState("");
+  if (!p.model.te.nodes.some((n) => n.name === p.root)) return <p className="muted">node {p.root} is not in the document</p>;
+  const t = subtreeOf(p.model, p.root);
+  const ro = p.locked;
+  const devices = p.model.te.nodes.filter((n) => (n.kind === "switch" || n.kind === "router") && !t.devices.includes(n.name));
+  const switches = t.devices.filter((d) => p.model.te.nodes.find((n) => n.name === d)?.kind === "switch").length;
+  const routers = t.devices.length - switches;
+  const instances = t.hosts.reduce((sum, h) => sum + (p.model.te.nodes.find((n) => n.name === h)?.countValue ?? 1), 0);
+  const count = [routers ? `${routers} router${routers === 1 ? "" : "s"}` : "", switches ? `${switches} switch${switches === 1 ? "" : "es"}` : "", `${t.segments.length} segment${t.segments.length === 1 ? "" : "s"}`, `${instances} host${instances === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const dup = (attachTo: string | null) => {
+    const r = { root: "" };
+    if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });
+  };
+  return (
+    <section className="cv-side-section" data-testid="subtree-panel">
+      <h3>
+        Subtree of <span className="mono">{p.root}</span>
+      </h3>
+      <p data-testid="subtree-count">{count}</p>
+      <dl className="facts">
+        <dt>Devices</dt>
+        <dd className="mono">{t.devices.join(", ") || "none"}</dd>
+        <dt>Segments</dt>
+        <dd className="mono">{t.segments.join(", ") || "none"}</dd>
+        <dt>Hosts</dt>
+        <dd className="mono">{t.hosts.join(", ") || "none"}</dd>
+        <dt>Uplink</dt>
+        <dd className="mono">{t.uplink ? `${t.uplink.a.device}#${t.uplink.a.port} — ${t.uplink.b.device}#${t.uplink.b.port}` : "none (parked)"}</dd>
+      </dl>
+      <h4>Duplicate <span className="muted">· topology</span></h4>
+      <p className="muted hint">names follow -2, -3…; every copied segment takes the next free /24 in its prefix and its hosts addresses in it; roles, personas, counts and member overrides copy; taps never do</p>
+      <div className="row cv-inline">
+        <select aria-label="Duplicate subtree onto device" value={target} disabled={ro} onChange={(e) => setTarget(e.target.value)}>
+          <option value="">parked (attach later)</option>
+          {devices.map((d) => (
+            <option key={d.name} value={d.name}>{d.name}</option>
+          ))}
+        </select>
+        <button type="button" disabled={ro} data-testid="duplicate-subtree" onClick={() => dup(target || null)}>
+          Duplicate
+        </button>
+      </div>
+      <h4>Actions</h4>
+      <button type="button" className="danger" disabled={ro} data-testid="remove-subtree" title="remove the devices, hosts, links and segments of this subtree" onClick={() => { if (p.apply(`remove ${p.root}'s subtree`, (d, m) => { let files = d.files; let model = m; for (const h of [...t.hosts, ...t.devices]) { files = removeNode({ ...d, files }, model, h); model = readDoc({ ...d, files }); } for (const s of t.segments) { files = removeSegment({ ...d, files }, model, s); model = readDoc({ ...d, files }); } return files; }) === null) p.onSelect?.({ kind: "none" }); }}>
+        Remove subtree
+      </button>
+    </section>
   );
 }
 
