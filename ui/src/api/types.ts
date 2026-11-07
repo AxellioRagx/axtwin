@@ -217,7 +217,10 @@ export interface ImprintList {
   warnings?: string[];
 }
 
-/** The operator's claims about the network (`axr-assertions/1`), as the API round-trips it. */
+/** The operator's claims about the network (`axr-assertions/2`, a superset of `/1`:
+ *  `device`, `link` and `tap` adds, `device_kind` and `group` overrides, and the two mark
+ *  blocks `confirm` / `doubt` -- `docs/design/topology-layers.md` §3.2), as the API
+ *  round-trips it. */
 export interface AssertionsDoc {
   imprint_id: string;
   path: string;
@@ -230,6 +233,8 @@ export interface AssertionsDoc {
   add: Record<string, unknown>[];
   override: Record<string, unknown>[];
   suppress: Record<string, unknown>[];
+  confirm?: Record<string, unknown>[];
+  doubt?: Record<string, unknown>[];
   warnings?: string[];
 }
 
@@ -592,7 +597,10 @@ export interface TwinConfigWrite {
   files: Record<string, string>;
 }
 
-export type PendingChangeKind = "attribute" | "topology" | "inert";
+/** Three kinds from 2026-11-07 (`docs/design/topology-layers.md` §4): `traffic` and `taps`
+ *  are LIVE (the tier's playout re-applies), `topology` needs a re-plan, `inert` is carried
+ *  by Persist. `attribute` was the earlier single live kind. */
+export type PendingChangeKind = "traffic" | "taps" | "topology" | "inert";
 
 /** One file that differs between the baseline and the working copy, classified by the API. */
 export interface PendingChange {

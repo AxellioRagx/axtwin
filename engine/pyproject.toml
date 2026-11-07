@@ -38,7 +38,7 @@ axrange = "axrange.cli.main:main"
 where = ["src"]
 
 # Non-Python artifacts that are LOAD-BEARING AT IMPORT, not samples:
-# `axrange/api/schemas/axr-assertions-1.schema.json` is the vendored
+# `axrange/api/schemas/axr-assertions-2.schema.json` is the vendored
 # cross-repo vocabulary `console_files` derives its closed sets from, so a
 # wheel built without it fails to import that module (loudly, by design).
 [tool.setuptools.package-data]

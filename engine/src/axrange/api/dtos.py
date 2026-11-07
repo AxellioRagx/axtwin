@@ -1690,6 +1690,14 @@ class AssertionRecordDTO(BaseModel):
     resources: Optional[dict[str, Any]] = None
     listen: Optional[list[dict[str, Any]]] = None
     dial: Optional[list[dict[str, Any]]] = None
+    # the device tree (axr-assertions/2, docs/design/topology-layers.md §3.2)
+    device_kind: Optional[str] = None   # add: device / override on a host
+    group: Optional[str] = None         # override on a host: a member split
+    mode: Optional[str] = None          # add: link
+    native: Optional[str] = None
+    vlans: Optional[list[str]] = None
+    state: Optional[str] = None
+    sensors: Optional[list[str]] = None  # add: tap
     # override
     field: Optional[str] = None
     value: Optional[Any] = None
@@ -1738,13 +1746,16 @@ class AssertionsDocDTO(BaseModel):
     etag: Optional[str] = None
     # The wire name is `schema` (the file's own key); `schema_` avoids
     # shadowing `BaseModel.schema`. FastAPI serializes by alias.
-    schema_: str = Field(default="axr-assertions/1", alias="schema")
+    schema_: str = Field(default="axr-assertions/2", alias="schema")
     imprint: str
     as_of: Optional[str] = None
     source: Optional[str] = None
     add: list[AssertionRecordDTO] = []
     override: list[AssertionRecordDTO] = []
     suppress: list[AssertionRecordDTO] = []
+    # axr-assertions/2: the two mark blocks (a key and a note each).
+    confirm: list[AssertionRecordDTO] = []
+    doubt: list[AssertionRecordDTO] = []
     warnings: list[str] = []
 
     model_config = {"populate_by_name": True}
@@ -2340,13 +2351,15 @@ class TwinConfigWriteRequest(BaseModel):
 
 class PendingChangeDTO(BaseModel):
     """One file that differs between the baseline and the working copy, and
-    what Apply may do about it: `attribute` (the named tiers' playouts
-    re-apply, VMs untouched), `topology` (refused as `requires-replan`) or
-    `inert` (nothing on the running twin reads it; Persist carries it)."""
+    what Apply may do about it (`docs/design/topology-layers.md` §4, three
+    kinds from 2026-11-07): `traffic` (the tfc playout re-applies, VMs
+    untouched), `taps` (the tap playout re-applies), `topology` (refused as
+    `requires-replan`) or `inert` (nothing on the running twin reads it;
+    Persist carries it)."""
 
     path: str
     op: str  # added | removed | modified
-    kind: str  # attribute | topology | inert
+    kind: str  # traffic | taps | topology | inert
     via: list[str] = []  # tfc | tap -- the playouts an attribute change re-applies through
     paths: list[str] = []  # the differing paths inside the file (dotted YAML paths)
     reason: str = ""

@@ -191,7 +191,7 @@ def test_no_other_package_has_acquired_a_version_field():
 def test_the_two_cast_output_schemas_are_declared_once_and_are_not_ir_versions():
     """The 2026-09-04 exceptions, pinned so they stay narrow (`docs/WORK_ORDER_reference_ingest.md`
     D6/D-b, D-e; Authority: user). **Three since S2**, the third being the assertions file's own
-    `axr-assertions/1` — an INPUT rather than a cast output, and versioned for the same reason:
+    `axr-assertions/2` — an INPUT rather than a cast output, and versioned for the same reason:
     axRange's Console writes it on an independent lifecycle (`docs/WORK_ORDER_console_canvas.md`
     §9 seam 3), so neither side can tell a schema change from a parser bug without it.
 
@@ -210,7 +210,7 @@ def test_the_two_cast_output_schemas_are_declared_once_and_are_not_ir_versions()
     from aximprint.synth.imprint_bundle import BUNDLE_SCHEMA
 
     assert PROVENANCE_SCHEMA == "axr-cast-provenance/1"
-    assert ASSERTIONS_SCHEMA == "axr-assertions/1"
+    assert ASSERTIONS_SCHEMA == "axr-assertions/2"
     assert BUNDLE_SCHEMA.startswith("axr-topology/")
     assert SCHEMA_VERSION not in (PROVENANCE_SCHEMA, BUNDLE_SCHEMA, ASSERTIONS_SCHEMA)
 
@@ -247,7 +247,7 @@ def test_no_UNRATIFIED_versioned_schema_string_appears_outside_the_ir():
     The test above pins `PROVENANCE_SCHEMA` and `BUNDLE_SCHEMA` by name, which tests yesterday.
     This one discovers version-shaped literals structurally and asserts the discovered set is
     exactly the ratified one — which tests tomorrow. The distinction is not academic: the very
-    next slice of `docs/WORK_ORDER_reference_ingest.md` introduces `axr-assertions/1` (§4), and
+    next slice of `docs/WORK_ORDER_reference_ingest.md` introduces `axr-assertions/2` (§4), and
     under a name-based guard it would fail nothing at all.
 
     **Why this guard has to exist in this shape.** `CONVENTIONS.md` §3 says `ir` is *"the one
@@ -266,7 +266,7 @@ def test_no_UNRATIFIED_versioned_schema_string_appears_outside_the_ir():
     from aximprint.synth.imprint_bundle import BUNDLE_SCHEMA
 
     # `ASSERTIONS_SCHEMA` joined 2026-09-05 (S2). It is the case this guard was WRITTEN for — its
-    # own docstring named `axr-assertions/1` as the string the previous, name-based test would
+    # own docstring named `axr-assertions/2` as the string the previous, name-based test would
     # have missed — and it is ratified by the user in axRange
     # `docs/design/14-operator-assertions.md` §3, which is the design of record for the file.
     ratified = {ASSERTIONS_SCHEMA, PROVENANCE_SCHEMA, BUNDLE_SCHEMA, SCHEMA_VERSION}

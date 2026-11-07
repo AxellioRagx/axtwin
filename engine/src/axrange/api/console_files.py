@@ -22,9 +22,9 @@ directory. The recompile is handed the assertions path explicitly, so the
 file's location is the API's call, not the compiler's.
 
 **THE VOCABULARY IS AN ARTIFACT, NOT A RESTATED LIST** (ruling R2,
-2026-09-05). `axrange/api/schemas/axr-assertions-1.schema.json` is a
+2026-09-05). `axrange/api/schemas/axr-assertions-2.schema.json` is a
 BYTE-IDENTICAL VENDORED COPY of aximprint's canonical
-`src/aximprint/schemas/axr-assertions-1.schema.json` -- their file declares
+`src/aximprint/schemas/axr-assertions-2.schema.json` -- their file declares
 itself canonical ("edit it in aximprint and copy, never the other way
 round") -- and every closed set below is DERIVED from it at import time,
 never transcribed. A test asserts the two copies are byte-identical, and
@@ -97,7 +97,7 @@ from ruamel.yaml import YAML, YAMLError
 # ---------------------------------------------------------------------------
 # The vendored schema -> the closed sets (ruling R2)
 # ---------------------------------------------------------------------------
-SCHEMA_FILENAME = "axr-assertions-1.schema.json"
+SCHEMA_FILENAME = "axr-assertions-2.schema.json"
 SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / SCHEMA_FILENAME
 
 #: Where aximprint publishes its own copy. Used ONLY by the drift test; this
@@ -193,7 +193,7 @@ def _override_branches() -> dict[str, dict[str, Any]]:
     shape the branch accepts (`hostKey` -> host, `cidr` -> segment). The kind
     is a property of the KEY on both sides of the seam, so deriving it from
     the key's `$ref` is the same rule the parser applies, not a second one."""
-    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment"}
+    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment", "#/$defs/linkKey": "link"}
     out: dict[str, dict[str, Any]] = {}
     for branch in _def("overrideRecord").get("oneOf") or []:
         ref = ((branch.get("properties") or {}).get("key") or {}).get("$ref")
@@ -228,6 +228,17 @@ _ADD_BRANCHES = _add_branches()
 _OVERRIDE_BRANCHES = _override_branches()
 
 ASSERTIONS_SCHEMA: str = _SCHEMA["properties"]["schema"]["const"]
+#: What a READ accepts: the current schema and its predecessor. A `/1` file
+#: is a `/2` file that uses none of the device-tree records (axr-assertions/2,
+#: `docs/design/topology-layers.md` §3.2, 2026-11-07), so it is read as one and
+#: written back as `/2` on its first save, exactly as the compiler does.
+ACCEPTED_SCHEMAS: tuple[str, ...] = ("axr-assertions/1", ASSERTIONS_SCHEMA)
+_DEVICE_KINDS: tuple[str, ...] = tuple(_def("deviceKind").get("enum") or ())
+_DEVICE_KINDS_OVERRIDE: tuple[str, ...] = tuple(_def("deviceKindOverride").get("enum") or ())
+LINK_MODES: tuple[str, ...] = tuple(_def("linkMode").get("enum") or ())
+LINK_STATES: tuple[str, ...] = tuple(_def("linkState").get("enum") or ())
+_MARK_KEYS: tuple[str, ...] = _props(_def("markRecord"))
+_TAP_KEY_PREFIXES: tuple[str, ...] = ("segment:", "port:")
 LAYOUT_SCHEMA = "axr-layout/1"
 
 ASSERTIONS_SUFFIX = ".assertions.yaml"
@@ -259,6 +270,9 @@ _DOC_REQUIRED: tuple[str, ...] = tuple(
 #: operator can still see their own form.
 ADD_REQUIRED: dict[str, tuple[str, ...]] = {
     "conduit": (), "host": ("segment",), "segment": ("name",),
+    # The device tree (axr-assertions/2): a device says what it is, a link
+    # what it carries; the compiler refuses both at compile time otherwise.
+    "device": ("device_kind", "segment"), "link": ("mode",), "tap": (),
 }
 #: `kind: route` is refused BY NAME. The canonical schema carries the reason
 #: as PROSE in `$defs.addRecord.description` (a refusal-by-name is not
@@ -322,10 +336,14 @@ _SUPPRESS_KINDS = ("host",)
 #: `kind` outside `add` -- see the module docstring).
 _CANONICAL_RECORD_ORDER = (
     "kind", "key", "field", "value", "name", "segment", "zone_type",
-    "role", "image", "resources", "listen", "dial", "note",
+    "role", "image", "resources", "listen", "dial",
+    "device_kind", "group", "mode", "native", "vlans", "state", "sensors", "note",
 )
 
-_KEY_SHAPES = ("address:<ip>", "hostname:<name>", "mac:<addr>", "<cidr>", "<cidr>|<cidr>")
+_KEY_SHAPES = (
+    "address:<ip>", "hostname:<name>", "mac:<addr>", "<cidr>", "<cidr>|<cidr>",
+    "<host key>#<port>|<host key>#<port>", "segment:<cidr>", "port:<host key>#<port>",
+)
 
 # `site:<prefix>` / `segment:<cidr>` / `host:<name>`. The `host:` kind is the
 # twin design canvas's (`ui/src/features/edit-canvas/SPEC.md`): a host chip
@@ -577,15 +595,25 @@ def key_kind(key: Any, *, where: str) -> str:
             f"{list(_KEY_SHAPES)}"
         )
     k = key.strip()
+    # A link key STARTS with a host key (`mac:…#P1|…`): the link shape first.
+    if "|" in k and "#" in k:
+        return "link"
     if any(k.startswith(p) for p in HOST_KEY_PREFIXES):
+        if "#" in k or "|" in k:
+            raise ConsoleFileShapeError(
+                f"{where}: key {key!r} is not a host key -- '#' and '|' are the "
+                f"link and port separators; accepted shapes: {list(_KEY_SHAPES)}"
+            )
         if not k.split(":", 1)[1].strip():
             raise ConsoleFileShapeError(
                 f"{where}: key {key!r} carries an empty value part; accepted "
                 f"shapes: {list(_KEY_SHAPES)}"
             )
         return "host"
+    if any(k.startswith(p) for p in _TAP_KEY_PREFIXES):
+        return "tap"
     if "|" in k:
-        return "conduit"
+        return "link" if "#" in k else "conduit"
     if _strict_cidr(k) is not None:
         return "segment"
     if _loose_cidr(k) is not None:
@@ -668,6 +696,53 @@ def _canonical_conduit_key(key: str, *, where: str) -> str:
     return "|".join(sorted((left, right)))
 
 
+def _port_end(value: str, *, where: str, warnings: list[str]) -> tuple[str, str]:
+    """`<host key>#<port>` -> `(host key, port)`, the host key checked like any
+    other and the port non-blank (the compiler's `_port_end`)."""
+    if value.count("#") != 1:
+        raise ConsoleFileShapeError(
+            f"{where}: {value!r} is not a device port -- a port end is "
+            "`<host key>#<port>` (`mac:aa:bb:cc:dd:ee:ff#P14`), one '#'"
+        )
+    host, port = value.split("#", 1)
+    host = host.strip()
+    if key_kind(host, where=where) != "host":
+        raise ConsoleFileShapeError(f"{where}: {value!r} does not start with a host key")
+    host = _canonical_key("host", host, where=where, warnings=warnings)
+    if not port.strip() or "|" in port:
+        raise ConsoleFileShapeError(f"{where}: {value!r} names no port after '#'")
+    return host, port.strip()
+
+
+def _canonical_link_key(key: str, *, where: str, warnings: list[str]) -> str:
+    """Two device ports, `|`-joined and SORTED, on two DIFFERENT devices --
+    the compiler's `link_key`."""
+    if key.count("|") != 1:
+        raise ConsoleFileShapeError(
+            f"{where}: a link key is two device ports joined by '|' "
+            '("<host key>#<port>|<host key>#<port>"), got '
+            f"{key!r}"
+        )
+    (host_a, port_a), (host_b, port_b) = (
+        _port_end(part.strip(), where=f"{where} (link end)", warnings=warnings)
+        for part in key.split("|")
+    )
+    if host_a == host_b:
+        raise ConsoleFileShapeError(
+            f"{where}: a link joins two DIFFERENT devices; both ends are {host_a!r}"
+        )
+    return "|".join(sorted((f"{host_a}#{port_a}", f"{host_b}#{port_b}")))
+
+
+def _canonical_tap_key(key: str, *, where: str, warnings: list[str]) -> str:
+    """`segment:<cidr>` (strict) or `port:<host key>#<port>`."""
+    prefix, _, rest = key.partition(":")
+    if prefix == "segment":
+        return f"segment:{_require_strict_cidr(rest.strip(), where=where)}"
+    host, port = _port_end(rest.strip(), where=where, warnings=warnings)
+    return f"port:{host}#{port}"
+
+
 # ---------------------------------------------------------------------------
 # The assertions document
 # ---------------------------------------------------------------------------
@@ -685,6 +760,8 @@ class AssertionsDoc:
     add: list[dict[str, Any]] = field(default_factory=list)
     override: list[dict[str, Any]] = field(default_factory=list)
     suppress: list[dict[str, Any]] = field(default_factory=list)
+    confirm: list[dict[str, Any]] = field(default_factory=list)
+    doubt: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -727,7 +804,8 @@ def _doc_from_text(text: str, imprint_id: str, path: Path, *, where: str) -> Ass
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], as_of=doc.get("as_of"),
         source=doc.get("source"), add=doc["add"], override=doc["override"],
-        suppress=doc["suppress"], warnings=warnings,
+        suppress=doc["suppress"], confirm=doc["confirm"], doubt=doc["doubt"],
+        warnings=warnings,
     )
 
 
@@ -750,7 +828,8 @@ def write_assertions(
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], as_of=doc.get("as_of"),
         source=doc.get("source"), add=doc["add"], override=doc["override"],
-        suppress=doc["suppress"], warnings=warnings,
+        suppress=doc["suppress"], confirm=doc["confirm"], doubt=doc["doubt"],
+        warnings=warnings,
     )
 
 
@@ -768,8 +847,10 @@ def _dump_assertions(doc: dict[str, Any]) -> str:
         "as_of": doc["as_of"],
         "source": doc["source"],
     }
-    for block in ("add", "override", "suppress"):
-        file_doc[block] = [_file_record(r, block) for r in doc[block]]
+    for block in ("add", "override", "suppress", "confirm", "doubt"):
+        if block in ("confirm", "doubt") and not doc.get(block):
+            continue  # the two mark blocks are written only when authored
+        file_doc[block] = [_file_record(r, block) for r in doc.get(block) or []]
     buf = io.StringIO()
     _yaml().dump(file_doc, buf)
     return buf.getvalue()
@@ -824,10 +905,11 @@ def validate_assertions(
             "you -- an API-invented timestamp would churn the file on every "
             "no-op save and break the determinism rule)"
         )
-    if body["schema"] != ASSERTIONS_SCHEMA:
+    if body["schema"] not in ACCEPTED_SCHEMAS:
         raise ConsoleFileShapeError(
-            f"{where}: schema {body['schema']!r} is not {ASSERTIONS_SCHEMA!r}; "
-            "this writer speaks exactly one schema"
+            f"{where}: schema {body['schema']!r} is not one of "
+            f"{list(ACCEPTED_SCHEMAS)}; this writer speaks {ASSERTIONS_SCHEMA!r} "
+            "and reads its predecessor"
         )
     if body["imprint"] != imprint_id:
         raise ConsoleFileShapeError(
@@ -841,7 +923,15 @@ def validate_assertions(
     add = _validate_add(body.get("add"), where=where, warnings=warnings)
     override = _validate_override(body.get("override"), where=where, warnings=warnings)
     suppress = _validate_suppress(body.get("suppress"), where=where, warnings=warnings)
+    confirm = _validate_marks(body.get("confirm"), block="confirm", where=where, warnings=warnings)
+    doubt = _validate_marks(body.get("doubt"), block="doubt", where=where, warnings=warnings)
     _cross_check(add, override, suppress, where=where)
+    both = sorted({r["key"] for r in confirm} & {r["key"] for r in doubt})
+    if both:
+        raise ConsoleFileShapeError(
+            f"{where}: key(s) {both} appear in both `confirm` and `doubt` -- "
+            "the document says the entity is settled and is not"
+        )
 
     doc = {
         "schema": ASSERTIONS_SCHEMA,
@@ -851,6 +941,8 @@ def validate_assertions(
         "add": add,
         "override": override,
         "suppress": suppress,
+        "confirm": confirm,
+        "doubt": doubt,
     }
     return doc, warnings
 
@@ -1002,11 +1094,16 @@ def _validate_add(
                 f"{list(ADD_KINDS)}"
             )
         kind = key_kind(rec.get("key"), where=w)
-        if kind != declared:
+        # A device is a host ENTITY (keyed like one) that is wired by links
+        # rather than attached to a segment: `kind: device` with a host key
+        # is the consistent spelling, and the record's own kind is what the
+        # field vocabulary is looked up by.
+        if kind != declared and not (declared == "device" and kind == "host"):
             raise ConsoleFileShapeError(
                 f"{w}: declares kind {declared!r} but key {rec.get('key')!r} "
                 f"is a {kind} key"
             )
+        kind = declared
         allowed = ("kind", "key", "note") + ADD_FIELDS[kind]
         unknown = [k for k in rec if k not in allowed]
         if unknown:
@@ -1021,11 +1118,14 @@ def _validate_add(
                 f"missing {missing}"
             )
         _require_note(rec, where=w)
-        key = _canonical_key(kind, str(rec["key"]).strip(), where=w, warnings=warnings)
+        key = _canonical_key("host" if kind == "device" else kind, str(rec["key"]).strip(),
+                             where=w, warnings=warnings)
         fields = {
             name: _validate_field(kind, name, rec[name], where=f"{w}.{name}")
             for name in ADD_FIELDS[kind] if name in rec
         }
+        if kind == "link":
+            _check_link_fields(fields, where=w)
         if key in seen:
             raise ConsoleFileShapeError(
                 f"{w}: key {key!r} is added twice -- one add per key "
@@ -1090,6 +1190,58 @@ def _validate_override(
     return out
 
 
+def _check_link_fields(fields: dict[str, Any], *, where: str) -> None:
+    """The compiler's `_check_link_fields`: an access link carries exactly one
+    segment and no `native`; a trunk names `vlans` and/or `native`."""
+    mode = fields.get("mode")
+    if mode == "access":
+        if fields.get("native") is not None:
+            raise ConsoleFileShapeError(f"{where}: `native` is a trunk's field")
+        if len(fields.get("vlans") or []) != 1:
+            raise ConsoleFileShapeError(
+                f"{where}: an access link carries exactly one segment in `vlans`"
+            )
+    elif mode == "trunk" and not fields.get("vlans") and fields.get("native") is None:
+        raise ConsoleFileShapeError(
+            f"{where}: a trunk names the segments it carries (`vlans`, `native`)"
+        )
+
+
+def _validate_marks(
+    value: Any, *, block: str, where: str, warnings: list[str],
+) -> list[dict[str, Any]]:
+    """`confirm` / `doubt` records: a host, segment or link key and a note."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, rec in enumerate(_records(value, block=block, where=where)):
+        w = f"{where}: {block}[{i}]"
+        _reject_authored_confidence(rec, where=w)
+        kind = key_kind(rec.get("key"), where=w)
+        if kind not in ("host", "segment", "link"):
+            raise ConsoleFileShapeError(
+                f"{w}: key {rec.get('key')!r} is a {kind} key; `{block}` marks "
+                "a host, a segment or a link"
+            )
+        unknown = [k for k in rec if k not in ("kind",) + _MARK_KEYS]
+        if unknown:
+            raise ConsoleFileShapeError(
+                f"{w}: unknown field(s) {sorted(unknown)} on a {block} record; "
+                f"accepted: {['kind'] + list(_MARK_KEYS)}"
+            )
+        if rec.get("kind") and rec["kind"] != kind:
+            raise ConsoleFileShapeError(
+                f"{w}: declares kind {rec['kind']!r} but key {rec.get('key')!r} "
+                f"is a {kind} key"
+            )
+        _require_note(rec, where=w)
+        key = _canonical_key(kind, str(rec["key"]).strip(), where=w, warnings=warnings)
+        if key in seen:
+            raise ConsoleFileShapeError(f"{w}: key {key!r} is marked twice")
+        seen.add(key)
+        out.append(_canonical({**rec, "kind": kind, "key": key}))
+    return out
+
+
 def _validate_suppress(
     value: Any, *, where: str, warnings: list[str],
 ) -> list[dict[str, Any]]:
@@ -1141,6 +1293,10 @@ def _canonical_key(
         return _require_strict_cidr(key, where=f"{where}.key")
     if kind == "conduit":
         return _canonical_conduit_key(key, where=f"{where}.key")
+    if kind == "link":
+        return _canonical_link_key(key, where=f"{where}.key", warnings=warnings)
+    if kind == "tap":
+        return _canonical_tap_key(key, where=f"{where}.key", warnings=warnings)
     # S12, resolved against R1: the compiler does NOT parse the value part of
     # a host key, so refusing `address:not-an-ip` here would refuse a
     # document the reader of record accepts. Warn instead -- the operator is
@@ -1192,6 +1348,48 @@ def _validate_field(kind: str, name: str, value: Any, *, where: str) -> Any:
         return value
     if name in ("listen", "dial"):
         return _validate_ports(value, where=where)
+    if name == "device_kind":
+        accepted = _DEVICE_KINDS_OVERRIDE if kind == "host" else _DEVICE_KINDS
+        if value not in accepted:
+            raise ConsoleFileShapeError(
+                f"{where}: unknown device kind {value!r}; accepted: {list(accepted)}"
+            )
+        return value
+    if name == "group":
+        if (not isinstance(value, str) or not value.strip()
+                or any(c.isspace() for c in value)):
+            raise ConsoleFileShapeError(
+                f"{where}: a group name is a non-empty identifier with no "
+                f"whitespace -- it becomes the node group's name -- got {value!r}"
+            )
+        return value
+    if name == "mode":
+        if value not in LINK_MODES:
+            raise ConsoleFileShapeError(
+                f"{where}: unknown link mode {value!r}; accepted: {list(LINK_MODES)}"
+            )
+        return value
+    if name == "state":
+        if value not in LINK_STATES:
+            raise ConsoleFileShapeError(
+                f"{where}: unknown link state {value!r}; accepted: {list(LINK_STATES)}"
+            )
+        return value
+    if name == "native":
+        return _require_strict_cidr(value, where=where)
+    if name == "vlans":
+        if not isinstance(value, list) or not value:
+            raise ConsoleFileShapeError(
+                f"{where}: expected a non-empty list of segment CIDRs, got {value!r}"
+            )
+        return sorted({_require_strict_cidr(v, where=f"{where}[{i}]") for i, v in enumerate(value)})
+    if name == "sensors":
+        if (not isinstance(value, list) or not value
+                or not all(isinstance(v, str) and v.strip() for v in value)):
+            raise ConsoleFileShapeError(
+                f"{where}: expected a non-empty list of sensor names, got {value!r}"
+            )
+        return sorted({v.strip() for v in value})
     raise ConsoleFileShapeError(
         f"{where}: no validator is declared for field {name!r} on a {kind}; "
         f"accepted: {list(ADD_FIELDS.get(kind, ()))}"

@@ -16,6 +16,19 @@ axrange tap deploy --twin switch-test --db $D
 axrange tfc deploy --twin switch-test --db $D
 ```
 
-The capture is confirmed as canvas-test's was: `ip -s link show gre-cap` on the
-sink climbs once the traffic profile runs, and `tcpdump -ni any "proto gre and
-host 10.255.251.21"` on dev45 shows the inner 10.71.x addresses.
+## Deployed and measured (2026-11-07)
+
+`switch-test-5c614b0e` (48 ops, COMPLETED), tap `…-1a070fcc`-style binding of
+the boundary to XPress-SW-A, tfc `tfc-switch-test-5c614b0e-8adbc15c`. The
+inventory read four VMs and no VM for `access-sw`; `corp-workstation02` carries
+`role=jump-host` from its member override, so the traffic profile's
+`role: corp-workstation` assignment reached instance 01 only (the override's
+intended effect).
+
+| read | value |
+|---|---|
+| sink `gre-cap` RX packets before the tap | 264537 |
+| after the traffic profile, two reads a minute apart | 264626, 264640 |
+| dev45 `tcpdump -ni any "proto gre and host 10.255.251.21"` | `10.71.10.2 → 10.71.20.10:445` SYNs and the server's RSTs, both ways, plus the gateway's ARP |
+
+Tear down: `axrange te destroy switch-test-5c614b0e --allow-destroy --db ~/.axrange/state.db`.

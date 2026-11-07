@@ -553,13 +553,21 @@ class _Assertions:
         self.aset = aset
         self.source = aset.source
         self.segment_adds = {r.key: r for r in aset.adds if r.kind == "segment"}
-        self.host_adds = {r.key: r for r in aset.adds if r.kind == "host"}
+        # A `device` add is a host add that also says what the device IS (`device_kind`), so it
+        # takes the host path everywhere and its kind reaches the node through `host_fields`.
+        self.host_adds = {r.key: r for r in aset.adds if r.kind in ("host", "device")}
         self.conduit_adds = {r.key: r for r in aset.adds if r.kind == "conduit"}
+        self.link_adds = {r.key: r for r in aset.adds if r.kind == "link"}
+        self.tap_adds = {r.key: r for r in aset.adds if r.kind == "tap"}
         self.suppress = {r.key: r for r in aset.suppress}
+        self.confirm = {r.key: r for r in getattr(aset, "confirm", ())}
+        self.doubt = {r.key: r for r in getattr(aset, "doubt", ())}
         self.host_over: dict[str, dict] = {}
         self.segment_over: dict[str, dict] = {}
+        self.link_over: dict[str, dict] = {}
         for record in aset.overrides:
-            target = self.host_over if record.kind == "host" else self.segment_over
+            target = {"host": self.host_over, "segment": self.segment_over,
+                      "link": self.link_over}[record.kind]
             target.setdefault(record.key, {})[record.field] = record
         #: `(kind, key[, field])` tuples that found something in this PIT to act on. Its
         #: complement is what `ineffective` reports, so the two are derived from one fact rather
@@ -608,6 +616,20 @@ class _Assertions:
         fields = self.host_fields(entity_key)
         return tuple(sorted((name, canonical(value)) for name, (value, _r) in fields.items()))
 
+    def mark_source(self, keys) -> Optional[str]:
+        """The `source` a confirm / doubt record pins on an entity one of `keys` names
+        (`docs/design/topology-layers.md` §3.2): `unconfirmed` when any is doubted, else
+        `asserted` when any is confirmed, else `None`. Marks what it used."""
+        hit: Optional[str] = None
+        for key in keys:
+            if key in self.doubt:
+                self.mark("doubt", key)
+                hit = "unconfirmed"
+            elif key in self.confirm:
+                self.mark("confirm", key)
+                hit = hit or "asserted"
+        return hit
+
     # -- audit ------------------------------------------------------------------
 
     def mark(self, *key) -> None:
@@ -644,6 +666,10 @@ class _Assertions:
         for record in self.aset.suppress:
             if ("suppress", record.key) not in self.matched:
                 rows.append({"kind": "suppress", "key": record.key})
+        for block in ("confirm", "doubt"):
+            for record in getattr(self.aset, block, ()):
+                if (block, record.key) not in self.matched:
+                    rows.append({"kind": block, "key": record.key})
         return sorted(rows, key=lambda r: (r["kind"], r["key"]))
 
 
@@ -910,9 +936,9 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                 # Already discovered. The add's own CONTENT still applies — it reaches the node
                 # through `host_fields` like any override — but nothing is created, and saying so
                 # is better than silently treating a redundant add as a new host.
-                aview.mark("add", "host", key)
+                aview.mark("add", record.kind, key)
                 aview.ineffective(
-                    "add:host", key,
+                    f"add:{record.kind}", key,
                     "already observed in this PIT; the record's fields apply as overrides and no "
                     "host was created")
                 continue
@@ -932,7 +958,7 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                     f"add: host {key!r} declares `segment: {cidr}`, which is neither an observed "
                     f"segment nor one this file adds. Add it with `- {{kind: segment, key: "
                     f"{cidr}, ...}}`, or correct the CIDR. Known segments: {sorted(known_cidrs)}")
-            aview.mark("add", "host", key)
+            aview.mark("add", record.kind, key)
             asserted_hosts.append(_asserted_entity(key, cidr, record))
             asserted_host_keys.add(key)
         placed.extend(asserted_hosts)
@@ -1212,8 +1238,30 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         seg_asserted = aview.segment_fields(seg["cidr"]) if aview is not None else {}
         name_value, name_record = seg_asserted.get("name", (seg["name"], None))
         zone_value, zone_record = seg_asserted.get("zone_type", (ZONE_TYPE, None))
-        segments.append({"name": name_value, "cidr": _cidr(seg["cidr"]),
-                         "zone_type": zone_value})
+        seg_entry = {"name": name_value, "cidr": _cidr(seg["cidr"]), "zone_type": zone_value}
+        # PROVENANCE IN THE DOCUMENT (`docs/design/topology-layers.md` §3.1): one word
+        # summarising the sidecar. An operator's mark wins; then an asserted segment (added, or
+        # with a field overridden); the sink's segment is the compiler's placeholder; a segment
+        # present in fewer than half the windows is the cast's own weak-evidence verdict.
+        seg_marked = aview.mark_source([seg["cidr"]]) if aview is not None else None
+        seg_occ = _segment_occupancy(seg)
+        if seg_marked is not None:
+            seg_source = seg_marked
+        elif seg["cidr"] in asserted_cidrs or seg_asserted:
+            seg_source = ASSERTIONS_EVIDENCE_CLASS
+        elif seg.get("coverage_source") == "synthesized":
+            seg_source = "unconfirmed"
+        elif seg_occ is not None and seg_occ < _RUNG_LADDER[-2][1]:
+            seg_source = "unconfirmed"
+        else:
+            seg_source = "discovered"
+        seg_entry["source"] = seg_source
+        if seg_source in ("discovered", "unconfirmed") and seg_occ is not None \
+                and seg.get("coverage_source") != "synthesized":
+            seg_entry["confidence"] = seg_occ
+            if pit_row.get("vantage"):
+                seg_entry["vantage"] = pit_row["vantage"]
+        segments.append(seg_entry)
         if name_record is not None:
             aview.mark("override", seg["cidr"], "name")
             # `name` has no provenance row on a segment nobody asserted, and gains one only here.
@@ -1329,6 +1377,10 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
 
     # -- nodes ------------------------------------------------------------------
     nodes, capped, population, unmeasured_nodes = [], [], [], []
+    #: entity key -> the node group it compiled into, and the group's emitted count: what the
+    #: link and tap records below resolve their device ends against.
+    node_name_of_key: dict[str, str] = {}
+    node_count_of_name: dict[str, int] = {}
     #: `(name, observed_count)` for a domain-promoting group clamped to ONE forest root — see the
     #: clamp in the node loop below. Emitted as a caveat, and the observed count is kept in the
     #: `population` sidecar, so the second DC is disclosed, never silently dropped.
@@ -1362,6 +1414,7 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         rule = _rule_for(role)
         content = ({"image": rule.image, "resources": rule.resources, "install": list(rule.install)}
                    if rule else dict(DEFAULT_NODE, install=list(DEFAULT_NODE["install"])))
+        group_record = None  # set below for an observed group an operator split (`group`)
         # Content assertions (D12: `image`, `resources`). Applied to the group as a whole, which
         # is safe precisely BECAUSE the signature is in the group key: every member of this group
         # carries the same assertion, so there is no host here inheriting a neighbour's hand-edit.
@@ -1428,6 +1481,14 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             # `ASSERTED_RUNG` in its name and needs no second marker.
             if signature and rung != ASSERTED_RUNG:
                 name = f"{name}-{ASSERTED_MARKER}"
+            # A MEMBER SPLIT (`docs/design/topology-layers.md` §5): an asserted `group` names
+            # the node group these hosts form. The signature already keeps them apart from the
+            # group their role, segment and presence would put them in; this gives it the name.
+            group_record = asserted_fields.get("group") if asserted_fields else None
+            if group_record is not None:
+                name = group_record[0]
+                for member in members:
+                    aview.mark("override", member["entity_key"], "group")
             # Deterministic disambiguation for the case the marker alone does not settle: two
             # DIFFERENT assertions on hosts that would otherwise group together (two images, say).
             # The iteration order above is total, so the suffix is a property of the content
@@ -1453,6 +1514,22 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             node["resources"] = content["resources"]
         if content["install"]:
             node["install"] = content["install"]
+        # A DEVICE (`docs/design/topology-layers.md` §2.2): an asserted `device_kind` makes the
+        # group a switch or a router. A switch's attachment is an L2 port (no address), and
+        # without an asserted image it carries none -- it then deploys as nothing but the vnets
+        # its links carry (§2.5, decision 3). `host` turns a device back into a host.
+        device_record = asserted_fields.get("device_kind") if asserted_fields else None
+        device_kind = device_record[0] if device_record is not None else None
+        if device_record is not None:
+            for member in members:
+                aview.mark("override", member["entity_key"], "device_kind")
+        if device_kind in ("switch", "router"):
+            node["kind"] = device_kind
+            if device_kind == "switch":
+                node["nets"] = [{"segment": node.pop("net"), "l2": True}]
+                if "image" not in asserted_fields:
+                    node.pop("image", None)
+                    node.pop("install", None)
         # `provides: [{domain: ...}]`, and it is REQUIRED rather than decorative: axRange's
         # `pass1_emit` errors on a `role: adds` install action with no domain to promote into
         # (`axrange/planner/pass1_emit.py`). Emitted from the install action rather than from the
@@ -1555,8 +1632,44 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                         and all(c is not None for c in confidences)):
                     block["role_confidence"] = min(confidences)
                 node["observation"] = block
+        # PROVENANCE IN THE DOCUMENT (`docs/design/topology-layers.md` §3.1). An operator's
+        # confirm / doubt mark on any member wins; an asserted group (added, or carrying an
+        # override) is `asserted`; the sink is the compiler's placeholder; a transient or
+        # unmeasured group is the cast's own weak-evidence verdict; everything else was
+        # discovered, and says how firmly (its occupancy) and from where (the vantage).
+        member_keys = [m["entity_key"] for m in members]
+        marked_source = aview.mark_source(member_keys) if aview is not None else None
+        if marked_source is not None:
+            node_source = marked_source
+        elif group_is_asserted or signature:
+            node_source = ASSERTIONS_EVIDENCE_CLASS
+        elif synthetic:
+            node_source = "unconfirmed"
+        elif rung == _RUNG_LADDER[-1][0] or name in unmeasured_nodes:
+            node_source = "unconfirmed"
+        else:
+            node_source = "discovered"
+        node["source"] = node_source
+        if node_source in ("discovered", "unconfirmed") and "observation" in node:
+            node["confidence"] = node["observation"]["occupancy"]
+            if pit_row.get("vantage"):
+                node["vantage"] = pit_row["vantage"]
         idx = len(nodes)
         nodes.append(node)
+        for member in members:
+            node_name_of_key[member["entity_key"]] = name
+        node_count_of_name[name] = count
+        if device_record is not None:
+            prov(f"twin_config.nodes[{idx}].kind", ASSERTIONS_EVIDENCE_CLASS,
+                 f"{ASSERTIONS_SCHEMA} host.device_kind",
+                 **_asserted_prov(device_record[1], "device_kind", source=aview.source),
+                 reason="declared by an operator: this vantage carries no device evidence "
+                        "(a switch is a MAC on a port at best)")
+        if group_record is not None:
+            prov(f"twin_config.nodes[{idx}].name", ASSERTIONS_EVIDENCE_CLASS,
+                 f"{ASSERTIONS_SCHEMA} host.group",
+                 **_asserted_prov(group_record[1], "group", source=aview.source),
+                 reason="a member split: these hosts are a separate group by the operator's say")
         # D6: observed vs emitted, per group, as structured data rather than only as prose in a
         # caveat. A consumer reconstructing the real population from the twin alone needs numbers
         # it can add up — a twin that silently under-represents its network is the same failure
@@ -1977,7 +2090,10 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         #     installs no routes and no metrics of its own, so there is no competing entry.
         nodes.append({"name": GATEWAY_NAME, "role": "gw", "kind": "router",
                       "image": DEFAULT_NODE["image"],
-                      "nets": [{"segment": s["name"]} for s in segments]})
+                      "nets": [{"segment": s["name"]} for s in segments],
+                      # The compiler's placeholder for a gateway nothing identified: the
+                      # thing an operator confirms or replaces (topology-layers §3.1).
+                      "source": "unconfirmed"})
         prov(f"twin_config.nodes[{gw_idx}]", COMPILER_CLASS,
              "synth/compiler.py GATEWAY_NAME",
              reason="synthetic: no gateway is identifiable at this vantage (no L2 addresses, no "
@@ -2055,6 +2171,59 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             prov(f"twin_config.conduits[{i}]", "observed",
                  "ir_edge (cross-segment pairs over placed entities)", between=[a, b])
 
+    # ASSERTED LINKS (`docs/design/topology-layers.md` §2.3, §3.2). No vantage this compiler
+    # reads carries link evidence (a switch is at best a MAC on a port), so every link is an
+    # operator's record: each end's entity key resolves to the node group it compiled into
+    # (which must be one device, never a `count > 1` group), the segments it carries resolve
+    # by CIDR to the twin's segment names, and anything that does not resolve is REPORTED
+    # rather than emitted, like a conduit to nowhere.
+    links_out: list[dict] = []
+    if aview is not None:
+        for key, record in sorted(aview.link_adds.items()):
+            fields = dict(record.fields)
+            for fname, orec in sorted(aview.link_over.get(key, {}).items()):
+                fields[fname] = orec.value
+            ends: list[dict] = []
+            problem: Optional[str] = None
+            for end in key.split("|"):
+                host_key, port = end.rsplit("#", 1)
+                node_name = node_name_of_key.get(host_key)
+                if node_name is None:
+                    problem = (f"device {host_key!r} is not a twin node (unplaced, suppressed "
+                               f"or absent from this PIT) -- add it with `kind: device`")
+                    break
+                if node_count_of_name.get(node_name, 1) > 1:
+                    problem = (f"device {host_key!r} is one of the {node_count_of_name[node_name]} "
+                               f"hosts of group {node_name!r}; a link names one device -- split "
+                               f"it out with `override: {{field: group}}` first")
+                    break
+                ends.append({"device": node_name, "port": port})
+            if problem is None:
+                named = ([fields["native"]] if fields.get("native") else []) + list(fields.get("vlans") or [])
+                missing = sorted(c for c in named if c not in name_of)
+                if missing:
+                    problem = (f"segment(s) {missing} are not in this twin -- add them with "
+                               f"`kind: segment`, or correct the CIDRs")
+            if problem is not None:
+                aview.ineffective("add:link", key, problem)
+                continue
+            aview.mark("add", "link", key)
+            for fname in aview.link_over.get(key, {}):
+                aview.mark("override", key, fname)
+            entry: dict = {"a": ends[0], "b": ends[1], "mode": fields.get("mode", "trunk")}
+            if fields.get("native"):
+                entry["native"] = name_of[fields["native"]]
+            entry["vlans"] = [name_of[c] for c in (fields.get("vlans") or [])]
+            if fields.get("state"):
+                entry["state"] = fields["state"]
+            entry["source"] = aview.mark_source([key]) or ASSERTIONS_EVIDENCE_CLASS
+            i = len(links_out)
+            links_out.append(entry)
+            prov(f"twin_config.links[{i}]", ASSERTIONS_EVIDENCE_CLASS,
+                 f"{ASSERTIONS_SCHEMA} add:link",
+                 **_asserted_prov(record, "key", source=aview.source),
+                 reason="declared by an operator: this vantage carries no link evidence")
+
     # A POSITIVE GATE on the one property every downstream reference depends on: `net:` on a
     # segment, `tfc` `assignments[].node`, `tap` bindings and axRange's own expander all address a
     # node BY NAME, so two nodes sharing one is not a cosmetic collision — it is a twin config
@@ -2119,6 +2288,9 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         # different `plan_id` — correctly, because it is a different twin.
         "params": {"DEPLOY_MIN_OCCUPANCY": DEPLOY_MIN_OCCUPANCY},
         "segments": segments, "nodes": nodes, "conduits": conduits,
+        # ABSENT unless an operator declared wiring (topology-layers §2.3): a cast with no
+        # link records expands byte-identically to one compiled before links existed.
+        **({"links": links_out} if links_out else {}),
         # ABSENT unless this twin actually stands a domain up. axRange's `TwinConfig` model takes
         # `identity: Optional[...]`, and emitting an empty block on a twin with no DC would
         # publish a forest name nothing promotes.
@@ -2276,6 +2448,46 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         "target": twin_id,
         "bindings": [{"selector": {"scope": "segment", "target": s["name"]}, "mode": "exclusive"}
                      for s in tapped]}}
+    # ASSERTED TAPS (`docs/design/topology-layers.md` §8): a sensor binding the operator placed
+    # on a whole segment or on one device port -- the one binding kind that DOES name its
+    # sensors, because the operator knows them. A port tap resolves its segment through the
+    # asserted link that carries the port; a port on no link is reported, not guessed.
+    if aview is not None:
+        for key, record in sorted(aview.tap_adds.items()):
+            kind_, rest = key.split(":", 1)
+            binding: Optional[dict] = None
+            if kind_ == "segment":
+                if rest not in name_of:
+                    aview.ineffective("add:tap", key, f"segment {rest!r} is not in this twin")
+                    continue
+                binding = {"selector": {"scope": "segment", "target": name_of[rest]}}
+            else:
+                host_key, port = rest.rsplit("#", 1)
+                node_name = node_name_of_key.get(host_key)
+                if node_name is None:
+                    aview.ineffective("add:tap", key, f"device {host_key!r} is not a twin node")
+                    continue
+                carried = next(
+                    (([lk.get("native")] if lk.get("native") else []) + list(lk.get("vlans") or [])
+                     for lk in links_out
+                     if any(e["device"] == node_name and e["port"] == port for e in (lk["a"], lk["b"]))),
+                    None)
+                if not carried:
+                    aview.ineffective(
+                        "add:tap", key,
+                        f"port {port!r} of {node_name!r} is on no link in this twin -- add the "
+                        f"link first, or tap the segment")
+                    continue
+                binding = {"selector": {"scope": "port", "target": node_name, "segment": carried[0]}}
+            binding["mode"] = "exclusive"
+            binding["sensors"] = list(record.fields.get("sensors") or [])
+            aview.mark("add", "tap", key)
+            j = len(tap_plan["tap-plan"]["bindings"])
+            tap_plan["tap-plan"]["bindings"].append(binding)
+            prov(f"tap_plan.bindings[{j}]", ASSERTIONS_EVIDENCE_CLASS,
+                 f"{ASSERTIONS_SCHEMA} add:tap",
+                 **_asserted_prov(record, "key", source=aview.source),
+                 reason="placed by an operator; the one binding whose sensors are named")
     caveats.append(
         "tap plan is INCOMPLETE by design: every binding omits `sensors`, which names Lab (`o2`) "
         "sensors aximprint has no way to observe. Fill them in before applying.")
@@ -2357,6 +2569,11 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             "added_hosts": sorted(asserted_host_keys),
             "added_segments": sorted(asserted_segment_names),
             "added_conduits": sorted(conduit_key(a, b) for a, b in asserted_pairs),
+            "added_devices": sorted(k for k, r in aview.host_adds.items() if r.kind == "device"),
+            "added_links": sorted(aview.link_adds),
+            "added_taps": sorted(aview.tap_adds),
+            "confirmed": sorted(aview.confirm),
+            "doubted": sorted(aview.doubt),
             "ineffective": aview.report(),
             # Every record the compile never acted on, derived from `matched` rather than counted
             # a second time. A record can be `unmatched` without being `ineffective` only if a

@@ -153,18 +153,37 @@ The seam (`axr-assertions/1`) takes `add` of `conduit | host | segment`,
 
 | record | key | content |
 |---|---|---|
-| `add` / `override` `kind: device` | the device's entity key (`mac:` for a switch seen as a MAC on a port; `hostname:` when named) | `kind: switch \| router`, `role`, `image` |
-| `add` / `override` `kind: link` | `<deviceKeyA>#<port>|<deviceKeyB>#<port>`, sorted | `mode`, `native`, `vlans[]` (as CIDRs, the seam's segment key), `state` |
-| `override` `field: members` on a host group | the group's **member** entity keys, one record per member | the split: `{key, group: <new name>}`; the role: `{key, role}` |
-| `add` `kind: tap` | the selector (`segment:<cidr>`, `port:<deviceKey>#<port>`, `link:<linkKey>`) | `sensors[]` |
-| `confirm` / `doubt` | any key above | pins a discovered value as `asserted`, or marks it `unconfirmed` |
+| `add` `kind: device` | the device's host entity key (`mac:` for a switch seen as a MAC on a port; `hostname:` when named) | `device_kind: switch \| router` (required), `role`, `image`, `resources`, `segment` |
+| `override` `field: device_kind` on a host | the host's entity key | `switch \| router \| host` (the last turns a device back into a host) |
+| `add` `kind: link` | `<hostKeyA>#<port>|<hostKeyB>#<port>`, the two ends sorted | `mode` (required), `native` and `vlans[]` as CIDRs (the seam's segment key), `state` |
+| `override` on a link | the link key | `mode`, `native`, `vlans`, `state` |
+| `override` `field: group` on a host | the **member's** entity key, one record per member | the name of the group it joins: a member split |
+| `add` `kind: tap` | `segment:<cidr>` or `port:<hostKey>#<port>` | `sensors[]` |
+| `confirm` / `doubt` | a host key, a segment CIDR or a link key, with a note | pins a discovered value as `asserted`, or marks it `unconfirmed` |
 
 A re-cast applies assertions after casting and reports every record it could
-not key (the roster changed: the MAC is gone, the CIDR moved). Member records
-are keyed by entity key, never by index, so a member that changes position
-in the roster keeps its override (§11 decision 4).
+not key (the roster changed: the MAC is gone, the CIDR moved) under the
+sidecar's `population.assertions.ineffective` and `unmatched`, which the cast
+response republishes as caveats. Member records are keyed by entity key,
+never by index, so a member that changes position in the roster keeps its
+override (§11 decision 4). A `device` is a host entity, so its other fields
+reach the node the way a host add's do; a switch with no asserted image
+deploys as nothing (§2.5). A `link` end must resolve to a group of one; a
+link naming a `count > 1` group is reported, and the remedy is a `group`
+split first. A `port` tap resolves its segment through the asserted link that
+carries the port.
 
-This is a schema change to the seam (`axr-assertions/2`): §11 decision 2.
+This is the seam's version 2 (`axr-assertions/2`, §11 decision 2, built in
+track 3): a superset of version 1, so a version 1 file parses unchanged and is
+re-emitted as version 2 on its first save. The published schema moved to
+`axr-assertions-2.schema.json` in both repos.
+
+The cast writes `source` on every segment and node it emits (§3.1): an
+operator's confirm or doubt mark wins; an asserted group is `asserted`; the
+synthetic gateway and sink are `unconfirmed`; a group on the transient rung
+(occupancy below 0.5) or with no measurable presence is `unconfirmed`;
+everything else is `discovered` with its occupancy as `confidence` and the
+PIT's vantage.
 
 ### 3.3 The overlay
 

@@ -63,12 +63,28 @@ import yaml
 #:
 #: Declared ONCE, here, in the module that parses and emits it — the same rule the sidecar's
 #: `PROVENANCE_SCHEMA` and the bundle's `BUNDLE_SCHEMA` follow (`LES-105`).
-ASSERTIONS_SCHEMA = "axr-assertions/1"
+ASSERTIONS_SCHEMA = "axr-assertions/2"
+
+#: Every schema string `parse_assertions` accepts. A `/1` file is a `/2` file that uses none of
+#: the device-tree records (`docs/design/topology-layers.md` §3.2, 2026-11-07), so it parses
+#: unchanged and is re-emitted as `/2`; nothing an operator wrote under `/1` is refused.
+ACCEPTED_SCHEMAS: tuple[str, ...] = ("axr-assertions/1", "axr-assertions/2")
 
 #: The closed set of `add.kind` values (D10/D13). Sorted, and sorted is load-bearing: it is the
 #: first component of the canonical `add` order, so a record's position in a re-emitted file is a
 #: property of this tuple rather than of the author's typing order (D15).
-ADD_KINDS: tuple[str, ...] = ("conduit", "host", "segment")
+ADD_KINDS: tuple[str, ...] = ("conduit", "device", "host", "link", "segment", "tap")
+
+#: `add: {kind: device}` / `override: {field: device_kind}` values. A device is a host entity
+#: (keyed like one) that is wired by links rather than attached to one segment: a switch, or a
+#: router discovery never saw (`docs/design/topology-layers.md` §2.2). `host` is accepted on
+#: the OVERRIDE only, to turn a device back into a host.
+DEVICE_KINDS: tuple[str, ...] = ("router", "switch")
+#: `links[].mode` / `.state` as the twin config spells them (`twinconfig/schema.py`).
+LINK_MODES: tuple[str, ...] = ("access", "trunk")
+LINK_STATES: tuple[str, ...] = ("blocked", "down", "up")
+#: The two shapes a `tap` key takes: a whole segment, or one device port.
+TAP_KEY_PREFIXES: tuple[str, ...] = ("port:", "segment:")
 
 #: `kind` values refused BY NAME, with the reason (D13, ruled §11 D-c(a)). A named refusal is not
 #: the same as an unknown-kind refusal: `route` is a thing an operator will reasonably try, and
@@ -92,7 +108,8 @@ REFUSED_ADD_KINDS: dict[str, str] = {
 #: `compiler`-class today (a catalog default, unscored by the scorecard); asserting one moves it
 #: into a class that IS scored, which is exactly `14` §4's point about the first edit set.
 OVERRIDE_FIELDS: dict[str, tuple[str, ...]] = {
-    "host": ("image", "resources", "role", "segment"),
+    "host": ("device_kind", "group", "image", "resources", "role", "segment"),
+    "link": ("mode", "native", "state", "vlans"),
     "segment": ("name", "zone_type"),
 }
 
@@ -101,8 +118,14 @@ OVERRIDE_FIELDS: dict[str, tuple[str, ...]] = {
 #: so `add` and `override` cannot drift into two different ideas of what a host has (`LES-087`).
 ADD_FIELDS: dict[str, tuple[str, ...]] = {
     "conduit": (),
-    "host": tuple(sorted(OVERRIDE_FIELDS["host"] + ("dial", "listen"))),
+    # A device add is a host add that also names what the device IS; `group` is a member
+    # split of an OBSERVED group and makes no sense on a host declared into existence.
+    "device": ("device_kind", "image", "resources", "role", "segment"),
+    "host": tuple(sorted(f for f in OVERRIDE_FIELDS["host"] + ("dial", "listen")
+                         if f not in ("device_kind", "group"))),
+    "link": OVERRIDE_FIELDS["link"],
     "segment": OVERRIDE_FIELDS["segment"],
+    "tap": ("sensors",),
 }
 
 #: `entity_key` prefixes (D10) — the self-describing `<key_kind>:<value>` form the IR already
@@ -162,7 +185,7 @@ SOURCE_PREFIX = "operator:"
 #: by nothing). Six refusals are cross-record or arithmetic and no per-instance JSON Schema
 #: keyword reaches them; they are named in the file's own `$comment` rather than left for a
 #: consumer to discover by reading schema-valid as parser-accepted.
-SCHEMA_FILE = Path(__file__).resolve().parent / "schemas" / "axr-assertions-1.schema.json"
+SCHEMA_FILE = Path(__file__).resolve().parent / "schemas" / "axr-assertions-2.schema.json"
 
 
 def schema_text() -> str:
@@ -253,6 +276,22 @@ class SuppressRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class MarkRecord:
+    """One `confirm:` or `doubt:` record (`docs/design/topology-layers.md` §3.2): the operator
+    pins a discovered value as `asserted` (its fields unchanged), or marks it `unconfirmed`.
+    Keyed like an override -- a host key, a segment CIDR or a link key -- and carrying nothing
+    but the key and the note, because it changes provenance, never content."""
+
+    key: str
+    note: str
+    kind: str
+
+    @property
+    def merge_key(self) -> str:
+        return self.key
+
+
+@dataclass(frozen=True, slots=True)
 class AssertionSet:
     """A parsed, validated, canonically-ordered assertions file.
 
@@ -275,17 +314,21 @@ class AssertionSet:
     adds: tuple[AddRecord, ...] = ()
     overrides: tuple[OverrideRecord, ...] = ()
     suppress: tuple[SuppressRecord, ...] = ()
+    confirm: tuple[MarkRecord, ...] = ()
+    doubt: tuple[MarkRecord, ...] = ()
     #: Where it was read from, for messages and for the sidecar's `assertions` block. `None` for
     #: a set built in memory (a test, or the Console's own PUT body before it is written).
     path: Optional[str] = None
 
     def __len__(self) -> int:
-        return len(self.adds) + len(self.overrides) + len(self.suppress)
+        return (len(self.adds) + len(self.overrides) + len(self.suppress)
+                + len(self.confirm) + len(self.doubt))
 
     @property
     def counts(self) -> dict[str, int]:
         return {"add": len(self.adds), "override": len(self.overrides),
-                "suppress": len(self.suppress)}
+                "suppress": len(self.suppress), "confirm": len(self.confirm),
+                "doubt": len(self.doubt)}
 
 
 # -- parsing --------------------------------------------------------------------------------
@@ -350,6 +393,10 @@ def _cidr(value, what: str) -> str:
 
 
 def _host_key(value, what: str) -> str:
+    if isinstance(value, str) and ("#" in value or "|" in value):
+        raise AssertionsError(
+            f"{what}: {value!r} is not a host entity key -- '#' and '|' are the link and port "
+            f"separators (`<host key>#<port>|<host key>#<port>`)")
     if not isinstance(value, str) or not any(value.startswith(p) for p in HOST_KEY_PREFIXES):
         raise AssertionsError(
             f"{what}: {value!r} is not a host entity key. Keys are the stable, self-describing "
@@ -360,14 +407,63 @@ def _host_key(value, what: str) -> str:
     return value
 
 
+def _port_end(value, what: str) -> tuple[str, str]:
+    """`"<hostKey>#<port>"` -> `(hostKey, port)`; refused when either half is missing."""
+    if not isinstance(value, str) or value.count("#") != 1:
+        raise AssertionsError(
+            f"{what}: {value!r} is not a device port -- a port end is `<host key>#<port>` "
+            f"(`mac:aa:bb:cc:dd:ee:ff#P14`), one `#`")
+    host, port = value.split("#", 1)
+    host = _host_key(host, what)
+    if not port.strip() or "|" in port:
+        raise AssertionsError(f"{what}: {value!r} names no port after '#'")
+    return host, port.strip()
+
+
+def link_key(a: str, b: str) -> str:
+    """The canonical link key for two port ends -- sorted, `|`-joined, like `conduit_key`."""
+    return "|".join(sorted((a, b)))
+
+
+def _link_key(value, what: str) -> str:
+    if not isinstance(value, str) or value.count("|") != 1:
+        raise AssertionsError(
+            f"{what}: a link key is two device ports joined by '|' "
+            f"(\"<host key>#<port>|<host key>#<port>\"), got {value!r}")
+    left, right = value.split("|")
+    (host_a, port_a), (host_b, port_b) = _port_end(left, what), _port_end(right, what)
+    if host_a == host_b:
+        raise AssertionsError(
+            f"{what}: a link joins two DIFFERENT devices; both ends are {host_a!r}")
+    return link_key(f"{host_a}#{port_a}", f"{host_b}#{port_b}")
+
+
+def _tap_key(value, what: str) -> str:
+    if not isinstance(value, str) or not any(value.startswith(p) for p in TAP_KEY_PREFIXES):
+        raise AssertionsError(
+            f"{what}: {value!r} is not a tap key. A tap sits on a whole segment "
+            f"(`segment:<cidr>`) or on one device port (`port:<host key>#<port>`)")
+    prefix, rest = value.split(":", 1)
+    if prefix == "segment":
+        return f"segment:{_cidr(rest, what)}"
+    host, port = _port_end(rest, what)
+    return f"port:{host}#{port}"
+
+
 def _key_kind(key: str) -> Optional[str]:
-    """`"address:10.0.0.1"` -> `host`; `"10.0.0.0/24"` -> `segment`; `"a|b"` -> `conduit`.
+    """`"address:10.0.0.1"` -> `host`; `"10.0.0.0/24"` -> `segment`; `"a|b"` -> `conduit`;
+    `"a#p|b#q"` -> `link`; `"segment:…"` / `"port:…"` -> `tap`.
 
     `None` for anything else, so a caller refuses with its own message rather than this function
     guessing a kind for a malformed key.
     """
+    # A link key STARTS with a host key (`mac:…#P1|…`), so the link shape is tested first.
+    if "|" in key and "#" in key:
+        return "link"
     if any(key.startswith(p) for p in HOST_KEY_PREFIXES):
         return "host"
+    if any(key.startswith(p) for p in TAP_KEY_PREFIXES):
+        return "tap"
     if "|" in key:
         return "conduit"
     try:
@@ -405,8 +501,12 @@ def _parse_add(raw, index: int) -> AddRecord:
     raw_key = record.get("key")
     if kind == "segment":
         key = _cidr(raw_key, f"{what}.key")
-    elif kind == "host":
+    elif kind in ("host", "device"):
         key = _host_key(raw_key, f"{what}.key")
+    elif kind == "link":
+        key = _link_key(raw_key, f"{what}.key")
+    elif kind == "tap":
+        key = _tap_key(raw_key, f"{what}.key")
     else:
         if not isinstance(raw_key, str) or raw_key.count("|") != 1:
             raise AssertionsError(
@@ -419,7 +519,30 @@ def _parse_add(raw, index: int) -> AddRecord:
         key = conduit_key(left, right)
     fields = {name: _validate_field(kind, name, record[name], f"{what}.{name}")
               for name in ADD_FIELDS[kind] if name in record}
+    if kind == "device" and "device_kind" not in fields:
+        raise AssertionsError(
+            f"{what}: a device add names what the device is -- `device_kind: switch` or "
+            f"`device_kind: router`")
+    if kind == "link":
+        _check_link_fields(fields, what)
     return AddRecord(kind=kind, key=key, note=note, fields=fields)
+
+
+def _check_link_fields(fields: dict, what: str) -> None:
+    """A link add says what it carries (`docs/design/topology-layers.md` §2.3): `mode` is
+    required; a trunk names `vlans` and/or `native`; an access link names exactly one segment in
+    `vlans` and no `native`."""
+    mode = fields.get("mode")
+    if mode is None:
+        raise AssertionsError(f"{what}: a link add names its `mode` (access | trunk)")
+    if mode == "access":
+        if fields.get("native") is not None:
+            raise AssertionsError(f"{what}: `native` is a trunk's field")
+        if len(fields.get("vlans") or []) != 1:
+            raise AssertionsError(
+                f"{what}: an access link carries exactly one segment in `vlans`")
+    elif not fields.get("vlans") and fields.get("native") is None:
+        raise AssertionsError(f"{what}: a trunk names the segments it carries (`vlans`, `native`)")
 
 
 def _parse_override(raw, index: int) -> OverrideRecord:
@@ -432,13 +555,16 @@ def _parse_override(raw, index: int) -> OverrideRecord:
     if not isinstance(key, str):
         raise AssertionsError(f"{what}.key: expected a string, got {type(key).__name__}")
     kind = _key_kind(key)
-    if kind is None or kind == "conduit":
+    if kind is None or kind in ("conduit", "tap"):
         raise AssertionsError(
-            f"{what}.key: {key!r} names neither a host nor a segment. A host key is "
-            f"{', '.join(p + '…' for p in HOST_KEY_PREFIXES)} and a segment key is its observed "
-            f"CIDR (D10); a conduit has no overridable field")
+            f"{what}.key: {key!r} names neither a host, a segment nor a link. A host key is "
+            f"{', '.join(p + '…' for p in HOST_KEY_PREFIXES)}, a segment key is its observed "
+            f"CIDR (D10) and a link key is two device ports joined by '|'; a conduit and a tap "
+            f"have no overridable field")
     if kind == "segment":
         key = _cidr(key, f"{what}.key")
+    elif kind == "link":
+        key = _link_key(key, f"{what}.key")
     field = record.get("field")
     if field not in OVERRIDE_FIELDS[kind]:
         raise AssertionsError(
@@ -466,6 +592,28 @@ def _parse_suppress(raw, index: int) -> SuppressRecord:
             f"every node's `net:` and every conduit touching it dangling, which is a topology "
             f"edit rather than a suppression. Suppress its hosts, or do not emit the segment")
     return SuppressRecord(key=_host_key(key, f"{what}.key"), note=note)
+
+
+def _parse_mark(raw, index: int, block: str) -> MarkRecord:
+    """One `confirm:` / `doubt:` record: a key and a note, nothing else."""
+    what = f"{block}[{index}]"
+    record = _require_mapping(raw, what)
+    _reject_authored_confidence(record, what)
+    _unknown_keys(record, ("key", "note"), what)
+    note = _require_note(record, what)
+    key = record.get("key")
+    kind = _key_kind(key) if isinstance(key, str) else None
+    if kind is None or kind in ("conduit", "tap"):
+        raise AssertionsError(
+            f"{what}.key: {key!r} names neither a host, a segment nor a link -- those are the "
+            f"things a {block} can mark")
+    if kind == "segment":
+        key = _cidr(key, f"{what}.key")
+    elif kind == "link":
+        key = _link_key(key, f"{what}.key")
+    else:
+        key = _host_key(key, f"{what}.key")
+    return MarkRecord(key=key, note=note, kind=kind)
 
 
 def _validate_field(kind: str, name: str, value, what: str):
@@ -502,6 +650,40 @@ def _validate_field(kind: str, name: str, value, what: str):
                 raise AssertionsError(
                     f"{what}.{rk}: expected a string or an integer, got {type(rv).__name__}")
         return {k: block[k] for k in sorted(block)}
+    if name == "device_kind":
+        accepted = DEVICE_KINDS + (("host",) if kind == "host" else ())
+        if value not in accepted:
+            raise AssertionsError(
+                f"{what}: unknown device kind {value!r}; accepted: {list(accepted)}")
+        return value
+    if name == "group":
+        if not isinstance(value, str) or not value.strip() or any(c.isspace() for c in value):
+            raise AssertionsError(
+                f"{what}: a group name is a non-empty identifier with no whitespace -- it "
+                f"becomes the node group's name -- got {value!r}")
+        return value
+    if name == "mode":
+        if value not in LINK_MODES:
+            raise AssertionsError(f"{what}: unknown link mode {value!r}; accepted: {list(LINK_MODES)}")
+        return value
+    if name == "state":
+        if value not in LINK_STATES:
+            raise AssertionsError(
+                f"{what}: unknown link state {value!r}; accepted: {list(LINK_STATES)}")
+        return value
+    if name == "native":
+        return _cidr(value, what)
+    if name == "vlans":
+        if not isinstance(value, list) or not value:
+            raise AssertionsError(f"{what}: expected a non-empty list of segment CIDRs, got {value!r}")
+        cidrs = [_cidr(v, f"{what}[{i}]") for i, v in enumerate(value)]
+        return sorted(set(cidrs))
+    if name == "sensors":
+        if (not isinstance(value, list) or not value
+                or not all(isinstance(v, str) and v.strip() for v in value)):
+            raise AssertionsError(
+                f"{what}: expected a non-empty list of sensor names, got {value!r}")
+        return sorted({v.strip() for v in value})
     if name == "zone_type":
         if value not in ZONE_TYPES:
             raise AssertionsError(
@@ -568,7 +750,7 @@ def _parse_as_of(value) -> tuple[str, float]:
     return (stamp.strftime("%Y-%m-%dT%H:%M:%SZ"), stamp.timestamp())
 
 
-def _cross_record_checks(adds, overrides, suppress) -> None:
+def _cross_record_checks(adds, overrides, suppress, confirm=(), doubt=()) -> None:
     """The three refusals that are about a PAIR of records rather than about either one.
 
     D15 rules the first: *"a key in both `add` and `suppress` is a **refusal**, not a precedence
@@ -576,7 +758,8 @@ def _cross_record_checks(adds, overrides, suppress) -> None:
     declares one field twice has no honest tiebreak, and picking by position is the row-order
     dependence `LES-009` forbids one layer down.
     """
-    for label, records in (("add", adds), ("override", overrides), ("suppress", suppress)):
+    for label, records in (("add", adds), ("override", overrides), ("suppress", suppress),
+                           ("confirm", confirm), ("doubt", doubt)):
         seen: dict = {}
         for record in records:
             if record.merge_key in seen:
@@ -593,6 +776,12 @@ def _cross_record_checks(adds, overrides, suppress) -> None:
             f"key(s) {both} appear in both `add` and `suppress`. That is a refusal, not a "
             f"precedence puzzle (D15): the file says the entity should exist and should not, and "
             f"nothing outside the file can decide which was meant")
+
+    marked_both = sorted({r.key for r in confirm} & {r.key for r in doubt})
+    if marked_both:
+        raise AssertionsError(
+            f"key(s) {marked_both} appear in both `confirm` and `doubt`. The file says the "
+            f"entity is settled and is not, and nothing outside the file can decide which")
 
     add_fields = {(r.key, name) for r in adds for name in r.fields}
     clash = sorted(add_fields & {r.merge_key for r in overrides})
@@ -611,13 +800,14 @@ def parse_assertions(doc, *, path: Optional[str] = None) -> AssertionSet:
     produce a twin the operator did not author and could not tell from one they did.
     """
     doc = _require_mapping(doc, "assertions document")
-    _unknown_keys(doc, ("schema", "imprint", "as_of", "source", "add", "override", "suppress"),
+    _unknown_keys(doc, ("schema", "imprint", "as_of", "source", "add", "override", "suppress",
+                        "confirm", "doubt"),
                   "assertions document")
     schema = doc.get("schema")
-    if schema != ASSERTIONS_SCHEMA:
+    if schema not in ACCEPTED_SCHEMAS:
         raise AssertionsError(
-            f"schema: expected {ASSERTIONS_SCHEMA!r}, got {schema!r}. Fail closed on an unknown "
-            f"schema rather than guessing which records it meant")
+            f"schema: expected one of {list(ACCEPTED_SCHEMAS)}, got {schema!r}. Fail closed on "
+            f"an unknown schema rather than guessing which records it meant")
     if "as_of" not in doc:
         raise AssertionsError(
             "as_of: required — it is the snapshot's time bound, and an import with no time bound "
@@ -641,20 +831,27 @@ def parse_assertions(doc, *, path: Optional[str] = None) -> AssertionSet:
     if imprint is not None and (not isinstance(imprint, str) or not imprint.strip()):
         raise AssertionsError(f"imprint: expected a non-empty string, got {imprint!r}")
 
-    for block in ("add", "override", "suppress"):
+    for block in ("add", "override", "suppress", "confirm", "doubt"):
         if block in doc and not isinstance(doc[block], list):
             raise AssertionsError(
                 f"{block}: expected a list of records, got {type(doc[block]).__name__}")
     adds = [_parse_add(r, i) for i, r in enumerate(doc.get("add") or [])]
     overrides = [_parse_override(r, i) for i, r in enumerate(doc.get("override") or [])]
     suppress = [_parse_suppress(r, i) for i, r in enumerate(doc.get("suppress") or [])]
-    _cross_record_checks(adds, overrides, suppress)
+    confirm = [_parse_mark(r, i, "confirm") for i, r in enumerate(doc.get("confirm") or [])]
+    doubt = [_parse_mark(r, i, "doubt") for i, r in enumerate(doc.get("doubt") or [])]
+    _cross_record_checks(adds, overrides, suppress, confirm, doubt)
+    # A `/1` document is read as a `/2` one: the set it parses into carries the CURRENT schema
+    # string, so a re-emit (a merge, the Console's save) writes `/2` and the file migrates on
+    # its first save with nothing else changed.
     return AssertionSet(
-        schema=schema, imprint=imprint.strip() if isinstance(imprint, str) else None,
+        schema=ASSERTIONS_SCHEMA, imprint=imprint.strip() if isinstance(imprint, str) else None,
         as_of=as_of, as_of_epoch=as_of_epoch, source=source,
         adds=tuple(sorted(adds, key=lambda r: r.merge_key)),
         overrides=tuple(sorted(overrides, key=lambda r: r.merge_key)),
         suppress=tuple(sorted(suppress, key=lambda r: r.merge_key)),
+        confirm=tuple(sorted(confirm, key=lambda r: r.merge_key)),
+        doubt=tuple(sorted(doubt, key=lambda r: r.merge_key)),
         path=path)
 
 
@@ -704,16 +901,23 @@ def merge_assertions(base: AssertionSet, incoming: AssertionSet) -> AssertionSet
     merged_over.update({r.merge_key: r for r in incoming.overrides})
     merged_sup = {r.merge_key: r for r in base.suppress}
     merged_sup.update({r.merge_key: r for r in incoming.suppress})
+    merged_conf = {r.merge_key: r for r in base.confirm}
+    merged_conf.update({r.merge_key: r for r in incoming.confirm})
+    merged_doubt = {r.merge_key: r for r in base.doubt}
+    merged_doubt.update({r.merge_key: r for r in incoming.doubt})
 
     adds = sorted(merged_adds.values(), key=lambda r: r.merge_key)
     overrides = sorted(merged_over.values(), key=lambda r: r.merge_key)
     suppress = sorted(merged_sup.values(), key=lambda r: r.merge_key)
-    _cross_record_checks(adds, overrides, suppress)
+    confirm = sorted(merged_conf.values(), key=lambda r: r.merge_key)
+    doubt = sorted(merged_doubt.values(), key=lambda r: r.merge_key)
+    _cross_record_checks(adds, overrides, suppress, confirm, doubt)
     return AssertionSet(
         schema=ASSERTIONS_SCHEMA,
         imprint=incoming.imprint if incoming.imprint is not None else base.imprint,
         as_of=incoming.as_of, as_of_epoch=incoming.as_of_epoch, source=incoming.source,
         adds=tuple(adds), overrides=tuple(overrides), suppress=tuple(suppress),
+        confirm=tuple(confirm), doubt=tuple(doubt),
         path=base.path)
 
 
@@ -763,6 +967,10 @@ def to_document(aset: AssertionSet) -> dict:
             for r in aset.overrides]
     if aset.suppress:
         doc["suppress"] = [{"key": r.key, "note": r.note} for r in aset.suppress]
+    if aset.confirm:
+        doc["confirm"] = [{"key": r.key, "note": r.note} for r in aset.confirm]
+    if aset.doubt:
+        doc["doubt"] = [{"key": r.key, "note": r.note} for r in aset.doubt]
     return doc
 
 
@@ -844,6 +1052,10 @@ def store_rows(aset: AssertionSet) -> tuple[list[dict], dict[str, int]]:
             note(f"override:{record.kind}.{record.field}")
     for _record in aset.suppress:
         note("suppress")
+    for _record in aset.confirm:
+        note("confirm")
+    for _record in aset.doubt:
+        note("doubt")
     # Sorted at the persistence boundary so the rows a store receives depend on their content
     # rather than on the order three loops happened to run in (`LES-009`).
     rows.sort(key=lambda r: (r["subject"], r["predicate"], r["object"]))

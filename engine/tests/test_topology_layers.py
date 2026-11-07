@@ -381,3 +381,69 @@ def test_shipped_switch_test_fixture_expands_validates_and_plans(manifests):
     assert nodes["access-sw"]["nets"] == [{"net": "office"}] and "image" not in nodes["access-sw"]
     assert nodes["corp-workstation02"]["role"] == "jump-host"
     assert ir["scenario_schema_version"] == 4
+
+
+# ---------------------------------------------------------------------------
+# The assertions seam, version 2, as the API's writer reads it
+# ---------------------------------------------------------------------------
+def test_console_files_reads_a_version_1_document_and_writes_version_2():
+    from axrange.api.console_files import ACCEPTED_SCHEMAS, validate_assertions
+
+    assert ACCEPTED_SCHEMAS == ("axr-assertions/1", "axr-assertions/2")
+    doc, warnings = validate_assertions({
+        "schema": "axr-assertions/1", "imprint": "t", "as_of": "2026-09-04T18:00:00Z",
+        "source": "operator: raghu",
+        "add": [{"kind": "host", "key": "address:10.9.0.4", "segment": "10.9.0.0/24", "note": "n"}],
+    }, "t", where="test")
+    assert doc["schema"] == "axr-assertions/2" and doc["confirm"] == [] and doc["doubt"] == []
+    assert not warnings
+
+
+def test_console_files_validates_the_device_tree_records():
+    import pytest as _pytest
+
+    from axrange.api.console_files import ConsoleFileShapeError, validate_assertions
+
+    def put(**blocks):
+        return validate_assertions({
+            "schema": "axr-assertions/2", "imprint": "t", "as_of": "2026-09-04T18:00:00Z",
+            "source": "operator: raghu", **blocks}, "t", where="test")[0]
+
+    link_key = "address:10.9.0.4#eth0|mac:aa:bb:cc:dd:ee:01#SFP25"  # the sorted, canonical form
+    doc = put(
+        add=[
+            {"kind": "device", "key": "mac:aa:bb:cc:dd:ee:01", "device_kind": "switch",
+             "segment": "10.9.0.0/24", "note": "n"},
+            {"kind": "link", "key": "address:10.9.0.4#eth0|mac:aa:bb:cc:dd:ee:01#SFP25",
+             "mode": "trunk", "vlans": ["10.9.1.0/24", "10.9.0.0/24"], "note": "n"},
+            {"kind": "tap", "key": "port:mac:aa:bb:cc:dd:ee:01#SFP25", "sensors": ["x", "x"],
+             "note": "n"},
+        ],
+        override=[
+            {"key": link_key, "field": "state", "value": "down", "note": "n"},
+            {"key": "address:10.9.0.4", "field": "group", "value": "backup", "note": "n"},
+        ],
+        confirm=[{"key": "10.9.0.0/24", "note": "n"}],
+        doubt=[{"key": link_key, "note": "n"}],
+    )
+    link = next(r for r in doc["add"] if r["kind"] == "link")
+    assert link["key"] == link_key, "ends sorted into the canonical order"
+    assert link["vlans"] == ["10.9.0.0/24", "10.9.1.0/24"]
+    tap = next(r for r in doc["add"] if r["kind"] == "tap")
+    assert tap["sensors"] == ["x"]
+    assert doc["override"][0]["kind"] == "link"
+    assert doc["confirm"][0]["kind"] == "segment" and doc["doubt"][0]["kind"] == "link"
+
+    with _pytest.raises(ConsoleFileShapeError, match="device_kind"):
+        put(add=[{"kind": "device", "key": "mac:aa:bb:cc:dd:ee:01", "segment": "10.9.0.0/24", "note": "n"}])
+    with _pytest.raises(ConsoleFileShapeError, match="exactly one segment"):
+        put(add=[{"kind": "link", "key": link_key, "mode": "access",
+                  "vlans": ["10.9.0.0/24", "10.9.1.0/24"], "note": "n"}])
+    with _pytest.raises(ConsoleFileShapeError, match="DIFFERENT devices"):
+        put(add=[{"kind": "link", "key": "address:10.9.0.4#eth0|address:10.9.0.4#eth1",
+                  "mode": "trunk", "vlans": ["10.9.0.0/24"], "note": "n"}])
+    with _pytest.raises(ConsoleFileShapeError, match="both `confirm` and `doubt`"):
+        put(confirm=[{"key": "address:10.9.0.4", "note": "a"}],
+            doubt=[{"key": "address:10.9.0.4", "note": "b"}])
+    with _pytest.raises(ConsoleFileShapeError, match="not one of"):
+        put(add=[], **{"schema": "axr-assertions/9"})

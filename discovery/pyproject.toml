@@ -50,7 +50,7 @@ where = ["src"]
 # `aximprint.catalog.roles` imports fine from a source checkout and raises `CatalogError` on an
 # installed wheel: the worst shape of failure, because it passes every test run from the repo.
 "aximprint.catalog" = ["*.yaml"]
-# `schemas/axr-assertions-1.schema.json` is the same shape of problem, one directory over
+# `schemas/axr-assertions-2.schema.json` is the same shape of problem, one directory over
 # (2026-09-05): a published contract artifact, not a Python module, so discovery alone would
 # leave `aximprint assertions schema` raising `FileNotFoundError` on an installed wheel while
 # passing every test run from the repo. `schemas/` deliberately has no `__init__.py` -- it holds

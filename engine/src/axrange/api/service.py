@@ -4516,6 +4516,8 @@ def _assertions_dto(doc: Any) -> dtos.AssertionsDocDTO:
         add=[dtos.AssertionRecordDTO(**r) for r in doc.add],
         override=[dtos.AssertionRecordDTO(**r) for r in doc.override],
         suppress=[dtos.AssertionRecordDTO(**r) for r in doc.suppress],
+        confirm=[dtos.AssertionRecordDTO(**r) for r in doc.confirm],
+        doubt=[dtos.AssertionRecordDTO(**r) for r in doc.doubt],
         warnings=list(doc.warnings),
     )
 

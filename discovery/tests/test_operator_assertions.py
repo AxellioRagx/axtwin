@@ -53,7 +53,8 @@ def test_the_checked_in_fixture_carries_every_record_kind():
     assert aset.schema == ASSERTIONS_SCHEMA
     assert aset.source == "operator:raghu", "the `operator: name` spelling canonicalizes"
     assert {r.kind for r in aset.adds} == set(ADD_KINDS)
-    assert {r.field for r in aset.overrides} == {"role", "image", "resources"}
+    assert {r.field for r in aset.overrides} == {"role", "image", "resources", "group"}
+    assert [r.kind for r in aset.confirm] == ["segment"] and [r.kind for r in aset.doubt] == ["host"]
     assert [r.key for r in aset.suppress] == ["address:1.1.1.1", "address:10.80.20.184"]
     assert all(r.note for r in (*aset.adds, *aset.overrides, *aset.suppress))
 
@@ -77,8 +78,19 @@ def test_the_records_come_back_in_canonical_order_not_file_order():
 # -- refusals ------------------------------------------------------------------------------
 
 def test_an_unknown_schema_is_refused_rather_than_guessed_at():
-    with pytest.raises(AssertionsError, match="axr-assertions/1"):
-        parse_assertions(_doc(schema="axr-assertions/2"))
+    with pytest.raises(AssertionsError, match="axr-assertions/2"):
+        parse_assertions(_doc(schema="axr-assertions/9"))
+
+
+def test_a_version_1_document_parses_and_re_emits_as_version_2():
+    """axr-assertions/2 is a superset of /1 (docs/design/topology-layers.md §3.2): a file an
+    operator wrote under /1 is read unchanged and migrates to /2 on its first save."""
+    from aximprint.operator_assertions import ACCEPTED_SCHEMAS, to_document
+
+    assert "axr-assertions/1" in ACCEPTED_SCHEMAS
+    aset = parse_assertions(_doc(schema="axr-assertions/1"))
+    assert aset.schema == "axr-assertions/2"
+    assert to_document(aset)["schema"] == "axr-assertions/2"
 
 
 def test_kind_route_is_refused_BY_NAME_with_the_reason():
@@ -92,7 +104,8 @@ def test_kind_route_is_refused_BY_NAME_with_the_reason():
 
 
 def test_an_unknown_add_kind_names_the_accepted_set():
-    with pytest.raises(AssertionsError, match=r"\['conduit', 'host', 'segment'\]"):
+    with pytest.raises(AssertionsError,
+                       match=r"\['conduit', 'device', 'host', 'link', 'segment', 'tap'\]"):
         _parse(add=[{"kind": "vlan", "key": "10.0.0.0/24", "note": "n"}])
 
 
@@ -340,9 +353,10 @@ def test_the_projection_carries_only_predicates_the_store_already_reads():
     assert all(r["confidence"] == ASSERTED_CONFIDENCE for r in rows)
     assert all(r["source"] == "operator:raghu" for r in rows)
     assert all(r["window_start"] == aset.as_of_epoch for r in rows), "the file's own time bound"
-    assert uncarried == {"add:conduit": 2, "add:segment": 1,
-                         "override:host.image": 1, "override:host.resources": 1,
-                         "suppress": 2}
+    assert uncarried == {"add:conduit": 2, "add:device": 1, "add:link": 1, "add:segment": 1,
+                         "add:tap": 1, "confirm": 1, "doubt": 1,
+                         "override:host.group": 1, "override:host.image": 1,
+                         "override:host.resources": 1, "suppress": 2}
 
 
 def test_the_projected_rows_are_sorted_at_the_persistence_boundary():

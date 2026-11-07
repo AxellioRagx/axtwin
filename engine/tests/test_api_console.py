@@ -104,7 +104,7 @@ def test_the_real_bundles_are_present():
         assert _real_artifact(REAL_CAST_ROOT / bundle, f"{bundle}.topology.json").is_file()
 
 _VALID_DOC = {
-    "schema": "axr-assertions/1",
+    "schema": "axr-assertions/2",
     "imprint": "mini-cast-prov",
     "as_of": "2026-09-05T12:00:00Z",
     "source": "operator: tester",
@@ -300,7 +300,7 @@ def test_assertions_get_on_a_bundle_with_no_file_is_an_empty_200(tmp_path):
     j = r.json()
     assert j["exists"] is False
     assert j["etag"] is None
-    assert j["schema"] == "axr-assertions/1"
+    assert j["schema"] == "axr-assertions/2"
     assert j["imprint"] == "mini-cast-prov"
     assert j["add"] == [] and j["override"] == [] and j["suppress"] == []
     assert "ETag" not in r.headers
@@ -335,7 +335,7 @@ def test_assertions_put_round_trip_writes_the_file_and_sets_an_etag(tmp_path):
 def test_a_clone_shaped_batch_re_saves_byte_identical(tmp_path):
     """Acceptance 2's BYTE half, for a batch (review S6).
 
-    The Console proves a clone's document against the vendored `axr-assertions/1`
+    The Console proves a clone's document against the vendored `axr-assertions/2`
     schema and re-emits it in JSON -- it has no YAML writer, and the bytes on
     disk are the server's. This is the missing half: a clone-shaped document
     (one segment + 17 hosts carrying `dial`, `image`, `resources` and the long
@@ -555,10 +555,10 @@ def test_assertions_put_refuses_a_foreign_schema(tmp_path):
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     c = _client(_settings(root, tmp_path))
     r = c.put(
-        "/api/twins/mini-cast-prov/assertions", json=_doc(schema="axr-assertions/2"),
+        "/api/twins/mini-cast-prov/assertions", json=_doc(schema="axr-assertions/9"),
     )
     assert r.status_code == 400
-    assert "axr-assertions/1" in r.json()["error"]
+    assert "axr-assertions/2" in r.json()["error"], "the refusal names the accepted schemas"
 
 
 def test_assertions_written_file_is_readable_yaml_in_the_authored_vocabulary(tmp_path):
@@ -572,7 +572,7 @@ def test_assertions_written_file_is_readable_yaml_in_the_authored_vocabulary(tmp
     raw = YAML(typ="safe").load(
         (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
     )
-    assert raw["schema"] == "axr-assertions/1"
+    assert raw["schema"] == "axr-assertions/2"
     assert raw["imprint"] == "mini-cast-prov"
     assert raw["source"] == "operator: tester"
     assert raw["add"][0]["kind"] == "segment"
@@ -2959,7 +2959,7 @@ def test_a_full_edit_round_trip_on_a_COPY_of_the_real_golden_bundle(tmp_path):
     assert host.startswith("address:") and "/" in segment
 
     doc = {
-        "schema": "axr-assertions/1",
+        "schema": "axr-assertions/2",
         "imprint": "corpapcn-golden",
         "as_of": "2026-09-05T00:00:00Z",
         "source": "operator: tester",
@@ -3240,7 +3240,7 @@ def test_two_genuinely_concurrent_puts_yield_one_200_and_one_refusal(tmp_path):
     from ruamel.yaml import YAML
 
     raw = YAML(typ="safe").load(apath.read_text())
-    assert raw["schema"] == "axr-assertions/1"
+    assert raw["schema"] == "axr-assertions/2"
     assert [p.name for p in (root / "mini-cast-prov").iterdir() if ".tmp" in p.name] == []
 
 
@@ -3289,7 +3289,7 @@ def test_the_temp_name_is_unique_across_threads_not_per_pid(tmp_path):
 # therefore keeps requiring it and the design example is what needs fixing
 # (reported to the orchestrator rather than silently relaxed here).
 _DESIGN_EXAMPLE = """\
-schema: axr-assertions/1
+schema: axr-assertions/2
 imprint: mini-cast-prov
 as_of: 2026-09-04T18:00:00Z          # the snapshot's time bound
 source: "operator: <name>"           # carried into every fact's `source`
@@ -3368,7 +3368,7 @@ def test_every_as_of_spelling_a_yaml_loader_can_produce_is_accepted(
     root = _copy_bundle(tmp_path, "mini-cast-prov")
     path = root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml"
     path.write_text(
-        "schema: axr-assertions/1\n"
+        "schema: axr-assertions/2\n"
         "imprint: mini-cast-prov\n"
         f"as_of: {authored}\n"
         'source: "operator: tester"\n'
@@ -3477,7 +3477,7 @@ def test_the_vendored_schemas_VOCABULARY_matches_aximprints_published_copy():
         )
     assert _vocabulary_of(SCHEMA_PATH) == _vocabulary_of(published), (
         f"{SCHEMA_PATH} and {published} declare DIFFERENT closed sets -- the "
-        "axr-assertions/1 vocabulary is ONE artifact; re-vendor aximprint's "
+        "axr-assertions/2 vocabulary is ONE artifact; re-vendor aximprint's "
         "canonical file (it declares itself canonical: edit it there and copy, "
         "never the other way round)"
     )
@@ -3729,7 +3729,7 @@ def test_the_written_file_keeps_the_canonical_key_order(tmp_path):
         "/api/twins/mini-cast-prov/assertions", json=_VALID_DOC,
     ).status_code == 200
     text = (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").read_text()
-    assert text.startswith("schema: axr-assertions/1\n")
+    assert text.startswith("schema: axr-assertions/2\n")
     assert text.index("imprint:") < text.index("as_of:") < text.index("source:")
     # Within a record: kind, key, the content fields sorted, then note last.
     host = text[text.index("- kind: host"):]
@@ -4555,6 +4555,12 @@ def test_every_required_key_the_schema_declares_is_enforced(tmp_path):
         "host": {"kind": "host", "key": "address:10.9.0.4",
                  "segment": "10.9.0.0/24", "note": "x"},
         "conduit": {"kind": "conduit", "key": "10.1.0.0/24|10.2.0.0/24", "note": "x"},
+        # axr-assertions/2: the device tree's three kinds.
+        "device": {"kind": "device", "key": "mac:aa:bb:cc:dd:ee:01", "device_kind": "switch",
+                   "segment": "10.9.0.0/24", "note": "x"},
+        "link": {"kind": "link", "key": "mac:aa:bb:cc:dd:ee:01#P1|address:10.9.0.4#eth0",
+                 "mode": "access", "vlans": ["10.9.0.0/24"], "note": "x"},
+        "tap": {"kind": "tap", "key": "segment:10.9.0.0/24", "sensors": ["s"], "note": "x"},
     }
     for branch in doc["$defs"]["addRecord"]["oneOf"]:
         kind = branch["properties"]["kind"]["const"]
@@ -4631,7 +4637,7 @@ def test_the_six_refusals_the_schema_cannot_express_are_code_checks(
     assert not (root / "mini-cast-prov" / "mini-cast-prov.assertions.yaml").exists()
 
 
-def test_the_schema_comment_still_names_exactly_those_six(tmp_path):
+def test_the_schema_comment_still_names_exactly_those_nine(tmp_path):
     """If the other repo adds a seventh unexpressible refusal, this is where
     axRange finds out -- as a failing test naming the phrase it did not
     expect, rather than as a file the compiler rejects at apply time."""
@@ -4644,7 +4650,7 @@ def test_the_schema_comment_still_names_exactly_those_six(tmp_path):
     # item's wording: the other repo rewords this prose independently, and a
     # test that fails on a reworded clause teaches people to ignore it --
     # which is what would then hide a genuine seventh refusal.
-    assert "SIX REFUSALS THIS SCHEMA CANNOT EXPRESS" in comment
+    assert "NINE REFUSALS THIS SCHEMA CANNOT EXPRESS" in comment
     for marker in ("(1)", "(2)", "(3)", "(4)", "(5)", "(6)"):
         assert marker in comment, marker
     assert "(7)" not in comment, "a seventh unexpressible refusal appeared"
@@ -5151,7 +5157,7 @@ def test_a_failed_install_says_the_bundle_may_be_partially_installed(tmp_path, m
 
 
 def test_a_missing_schema_artifact_fails_at_startup_not_at_the_first_save():
-    """`console_files` derives the `axr-assertions/1` closed sets from a
+    """`console_files` derives the `axr-assertions/2` closed sets from a
     vendored JSON file at import time. A mis-built wheel without it would
     otherwise surface as a 500 on an operator's first `PUT .../assertions`,
     hours after `axrange serve` reported ready -- so `create_app` touches the
@@ -5845,8 +5851,9 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
         "warnings", "windows",
     },
     "ImprintSegmentDTO": {"cidr", "confidence", "host_count", "name"},
+    # `confirm` / `doubt` (axr-assertions/2, docs/design/topology-layers.md §3.2).
     "AssertionsDocDTO": {
-        "add", "as_of", "etag", "exists", "imprint", "imprint_id",
+        "add", "as_of", "confirm", "doubt", "etag", "exists", "imprint", "imprint_id",
         "override", "path", "schema", "source", "suppress", "warnings",
     },
     # `plane` (R2): the layout-plane stamp the pins were authored against.

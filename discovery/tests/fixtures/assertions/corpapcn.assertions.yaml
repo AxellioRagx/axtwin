@@ -1,4 +1,4 @@
-# A checked-in `axr-assertions/1` fixture exercising every record kind — the file
+# A checked-in `axr-assertions/2` fixture exercising every record kind — the file
 # `docs/WORK_ORDER_reference_ingest.md` §8's "Unit tests" paragraph asks for.
 #
 # **Hand-authored, not derived from run data** (`LES-003`). The keys are real CorpAPCN entity
@@ -8,7 +8,7 @@
 #
 # Also the worked example from axRange `docs/design/14-operator-assertions.md` §3, corrected
 # where the measured store disagrees with the note's illustration — see the segment record.
-schema: axr-assertions/1
+schema: axr-assertions/2
 imprint: corpapcn-twin
 as_of: 2026-09-04T18:00:00Z
 source: "operator: raghu"
@@ -44,6 +44,27 @@ add:
   - kind: conduit
     key: "10.80.31.0/24|10.80.72.0/24"
     note: "the OT lab's jump path to the user VLAN; the tap never saw it"
+  # THE DEVICE TREE (axr-assertions/2, docs/design/topology-layers.md §3.2). A switch the
+  # capture can only show as a MAC on the core's port: declared as a device, keyed by that MAC,
+  # placed on the DC segment, with no image so it deploys as nothing but its segments' vnets.
+  - kind: device
+    key: "mac:e0:cb:bc:11:22:33"
+    device_kind: switch
+    role: l2-switch
+    segment: "10.80.20.0/24"
+    note: "the access switch under the MS120's P14; a MAC on a port is all the SPAN shows"
+  # The trunk from that switch up to the second DC's own port -- the wiring the SPAN cannot see.
+  - kind: link
+    key: "mac:e0:cb:bc:11:22:33#SFP25|address:10.80.20.5#eth0"
+    mode: trunk
+    native: "10.80.20.0/24"
+    vlans: ["10.80.20.0/24", "10.80.31.0/24"]
+    note: "the switch's uplink carries the DC and OT VLANs; drawn from the operator's diagram"
+  # The MS120 SPAN itself, as a tap the operator placed, naming the sink it delivers to.
+  - kind: tap
+    key: "segment:10.80.20.0/24"
+    sensors: [XPress-SW-A]
+    note: "the MS120 SPAN on the DC VLAN, delivered to the packetXpress sink"
 override:
   # THE SECOND DOMAIN CONTROLLER (`docs/WORK_ORDER_reference_ingest.md` §2). The census reads it
   # as `dns-resolver` at 0.7 because port 389 draws a genuine 2-2 vote; it answers on 88, 389,
@@ -60,8 +81,21 @@ override:
     field: resources
     value: {cpu: 4, ram: 8Gi, disk: 60Gi}
     note: "sized for a DC rather than for the catalog's generic row"
+  # A member split: one workstation of a ×N group is really the backup server.
+  - key: "address:10.80.20.40"
+    field: group
+    value: backup-server
+    note: "the host the nightly backup runs on; the census grouped it with the workstations"
 suppress:
   - key: "address:1.1.1.1"
     note: "out of scope: a public resolver, never part of this estate"
   - key: "address:10.80.20.184"
     note: "out of scope: a contractor laptop seen in 3 of 11 windows"
+confirm:
+  # The second DC's segment placement, seen with my own eyes: pinned as asserted, fields unchanged.
+  - key: "10.80.20.0/24"
+    note: "the DC VLAN, confirmed against the switch's VLAN table"
+doubt:
+  # Observed in two windows at the edge of the capture: the cast's own weak-evidence verdict, pinned.
+  - key: "address:10.80.72.9"
+    note: "seen twice on the user VLAN; may be a visitor's laptop"

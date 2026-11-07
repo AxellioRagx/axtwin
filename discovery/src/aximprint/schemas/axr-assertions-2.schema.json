@@ -1,0 +1,788 @@
+{
+  "$comment": "CANONICAL FILE. axRange vendors a byte-identical copy and compares it by test, so edit it in aximprint and copy, never the other way round. Formatting is mechanical: `json.dumps(doc, sort_keys=True, indent=2)` plus a trailing newline.  ---  NINE REFUSALS THIS SCHEMA CANNOT EXPRESS, named so a consumer does not read schema-valid as parser-accepted: (1) a segment/conduit CIDR must be the NETWORK address (`ipaddress.ip_network(strict=True)`), so `10.80.31.5/24` matches `$defs.cidr` and the parser refuses it; the IPv6 alternative in that pattern is deliberately loose for the same reason. (2) A conduit joins two DIFFERENT segments, so `10.0.0.0/24|10.0.0.0/24` matches `$defs.conduitKey` and the parser refuses it; the parser also CANONICALIZES a conduit key by sorting its two halves, so either authored order is accepted and the sorted one is what a re-emit writes. (3) `as_of` must parse as ISO-8601 (`datetime.fromisoformat`, with a bare `Z` accepted); `format` is annotation-only in draft 2020-12, so an unparseable string validates here. (4) Two records in one block sharing a merge key are refused ((kind,key) for add, (key,field) for override, key for suppress). (5) One key in both `add` and `suppress` is refused. (6) One (key,field) declared by both an `add` record's own field and an `override` is refused. (7) A link joins two DIFFERENT devices, so `mac:a#p1|mac:a#p2` matches `$defs.linkKey` and the parser refuses it; the parser also canonicalizes a link key by sorting its two ends. (8) A `device` add names its `device_kind` and a `link` add its `mode` with a shape that fits it (an access link carries exactly one `vlans` entry and no `native`; a trunk names `vlans` and/or `native`), which is a relation between a record's fields. (9) One key in both `confirm` and `doubt` is refused. Four, five, six and nine are cross-record and no per-instance keyword reaches them.  ---  axr-assertions/2 (2026-11-07, docs/design/topology-layers.md section 3.2) is a superset of /1: a /1 document parses unchanged and is re-emitted as /2.  ---  A YAML document is validated as its JSON projection: a YAML timestamp scalar is its ISO-8601 string, and `imprint: null` is JSON null.",
+  "$defs": {
+    "addRecord": {
+      "description": "Discriminated by `kind`. `kind: route` is refused BY NAME: a twin config has no route object at all -- inter-segment reachability belongs to the synthetic gateway, and `kind: conduit` is how it is authored. `device`, `link` and `tap` are the device tree's records (axr-assertions/2, docs/design/topology-layers.md section 3.2); a `device` add always names its `device_kind`, and a `link` add its `mode` (an access link carries exactly one `vlans` entry and no `native`; a trunk names `vlans` and/or `native`) -- both are parser refusals a per-record keyword does not reach, see refusal 8.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "$ref": "#/$defs/conduitKey"
+            },
+            "kind": {
+              "const": "conduit"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a conduit the vantage did not supply",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "dial": {
+              "$ref": "#/$defs/portList"
+            },
+            "image": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "key": {
+              "$ref": "#/$defs/hostKey"
+            },
+            "kind": {
+              "const": "host"
+            },
+            "listen": {
+              "$ref": "#/$defs/portList"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "resources": {
+              "$ref": "#/$defs/resources"
+            },
+            "role": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "segment": {
+              "$ref": "#/$defs/cidr"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a host the vantage did not supply",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "$ref": "#/$defs/cidr"
+            },
+            "kind": {
+              "const": "segment"
+            },
+            "name": {
+              "$ref": "#/$defs/segmentName"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "zone_type": {
+              "$ref": "#/$defs/zoneType"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a segment the vantage did not supply",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "device_kind": {
+              "$ref": "#/$defs/deviceKind"
+            },
+            "image": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "key": {
+              "$ref": "#/$defs/hostKey"
+            },
+            "kind": {
+              "const": "device"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "resources": {
+              "$ref": "#/$defs/resources"
+            },
+            "role": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "segment": {
+              "$ref": "#/$defs/cidr"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a device (a switch, or a router) the vantage did not supply",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "$ref": "#/$defs/linkKey"
+            },
+            "kind": {
+              "const": "link"
+            },
+            "mode": {
+              "$ref": "#/$defs/linkMode"
+            },
+            "native": {
+              "$ref": "#/$defs/cidr"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "state": {
+              "$ref": "#/$defs/linkState"
+            },
+            "vlans": {
+              "$ref": "#/$defs/cidrList"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a link between two device ports",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "$ref": "#/$defs/tapKey"
+            },
+            "kind": {
+              "const": "tap"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "sensors": {
+              "$ref": "#/$defs/sensorList"
+            }
+          },
+          "required": [
+            "key",
+            "kind",
+            "note"
+          ],
+          "title": "add a tap on a segment or a device port",
+          "type": "object"
+        }
+      ]
+    },
+    "cidr": {
+      "description": "A segment key, and the value of a `segment` field: the OBSERVED CIDR, which must be the network address (see the top-level $comment, refusal 1). A bare address with no prefix is accepted and means /32 or /128.",
+      "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}(?:/(?:0*(?:3[0-2]|[12]?[0-9])|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}))?|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z]+)?(?:/0*(?:12[0-8]|1[01][0-9]|[1-9]?[0-9]))?)$",
+      "type": "string"
+    },
+    "cidrList": {
+      "description": "The segments a trunk carries tagged (an access link: exactly one), as observed CIDRs; deduplicated and sorted on re-emit.",
+      "items": {
+        "$ref": "#/$defs/cidr"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "conduitKey": {
+      "description": "Exactly two CIDRs joined by a single '|'. The two must differ and are canonicalized into sorted order (see the top-level $comment, refusal 2).",
+      "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}(?:/(?:0*(?:3[0-2]|[12]?[0-9])|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}))?|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z]+)?(?:/0*(?:12[0-8]|1[01][0-9]|[1-9]?[0-9]))?)\\|(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}(?:/(?:0*(?:3[0-2]|[12]?[0-9])|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}))?|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z]+)?(?:/0*(?:12[0-8]|1[01][0-9]|[1-9]?[0-9]))?)$",
+      "type": "string"
+    },
+    "deviceKind": {
+      "description": "What a device IS. A `kind: device` add takes router or switch; an override of a discovered host's `device_kind` may also say host, to turn a device back into one.",
+      "enum": [
+        "router",
+        "switch"
+      ]
+    },
+    "deviceKindOverride": {
+      "enum": [
+        "host",
+        "router",
+        "switch"
+      ]
+    },
+    "evidenceClass": {
+      "description": "DOCUMENTATION ONLY -- no key in this document carries an evidence class. Published here because the class is a property of the CHANNEL: every fact from this file is `asserted`, the first entry, and the tuple's ORDER is the precedence order (highest first). FIVE IS THE INTENDED SHAPE HERE, not a divergence from axRange's six-class model: that model's sixth class, `compiler`, is by definition a SIDECAR-ONLY label for a value the compiler invented -- it never appears in the IR and is never assertable, so it cannot be one of the classes this document ranks. The two are consistent; a consumer joining on this enum wants exactly these five.",
+      "enum": [
+        "asserted",
+        "imported",
+        "observed",
+        "referenced",
+        "imputed"
+      ]
+    },
+    "groupName": {
+      "description": "A member split: the node group this host joins instead of the one its role, segment and presence would put it in. A non-empty identifier with no whitespace, like a segment name.",
+      "pattern": "^\\S+$",
+      "type": "string"
+    },
+    "hostKey": {
+      "description": "A host entity key in the self-describing `<key_kind>:<value>` form the IR mints -- address:, hostname:, mac: -- never a twin-config index. The value after the colon must not be blank. Since /2 the value may not contain '#' or '|', the port and link separators.",
+      "pattern": "^(?:address|hostname|mac):[^#|]*\\S[^#|]*$",
+      "type": "string"
+    },
+    "linkKey": {
+      "description": "Two device ports joined by a single '|': each end is `<host key>#<port>` (`mac:aa:bb:cc:dd:ee:ff#P14`). The two devices must differ and the ends are canonicalized into sorted order (see the top-level $comment, refusal 7).",
+      "pattern": "^(?:address|hostname|mac):[^#|\\s][^#|]*#[^#|\\s][^#|]*\\|(?:address|hostname|mac):[^#|\\s][^#|]*#[^#|\\s][^#|]*$",
+      "type": "string"
+    },
+    "linkMode": {
+      "enum": [
+        "access",
+        "trunk"
+      ]
+    },
+    "linkState": {
+      "enum": [
+        "blocked",
+        "down",
+        "up"
+      ]
+    },
+    "markKey": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/hostKey"
+        },
+        {
+          "$ref": "#/$defs/cidr"
+        },
+        {
+          "$ref": "#/$defs/linkKey"
+        }
+      ],
+      "description": "What a confirm or doubt record may mark: a host key, a segment CIDR or a link key."
+    },
+    "markRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/markKey"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      },
+      "required": [
+        "key",
+        "note"
+      ],
+      "type": "object"
+    },
+    "nonEmptyString": {
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "note": {
+      "description": "REQUIRED on every record. An assertion outranks every class of evidence in the store, so the reason it was made is the only thing that makes it reviewable later. A whitespace-only note is refused.",
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "overrideRecord": {
+      "description": "The kind is DERIVED from the key's shape, never authored: an `address:`/`hostname:`/`mac:` key is a host (a device is a host entity), a CIDR is a segment, and two device ports joined by '|' are a link. A conduit and a tap have no overridable field.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "image"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "resources"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/resources"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "role"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "segment"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/cidr"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "device_kind"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/deviceKindOverride"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "group"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/groupName"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "field": {
+              "description": "CLOSED, per kind: what is overridable on a host.",
+              "enum": [
+                "device_kind",
+                "group",
+                "image",
+                "resources",
+                "role",
+                "segment"
+              ]
+            },
+            "key": {
+              "$ref": "#/$defs/hostKey"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "value": {
+              "description": "constrained by `field` in the `allOf` below."
+            }
+          },
+          "required": [
+            "field",
+            "key",
+            "note",
+            "value"
+          ],
+          "title": "override a discovered host",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "name"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/segmentName"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "zone_type"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/zoneType"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "field": {
+              "description": "CLOSED, per kind: what is overridable on a segment.",
+              "enum": [
+                "name",
+                "zone_type"
+              ]
+            },
+            "key": {
+              "$ref": "#/$defs/cidr"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "value": {
+              "description": "constrained by `field` in the `allOf` below."
+            }
+          },
+          "required": [
+            "field",
+            "key",
+            "note",
+            "value"
+          ],
+          "title": "override a discovered segment",
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "mode"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/linkMode"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "native"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/cidr"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "state"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/linkState"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "field": {
+                    "const": "vlans"
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/cidrList"
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "field": {
+              "description": "CLOSED, per kind: what is overridable on a link.",
+              "enum": [
+                "mode",
+                "native",
+                "state",
+                "vlans"
+              ]
+            },
+            "key": {
+              "$ref": "#/$defs/linkKey"
+            },
+            "note": {
+              "$ref": "#/$defs/note"
+            },
+            "value": {
+              "description": "constrained by `field` in the `allOf` below."
+            }
+          },
+          "required": [
+            "field",
+            "key",
+            "note",
+            "value"
+          ],
+          "title": "override an asserted or discovered link",
+          "type": "object"
+        }
+      ]
+    },
+    "portList": {
+      "description": "A listen or dial census for a host nothing observed. Parsed into the `\"<port>/<proto>\"` strings `ir_entity.listen_ports` already carries, deduplicated and sorted; a re-emit writes the `{port, proto}` form back. The protocol set is closed because its producer is the sensor's own `proto` column, so a value outside it would match nothing.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "port": {
+            "maximum": 65535,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "proto": {
+            "enum": [
+              "icmp",
+              "tcp",
+              "udp"
+            ]
+          }
+        },
+        "required": [
+          "port",
+          "proto"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "resources": {
+      "additionalProperties": {
+        "description": "A boolean is not an integer here.",
+        "type": [
+          "integer",
+          "string"
+        ]
+      },
+      "description": "CLOSED to cpu/disk/ram, mirroring the role catalog's own rows. axRange's `twin_config` is `extra=\"forbid\"`, so a fourth key is refused at deploy time, one repo and several hours later. An empty block asserts nothing and is refused.",
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": [
+          "cpu",
+          "disk",
+          "ram"
+        ]
+      },
+      "type": "object"
+    },
+    "segmentName": {
+      "description": "A non-empty identifier with no whitespace -- it is what a node's `net:` references.",
+      "pattern": "^\\S+$",
+      "type": "string"
+    },
+    "sensorList": {
+      "description": "The sensors a tap delivers to, by the names the tap plan and adapter.conf use; deduplicated and sorted on re-emit.",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "suppressRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/hostKey"
+        },
+        "note": {
+          "$ref": "#/$defs/note"
+        }
+      },
+      "required": [
+        "key",
+        "note"
+      ],
+      "type": "object"
+    },
+    "tapKey": {
+      "description": "Where a tap sits: a whole segment (`segment:<cidr>`) or one device port (`port:<host key>#<port>`).",
+      "pattern": "^(?:segment:(?:(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}(?:/(?:0*(?:3[0-2]|[12]?[0-9])|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}))?|[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[0-9A-Za-z]+)?(?:/0*(?:12[0-8]|1[01][0-9]|[1-9]?[0-9]))?))|port:(?:address|hostname|mac):[^#|\\s][^#|]*#[^#|\\s][^#|]*)$",
+      "type": "string"
+    },
+    "zoneType": {
+      "description": "axRange's two SDN zone shapes. A cast emits `simple` for every segment as a `compiler` choice ('no VLAN evidence exists at this vantage'); asserting `vlan` is the worked example.",
+      "enum": [
+        "simple",
+        "vlan"
+      ]
+    }
+  },
+  "$id": "https://axellio.invalid/aximprint/schemas/axr-assertions-2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The operator assertions file: what an operator ADDS that the vantage could not see (hosts, segments, conduits, and since /2 devices, links and taps), OVERRIDES that it inferred wrongly, SUPPRESSES as out of scope, and CONFIRMS or DOUBTS (pins as asserted, or marks unconfirmed). Written by axRange's Console and read by `aximprint cast --assertions`. Every fact it carries is evidence class `asserted`, the top of the precedence order in `$defs.evidenceClass`; confidence is never authored and is 1.0 by convention. PRODUCER OF RECORD: `src/aximprint/operator_assertions.py` in the aximprint repo -- this document states what that parser accepts, and where the two disagree the parser is right and this file is a bug.",
+  "properties": {
+    "add": {
+      "description": "Entities the vantage did not supply. An empty list is fine; null is not -- the key is either absent or a list.",
+      "items": {
+        "$ref": "#/$defs/addRecord"
+      },
+      "type": "array"
+    },
+    "as_of": {
+      "description": "REQUIRED: this snapshot's time bound, and the `window_start` of every row the reference ingest writes. An import with no time bound cannot be compared with anything else.",
+      "format": "date-time",
+      "type": "string"
+    },
+    "confirm": {
+      "description": "Discovered entities the operator pins as `asserted`, fields unchanged. Keyed like an override.",
+      "items": {
+        "$ref": "#/$defs/markRecord"
+      },
+      "type": "array"
+    },
+    "doubt": {
+      "description": "Discovered entities the operator marks `unconfirmed` (a cast's weak-evidence verdict, pinned). A key in both `confirm` and `doubt` is refused (refusal 9).",
+      "items": {
+        "$ref": "#/$defs/markRecord"
+      },
+      "type": "array"
+    },
+    "imprint": {
+      "description": "OPTIONAL: which imprint these assertions are about. A present but empty string is refused; an explicit null is accepted and means the same as absent.",
+      "pattern": "\\S",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "override": {
+      "description": "Fields of DISCOVERED entities, replaced by a hand-authored value.",
+      "items": {
+        "$ref": "#/$defs/overrideRecord"
+      },
+      "type": "array"
+    },
+    "schema": {
+      "const": "axr-assertions/2",
+      "description": "Fail closed on an unknown schema rather than guessing which records it meant."
+    },
+    "source": {
+      "description": "REQUIRED: `operator:<name>`, case-insensitive, with a non-empty name. An assertion's source is a PERSON, and saying so in the value is what lets a scorecard's evidence mix tell 'an operator said so' from 'an export said so'. Canonicalized to `operator:<name>` on re-emit.",
+      "pattern": "^\\s*[Oo][Pp][Ee][Rr][Aa][Tt][Oo][Rr]:\\s*\\S",
+      "type": "string"
+    },
+    "suppress": {
+      "description": "Entities that are out of scope for this twin. HOST KEYS ONLY: a segment key is refused, because removing a segment that still carries placed hosts is a topology edit rather than a suppression.",
+      "items": {
+        "$ref": "#/$defs/suppressRecord"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "as_of",
+    "schema",
+    "source"
+  ],
+  "title": "axr-assertions/2",
+  "type": "object"
+}

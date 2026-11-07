@@ -1,4 +1,4 @@
-"""`src/aximprint/schemas/axr-assertions-1.schema.json` — the PUBLISHED vocabulary, checked
+"""`src/aximprint/schemas/axr-assertions-2.schema.json` — the PUBLISHED vocabulary, checked
 against the parser that is actually in charge.
 
 The schema is a statement ABOUT `operator_assertions.parse_assertions`, not a second parser:
@@ -196,7 +196,7 @@ def test_the_schema_string_is_the_constant_not_a_second_copy_of_it():
 
 def test_the_document_keys_and_which_are_required_match_the_parser():
     assert set(SCHEMA["properties"]) == {
-        "schema", "imprint", "as_of", "source", "add", "override", "suppress"}
+        "schema", "imprint", "as_of", "source", "add", "override", "suppress", "confirm", "doubt"}
     assert SCHEMA["additionalProperties"] is False
     assert sorted(SCHEMA["required"]) == ["as_of", "schema", "source"], (
         "`imprint` is optional and the three record blocks are optional; the parser requires "
@@ -215,8 +215,9 @@ def test_add_kinds_and_each_kinds_closed_key_set_match_ADD_FIELDS():
 def test_override_fields_are_closed_PER_KIND_exactly_as_the_parser_has_them():
     branches = SCHEMA["$defs"]["overrideRecord"]["oneOf"]
     got = {}
+    by_ref = {"hostKey": "host", "cidr": "segment", "linkKey": "link"}
     for branch in branches:
-        kind = "host" if branch["properties"]["key"]["$ref"].endswith("hostKey") else "segment"
+        kind = by_ref[branch["properties"]["key"]["$ref"].rsplit("/", 1)[1]]
         got[kind] = tuple(branch["properties"]["field"]["enum"])
         assert set(branch["properties"]) == {"key", "field", "value", "note"}
         assert branch["additionalProperties"] is False
@@ -244,6 +245,24 @@ def test_note_is_required_on_every_record_kind_and_may_not_be_blank():
     assert "note" in SCHEMA["$defs"]["suppressRecord"]["required"]
     assert _validate(SCHEMA["$defs"]["note"], "   "), "a whitespace-only note must fail"
     assert not _validate(SCHEMA["$defs"]["note"], "why")
+
+
+def test_the_device_tree_vocabularies_are_the_constants():
+    """axr-assertions/2 (docs/design/topology-layers.md §3.2): the link and device enums, the
+    mark record's shape, and the two key shapes the device tree added."""
+    from aximprint.operator_assertions import DEVICE_KINDS, LINK_MODES, LINK_STATES
+
+    assert SCHEMA["$defs"]["deviceKind"]["enum"] == list(DEVICE_KINDS)
+    assert SCHEMA["$defs"]["deviceKindOverride"]["enum"] == ["host", *DEVICE_KINDS]
+    assert SCHEMA["$defs"]["linkMode"]["enum"] == list(LINK_MODES)
+    assert SCHEMA["$defs"]["linkState"]["enum"] == list(LINK_STATES)
+    mark = SCHEMA["$defs"]["markRecord"]
+    assert set(mark["properties"]) == {"key", "note"} and mark["additionalProperties"] is False
+    assert not _validate(SCHEMA["$defs"]["linkKey"], "mac:aa:bb#P1|hostname:sw2#Po48")
+    assert _validate(SCHEMA["$defs"]["linkKey"], "mac:aa:bb#P1")
+    assert not _validate(SCHEMA["$defs"]["tapKey"], "segment:10.80.31.0/24")
+    assert not _validate(SCHEMA["$defs"]["tapKey"], "port:mac:aa:bb#P1")
+    assert _validate(SCHEMA["$defs"]["tapKey"], "link:x")
 
 
 def test_confidence_is_not_authorable_anywhere():
@@ -352,13 +371,44 @@ ACCEPTED = {
         {"key": _SEG, "field": "name", "value": "seg-core", "note": "n"}]),
     "suppress a host": _doc(suppress=[{"key": _HOST, "note": "out of scope"}]),
     "ipv6 segment": _doc(add=[{"kind": "segment", "key": "2001:db8::/32", "note": "n"}]),
+    # -- axr-assertions/2: the device tree --
+    "add device, every field": _doc(add=[{
+        "kind": "device", "key": "mac:aa:bb:cc:dd:ee:01", "note": "the MS120",
+        "device_kind": "switch", "role": "l2-switch", "image": "debian-12-cloud@v1",
+        "resources": {"cpu": 1}, "segment": _SEG}]),
+    "add link, trunk": _doc(add=[{
+        "kind": "link", "key": f"mac:aa:bb:cc:dd:ee:01#SFP25|{_HOST}#eth0", "note": "n",
+        "mode": "trunk", "native": _SEG, "vlans": [_SEG, _SEG2], "state": "blocked"}]),
+    "add link, access": _doc(add=[{
+        "kind": "link", "key": f"mac:aa:bb:cc:dd:ee:01#P14|{_HOST}#eth0", "note": "n",
+        "mode": "access", "vlans": [_SEG]}]),
+    "add tap on a segment": _doc(add=[{
+        "kind": "tap", "key": f"segment:{_SEG}", "note": "n", "sensors": ["XPress-SW-A"]}]),
+    "add tap on a port": _doc(add=[{
+        "kind": "tap", "key": "port:mac:aa:bb:cc:dd:ee:01#P14", "note": "n"}]),
+    "override host device_kind": _doc(override=[
+        {"key": _HOST, "field": "device_kind", "value": "switch", "note": "n"}]),
+    "override host device_kind back to host": _doc(override=[
+        {"key": _HOST, "field": "device_kind", "value": "host", "note": "n"}]),
+    "override host group": _doc(override=[
+        {"key": _HOST, "field": "group", "value": "backup-servers", "note": "n"}]),
+    "override link mode": _doc(override=[
+        {"key": f"mac:aa:bb:cc:dd:ee:01#P14|{_HOST}#eth0", "field": "mode", "value": "trunk",
+         "note": "n"}]),
+    "override link vlans": _doc(override=[
+        {"key": f"mac:aa:bb:cc:dd:ee:01#P14|{_HOST}#eth0", "field": "vlans", "value": [_SEG],
+         "note": "n"}]),
+    "confirm a host": _doc(confirm=[{"key": _HOST, "note": "seen it myself"}]),
+    "doubt a segment and a link": _doc(doubt=[
+        {"key": _SEG, "note": "n"},
+        {"key": f"mac:aa:bb:cc:dd:ee:01#P14|{_HOST}#eth0", "note": "n"}]),
 }
 
 #: Documents the parser REFUSES. Every one must FAIL the schema, except the six in
 #: `_INEXPRESSIBLE` below.
 REFUSED = {
     "unknown top-level key": _doc(comment="hi"),
-    "wrong schema": _doc(schema="axr-assertions/2"),
+    "wrong schema": _doc(schema="axr-assertions/9"),
     "no schema": {k: v for k, v in _doc().items() if k != "schema"},
     "no as_of": {k: v for k, v in _doc().items() if k != "as_of"},
     "no source": {k: v for k, v in _doc().items() if k != "source"},
@@ -437,7 +487,50 @@ REFUSED = {
     "suppress no note": _doc(suppress=[{"key": _HOST}]),
     "suppress extra key": _doc(suppress=[{"key": _HOST, "note": "n", "field": "role"}]),
     "record is not a mapping": _doc(suppress=["address:10.0.0.1"]),
-    # -- the six the schema cannot express; see `_INEXPRESSIBLE` --
+    # -- axr-assertions/2 --
+    "add device, bad kind": _doc(add=[
+        {"kind": "device", "key": _HOST, "note": "n", "device_kind": "hub"}]),
+    "add device, host kind": _doc(add=[
+        {"kind": "device", "key": _HOST, "note": "n", "device_kind": "host"}]),
+    "add device, cidr key": _doc(add=[
+        {"kind": "device", "key": _SEG, "note": "n", "device_kind": "switch"}]),
+    "add link, one end": _doc(add=[
+        {"kind": "link", "key": f"{_HOST}#eth0", "note": "n", "mode": "trunk", "vlans": [_SEG]}]),
+    "add link, bad mode": _doc(add=[
+        {"kind": "link", "key": f"mac:aa:bb#P1|{_HOST}#eth0", "note": "n", "mode": "hub",
+         "vlans": [_SEG]}]),
+    "add link, bad state": _doc(add=[
+        {"kind": "link", "key": f"mac:aa:bb#P1|{_HOST}#eth0", "note": "n", "mode": "trunk",
+         "vlans": [_SEG], "state": "flapping"}]),
+    "add link, empty vlans": _doc(add=[
+        {"kind": "link", "key": f"mac:aa:bb#P1|{_HOST}#eth0", "note": "n", "mode": "trunk",
+         "vlans": []}]),
+    "add tap, bad key": _doc(add=[{"kind": "tap", "key": "link:x", "note": "n"}]),
+    "add tap, empty sensors": _doc(add=[
+        {"kind": "tap", "key": f"segment:{_SEG}", "note": "n", "sensors": []}]),
+    "override device_kind bad value": _doc(override=[
+        {"key": _HOST, "field": "device_kind", "value": "hub", "note": "n"}]),
+    "override group with a space": _doc(override=[
+        {"key": _HOST, "field": "group", "value": "a b", "note": "n"}]),
+    "override tap key": _doc(override=[
+        {"key": f"segment:{_SEG}", "field": "sensors", "value": ["x"], "note": "n"}]),
+    "override link with a host field": _doc(override=[
+        {"key": f"mac:aa:bb#P1|{_HOST}#eth0", "field": "role", "value": "x", "note": "n"}]),
+    "confirm a conduit": _doc(confirm=[{"key": f"{_SEG}|{_SEG2}", "note": "n"}]),
+    "confirm no note": _doc(confirm=[{"key": _HOST}]),
+    "doubt extra key": _doc(doubt=[{"key": _HOST, "note": "n", "field": "role"}]),
+    # -- the nine the schema cannot express; see `_INEXPRESSIBLE` --
+    "self link": _doc(add=[
+        {"kind": "link", "key": f"{_HOST}#eth0|{_HOST}#eth1", "note": "n", "mode": "trunk",
+         "vlans": [_SEG]}]),
+    "device add without device_kind": _doc(add=[{"kind": "device", "key": _HOST, "note": "n"}]),
+    "link add without mode": _doc(add=[
+        {"kind": "link", "key": f"mac:aa:bb#P1|{_HOST}#eth0", "note": "n", "vlans": [_SEG]}]),
+    "access link with two vlans": _doc(add=[
+        {"kind": "link", "key": f"mac:aa:bb#P1|{_HOST}#eth0", "note": "n", "mode": "access",
+         "vlans": [_SEG, _SEG2]}]),
+    "confirmed and doubted": _doc(confirm=[{"key": _HOST, "note": "a"}],
+                                  doubt=[{"key": _HOST, "note": "b"}]),
     "non-strict cidr": _doc(add=[{"kind": "segment", "key": "10.80.31.5/24", "note": "n"}]),
     "self conduit": _doc(add=[{"kind": "conduit", "key": f"{_SEG}|{_SEG}", "note": "n"}]),
     "as_of unparseable": _doc(as_of="last tuesday"),
@@ -461,6 +554,11 @@ _INEXPRESSIBLE = {
     "duplicate merge key": "keyed uniqueness over a projection of array items",
     "added and suppressed": "a relation between two different arrays",
     "add field and override collide": "a relation between two different arrays",
+    "self link": "requires comparing two halves of one string",
+    "device add without device_kind": "a relation between a record's fields (refusal 8)",
+    "link add without mode": "a relation between a record's fields (refusal 8)",
+    "access link with two vlans": "a relation between a record's fields (refusal 8)",
+    "confirmed and doubted": "a relation between two different arrays (refusal 9)",
 }
 
 
@@ -498,10 +596,12 @@ def test_every_document_the_parser_refuses_fails_the_schema_or_is_a_named_carve_
 
 
 def test_the_carve_out_list_is_covered_by_the_files_own_comment():
-    """The consumer reads the FILE, not this test. Six is a count the `$comment` states, so if
-    the list grows here and the prose does not, the artifact starts under-claiming."""
-    assert len(_INEXPRESSIBLE) == 6
-    assert "SIX REFUSALS THIS SCHEMA CANNOT EXPRESS" in SCHEMA["$comment"]
+    """The consumer reads the FILE, not this test. Nine is the count the `$comment` states
+    (eleven fixtures, since three share refusal 8), so if the list grows here and the prose
+    does not, the artifact starts under-claiming."""
+    assert len(_INEXPRESSIBLE) == 11
+    assert "NINE REFUSALS THIS SCHEMA CANNOT EXPRESS" in SCHEMA["$comment"], (
+        "nine numbered refusals; the four device-tree fixtures share refusals 7, 8 and 9")
     assert set(_INEXPRESSIBLE) <= set(REFUSED)
 
 
@@ -517,7 +617,7 @@ def test_the_file_is_canonical_so_a_byte_comparison_one_repo_over_is_meaningful(
     assert text.isascii(), (
         "`json.dumps` defaults to ensure_ascii=True, so a non-ASCII character would ship as a "
         "\\u escape; keep the prose ASCII rather than half-escaped")
-    assert SCHEMA_FILE.name == "axr-assertions-1.schema.json"
+    assert SCHEMA_FILE.name == "axr-assertions-2.schema.json"
     assert SCHEMA["$schema"] == "https://json-schema.org/draft/2020-12/schema"
 
 

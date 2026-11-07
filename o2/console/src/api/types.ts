@@ -347,6 +347,14 @@ export interface AssertionRecord {
   resources?: Record<string, unknown>;
   listen?: Array<Record<string, unknown>>;
   dial?: Array<Record<string, unknown>>;
+  /** axr-assertions/2 (the device tree): `device` / `link` / `tap` adds and the host overrides. */
+  device_kind?: string;
+  group?: string;
+  mode?: string;
+  native?: string;
+  vlans?: string[];
+  state?: string;
+  sensors?: string[];
   field?: string;
   /** Kept when `field` is set: an override may legitimately clear a field. */
   value?: unknown;
@@ -366,6 +374,9 @@ export interface AssertionsDoc {
   add: AssertionRecord[];
   override: AssertionRecord[];
   suppress: AssertionRecord[];
+  /** axr-assertions/2: the two mark blocks (a key and a note each). */
+  confirm?: AssertionRecord[];
+  doubt?: AssertionRecord[];
   warnings: string[];
 }
 
