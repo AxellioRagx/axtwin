@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
 import { useApi } from "../../api/context";
-import { formatCount, formatTs } from "../../model/sources";
-import { ConfirmDelete } from "../shell/ConfirmDelete";
-import { ErrorLine } from "../shell/parts";
+import { formatCount } from "../../model/sources";
+import { EntityName, ErrorLine, LinkRow, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
 /** Every imprint: what discovery produced, in the API's IR store, each with its operator
@@ -12,8 +10,7 @@ import { useLoad } from "../shell/useLoad";
 export function ImprintsPage() {
   const api = useApi();
   const imprints = useLoad((signal) => api.listImprints(signal), []);
-  const [deleted, setDeleted] = useState<string[]>([]);
-  const rows = (imprints.data?.pits ?? []).filter((i) => !deleted.includes(i.pit_id));
+  const rows = imprints.data?.pits ?? [];
   return (
     <>
       <h1>Imprints</h1>
@@ -37,37 +34,33 @@ export function ImprintsPage() {
               <th>Derived from</th>
               <th>Assertions</th>
               <th>Twins</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {rows.map((i) => (
-              <tr key={i.pit_id} data-testid="imprint-row">
+              <LinkRow key={i.pit_id} to={`/imprints/${encodeURIComponent(i.pit_id)}`} data-testid="imprint-row">
                 <td>
-                  <Link to={`/imprints/${encodeURIComponent(i.pit_id)}`} title={i.pit_id}>
-                    {i.name}
-                  </Link>
+                  <EntityName name={i.name} id={i.pit_id} to={`/imprints/${encodeURIComponent(i.pit_id)}`} />
                 </td>
-                <td className="muted">{i.as_of != null ? formatTs(i.as_of) : "—"}</td>
+                <td>
+                  <When value={i.as_of} />
+                </td>
                 <td>{formatCount(i.entities)}</td>
                 <td>{formatCount(i.segments)}</td>
                 <td>{formatCount(i.windows)}</td>
                 <td className="mono">
-                  {i.derived_from ? <Link to={`/imprints/${encodeURIComponent(i.derived_from)}`}>{i.derived_from}</Link> : <span className="muted">—</span>}
+                  {i.derived_from ? <Link className="navlink" to={`/imprints/${encodeURIComponent(i.derived_from)}`}>{i.derived_from}</Link> : <span className="muted">—</span>}
                 </td>
                 <td className="muted">{i.has_assertions ? "yes" : "none"}</td>
                 <td>
                   {i.twins.length ? i.twins.map((t, k) => (
                     <span key={t.id}>
                       {k ? ", " : ""}
-                      <Link to={`/twins/${encodeURIComponent(t.id)}`}>{t.id}</Link>
+                      <Link className="navlink" to={`/twins/${encodeURIComponent(t.id)}`}>{t.id}</Link>
                     </span>
                   )) : <span className="muted">—</span>}
                 </td>
-                <td>
-                  <ConfirmDelete label="Delete imprint" target={i.name} compact onDelete={() => api.deleteImprint(i.pit_id)} onDeleted={() => setDeleted((d) => [...d, i.pit_id])} />
-                </td>
-              </tr>
+              </LinkRow>
             ))}
           </tbody>
         </table>

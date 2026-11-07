@@ -3,9 +3,9 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { AssertionsDoc, CastResponse, Imprint } from "../../api/types";
-import { formatCount, formatTs } from "../../model/sources";
+import { formatCount } from "../../model/sources";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
-import { ErrorLine } from "../shell/parts";
+import { ErrorLine, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
 /** One imprint: rename it, save it as a new one, edit the operator's assertions about the
@@ -16,6 +16,7 @@ export function ImprintPage() {
   const navigate = useNavigate();
   const loaded = useLoad((signal) => api.getImprint(pit, signal), [pit]);
   const [imprint, setImprint] = useState<Imprint | null>(null);
+  const [castOpen, setCastOpen] = useState(false);
   useEffect(() => {
     if (loaded.data) setImprint(loaded.data);
   }, [loaded.data]);
@@ -25,6 +26,11 @@ export function ImprintPage() {
       <div className="row">
         <h1 style={{ flex: 1 }}>Imprint {data ? data.name : pit}</h1>
         {data ? (
+          <button className="primary" type="button" aria-expanded={castOpen} onClick={() => setCastOpen((o) => !o)}>
+            Cast into a twin
+          </button>
+        ) : null}
+        {data ? (
           <ConfirmDelete label="Delete imprint" target={data.name} confirmText="Confirm: remove the imprint and its assertions" onDelete={() => api.deleteImprint(data.pit_id)} onDeleted={() => navigate("/imprints")} />
         ) : null}
       </div>
@@ -32,6 +38,7 @@ export function ImprintPage() {
       {loaded.loading && !data ? <p className="muted">Loading…</p> : null}
       {data ? (
         <>
+          {castOpen ? <CastForm imprint={data} onCast={(r) => setImprint({ ...data, twins: data.twins.some((t) => t.id === r.twin.id) ? data.twins : [...data.twins, { id: r.twin.id }] })} /> : null}
           <div className="panel" data-testid="imprint-facts">
             <dl className="facts">
               <dt>Name</dt>
@@ -44,14 +51,24 @@ export function ImprintPage() {
                 <>
                   <dt>Derived from</dt>
                   <dd className="mono">
-                    <Link to={`/imprints/${encodeURIComponent(data.derived_from)}`}>{data.derived_from}</Link>
+                    <Link className="navlink" to={`/imprints/${encodeURIComponent(data.derived_from)}`}>{data.derived_from}</Link>
                   </dd>
                 </>
               ) : null}
               <dt>As of</dt>
-              <dd>{data.as_of != null ? formatTs(data.as_of) : "—"}</dd>
+              <dd>
+                <When value={data.as_of} />
+              </dd>
               <dt>Observed</dt>
-              <dd>{data.observed_from != null && data.observed_to != null ? `${formatTs(data.observed_from)} → ${formatTs(data.observed_to)}` : "—"}</dd>
+              <dd>
+                {data.observed_from != null && data.observed_to != null ? (
+                  <>
+                    <When value={data.observed_from} /> → <When value={data.observed_to} />
+                  </>
+                ) : (
+                  "—"
+                )}
+              </dd>
               <dt>Source</dt>
               <dd className="mono">{data.source ?? "—"}</dd>
               <dt>Network / vantage</dt>
@@ -67,7 +84,7 @@ export function ImprintPage() {
                 {data.twins.length ? data.twins.map((t, k) => (
                   <span key={t.id}>
                     {k ? ", " : ""}
-                    <Link to={`/twins/${encodeURIComponent(t.id)}`}>{t.id}</Link>
+                    <Link className="navlink" to={`/twins/${encodeURIComponent(t.id)}`}>{t.id}</Link>
                   </span>
                 )) : <span className="muted">none yet</span>}
               </dd>
@@ -75,7 +92,6 @@ export function ImprintPage() {
             <SaveAs imprint={data} />
           </div>
           <AssertionsEditor imprint={data} onSaved={() => setImprint({ ...data, has_assertions: true })} />
-          <CastForm imprint={data} onCast={(r) => setImprint({ ...data, twins: data.twins.some((t) => t.id === r.twin.id) ? data.twins : [...data.twins, { id: r.twin.id }] })} />
         </>
       ) : null}
     </>
@@ -229,13 +245,17 @@ function AssertionsEditor({ imprint, onSaved }: { imprint: Imprint; onSaved: () 
         {doc?.exists ? " Saved on disk." : " Nothing asserted yet."}
       </p>
       <ErrorLine error={loaded.error} prefix="could not load the assertions" />
-      <textarea aria-label="Assertions document" value={text} onChange={(e) => setText(e.target.value)} rows={12} disabled={busy || !doc} spellCheck={false} />
-      <div className="row-actions">
-        <button className="primary" type="submit" disabled={busy || !doc}>
-          {busy ? "Saving…" : "Save assertions"}
-        </button>
-        {savedAt ? <span className="muted">saved</span> : null}
-      </div>
+      <AssertionList doc={doc} />
+      <details className="advanced">
+        <summary>Advanced: the assertions document as JSON</summary>
+        <textarea aria-label="Assertions document" value={text} onChange={(e) => setText(e.target.value)} rows={12} disabled={busy || !doc} spellCheck={false} />
+        <div className="row-actions">
+          <button className="primary" type="submit" disabled={busy || !doc}>
+            {busy ? "Saving…" : "Save assertions"}
+          </button>
+          {savedAt ? <span className="muted">saved</span> : null}
+        </div>
+      </details>
       {doc?.warnings?.length ? (
         <ul className="muted">
           {doc.warnings.map((w, i) => (
@@ -246,6 +266,61 @@ function AssertionsEditor({ imprint, onSaved }: { imprint: Imprint; onSaved: () 
       <ErrorLine error={error} prefix="could not save" />
     </form>
   );
+}
+
+const ASSERTION_KINDS = ["add", "override", "suppress", "confirm", "doubt"] as const;
+
+/** One line per assertion with where it came from: the record's own `note` (every add and
+ *  suppress carries one) and the document's `source` (`operator:<name>`) and `as_of`. */
+function AssertionList({ doc }: { doc: AssertionsDoc | null }) {
+  if (!doc) return null;
+  const rows = ASSERTION_KINDS.flatMap((group) => (doc[group] ?? []).map((rec) => ({ group, rec })));
+  if (rows.length === 0) return <p className="muted">No assertion yet.</p>;
+  return (
+    <table className="list" aria-label="Assertions list">
+      <thead>
+        <tr>
+          <th>Kind</th>
+          <th>About</th>
+          <th>What</th>
+          <th>Why</th>
+          <th>Origin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ group, rec }, i) => (
+          <tr key={i} data-testid="assertion-row">
+            <td>
+              <span className="badge">{group}</span>
+            </td>
+            <td className="mono">{String(rec.key ?? "—")}</td>
+            <td>{assertionWhat(group, rec)}</td>
+            <td>{typeof rec.note === "string" && rec.note ? rec.note : <span className="muted">—</span>}</td>
+            <td className="muted">
+              {doc.source ?? "unknown"}
+              {doc.as_of ? (
+                <>
+                  {" · "}
+                  <When value={doc.as_of} />
+                </>
+              ) : null}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function assertionWhat(group: string, rec: Record<string, unknown>): string {
+  if (group === "override") return `${String(rec.field ?? "?")} = ${JSON.stringify(rec.value)}`;
+  if (group === "add") {
+    const rest = Object.entries(rec)
+      .filter(([k]) => k !== "key" && k !== "note")
+      .map(([k, v]) => `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`);
+    return rest.join(", ") || "—";
+  }
+  return group === "suppress" ? "left out of the twin" : group === "confirm" ? "pinned as asserted" : "marked unconfirmed";
 }
 
 function CastForm({ imprint, onCast }: { imprint: Imprint; onCast: (r: CastResponse) => void }) {
@@ -300,7 +375,7 @@ function CastForm({ imprint, onCast }: { imprint: Imprint; onCast: (r: CastRespo
       </div>
       {result ? (
         <div className="notice" role="status">
-          {result.replaced ? "Replaced" : "Cast"} twin <Link to={`/twins/${encodeURIComponent(result.twin.id)}`}>{result.twin.id}</Link>: {formatCount(result.twin.hosts)} hosts, {formatCount(result.twin.segments)} segments
+          {result.replaced ? "Replaced" : "Cast"} twin <Link className="navlink" to={`/twins/${encodeURIComponent(result.twin.id)}`}>{result.twin.id}</Link>: {formatCount(result.twin.hosts)} hosts, {formatCount(result.twin.segments)} segments
           {result.caveats.length ? `, ${result.caveats.length} caveat(s)` : ""}.
           {result.caveats.length ? (
             <ul className="muted">

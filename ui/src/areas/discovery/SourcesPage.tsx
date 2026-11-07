@@ -1,8 +1,8 @@
 import { Link } from "react-router";
 
 import { useApi } from "../../api/context";
-import { describeAccess, formatIso } from "../../model/sources";
-import { ErrorLine } from "../shell/parts";
+import { describeAccess } from "../../model/sources";
+import { EntityName, ErrorLine, formatWhen } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
 /** Every saved discovery source. Empty says why (ui/Spec.md T0.5), never a blank. */
@@ -33,7 +33,7 @@ export function SourcesPage() {
           {data.sources.map((s) => (
             <div className="card" key={s.id} data-testid="source-card">
               <h3>
-                <Link to={`/discovery/sources/${encodeURIComponent(s.id)}`}>{s.name}</Link>
+                <EntityName name={s.name} id={s.id} to={`/discovery/sources/${encodeURIComponent(s.id)}`} />
               </h3>
               <div>
                 <span className="badge">{s.plugin}</span> <code>{s.endpoint}</code>
@@ -42,8 +42,8 @@ export function SourcesPage() {
               <div className="muted">
                 {s.last_probe
                   ? s.last_probe.reachable
-                    ? `reachable at last test (${formatIso(s.last_probe.probed_at)})`
-                    : `not reachable at last test (${formatIso(s.last_probe.probed_at)})`
+                    ? `reachable at last test (${formatWhen(s.last_probe.probed_at)})`
+                    : `not reachable at last test (${formatWhen(s.last_probe.probed_at)})`
                   : "never tested"}
               </div>
             </div>

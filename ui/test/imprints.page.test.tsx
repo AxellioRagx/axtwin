@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../src/api/client";
@@ -45,7 +45,7 @@ describe("the top menu", () => {
 });
 
 describe("the imprints page", () => {
-  it("lists every imprint with its lineage, assertions and twins, and deletes behind a confirmation", async () => {
+  it("lists every imprint with its lineage, assertions and twins; the row has no delete (that is on the page)", async () => {
     const { api, state } = fakeApi({
       imprints: [imprint("pit-1", "corp-apcn-2h", { has_assertions: true }), imprint("pit-2", "corp-apcn-2h, corrected", { derived_from: "pit-1" })],
       twins: { test2: twin("test2", { pit_id: "pit-1" }) },
@@ -60,10 +60,17 @@ describe("the imprints page", () => {
     expect(rows[1]!.textContent).toContain("pit-1");
     expect(screen.getByRole("link", { name: "corp-apcn-2h" }).getAttribute("href")).toBe("/imprints/pit-1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete imprint corp-apcn-2h, corrected" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete corp-apcn-2h, corrected" }));
-    await waitFor(() => expect(screen.getAllByTestId("imprint-row").length).toBe(1));
-    expect(state.writes).toEqual([{ op: "delete-imprint", id: "pit-2" }]);
+    // One name+id presentation: the id sits under the name; one date style, no raw UTC.
+    expect(first.querySelector(".entity-id")?.textContent).toBe("pit-1");
+    expect(first.querySelector("time")?.textContent).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d$/);
+    expect(first.textContent).not.toContain("UTC");
+    // No delete control on any row.
+    expect(within(screen.getByRole("table")).queryAllByRole("button")).toEqual([]);
+    expect(screen.queryByText("🗑")).toBeNull();
+    // A click on the row opens the imprint.
+    fireEvent.click(rows[1]!.querySelectorAll("td")[2]!);
+    await screen.findByRole("heading", { name: "Imprint corp-apcn-2h, corrected" });
+    expect(state.writes).toEqual([]);
   });
 
   it("says when there is none", async () => {
@@ -92,19 +99,33 @@ describe("the imprint page", () => {
     await screen.findByRole("heading", { name: "Imprint day one" });
     expect(state.writes).toEqual([{ op: "rename-imprint", id: "pit-1", body: { name: "day one" } }]);
 
-    // Assertions: empty to start, a save writes the document with the three lists.
-    const box = (await screen.findByRole("textbox", { name: "Assertions document" })) as HTMLTextAreaElement;
+    // Assertions: a list first; the JSON is the escape hatch under a collapsed Advanced.
+    await screen.findByText("No assertion yet.");
+    const advanced = screen.getByText(/^Advanced/).closest("details")!;
+    expect(advanced.open).toBe(false);
+    fireEvent.click(screen.getByText(/^Advanced/));
+    const box = (await screen.findByLabelText("Assertions document")) as HTMLTextAreaElement;
+    expect(advanced.contains(box)).toBe(true);
     expect(JSON.parse(box.value)).toEqual({ add: [], override: [], suppress: [] });
-    fireEvent.change(box, { target: { value: JSON.stringify({ add: [{ kind: "host", key: "address:10.1.1.1", role: "web-tier" }], override: [], suppress: [] }) } });
+    fireEvent.change(box, { target: { value: JSON.stringify({ add: [{ kind: "host", key: "address:10.1.1.1", role: "web-tier", note: "seen on the whiteboard" }], override: [], suppress: [] }) } });
     fireEvent.click(screen.getByRole("button", { name: "Save assertions" }));
     await screen.findByText("saved");
+    // The saved assertion is a row with its origin: the record's note and the document's source.
+    const arow = await screen.findByTestId("assertion-row");
+    expect(arow.textContent).toContain("address:10.1.1.1");
+    expect(arow.textContent).toContain("seen on the whiteboard");
+    expect(arow.textContent).toContain("operator:console");
     const put = state.writes.at(-1)!;
     expect(put.op).toBe("put-assertions");
-    expect((put.body as Record<string, unknown>).add).toEqual([{ kind: "host", key: "address:10.1.1.1", role: "web-tier" }]);
+    expect((put.body as Record<string, unknown>).add).toEqual([{ kind: "host", key: "address:10.1.1.1", role: "web-tier", note: "seen on the whiteboard" }]);
     expect((put.body as Record<string, unknown>).source).toBe("operator:console");
 
-    // Cast: lands a twin, named after the imprint (as it was when the page opened) by default.
-    expect((screen.getByLabelText("Twin id") as HTMLInputElement).value).toBe("corp-apcn-2h");
+    // Cast: a primary button at the top opens the form; it lands a twin, named after the imprint by default.
+    const castTop = screen.getByRole("button", { name: "Cast into a twin" });
+    expect(castTop.className).toContain("primary");
+    expect(screen.queryByLabelText("Twin id")).toBeNull();
+    fireEvent.click(castTop);
+    expect((screen.getByLabelText("Twin id") as HTMLInputElement).value).toBe("day-one");
     fireEvent.change(screen.getByLabelText("Twin id"), { target: { value: "corp-twin-2" } });
     fireEvent.change(screen.getByLabelText("Sensors"), { target: { value: "XPress-SW-A, XPress-SW-B" } });
     fireEvent.click(screen.getByRole("button", { name: "Cast" }));
@@ -137,35 +158,62 @@ describe("the imprint page", () => {
 });
 
 describe("the twins page", () => {
-  it("lists every twin with its lineage, and names unreadable folders", async () => {
+  it("lists every twin: origin, per-tier deploy state, counts; no engineering columns and no trash on the row", async () => {
     const { api, state } = fakeApi({
       imprints: [imprint("pit-1", "corp-apcn-2h")],
       twins: { test2: twin("test2", { pit_id: "pit-1" }), "corp-twin": twin("corp-twin", { hosts: 42, segments: 3 }) },
       skippedTwins: [{ id: "broken", reason: "no twin config" }],
       runs: [run("disc-new", "corp-apcn-2h", "completed", "2026-10-28T14:00:00Z", "pit-1")],
+      deploys: [
+        { deploy_id: "dep-1", scenario_id: "test2", status: "completed", started_at: 100, updated_at: 100, tier: "te" },
+        { deploy_id: "dep-2", scenario_id: "tfc-dep-1", status: "failed", started_at: 110, updated_at: 110, tier: "tfc" },
+        { deploy_id: "dep-3", scenario_id: "tap-dep-1", status: "running", started_at: 111, updated_at: 111, tier: "tap" },
+      ],
     });
     renderAt(api, "/twins");
     const rows = await screen.findAllByTestId("twin-row");
     expect(rows.length).toBe(2);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Twin", "Origin", "Deploy", "Hosts", "Segments", "Last changed", ""]);
     const test2 = rows.find((r) => r.textContent?.startsWith("test2"))!;
-    expect(test2.textContent).toContain("corp-apcn-2h");
-    expect(test2.textContent).toContain("0.54");
+    expect(test2.textContent).toContain("cast from corp-apcn-2h");
+    expect(screen.getByRole("link", { name: "corp-apcn-2h" }).getAttribute("href")).toBe("/imprints/pit-1");
     const corp = rows.find((r) => r.textContent?.startsWith("corp-twin"))!;
     expect(corp.textContent).toContain("authored");
-    expect(screen.getByRole("link", { name: "corp-apcn-2h" }).getAttribute("href")).toBe("/imprints/pit-1");
+    for (const r of rows) {
+      expect(r.textContent).not.toContain("As of: unknown");
+      expect(r.textContent).not.toContain("Confidence");
+      expect(r.textContent).not.toContain("none"); // no confidence cell
+      expect(r.textContent).not.toContain("🗑");
+    }
+    // The canvas pill's wording per tier: te ✓, tfc failed, tap running; nothing standing is "undeployed".
+    await waitFor(() => expect(within(test2).getByTestId("tier-te").textContent).toBe("te ✓"));
+    expect(within(test2).getByTestId("tier-tfc").textContent).toBe("tfc ✗ failed");
+    expect(within(test2).getByTestId("tier-tfc").className).toContain("tier-failed");
+    expect(within(test2).getByTestId("tier-tap").textContent).toBe("tap ⟳ running");
+    expect(within(corp).getByTestId("twin-deploy").textContent).toBe("undeployed");
+    expect(corp.textContent).toContain("42");
+    expect(corp.textContent).toContain("3");
+    expect(within(corp).getByRole("link", { name: "Canvas" }).getAttribute("href")).toBe("/canvas/corp-twin");
+    expect(within(corp).getByRole("link", { name: "Deploy" }).getAttribute("href")).toBe("/twins/corp-twin#deploy");
     expect(screen.getByText("broken").parentElement?.textContent).toContain("no twin config");
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete twin corp-twin" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete corp-twin" }));
+    // A quiet Delete… leads to the twin's page, already at its confirmation; nothing is written yet.
+    fireEvent.click(within(corp).getByRole("button", { name: "Delete twin corp-twin…" }));
+    await screen.findByRole("heading", { name: "Twin corp-twin" });
+    expect(state.writes).toEqual([]);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm delete corp-twin" }));
     await waitFor(() => expect(screen.getAllByTestId("twin-row").length).toBe(1));
     expect(state.writes).toEqual([{ op: "delete-twin", id: "corp-twin" }]);
+  });
 
+  it("a refused delete on the twin page shows the server's reason", async () => {
+    const { api, state } = fakeApi({ twins: { test2: twin("test2") } });
     state.refuse.deleteTwin = new ApiError({ kind: "conflict", status: 409, message: "imprint 'test2' is the config of live deploy(s) ['dep-1']; destroy them first", url: "" });
-    fireEvent.click(screen.getByRole("button", { name: "Delete twin test2" }));
+    renderAt(api, "/twins/test2");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete twin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("destroy them first");
-    expect(screen.getAllByTestId("twin-row").length).toBe(1);
   });
 
   it("the twin page shows what it was cast from, the tree of segments, groups and personas, and deletes back to the list", async () => {

@@ -167,3 +167,21 @@ describe("folding", () => {
     expect(crossings(open)).toEqual([]);
   });
 });
+
+describe("positions", () => {
+  it("a box that would land on a pinned one moves right into free space in its rank", () => {
+    const te = readFileSync(resolve(CATALOG, "canvas-test", "te.yaml"), "utf8");
+    const free = placed("ct", te);
+    const pills = free.nodes.filter((n) => n.type === "segment");
+    expect(pills.length).toBe(2);
+    const [a, b] = pills as [typeof pills[number], typeof pills[number]];
+    const cidrOf = (n: typeof a) => (n.data as { cidr: string }).cidr;
+    // Pin `a` exactly where `b` sits: `b` must not stay under it.
+    const g = documentGraph(readDoc({ id: "ct", teFile: "te.yaml", files: { "te.yaml": te } }), "ct");
+    const p = placeTree(buildGraph(g.exportData, g.cast), { [`segment:${cidrOf(a)}`]: { ...b.position } }, { extraLegs: g.extraLegs, uplinks: g.uplinks, tree: g.tree });
+    const na = p.nodes.find((n) => n.id === a.id)!;
+    const nb = p.nodes.find((n) => n.id === b.id)!;
+    expect(na.position).toEqual(b.position);
+    expect(nb.position.x).toBeGreaterThanOrEqual(na.position.x + (na.width ?? 0));
+  });
+});

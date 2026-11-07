@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
@@ -8,18 +8,19 @@ import {
   describeAccess,
   formatBig,
   formatCount,
-  formatIso,
   formatTs,
   runOptions,
   siteRows,
   windowPreview,
 } from "../../model/sources";
-import { ErrorLine, StatusBadge } from "../shell/parts";
+import { ConfirmDelete } from "../shell/ConfirmDelete";
+import { EntityName, ErrorLine, LinkRow, StatusBadge, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
 /** One source: how it is reached, what the last test found, and the run form. */
 export function SourcePage() {
   const api = useApi();
+  const navigate = useNavigate();
   const { id = "" } = useParams();
   const source = useLoad((signal) => api.getSource(id, signal), [id]);
   const plugins = useLoad((signal) => api.listPlugins(signal), []);
@@ -35,7 +36,7 @@ export function SourcePage() {
             <Link to={`/discovery/sources/${encodeURIComponent(id)}/edit`}>
               <button type="button">Edit</button>
             </Link>
-            <DeleteButton source={source.data} />
+            <ConfirmDelete label="Delete source" target={source.data.name} onDelete={() => api.deleteSource(id)} onDeleted={() => navigate("/discovery")} />
           </div>
           <div className="panel">
             <dl className="facts">
@@ -79,57 +80,30 @@ function RunsOfSource({ runs }: { runs: DiscoveryRun[] }) {
       </thead>
       <tbody>
         {runs.map((r) => (
-          <tr key={r.id}>
+          <LinkRow key={r.id} to={`/discovery/runs/${encodeURIComponent(r.id)}`}>
             <td>
-              <Link to={`/discovery/runs/${encodeURIComponent(r.id)}`}>{r.id}</Link>
+              <EntityName id={r.id} to={`/discovery/runs/${encodeURIComponent(r.id)}`} />
             </td>
             <td>
               <StatusBadge status={r.status} />
             </td>
             <td>{r.name}</td>
             <td className="muted">
-              {r.ts_from !== null && r.ts_to !== null ? `${formatTs(r.ts_from)} → ${formatTs(r.ts_to)}` : "resolving"}
+              {r.ts_from !== null && r.ts_to !== null ? (
+                <>
+                  <When value={r.ts_from} /> → <When value={r.ts_to} />
+                </>
+              ) : (
+                "resolving"
+              )}
             </td>
-            <td className="muted">{formatIso(r.started_at ?? r.created_at)}</td>
-          </tr>
+            <td>
+              <When value={r.started_at ?? r.created_at} />
+            </td>
+          </LinkRow>
         ))}
       </tbody>
     </table>
-  );
-}
-
-function DeleteButton({ source }: { source: DiscoverySource }) {
-  const api = useApi();
-  const navigate = useNavigate();
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  async function remove() {
-    setError(null);
-    try {
-      await api.deleteSource(source.id);
-      navigate("/discovery");
-    } catch (e) {
-      setError(e);
-    }
-  }
-  return (
-    <>
-      {confirming ? (
-        <>
-          <button className="danger" type="button" onClick={remove}>
-            Confirm delete
-          </button>
-          <button type="button" onClick={() => setConfirming(false)}>
-            Keep
-          </button>
-        </>
-      ) : (
-        <button className="danger" type="button" onClick={() => setConfirming(true)}>
-          Delete
-        </button>
-      )}
-      <ErrorLine error={error} prefix="could not delete" />
-    </>
   );
 }
 
@@ -164,12 +138,12 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
       {!probe ? <p className="muted">Not tested yet. Testing opens the access path and reads the source's own census.</p> : null}
       {probe && !probe.reachable ? (
         <div className="error" role="alert">
-          Not reachable ({formatIso(probe.probed_at)}): {probe.error ?? "no reason given"}
+          Not reachable (<When value={probe.probed_at} />): {probe.error ?? "no reason given"}
         </div>
       ) : null}
       {probe && probe.reachable ? (
         <>
-          <div className="notice">Reachable ({formatIso(probe.probed_at)}){probe.via ? `, ${probe.via}` : ""}</div>
+          <div className="notice">Reachable (<When value={probe.probed_at} />){probe.via ? `, ${probe.via}` : ""}</div>
           <dl className="facts">
             <dt>Data span</dt>
             <dd>
@@ -226,6 +200,23 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
   );
 }
 
+/** The run options a plugin's schema offers that most runs never touch. */
+const ADVANCED_OPTIONS = ["vantage", "window", "subbuckets"];
+
+/** What the run form pre-fills for the advanced options when the source's own defaults do not
+ *  say: the vantage the last test reported, and window / subbuckets if its census carried them. */
+function probeRunDefaults(source: DiscoverySource): Record<string, string> {
+  const out: Record<string, string> = {};
+  const probe = source.last_probe;
+  if (!probe || !probe.reachable) return out;
+  if (probe.vantage && source.defaults.vantage === undefined) out.vantage = probe.vantage;
+  for (const k of ["window", "subbuckets"] as const) {
+    const v = probe.extra[k];
+    if (source.defaults[k] === undefined && typeof v === "number" && Number.isFinite(v)) out[k] = String(v);
+  }
+  return out;
+}
+
 /** The census figures a probe may carry, in display order, each with its own reading. */
 const CENSUS: ReadonlyArray<{ key: string; label: string; format: (v: unknown) => string }> = [
   { key: "chunks", label: "Chunks", format: formatCount },
@@ -263,12 +254,27 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
     for (const [k, val] of Object.entries(source.defaults)) {
       if (k !== "days" && k !== "sensors" && val !== undefined) v[k] = String(val);
     }
+    for (const [k, val] of Object.entries(probeRunDefaults(source))) if (!(k in v)) v[k] = val;
     return v;
   });
+  // vantage / window / subbuckets: seeded from the source's saved defaults, else from what
+  // its last test reported; they sit under "Advanced" and the run starts without opening it.
+  const probeDefaults = useMemo(() => probeRunDefaults(source), [source]);
+  const [touched, setTouched] = useState<string[]>([]);
+  useEffect(() => {
+    setValues((v) => {
+      const next = { ...v };
+      for (const [k, val] of Object.entries(probeDefaults)) if (!touched.includes(k) && !(k in v && v[k] !== "")) next[k] = val;
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [probeDefaults]);
   const [sensors, setSensors] = useState((source.defaults.sensors ?? []).join(", "));
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const preview = windowPreview(source.last_probe, days);
+  const mainOptions = options.filter((o) => !ADVANCED_OPTIONS.includes(o.key));
+  const advancedOptions = options.filter((o) => ADVANCED_OPTIONS.includes(o.key));
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
@@ -351,7 +357,7 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
             </div>
           )}
         </div>
-        {options.map((opt) => (
+        {mainOptions.map((opt) => (
           <div className="field" key={opt.key}>
             <label htmlFor={`run-${opt.key}`}>{opt.key}</label>
             <input
@@ -369,6 +375,28 @@ function RunForm({ source, plugin }: { source: DiscoverySource; plugin: Discover
           <span className="hint">Sensor names filled into every tap binding at install time; empty leaves them unset.</span>
         </div>
       </div>
+      {advancedOptions.length ? (
+        <details className="advanced">
+          <summary>Advanced: {advancedOptions.map((o) => o.key).join(", ")}</summary>
+          <div className="fields-2">
+        {advancedOptions.map((opt) => (
+          <div className="field" key={opt.key}>
+            <label htmlFor={`run-${opt.key}`}>{opt.key}</label>
+            <input
+              id={`run-${opt.key}`}
+              type={opt.type === "integer" || opt.type === "number" ? "number" : "text"}
+              value={values[opt.key] ?? ""}
+              onChange={(e) => {
+                setTouched((t) => [...t, opt.key]);
+                setValues((v) => ({ ...v, [opt.key]: e.target.value }));
+              }}
+            />
+            {opt.description ? <span className="hint">{opt.description}</span> : null}
+          </div>
+        ))}
+          </div>
+        </details>
+      ) : null}
       <ErrorLine error={error} prefix="the run was refused" />
       <button className="primary" type="submit" disabled={busy}>
         {busy ? "Starting…" : "Start discovery"}

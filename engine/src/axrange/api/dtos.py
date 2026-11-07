@@ -1277,6 +1277,10 @@ class ImprintListItemDTO(BaseModel):
     # The imprint this twin was cast from, or None for an authored twin
     # (`docs/design/imprint-twin-split.md` §3.2).
     cast_from: Optional["CastFromDTO"] = None
+    # Review round 3 (2026-11-07): when the twin's definition last changed -- the newest
+    # mtime of its config files (ISO 8601 UTC), the layout side-car under `generated/`
+    # excluded; None when the folder cannot be read. Additive; the Twins list's column.
+    modified_at: Optional[str] = None
     # Fix round 1: whether `POST /api/imprints/{id}/apply` can run here, and
     # why not -- a twins/ folder, aximprint bin/store unset, or no
     # `cast_invocation` block -- so the UI states it instead of guessing.

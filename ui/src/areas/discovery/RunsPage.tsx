@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { Link } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
-import { formatIso, formatTs, runProgress } from "../../model/sources";
-import { ErrorLine, StatusBadge } from "../shell/parts";
+import { formatTs, runProgress } from "../../model/sources";
+import { EntityName, ErrorLine, LinkRow, StatusBadge, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
-import { RunAction } from "./RunActions";
+import { RunAction, isActive } from "./RunActions";
 
 /** Every discovery run this API process has started, newest first. */
 export function RunsPage() {
@@ -43,9 +42,9 @@ export function RunsPage() {
           </thead>
           <tbody>
             {runs.map((r) => (
-              <tr key={r.id} data-testid="run-row">
+              <LinkRow key={r.id} to={`/discovery/runs/${encodeURIComponent(r.id)}`} data-testid="run-row">
                 <td>
-                  <Link to={`/discovery/runs/${encodeURIComponent(r.id)}`}>{r.id}</Link>
+                  <EntityName id={r.id} to={`/discovery/runs/${encodeURIComponent(r.id)}`} />
                 </td>
                 <td>
                   <StatusBadge status={r.cancel_requested_at && (r.status === "queued" || r.status === "running") ? "cancelling" : r.status} />
@@ -53,25 +52,36 @@ export function RunsPage() {
                 <td>{r.plugin}</td>
                 <td>
                   {r.status === "completed" && r.pit_id ? (
-                    <Link to={`/imprints/${encodeURIComponent(r.pit_id)}`}>{r.pit_name ?? r.name}</Link>
+                    <EntityName name={r.pit_name ?? r.name} id={r.pit_id} to={`/imprints/${encodeURIComponent(r.pit_id)}`} />
                   ) : (
                     r.name
                   )}
                 </td>
-                <td className="muted">
-                  {r.ts_from !== null && r.ts_to !== null ? `${formatTs(r.ts_from)} → ${formatTs(r.ts_to)}` : "—"}
+                <td>
+                  {r.ts_from !== null && r.ts_to !== null ? (
+                    <>
+                      <When value={r.ts_from} /> → <When value={r.ts_to} />
+                    </>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
                 </td>
                 <td className="muted">{progressCell(r)}</td>
-                <td className="muted">{formatIso(r.created_at)}</td>
                 <td>
-                  <RunAction
-                    run={r}
-                    compact
-                    onCancelled={(c) => setChanged((m) => ({ ...m, [c.id]: c }))}
-                    onDeleted={(id) => setChanged((m) => ({ ...m, [id]: null }))}
-                  />
+                  <When value={r.created_at} />
                 </td>
-              </tr>
+                <td>
+                  {/* Cancel stays on an active row; deleting a finished run is on its page. */}
+                  {isActive(r) ? (
+                    <RunAction
+                      run={r}
+                      compact
+                      onCancelled={(c) => setChanged((m) => ({ ...m, [c.id]: c }))}
+                      onDeleted={(id) => setChanged((m) => ({ ...m, [id]: null }))}
+                    />
+                  ) : null}
+                </td>
+              </LinkRow>
             ))}
           </tbody>
         </table>

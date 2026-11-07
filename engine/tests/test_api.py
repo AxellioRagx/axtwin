@@ -2450,6 +2450,25 @@ def test_imprints_list(tmp_path):
     assert e["as_of"] == ""  # the fixture ships no topology export
     assert e["mean_confidence"] == pytest.approx(0.8825)
     assert e["confidence_source"] == "canonical sidecar (4/4 fields)"
+    # Review round 3: when the definition last changed, ISO 8601 UTC (the Twins list's column).
+    import datetime as _dt
+    assert _dt.datetime.fromisoformat(e["modified_at"]).tzinfo is not None
+
+
+def test_twin_modified_at_ignores_the_layout_sidecar(tmp_path):
+    """Moving a box writes `generated/layout.json`; that is not a change to the twin."""
+    import os
+
+    from axrange.api.service import _twin_modified_at
+
+    twin = tmp_path / "t"
+    (twin / "generated").mkdir(parents=True)
+    (twin / "te.yaml").write_text("x: 1\n")
+    (twin / "generated" / "layout.yaml").write_text("pins: {}\n")
+    os.utime(twin / "te.yaml", (1_700_000_000, 1_700_000_000))
+    os.utime(twin / "generated" / "layout.yaml", (1_800_000_000, 1_800_000_000))
+    assert _twin_modified_at(tmp_path, "t") == "2023-11-14T22:13:20+00:00"
+    assert _twin_modified_at(tmp_path, "missing") is None
 
 
 def test_imprint_detail_of_the_packaged_fixture(tmp_path):

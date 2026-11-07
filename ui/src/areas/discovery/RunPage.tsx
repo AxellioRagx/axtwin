@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
-import { formatDuration, formatIso, formatTs, runProgress } from "../../model/sources";
-import { ErrorLine, StatusBadge } from "../shell/parts";
+import { formatDuration, formatTs, runProgress } from "../../model/sources";
+import { ErrorLine, StatusBadge, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 import { ApiError } from "../../api/client";
 import { PitName } from "./PitName";
@@ -75,7 +75,7 @@ export function RunPage() {
                 <>
                   <dt>Source</dt>
                   <dd>
-                    <Link to={`/discovery/sources/${encodeURIComponent(run.source_id)}`}>{run.source_id}</Link>
+                    <Link className="navlink" to={`/discovery/sources/${encodeURIComponent(run.source_id)}`}>{run.source_id}</Link>
                   </dd>
                 </>
               ) : null}
@@ -98,7 +98,9 @@ export function RunPage() {
                 </>
               ) : null}
               <dt>Started</dt>
-              <dd>{formatIso(run.started_at)}</dd>
+              <dd>
+                <When value={run.started_at} />
+              </dd>
               <dt>Elapsed</dt>
               <dd>{Number.isFinite(elapsed) ? formatDuration(elapsed) : "—"}</dd>
             </dl>
@@ -181,7 +183,7 @@ function CompletedNotice({ run }: { run: DiscoveryRun }) {
         <>Imprint {run.pit_name ?? run.pit_id} is no longer in the store (it was deleted after this run).</>
       ) : imprint.data ? (
         <>
-          <Link to={`/imprints/${encodeURIComponent(pit)}`} data-testid="open-imprint">
+          <Link className="linkbutton" to={`/imprints/${encodeURIComponent(pit)}`} data-testid="open-imprint">
             Open imprint {imprint.data.name}
           </Link>{" "}
           to review it and cast it into a twin.

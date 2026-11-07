@@ -295,6 +295,32 @@ Track B — the hierarchical device tree (brief "Canvas rendering"):
       and each zoom step settles in ~300 ms. The 30 s freeze did not reproduce: the per-render
       A* wiring of the bus plane (`route.ts`, now archived) was already disabled at 5a.
 
+Track C — duplicate subtree and console polish:
+
+- [x] R3-2: a switch no router reaches (a parked duplicate, a switch just placed — `edit/subtree.ts`
+      `parkedDevices`; a down link carries nothing) holds the document HERE: no API validate,
+      no working-copy sync, a `not attached` badge, a strip line and every exit (Save, Apply,
+      Persist, Save as) disabled with the reason; it validates and syncs again once attached.
+      The copy is one undo step; taps never copy; a parked copy keeps what its original's
+      uplink carried as its own ports, so the attach tool trunks exactly those. A new box that
+      would land on a settled one moves right into free space — `canvas.subtree.test.tsx`,
+      `canvas.orthogonal.test.ts`. Eye, switch-test (deployed): Duplicate on access-sw parks
+      `access-sw-2` with its `office-2` beside the original, the bar says "held here", Apply is
+      disabled with the reason, NO write reaches the working copy; Undo removes it (`C-dup2.png`).
+- [x] Twins list: twin (name over id), origin (`authored` / `cast from <imprint>` linked),
+      per-tier deploy state (the canvas pill's words), hosts, segments, last changed (the API's
+      new `modified_at`: the newest config-file mtime, the layout side-car excluded), Canvas ·
+      Deploy · Delete…; no Apply sentence, no "As of: unknown", no "Confidence: none"; Delete
+      lives on the detail pages — `imprints.page.test.tsx`, `engine/tests/test_api.py`; `C-twins.png`.
+- [x] Imprint page: "Cast into a twin" a primary button at the top; assertions as a list with
+      their note and origin; the JSON under Advanced — `imprints.page.test.tsx`; `C-imprint.png`.
+- [x] Discovery run form: vantage, window, subbuckets defaulted from the source (its defaults,
+      else its last probe) under Advanced; the run starts without opening it —
+      `run.flow.test.tsx`; `C-source.png`.
+- [x] One name+id presentation (`EntityName`), one date style (`When`: `YYYY-MM-DD HH:mm`
+      local, UTC in the title), rows and buttons for navigation (`LinkRow`, `.linkbutton`).
+      Census bounds on the source probe and the run window keep their seconds-precise UTC.
+
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it

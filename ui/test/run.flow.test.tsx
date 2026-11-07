@@ -48,7 +48,7 @@ describe("C1.2 -- test, run, poll, open", () => {
     fireEvent.click(open);
     await screen.findByRole("heading", { name: "Imprint corp-apcn-10d" });
     expect(screen.getByText(/2,481 \/ 61 \/ 240/)).toBeTruthy();
-    expect(screen.getByRole("form", { name: "Cast" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cast into a twin" }).className).toContain("primary");
   }, 10000);
 
   it("the window can be given in hours, sent to the API as fractional days", async () => {
@@ -72,6 +72,32 @@ describe("C1.2 -- test, run, poll, open", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
     await waitFor(() => expect(state.writes.some((w) => w.op === "run")).toBe(true));
     expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ days: 2, shard: 3 });
+  });
+
+  it("vantage, window and subbuckets sit under a collapsed Advanced, defaulted from the probe, and the run starts without opening it", async () => {
+    const probe = { source_id: "src-1", probed_at: "2026-10-27T16:00:00Z", reachable: true, error: null, ...SPAN, vantage: "axellio-hq/corp-apcn-rdr1:12", extra: { window: 60 }, via: null };
+    const { api, state } = fakeApi({ sources: [tunnelSource({ last_probe: probe })] });
+    renderAt(api, "/discovery/sources/src-1");
+    await screen.findByRole("button", { name: "Start discovery" });
+    const advanced = screen.getByText(/^Advanced/).closest("details")!;
+    expect(advanced.open).toBe(false);
+    for (const k of ["vantage", "window", "subbuckets"]) expect(advanced.contains(screen.getByLabelText(k))).toBe(true);
+    expect(advanced.contains(screen.getByLabelText("network"))).toBe(false);
+    expect((screen.getByLabelText("vantage") as HTMLInputElement).value).toBe("axellio-hq/corp-apcn-rdr1:12");
+    expect((screen.getByLabelText("window") as HTMLInputElement).value).toBe("60");
+    expect((screen.getByLabelText("subbuckets") as HTMLInputElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
+    await waitFor(() => expect(state.writes.some((w) => w.op === "run")).toBe(true));
+    expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ vantage: "axellio-hq/corp-apcn-rdr1:12", window: 60 });
+  });
+
+  it("a source page deletes the source behind a confirmation", async () => {
+    const { api, state } = fakeApi({ sources: [tunnelSource()] });
+    renderAt(api, "/discovery/sources/src-1");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete corp-apcn-reader" }));
+    await screen.findByText(/No discovery sources saved yet/);
+    expect(state.writes).toEqual([{ op: "delete", id: "src-1" }]);
   });
 
   it("a refused run shows the server's reason and stays on the form", async () => {

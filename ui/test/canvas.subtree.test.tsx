@@ -137,7 +137,8 @@ describe("attach", () => {
     const d = { ...doc(), files: r.files };
     const files = attachDevices(d, readDoc(d), "core", "access-2");
     const l = readTe(files["te.yaml"]!).links.at(-1)!;
-    expect([l.a.device, l.a.port, l.b.device, l.b.port, l.mode, l.vlans]).toEqual(["core", "P2", "access-2", "P1", "trunk", ["a2-2"]]);
+    // The parked copy kept what the original's uplink carried (a1 native) as its own port, so the trunk carries both (R3-2).
+    expect([l.a.device, l.a.port, l.b.device, l.b.port, l.mode, l.vlans]).toEqual(["core", "P2", "access-2", "P1", "trunk", ["a1-2", "a2-2"]]);
   });
   it("device to host: an access link on the host's first segment; a host end may come first", () => {
     const files = attachDevices(doc(), model(), "srv", "core");
@@ -190,15 +191,42 @@ describe("on the page", () => {
     expect(device("access").classList.contains("selected")).toBe(true);
     expect(hostIcon("printer").classList.contains("selected")).toBe(true);
     expect(hostIcon("srv").classList.contains("selected")).toBe(false);
+    const validatesBefore = state.writes.filter((w) => w.op === "validate").length;
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
     await settle();
-    const te = readTe(lastFiles(state)["te.yaml"]!);
-    expect(te.nodes.map((n) => n.name)).toEqual(["hq", "core", "access", "ws", "printer", "srv", "access-2", "ws-2", "printer-2"]);
-    expect(te.segments.map((s) => s.name)).toEqual(["a1", "a2", "b1", "a1-2", "a2-2"]);
-    expect(te.links.length).toBe(4);
+    // R3-2: the copy is held locally, parked: drawn and selected, never sent to the API to be refused.
     await waitFor(() => expect(screen.getByTestId("subtree-panel").textContent).toContain("access-2"));
     expect(screen.getByTestId("subtree-panel").textContent).toContain("none (parked)");
     await waitFor(() => expect(screen.getAllByTestId("canvas-device").map((d) => d.dataset["nodeId"]).sort()).toEqual(["access", "access-2", "core"]));
+    expect(within(device("access-2")).getByTestId("parked-badge").textContent).toBe("not attached");
+    expect(screen.getByTestId("parked-reason").textContent).toContain("access-2 is parked, not attached");
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(validatesBefore);
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Save" }).getAttribute("title")).toContain("parked");
+    expect(hostIcon("ws-2")).toBeTruthy(); // the copy's hosts came too; its taps never do
+    // One undo step removes the whole copy, and the hold lifts.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-device").map((d) => d.dataset["nodeId"]).sort()).toEqual(["access", "core"]));
+    expect(screen.queryByTestId("parked-reason")).toBeNull();
+  });
+  it("R3-2: a parked copy validates once attached, and the copy carries no tap", async () => {
+    const TAP = "tap-plan:\n  target: sub\n  bindings:\n    - { selector: { scope: segment, target: a1 }, mode: exclusive, sensors: [s1] }\n";
+    const { api, state } = withTwin("sub", { "te.yaml": TE, "tap/default.yaml": TAP, "twin.yaml": twinYaml("sub").replace("tfc:", "tap:\n      default: tap/default.yaml\n    tfc:") });
+    renderAt(api, "/twins/sub/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(device("access"), { altKey: true });
+    fireEvent.keyDown(window, { key: "d", ctrlKey: true });
+    await screen.findByTestId("parked-reason");
+    fireEvent.click(screen.getByTestId("rail-attach"));
+    fireEvent.click(screen.getAllByTestId("canvas-router")[0]!);
+    fireEvent.click(device("access-2"));
+    await waitFor(() => expect(screen.queryByTestId("parked-reason")).toBeNull());
+    await settle();
+    const files = lastFiles(state);
+    const te = readTe(files["te.yaml"]!);
+    expect(te.nodes.map((n) => n.name)).toContain("access-2");
+    expect(te.links.at(-1)).toMatchObject({ a: { device: "hq" }, b: { device: "access-2" }, mode: "trunk" });
+    if (files["tap/default.yaml"]) expect(files["tap/default.yaml"]).not.toContain("a1-2");
   });
   it("the subtree panel duplicates onto a device: the copy hangs from core by a trunk", async () => {
     const { api, state } = withTwin("sub", { "te.yaml": TE });
@@ -231,6 +259,22 @@ describe("on the page", () => {
     fireEvent.click(device("access-2"));
     await settle();
     te = readTe(lastFiles(state)["te.yaml"]!);
-    expect(te.links.at(-1)).toMatchObject({ a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", vlans: ["a2-2"] });
+    expect(te.links.at(-1)).toMatchObject({ a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", vlans: ["a1-2", "a2-2"] });
+  });
+});
+
+describe("parkedDevices (R3-2)", () => {
+  it("a copy whose only link is down is parked: a down link carries nothing (switch-test's access-sw copy)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const { parkedDevices } = await import("../src/features/edit-canvas/edit/subtree");
+    const te = readFileSync(resolve(__dirname, "../../catalog/twins/switch-test/te.yaml"), "utf8");
+    const d = { id: "s", teFile: "te.yaml", files: { "te.yaml": te } };
+    const m = readDoc(d);
+    expect(parkedDevices(m.te)).toEqual([]);
+    const out = duplicateSubtree(d, m, "access-sw", null);
+    expect(parkedDevices(readDoc({ ...d, files: out.files }).te)).toEqual(["access-sw-2"]);
+    const attached = attachDevices({ ...d, files: out.files }, readDoc({ ...d, files: out.files }), "gw", "access-sw-2");
+    expect(parkedDevices(readDoc({ ...d, files: attached }).te)).toEqual([]);
   });
 });

@@ -9,6 +9,7 @@ export function ConfirmDelete({
   target,
   compact = false,
   confirmText,
+  startConfirming = false,
   onDelete,
   onDeleted,
 }: {
@@ -18,10 +19,12 @@ export function ConfirmDelete({
   target: string;
   compact?: boolean;
   confirmText?: string;
+  /** Open already at the confirmation (a row's "Delete…" lands here). */
+  startConfirming?: boolean;
   onDelete: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState(startConfirming);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   async function go() {

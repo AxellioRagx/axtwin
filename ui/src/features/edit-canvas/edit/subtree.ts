@@ -194,9 +194,13 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     takenIps.set(segment, taken);
     return a.addresses;
   };
+  // A PARKED copy (R3-2) keeps what its uplink carried as ports of its own on the copied segments,
+  // so the attach tool can trunk exactly those later (the uplink itself is never copied).
+  const upCarried = attachTo === null && tree.uplink ? [...(tree.uplink.native ? [tree.uplink.native] : []), ...tree.uplink.vlans].filter((s, i, xs) => tree.segments.includes(s) && xs.indexOf(s) === i) : [];
   for (const name of [...tree.devices, ...tree.hosts]) {
     const n = te.nodes.find((x) => x.name === name)!;
     const nets = n.nets.map((l) => ({ segment: seg(l.segment), ip: l.ip && n.countValue === 1 && !isDevice(n) ? allocate(seg(l.segment), 1)[0] ?? null : null }));
+    if (name === root) for (const s of upCarried) if (!nets.some((l) => l.segment === seg(s))) nets.push({ segment: seg(s), ip: null });
     text = addNode(text, { name: names[name]!, kind: n.kind, role: n.role, image: n.image, count: n.count, nets, requires: n.requires, resources: n.resources });
     for (const m of n.members) if (m.role) text = setMemberRole(text, names[name]!, m.index, m.role);
   }
@@ -262,4 +266,37 @@ export function attachDevices(doc: WorkingDoc, model: DocModel, from: string, to
   if (!segment) throw new Error(`'${other.name}' is on no segment; attach it to one first`);
   const text = addLink(doc.files[doc.teFile]!, { a: { device: dev.name, port: freePort(te, dev.name) }, b: { device: other.name, port: freePort(te, other.name) }, mode: "access", vlans: [segment] });
   return { ...doc.files, [doc.teFile]: text };
+}
+
+/**
+ * The switches no router reaches (R3-2): a parked duplicate, or a switch just placed. Reached
+ * means a chain of up links from a router, or a segment the switch has a port on (or a link of
+ * its carries) that a router has a leg on. A twin with no router parks nothing (there is nothing
+ * to attach to). While any switch is parked the page holds the document locally: no API
+ * validate, no working-copy sync, every exit blocked with the reason.
+ */
+export function parkedDevices(te: TeModel): string[] {
+  const routers = te.nodes.filter((n) => n.kind === "router");
+  if (!routers.length) return [];
+  const switches = te.nodes.filter((n) => n.kind === "switch");
+  const reached = new Set(routers.map((r) => r.name));
+  const routed = new Set(routers.flatMap((r) => r.nets.map((l) => l.segment)));
+  const segsOf = (name: string): string[] => {
+    const own = te.nodes.find((n) => n.name === name)?.nets.map((l) => l.segment) ?? [];
+    // A down or blocked link deploys nothing (topology-layers §2.5): it carries no segment here either.
+    const carried = te.links.filter((l) => l.state === "up" && (l.a.device === name || l.b.device === name)).flatMap((l) => [...(l.native ? [l.native] : []), ...l.vlans]);
+    return [...own, ...carried];
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const s of switches) {
+      if (reached.has(s.name)) continue;
+      const linked = te.links.some((l) => l.state === "up" && ((l.a.device === s.name && reached.has(l.b.device)) || (l.b.device === s.name && reached.has(l.a.device))));
+      if (linked || segsOf(s.name).some((seg) => routed.has(seg))) {
+        reached.add(s.name);
+        changed = true;
+      }
+    }
+  }
+  return switches.filter((s) => !reached.has(s.name)).map((s) => s.name);
 }

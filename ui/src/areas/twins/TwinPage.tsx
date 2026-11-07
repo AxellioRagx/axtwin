@@ -1,11 +1,11 @@
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { DeploySummary, TwinSummary } from "../../api/types";
 import { formatCount } from "../../model/sources";
-import { standingDeploy, tierStatus } from "../../features/edit-canvas/CanvasPage";
+import { standingDeploy, tierStatus } from "../shell/deployState";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
-import { ErrorLine } from "../shell/parts";
+import { ErrorLine, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 import { TwinTree } from "./TwinTree";
 
@@ -17,6 +17,7 @@ export function TwinPage() {
   const api = useApi();
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const { hash } = useLocation();
   const { data, error, loading } = useLoad<{ twin: TwinSummary; deploys: DeploySummary[] }>(async (signal) => {
     const twin = await api.getTwin(id, signal);
     const deploys = await api.listDeploys(signal).catch(() => ({ deploys: [], warnings: [] }));
@@ -31,9 +32,13 @@ export function TwinPage() {
     <>
       <div className="row">
         <h1 style={{ flex: 1 }}>Twin {id}</h1>
-        {twin ? <Link to={`/canvas/${encodeURIComponent(id)}`}>Open the design canvas</Link> : null}
         {twin ? (
-          <ConfirmDelete label="Delete twin" target={id} confirmText="Confirm: remove the twin from the catalog" onDelete={() => api.deleteTwin(id)} onDeleted={() => navigate("/twins")} />
+          <Link className="linkbutton" to={`/canvas/${encodeURIComponent(id)}`}>
+            Open the design canvas
+          </Link>
+        ) : null}
+        {twin ? (
+          <ConfirmDelete label="Delete twin" target={id} startConfirming={hash === "#delete"} confirmText="Confirm: remove the twin from the catalog" onDelete={() => api.deleteTwin(id)} onDeleted={() => navigate("/twins")} />
         ) : null}
       </div>
       <ErrorLine error={error} prefix="could not load the twin" />
@@ -45,14 +50,14 @@ export function TwinPage() {
             <dd>
               {twin.pit_id ? (
                 <>
-                  cast from <Link to={`/imprints/${encodeURIComponent(twin.pit_id)}`}>{twin.pit_id}</Link>
+                  cast from <Link className="navlink" to={`/imprints/${encodeURIComponent(twin.pit_id)}`}>{twin.pit_id}</Link>
                 </>
               ) : (
                 <span>authored on the canvas, not discovered</span>
               )}
             </dd>
             <dt>Deploy</dt>
-            <dd data-testid="deploy-state">
+            <dd id="deploy" data-testid="deploy-state">
               {te ? (
                 <>
                   <span className="mono">{te.deploy_id}</span>
@@ -75,7 +80,9 @@ export function TwinPage() {
             {cast ? (
               <>
                 <dt>As of</dt>
-                <dd>{twin.as_of}</dd>
+                <dd>
+                  <When value={twin.as_of} />
+                </dd>
               </>
             ) : null}
             <dt>Hosts</dt>

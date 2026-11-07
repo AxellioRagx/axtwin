@@ -177,3 +177,20 @@ table.list th { color: var(--muted); font-weight: 600; }
 .tree-persona { margin-top: 8px; }
 .tree-persona p { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .badge.low { color: var(--warn); border-color: var(--warn); }
+
+/* Console pages: one name+id look, one date look, navigation as rows and buttons. */
+.entity { display: inline-flex; flex-direction: column; line-height: 1.25; }
+.entity-id { font-size: 11.5px; }
+a.navlink { color: var(--ink); text-decoration: none; }
+a.navlink:hover, a.navlink:focus-visible { text-decoration: underline; }
+a.linkbutton { display: inline-block; text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; }
+a.linkbutton:hover { border-color: var(--accent); }
+.when { white-space: nowrap; }
+table.list tr.clickable { cursor: pointer; }
+table.list tr.clickable:hover { background: var(--panel); }
+.tiers { white-space: nowrap; }
+.tiers .tier-failed { color: var(--bad); }
+details.advanced { margin: 10px 0; }
+details.advanced > summary { cursor: pointer; color: var(--muted); }
+button.quiet { background: none; border: none; color: var(--muted); padding: 2px 6px; cursor: pointer; }
+button.quiet:hover { color: var(--bad); }

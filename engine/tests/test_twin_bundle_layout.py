@@ -148,6 +148,10 @@ def test_every_read_route_answers_the_same_for_both_layouts(tmp_path):
     # Apply capability is the ONE legitimate difference (fix round 1): a
     # twins/ folder cannot be recompiled in place, and the read says why.
     why_a, why_b = _pop_apply_capability(got_a), _pop_apply_capability(got_b)
+    # So is `modified_at` (review round 3): each layout's files were written at their own moment.
+    for got in (got_a, got_b):
+        for e in got["list"]["imprints"]:
+            assert e.pop("modified_at") is not None
     assert all(not ok for ok, _w in why_a + why_b)
     assert all("twins/ folder" in w for _ok, w in why_b)
     assert got_a == got_b

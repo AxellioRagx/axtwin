@@ -434,6 +434,7 @@ export function DeviceNode(p: P) {
       <span className="cv-icon-box" aria-hidden="true">
         {d.deviceKind === "switch" ? <Icon.switch /> : <Icon.router />}
         <span className="cv-role-badge cv-device-badge" data-testid="device-badge">{d.badge}</span>
+        {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: attach it to a switch or router before Apply or Save">not attached</span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
       {card.open ? (

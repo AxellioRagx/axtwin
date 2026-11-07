@@ -1,19 +1,21 @@
-import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import { useApi } from "../../api/context";
-import type { TwinListItem } from "../../api/types";
-import { formatCount, formatIso } from "../../model/sources";
-import { ConfirmDelete } from "../shell/ConfirmDelete";
-import { ErrorLine } from "../shell/parts";
+import type { DeploySummary } from "../../api/types";
+import { formatCount } from "../../model/sources";
+import { tierWord, twinTiers } from "../shell/deployState";
+import { EntityName, ErrorLine, LinkRow, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
-/** The twin catalog: every deployable twin definition, cast from an imprint or authored. */
+/** The twin catalog: every deployable twin definition, cast from an imprint or authored.
+ *  Deleting lives on the twin's page; the row's "Delete…" goes there. */
 export function TwinsPage() {
   const api = useApi();
+  const navigate = useNavigate();
   const twins = useLoad((signal) => api.listTwins(signal), []);
-  const [deleted, setDeleted] = useState<string[]>([]);
-  const rows = (twins.data?.imprints ?? []).filter((t) => !deleted.includes(t.id));
+  // The deploy state is a second, optional read: a refusal there leaves the column "—".
+  const deploys = useLoad<DeploySummary[] | null>((signal) => api.listDeploys(signal).then((d) => d.deploys).catch(() => null), []);
+  const rows = twins.data?.imprints ?? [];
   const skipped = twins.data?.skipped ?? [];
   return (
     <>
@@ -26,40 +28,72 @@ export function TwinsPage() {
           <thead>
             <tr>
               <th>Twin</th>
-              <th>As of</th>
+              <th>Origin</th>
+              <th>Deploy</th>
               <th>Hosts</th>
               <th>Segments</th>
-              <th>Confidence</th>
-              <th>Cast from</th>
-              <th>Apply</th>
+              <th>Last changed</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((t) => (
-              <tr key={t.id} data-testid="twin-row">
-                <td>
-                  <Link to={`/twins/${encodeURIComponent(t.id)}`}>{t.id}</Link>
-                </td>
-                <td className="muted">{formatIso(t.as_of) || "—"}</td>
-                <td>{formatCount(t.hosts)}</td>
-                <td>{formatCount(t.segments)}</td>
-                <td title={t.confidence_source}>{confidenceCell(t)}</td>
-                <td>
-                  {t.cast_from ? (
-                    <Link to={`/imprints/${encodeURIComponent(t.cast_from.pit_id)}`} title={t.cast_from.pit_id}>
-                      {t.cast_from.pit_name ?? t.cast_from.pit_id}
-                    </Link>
-                  ) : (
-                    <span className="muted">authored</span>
-                  )}
-                </td>
-                <td className="muted">{t.can_apply ? "yes" : t.apply_blocked_reason || "no"}</td>
-                <td>
-                  <ConfirmDelete label="Delete twin" target={t.id} compact onDelete={() => api.deleteTwin(t.id)} onDeleted={() => setDeleted((d) => [...d, t.id])} />
-                </td>
-              </tr>
-            ))}
+            {rows.map((t) => {
+              const enc = encodeURIComponent(t.id);
+              const tiers = deploys.data ? twinTiers(deploys.data, t.id) : null;
+              return (
+                <LinkRow key={t.id} to={`/twins/${enc}`} data-testid="twin-row">
+                  <td>
+                    <EntityName id={t.id} to={`/twins/${enc}`} />
+                  </td>
+                  <td>
+                    {t.cast_from ? (
+                      <>
+                        cast from{" "}
+                        <Link className="navlink" to={`/imprints/${encodeURIComponent(t.cast_from.pit_id)}`} title={t.cast_from.pit_id}>
+                          {t.cast_from.pit_name ?? t.cast_from.pit_id}
+                        </Link>
+                      </>
+                    ) : (
+                      <span className="muted">authored</span>
+                    )}
+                  </td>
+                  <td className="tiers" data-testid="twin-deploy">
+                    {tiers === null ? (
+                      <span className="muted">—</span>
+                    ) : tiers.length === 0 ? (
+                      <span className="muted">undeployed</span>
+                    ) : (
+                      tiers.map(([tier, st], k) => (
+                        <span key={tier}>
+                          {k ? " · " : ""}
+                          <span className={st === "failed" ? "tier-failed" : ""} data-testid={`tier-${tier}`} title={`${tier} ${st}`}>
+                            {tier} {tierWord(st)}
+                          </span>
+                        </span>
+                      ))
+                    )}
+                  </td>
+                  <td>{formatCount(t.hosts)}</td>
+                  <td>{formatCount(t.segments)}</td>
+                  <td>
+                    <When value={t.modified_at ?? ""} />
+                  </td>
+                  <td>
+                    <span className="row-actions">
+                      <Link className="linkbutton" to={`/canvas/${enc}`}>
+                        Canvas
+                      </Link>
+                      <Link className="linkbutton" to={`/twins/${enc}#deploy`} title="Deploy state and the deploy commands, on the twin's page">
+                        Deploy
+                      </Link>
+                      <button className="quiet" type="button" onClick={() => navigate(`/twins/${enc}#delete`)} aria-label={`Delete twin ${t.id}…`}>
+                        Delete…
+                      </button>
+                    </span>
+                  </td>
+                </LinkRow>
+              );
+            })}
           </tbody>
         </table>
       ) : null}
@@ -77,9 +111,4 @@ export function TwinsPage() {
       ) : null}
     </>
   );
-}
-
-function confidenceCell(t: TwinListItem): string {
-  if (t.confidence_source === "absent") return "none";
-  return t.mean_confidence.toFixed(2);
 }

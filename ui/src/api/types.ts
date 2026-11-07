@@ -181,6 +181,8 @@ export interface TwinListItem {
   confidence_source: string;
   has_topology_export: boolean;
   cast_from: CastFrom | null;
+  /** When the twin's definition last changed (ISO 8601 UTC), or null when unread (review round 3). */
+  modified_at?: string | null;
   can_apply: boolean;
   apply_blocked_reason: string | null;
 }

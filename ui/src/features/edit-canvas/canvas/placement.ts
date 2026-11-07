@@ -148,6 +148,8 @@ export type DeviceData = {
   hue: string;
   source?: Source | null;
   confidence?: number | null;
+  /** A switch wired to nothing (a parked duplicate): drawn with a "not attached" badge (R3-2). */
+  parked?: boolean;
 };
 /** A tap chip on a segment or a link (topology-layers §8). */
 export type TapData = { kind: "tap"; id: string; target: string; scope: string; sensors: string[]; source?: Source | null };

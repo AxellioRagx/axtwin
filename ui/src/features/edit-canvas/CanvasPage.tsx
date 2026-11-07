@@ -51,7 +51,7 @@ import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
 import { moveMember } from "./edit/members";
-import { attachDevices, duplicateSubtree } from "./edit/subtree";
+import { attachDevices, duplicateSubtree, parkedDevices } from "./edit/subtree";
 import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
@@ -347,11 +347,23 @@ export function CanvasPage() {
     clearLegacyAnnotations(id);
   }, [layout.data, id, setAnnotations]);
 
+  // R3-2: a switch wired to nothing (a parked duplicate, a switch just placed) is held HERE: the
+  // document is neither validated by the API nor synced to a working copy until it is attached,
+  // and every exit says why. The copy is one undo step like any edit.
+  const parked = useMemo(() => (editor.model ? parkedDevices(editor.model.te) : []), [editor.model]);
+  const parkedKey = parked.join(",");
+  const parkedReason = parked.length ? `${parked.join(", ")} ${parked.length === 1 ? "is" : "are"} parked, not attached: drop ${parked.length === 1 ? "it" : "them"} on a switch or router, or wire ${parked.length === 1 ? "it" : "them"} with the attach tool, before Apply or Save` : null;
+
   // Every mutation is validated by the API through the document route after a
   // short quiet spell; the exits are enabled only on a clean answer for the
   // files as they stand. The structural check stays the instant hint.
   useEffect(() => {
     if (!editor.files || !editor.doc) return;
+    if (parkedKey) {
+      setValidation(null);
+      setValidating(false);
+      return;
+    }
     const files = editor.files;
     const docId = editor.doc.id;
     const ctl = new AbortController();
@@ -374,7 +386,7 @@ export function CanvasPage() {
       clearTimeout(t);
       ctl.abort();
     };
-  }, [editor.files, editor.doc, api]);
+  }, [editor.files, editor.doc, api, parkedKey]);
 
   // R3-9: a banner about a refused or blocked edit clears on the next change that lands (an
   // edit, an Undo, a Redo, a reload): it described a document that is no longer on screen.
@@ -404,7 +416,7 @@ export function CanvasPage() {
   // spell; the API validates and classifies, and a refusal reverts the edit.
   const syncQueue = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
-    if (!deployed || !deployId || locked || !editor.files) return;
+    if (!deployed || !deployId || locked || !editor.files || parkedKey) return;
     const files = editor.files;
     if (synced.current && sameFiles(files, synced.current)) return;
     const t = setTimeout(() => {
@@ -422,7 +434,7 @@ export function CanvasPage() {
       });
     }, SYNC_DELAY_MS);
     return () => clearTimeout(t);
-  }, [editor.files, deployed, deployId, locked, api, editor]);
+  }, [editor.files, deployed, deployId, locked, api, editor, parkedKey]);
 
   // Another console's edits or reset show up here (C3.6): a poll, and a Refresh
   // button. While an exit is in flight the poll runs faster and carries the
@@ -630,7 +642,7 @@ export function CanvasPage() {
   const structurallyValid = model ? !model.findings.some((f) => f.severity === "error") : false;
   // The gate: the API's latest answer, for exactly the files on screen, with no error.
   const apiValid = Boolean(files && validation && validation.result && validation.result.errors === 0 && sameFiles(validation.files, files));
-  const valid = structurallyValid && apiValid;
+  const valid = structurallyValid && apiValid && !parkedReason;
   const unsynced = deployed && Boolean(files && synced.current && !sameFiles(files, synced.current));
   const topologyPending = (config?.changes ?? []).some((c) => c.kind === "topology");
   const run = useCallback(
@@ -1039,7 +1051,7 @@ export function CanvasPage() {
             {/* The document's state word: the two deployed states say whether the changes reached the twin, not only that they differ from the baseline. */}
             {dirty ? (
               <span className={`cv-dirty${state === "applied" ? " applied" : ""}`} data-testid="dirty-marker" data-state={state} title={deployed ? (state === "applied" ? "every change in the working copy was applied to the running twin; the baseline does not have them yet (Persist)" : state === "syncing" ? "the edit is on its way to the working copy" : "the working copy carries changes the twin does not run yet (Apply)") : "unsaved changes"}>
-                ● {deployed ? (state === "syncing" ? "editing… (syncing to the working copy)" : state === "applied" ? "applied · unpersisted" : "unapplied changes") : "unsaved changes"}
+                ● {deployed ? (state === "syncing" ? (parkedReason ? "editing… (held here: a parked copy is not attached)" : "editing… (syncing to the working copy)") : state === "applied" ? "applied · unpersisted" : "unapplied changes") : "unsaved changes"}
               </span>
             ) : (
               <span className="cv-clean" data-testid="clean-marker" data-state="clean">
@@ -1056,13 +1068,13 @@ export function CanvasPage() {
             </span>
             {!deployed ? (
               <span className="cv-exit-group" role="group" aria-label="Twin config">
-                <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null}>
+                <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null} title={parkedReason ?? undefined}>
                   Save
                 </button>
               </span>
             ) : (
               <span className="cv-exit-group" role="group" aria-label="Working copy">
-                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)} title={topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin"}>
+                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)} title={parkedReason ?? (topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin")}>
                   Apply
                 </button>
                 <button type="button" onClick={() => void resetExit()} disabled={!config?.dirty || busy !== null || Boolean(locked) || Boolean(exit)} title="discard the working copy; what it applied is replayed from the baseline">
@@ -1124,6 +1136,11 @@ export function CanvasPage() {
               ×
             </button>
           </div>
+        ) : null}
+        {editProps && parkedReason ? (
+          <p className="notice" role="status" data-testid="parked-reason">
+            {parkedReason}
+          </p>
         ) : null}
         {editProps && blocked ? (
           <div className="error" role="alert" data-testid="blocked-reason">

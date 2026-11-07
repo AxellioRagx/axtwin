@@ -509,6 +509,8 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       hue: hueOfDevice(d.name),
       source: source(d.name),
       confidence: confidence(d.name),
+      // No router reaches it -- by links, or by a segment it shares with a router's legs (`edit/subtree.ts` `parkedDevices`).
+      parked: d.kind === "switch" && graph.routers.length > 0 && depths.get(d.name)?.root == null && ![...d.legs, ...carriedBy(d.name)].some((seg) => graph.routers.some((r) => r.segments.includes(seg))),
     };
     // R3-7: a switch is its own node type, so the DOM (and a test) can tell it from any other device.
     nodes.push({ id, type: d.kind === "switch" ? "switch" : "device", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });
@@ -674,6 +676,9 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   for (const f of stubFolded.values()) edges.push({ id: `stubs:${f.host}>${f.anchor}`, type: "leg", className: LEG_CLASS, source: ID.host(f.host), target: f.anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: f.host, segment: f.anchor, label: `${f.n} segment${f.n === 1 ? "" : "s"} folded`, folded: f.n } });
 
+  // ---- a new box never lands on a pinned one: it moves right into free space (brief "Positions") ----
+  freeSpace(nodes, pins);
+
   // ---- orthogonal routes through the gutters (R3-4), on dagre's positions ----
   routeTree(g, nodes, edges);
 
@@ -689,6 +694,38 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
 
   return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: l0.hiddenPairs, anchorByName, unplaced: l0.unplaced?.count ?? 0 };
+}
+
+/** The pin key of a top-level node of the tree (`host:` for a device, `segment:` for a pill). */
+function pinKeyOfNode(n: CanvasNode): string | null {
+  const d = n.data;
+  if (d.kind === "router" || d.kind === "device") return `host:${d.name}`;
+  if (d.kind === "segment") return `segment:${d.cidr}`;
+  return null;
+}
+
+/** Move every unpinned top-level box that overlaps a pinned (or already settled) one to the
+ *  right of it, in its own rank, until it overlaps nothing. Mutates the nodes' positions. */
+function freeSpace(nodes: CanvasNode[], pins: Pins): void {
+  const top = nodes.filter((n) => !n.parentId);
+  const pinned = top.filter((n) => {
+    const k = pinKeyOfNode(n);
+    return k !== null && pins[k] !== undefined;
+  });
+  if (!pinned.length) return;
+  const placed: Box[] = pinned.map((n) => ({ x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 }));
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.w + TREE_NODE_SEP / 2 && b.x < a.x + a.w + TREE_NODE_SEP / 2 && a.y < b.y + b.h && b.y < a.y + a.h;
+  for (const n of top) {
+    if (pinned.includes(n)) continue;
+    const box: Box = { x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 };
+    for (let guard = 0; guard < 200; guard++) {
+      const hit = placed.filter((p) => overlaps(box, p));
+      if (!hit.length) break;
+      box.x = Math.max(...hit.map((p) => p.x + p.w)) + TREE_NODE_SEP;
+    }
+    n.position = { x: box.x, y: box.y };
+    placed.push(box);
+  }
 }
 
 /** The absolute box of every node (a child's from its parent's position). */

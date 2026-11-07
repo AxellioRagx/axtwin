@@ -2,8 +2,7 @@ import { useState } from "react";
 
 import { useApi } from "../../api/context";
 import type { DiscoveryRun } from "../../api/types";
-import { formatIso } from "../../model/sources";
-import { ErrorLine } from "../shell/parts";
+import { ErrorLine, formatWhen } from "../shell/parts";
 
 export function isActive(run: DiscoveryRun): boolean {
   return run.status === "queued" || run.status === "running";
@@ -55,7 +54,7 @@ export function RunAction({
       <span className="muted">cancelling…</span>
     ) : (
       <div className="cancel">
-        <span className="muted">Cancel requested {formatIso(run.cancel_requested_at)}; stopping the current stage…</span>
+        <span className="muted">Cancel requested {formatWhen(run.cancel_requested_at)}; stopping the current stage…</span>
       </div>
     );
   }

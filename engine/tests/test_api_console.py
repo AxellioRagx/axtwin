@@ -5819,7 +5819,7 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     "ImprintListItemDTO": {
         "apply_blocked_reason", "as_of", "can_apply", "cast_from", "confidence_source",
         "has_provenance", "has_topology_export", "hosts", "id", "mean_confidence",
-        "segments",
+        "modified_at", "segments",
     },
     "ImprintSkippedDTO": {"id", "reason"},
     "CastSummaryDTO": {

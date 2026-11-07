@@ -4106,6 +4106,24 @@ def _pit_names(settings: ApiSettings, backend: Any) -> dict[str, str]:
         return {}
 
 
+def _twin_modified_at(catalog: Path, twin_id: str) -> Optional[str]:
+    """The newest mtime of a twin's config files, as ISO 8601 UTC: a bundle folder's YAML
+    (the layout side-car under `generated/` excluded -- moving a box is not a change to the
+    twin), or a flat `<id>.yaml`. None when nothing can be read."""
+    import datetime as _dt
+
+    folder = catalog / twin_id
+    files = ([f for f in folder.rglob("*.yaml") if "generated" not in f.relative_to(folder).parts]
+             if folder.is_dir() else [catalog / f"{twin_id}.yaml"])
+    try:
+        newest = max((f.stat().st_mtime for f in files if f.is_file()), default=None)
+    except OSError:
+        return None
+    if newest is None:
+        return None
+    return _dt.datetime.fromtimestamp(newest, tz=_dt.timezone.utc).isoformat(timespec="seconds")
+
+
 def list_imprints(settings: ApiSettings, *, backend: Any = None) -> dtos.ImprintListDTO:
     """The tolerant catalog listing, WITH what it could not publish (S5).
 
@@ -4114,8 +4132,11 @@ def list_imprints(settings: ApiSettings, *, backend: Any = None) -> dtos.Imprint
     bundle vanished or why -- `skipped[]` is that channel."""
     from axrange.api.imprints import list_imprints_with_skips
 
+    from axrange.api.imprints import default_fixtures_dir
+
     fixtures_dir = settings.imprints_dir or None
     entries, skipped = list_imprints_with_skips(fixtures_dir)
+    catalog = Path(fixtures_dir) if fixtures_dir else default_fixtures_dir()
     names = _pit_names(settings, backend) if any(e.pit_id for e in entries) else {}
     return dtos.ImprintListDTO(
         imprints=[
@@ -4127,6 +4148,7 @@ def list_imprints(settings: ApiSettings, *, backend: Any = None) -> dtos.Imprint
                 has_topology_export=e.has_topology_export,
                 cast_from=(dtos.CastFromDTO(pit_id=e.pit_id, pit_name=names.get(e.pit_id))
                            if e.pit_id else None),
+                modified_at=_twin_modified_at(catalog, e.id),
                 **_apply_capability(settings, e.id),
             )
             for e in entries

@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { DiscoveryRun } from "../src/api/types";
@@ -123,34 +123,24 @@ describe("the run's one write", () => {
     expect(state.runs).toEqual([]);
   });
 
-  it("the table offers × on an active run and a bin on a finished one, each behind a confirmation", async () => {
+  it("the table offers × on an active run and nothing destructive on a finished one", async () => {
     const { api, state } = fakeApi({ runs: [running(), done()] });
     renderAt(api, "/discovery/runs");
     expect((await screen.findAllByTestId("run-row")).length).toBe(2);
-    fireEvent.click(screen.getByRole("button", { name: "Delete run disc-9" }));
-    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
-    expect(state.writes).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Delete run disc-9" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm delete disc-9" }));
-    await screen.findByText("disc-7");
-    expect(screen.queryByText("disc-9")).toBeNull();
-    expect(screen.getAllByTestId("run-row").length).toBe(1);
-
+    expect(screen.queryByRole("button", { name: "Delete run disc-9" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel run disc-7" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm cancel disc-7" }));
     await screen.findByText("cancelling");
-    expect(state.writes).toEqual([{ op: "delete-run", id: "disc-9" }, { op: "cancel", id: "disc-7" }]);
+    expect(state.writes).toEqual([{ op: "cancel", id: "disc-7" }]);
     expect(screen.queryByRole("button", { name: "Cancel run disc-7" })).toBeNull();
   });
 
-  it("a refused delete is shown in the row, and the row stays", async () => {
+  it("a refused delete is shown on the run page, which stays", async () => {
     const { api } = fakeApi({ runs: [done()], refuse: { delete: new ApiError({ kind: "unauthorized", status: 401, message: "unauthorized", url: "" }) } });
-    renderAt(api, "/discovery/runs");
-    fireEvent.click(await screen.findByRole("button", { name: "Delete run disc-9" }));
+    renderAt(api, "/discovery/runs/disc-9");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete run" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete disc-9" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("could not delete");
-    expect(screen.getAllByTestId("run-row").length).toBe(1);
+    await waitFor(() => expect(screen.getAllByRole("alert").some((a) => a.textContent?.includes("could not delete"))).toBe(true));
   });
 });
 
