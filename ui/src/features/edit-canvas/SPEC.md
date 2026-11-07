@@ -9,6 +9,13 @@ place hosts on segments, add segments, duplicate sections, annotate — writing
 the result back as a twin-config. It serves the **view & customize** step of
 the loop.
 
+**2026-11-07:** the twin model and this canvas's rendering are redesigned in
+`docs/design/topology-layers.md` (a device tree with `kind: switch` and
+`links[]`, provenance, three change kinds, members, subtree duplicate, a
+dagre layout). That document supersedes the "no link objects" premise of the
+next paragraph and the "Rendering rules" below; both stay here as the record
+of what is built until track 5 lands.
+
 It is a canvas over axRange's own model, not an emulator's. A twin has no link
 objects: a node attaches to one or more L2 segments (`net` / `nets[]`), and
 the API already serves that as a bipartite host↔segment graph. The editing
@@ -340,6 +347,9 @@ Order: frame + surface, then rail + inspector, then level of detail (mockups
 first) — all three built 2026-11-05, the basics the same evening.
 
 ### Rendering rules
+
+**Superseded by `docs/design/topology-layers.md` §7 (2026-11-07); this is
+the built state of track 4 until track 5 replaces it.**
 
 Decided 2026-11-06 (user), rewritten the same day for **track 4** after the
 measurement on `/canvas/corp-twin`: the config has ONE router (`hq-mx`), no

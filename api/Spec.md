@@ -160,7 +160,7 @@ twin's canvas.
 - Run records are in-memory for the life of `axrange serve`; nothing reads
   them after a restart today.
 
-**A2 — per-deploy working copy** (the edit model, below). **Built 2026-10-30**
+**A2 — per-deploy working copy** (the edit model, below; **2026-11-07:** the classification becomes three change kinds, `topology` / `traffic` / `taps`, and the assertions seam extends to devices, links, members and taps -- `docs/design/topology-layers.md` §3.2, §4, deltas D4, D6, D7). **Built 2026-10-30**
 (`engine/src/axrange/api/edits.py` -- the document, the working-copy store
 and the classifier -- with the `deploy_config*` block of `api/service.py`;
 tests `engine/tests/test_api_edit_model.py`). The copy is one SQLite file
@@ -349,7 +349,8 @@ bundle's tier split is the edit-type split:
 | `role` | either | attribute when the node's image is unchanged (a persona re-assignment); topology when it is not |
 
 A2 `GET …/config` reports the classification per pending change so the
-console shows an edit's blast radius before Apply. Persist and Save-As are
+console shows an edit's blast radius before Apply. (Three kinds from
+2026-11-07: `docs/design/topology-layers.md` §4.) Persist and Save-As are
 not classified: they write a baseline, they touch no deploy.
 
 Two edit layers, one rule: a change that says *discovery was wrong* (this
