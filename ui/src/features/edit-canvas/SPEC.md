@@ -435,6 +435,23 @@ one its `confidence`.
    sources over segments, nodes and links; a row filters the canvas (the
    rest dims, `cv-dim`).
 
+11. **Members** (§5, **built 2026-11-07, track 5c**, `edit/members.ts`): a
+   `×N` badge with role overrides wears a dot (`×5·`); its double-click opens
+   the member chips under the icon (`01 … NN`, an overridden one outlined);
+   a chip's click opens the **member panel** (the instance id, its role
+   override, its own persona / intensity / schedule by instance id, *Detach
+   as its own group*, *Move to…* a group of the same image and segments); a
+   chip dragged onto another such group moves that one member there (a
+   detach, then a merge of the `×1`). The Members block picks members and
+   **splits** them off as a named group (the original keeps the rest,
+   re-indexed; overrides and instance bindings follow; the group binding
+   copies); the node panel **merges** the group into another of the same
+   image and segments (the count grows, a differing role becomes a member
+   override, bindings re-key, links naming the group re-point). All four are
+   topology changes. Not built: multi-select rows, the split recorded as an
+   assertion keyed by the members' entity keys (§5), a zoom threshold that
+   opens the chips.
+
 Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
 taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and
 splices, `links[]` / `members[]` edits, the five blocks, a member's role,
@@ -466,7 +483,12 @@ drawn and 26 folded; the largest cast twin as one router, four pills and a
 `+36 more` fold. **5b (`t5b-*.png`):** switch-test's switch panel in its
 blocks, its boundary tap as a chip on both pills with the tap panel on
 click, corp-tree's Checks tab with the Provenance rows and the `asserted`
-filter dimming the whole canvas.
+filter dimming the whole canvas. **5c (`t5c-members.png`):** switch-test's
+`×2·` badge opened into chips `01 02`, the overridden `02` outlined, and its
+member panel with the role `jump-host` and *Detach as its own group*.
+`ui/test/canvas.members.test.tsx` (22): split / merge / detach / move-one
+over the document, the badge dot, the chips, the member panel's Detach,
+the chip drag onto another group, the split form and the merge select.
 
 ## Notes
 

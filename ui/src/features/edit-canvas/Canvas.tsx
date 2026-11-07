@@ -74,6 +74,8 @@ export interface CanvasEditProps {
   onAddSegment(near?: string): void;
   /** A segment tap's chip was dropped on another pill (topology-layers §8): a `taps` change. */
   onMoveTap?(index: number, segment: string): void;
+  /** A member chip was dropped on another group (§5): that one member moves there (a topology change). */
+  onMoveMember?(from: string, index: number, into: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
 }
@@ -737,7 +739,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rehomeTarget = legDrag?.over ?? null;
-  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu]);
+  // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
+  const [membersOpen, setMembersOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const onToggleMembers = useCallback((name: string) => setMembersOpen((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; }), []);
+  const onSelectMember = useCallback((name: string, index: number) => { if (edit) { edit.onSelection({ kind: "member", node: name, index }); setInspectorTab("selection"); } }, [edit]);
+  const onMoveMember = useCallback((from: string, index: number, into: string) => edit?.onMoveMember?.(from, index, into), [edit]);
+  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);
 
   const align = useCallback(
     (axis: "h" | "v") => {

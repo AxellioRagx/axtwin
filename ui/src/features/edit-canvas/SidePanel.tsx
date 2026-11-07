@@ -39,6 +39,7 @@ import {
 } from "./edit/document";
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
+import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { tapsOn } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
@@ -51,6 +52,8 @@ export type Selection =
   | { kind: "link"; index: number }
   /** A tap binding, by its index in the tap plan (§8). */
   | { kind: "tap"; index: number }
+  /** One member of a `×N` group (§5). */
+  | { kind: "member"; node: string; index: number }
   | { kind: "annotation"; id: string };
 
 export interface SidePanelProps {
@@ -117,6 +120,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
       {selection.kind === "tap" ? <TapPanel {...p} index={selection.index} /> : null}
+      {selection.kind === "member" ? <MemberPanel {...p} node={selection.node} index={selection.index} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
     </aside>
@@ -343,17 +347,23 @@ function Provenance(p: SidePanelProps & { subject: ProvenanceSubject; source: st
  *  role override (te) and the persona (tfc, by instance id) editable. */
 function Members(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [splitName, setSplitName] = useState("");
   if (!n || n.countValue <= 1) return null;
   const ro = p.locked;
   const rows = Array.from({ length: n.countValue }, (_, i) => i + 1);
-  const instance = (i: number) => `${n.name}${String(i).padStart(2, "0")}`;
+  const instance = (i: number) => instanceId(n.name, i);
+  const pick = (i: number) => setPicked((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i]));
+  const picking = picked.filter((i) => i <= n.countValue);
   return (
     <>
       <h4>Members</h4>
       <table className="cv-members" data-testid="members">
         <thead>
           <tr>
-            <th>#</th>
+            <th>
+              <span className="cv-split-pick" title="pick members to split off">pick</span>
+            </th>
             <th>instance</th>
             <th>role</th>
             <th>persona</th>
@@ -366,8 +376,16 @@ function Members(p: SidePanelProps & { name: string }) {
             const inherited = effectiveAssignment(p.model.tfc, n.name, m?.role ?? n.role);
             return (
               <tr key={i} data-testid="member-row" data-index={i} data-overridden={m ? "true" : undefined}>
-                <td>{i}</td>
-                <td className="mono">{instance(i)}</td>
+                <td>
+                  <label className="cv-split-pick">
+                    <input type="checkbox" aria-label={`Pick ${instance(i)}`} checked={picking.includes(i)} disabled={ro} onChange={() => pick(i)} /> {i}
+                  </label>
+                </td>
+                <td>
+                  <button type="button" className="cv-link-row mono" onClick={() => p.onSelect?.({ kind: "member", node: n.name, index: i })} title="open the member's panel">
+                    {instance(i)}
+                  </button>
+                </td>
                 <td>
                   <Text ariaLabel={`Role of ${instance(i)}`} value={m?.role ?? ""} placeholder={n.role ?? "inherits"} disabled={ro} onCommit={(v) => p.apply(`role of ${instance(i)}`, (d) => setMemberRole(d, n.name, i, v.trim() || null))} />
                 </td>
@@ -386,7 +404,82 @@ function Members(p: SidePanelProps & { name: string }) {
         </tbody>
       </table>
       <p className="muted hint">a member's role override is a traffic change while the group's image stands; its persona is the traffic profile's binding of that instance</p>
+      <div className="row cv-inline" data-testid="split-form">
+        <input type="text" aria-label="New group name" placeholder={`split ${picking.length || "…"} off as…`} value={splitName} disabled={ro} onChange={(e) => setSplitName(e.target.value)} />
+        <button type="button" disabled={ro || !picking.length || picking.length >= n.countValue || !splitName.trim()} data-testid="split" title="the picked members become a new group with this name (the original keeps the rest); a topology change" onClick={() => { if (p.apply(`split ${picking.length} of ${n.name} off as ${splitName.trim()}`, (d, m) => splitGroup(d, m, n.name, picking, splitName.trim())) === null) { setPicked([]); setSplitName(""); } }}>
+          Split
+        </button>
+      </div>
     </>
+  );
+}
+
+/** One member of a `×N` group (§5): its instance id, its role override, its
+ *  own traffic binding, Detach as a `×1` group, Move to another group. */
+function MemberPanel(p: SidePanelProps & { node: string; index: number }) {
+  const n = p.model.te.nodes.find((x) => x.name === p.node);
+  const [into, setInto] = useState("");
+  if (!n) return <p className="muted">node {p.node} is not in the document</p>;
+  if (p.index < 1 || p.index > n.countValue) return <p className="muted">{p.node} has no member {p.index}</p>;
+  const ro = p.locked;
+  const id = instanceId(n.name, p.index);
+  const m = n.members.find((x) => x.index === p.index) ?? null;
+  const bound = p.model.tfc?.assignments.find((a) => a.by === "node" && a.target === id) ?? null;
+  const inherited = effectiveAssignment(p.model.tfc, n.name, m?.role ?? n.role);
+  const targets = mergeTargets(p.model, n.name);
+  return (
+    <section className="cv-side-section" data-testid="member-panel">
+      <h3>
+        Member <span className="mono">{id}</span> <span className="muted">of {n.name} ×{n.countValue}</span>
+      </h3>
+      <h4>Traffic <span className="muted">· tfc, live</span></h4>
+      <Field label="Role" hint={n.role ? `inherits ${n.role} unless overridden (a te members[] entry: a traffic change)` : "a members[] role override"}>
+        <Text ariaLabel="Member role" value={m?.role ?? ""} placeholder={n.role ?? "inherits"} disabled={ro} onCommit={(v) => p.apply(`role of ${id}`, (d) => setMemberRole(d, n.name, p.index, v.trim() || null))} />
+      </Field>
+      <Field label={bound ? "Bound to this instance" : inherited ? `Inherited: ${inherited.persona}` : "Not bound"}>
+        <select aria-label="Member persona" value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${id}`, (d, mo) => clearPersona(d, mo, "node", id)); else p.apply(`persona of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { persona: v })); }}>
+          <option value="">{inherited && !bound ? `(group's: ${inherited.persona})` : "none"}</option>
+          {p.personas.map((ps) => (
+            <option key={ps.id} value={ps.id}>{ps.id}</option>
+          ))}
+          {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+        </select>
+      </Field>
+      {bound ? (
+        <>
+          <Field label="Intensity">
+            <Text ariaLabel="Member intensity" value={bound.intensity === null ? "" : String(bound.intensity)} placeholder="profile default" disabled={ro} mono onCommit={(v) => p.apply(`intensity of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { intensity: v.trim() === "" ? null : Number(v) }))} />
+          </Field>
+          <Field label="Schedule">
+            <Text ariaLabel="Member schedule" value={bound.schedule ?? ""} placeholder="24x7, business-hours, …" disabled={ro} onCommit={(v) => p.apply(`schedule of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { schedule: v.trim() || null }))} />
+          </Field>
+        </>
+      ) : null}
+      <h4>Actions <span className="muted">· topology</span></h4>
+      <div className="row cv-inline">
+        <button type="button" disabled={ro || n.countValue < 2} data-testid="detach-member" title="this member becomes its own ×1 group (a re-plan)" onClick={() => { const r = { name: "" }; if (p.apply(`detach ${id} as its own group`, (d, mo) => { const out = detachMember(d, mo, n.name, p.index); r.name = out.newName; return out.files; }) === null) p.onSelect?.({ kind: "node", names: [r.name] }); }}>
+          Detach as its own group
+        </button>
+      </div>
+      {targets.length ? (
+        <div className="row cv-inline">
+          <select aria-label="Move member to group" value={into} disabled={ro} onChange={(e) => setInto(e.target.value)}>
+            <option value="">move to…</option>
+            {targets.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <button type="button" disabled={ro || !into} data-testid="move-member" title="this member joins that group as its last instance, keeping its role and persona (a re-plan)" onClick={() => { if (p.apply(`move ${id} to ${into}`, (d, mo) => moveMember(d, mo, n.name, p.index, into)) === null) p.onSelect?.({ kind: "node", names: [into] }); }}>
+            Move
+          </button>
+        </div>
+      ) : (
+        <p className="muted hint">no other group shares this one's image and segments; a member moves only between such groups</p>
+      )}
+      <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "node", names: [n.name] })}>
+        ← the group {n.name}
+      </button>
+    </section>
   );
 }
 
@@ -394,7 +487,9 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
   const [legTarget, setLegTarget] = useState("");
+  const [mergeTarget, setMergeTarget] = useState("");
   if (!n) return <p className="muted">node {p.name} is not in the document</p>;
+  const mergeInto = mergeTargets(p.model, n.name);
   const ro = p.locked;
   const assignment = effectiveAssignment(p.model.tfc, n.name, n.role);
   const bound = p.model.tfc?.assignments.find((a) => a.by === "node" && a.target === n.name) ?? null;
@@ -576,6 +671,19 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           Duplicate
         </button>
       </div>
+      {mergeInto.length ? (
+        <div className="row cv-inline">
+          <select aria-label="Merge into group" value={mergeTarget} disabled={ro} onChange={(e) => setMergeTarget(e.target.value)}>
+            <option value="">merge into…</option>
+            {mergeInto.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          <button type="button" disabled={ro || !mergeTarget} data-testid="merge" title="every instance of this group joins that one; a differing role becomes a member override, bindings follow; a re-plan" onClick={() => { if (p.apply(`merge ${n.name} into ${mergeTarget}`, (d, m) => mergeGroups(d, m, n.name, mergeTarget)) === null) p.onSelect?.({ kind: "node", names: [mergeTarget] }); }}>
+            Merge
+          </button>
+        </div>
+      ) : null}
       <button type="button" className="danger" disabled={ro} onClick={() => p.apply(`remove ${n.name}`, (d, m) => removeNode(d, m, n.name))}>
         Remove node group
       </button>

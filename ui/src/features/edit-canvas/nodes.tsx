@@ -253,6 +253,51 @@ function useHoverCard(dragging: boolean | undefined) {
  *  `×N` badge inside the icon's bounds, a switch-class host's role badge
  *  (rule 3), its caption under the line when labels are on; name, address
  *  and role on the hover card and in the inspector. */
+/** The member chip being dragged (HTML5 drag; the data rides here, not in dataTransfer, so jsdom and the browser agree). */
+let draggingMember: { from: string; index: number } | null = null;
+
+/** The `×N` group's member chips (§5): one per instance under the icon, each
+ *  a click to the member panel and a drag onto another group (a move of one). */
+function MemberChips({ name, count, members }: { name: string; count: number; members: ReadonlyArray<{ index: number; role: string | null }> }) {
+  const edit = useEdit();
+  return (
+    <div className="cv-members-strip nodrag" data-testid="member-chips" onPointerDown={(e) => e.stopPropagation()}>
+      {Array.from({ length: count }, (_, i) => i + 1).map((i) => {
+        const m = members.find((x) => x.index === i) ?? null;
+        return (
+          <button
+            key={i}
+            type="button"
+            className={`cv-member-chip${m ? " overridden" : ""}`}
+            data-testid="member-chip"
+            data-index={i}
+            draggable={!edit?.locked}
+            title={`${name}${String(i).padStart(2, "0")}${m?.role ? ` · ${m.role}` : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              edit?.onSelectMember(name, i);
+            }}
+            onDragStart={(e) => {
+              draggingMember = { from: name, index: i };
+              try {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", `${name}:${i}`);
+              } catch {
+                /* jsdom */
+              }
+            }}
+            onDragEnd={() => {
+              draggingMember = null;
+            }}
+          >
+            {String(i).padStart(2, "0")}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function HostNode(p: P) {
   const d = p.data;
   const glow = useContext(GlowContext);
@@ -286,6 +331,8 @@ export function HostNode(p: P) {
       onMouseLeave={card.close}
       onPointerDown={card.close}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "host", name: d.nodeId }) : undefined}
+      onDragOver={edit && !edit.locked && group ? (e) => { if (draggingMember && draggingMember.from !== d.nodeId) { e.preventDefault(); e.stopPropagation(); } } : undefined}
+      onDrop={edit && !edit.locked && group ? (e) => { const m = draggingMember; if (!m || m.from === d.nodeId) return; draggingMember = null; e.preventDefault(); e.stopPropagation(); edit.onMoveMember(m.from, m.index, d.nodeId); } : undefined}
     >
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
         {sw ? <Icon.switch /> : <RoleIcon label={d.roleLabel} />}
@@ -293,7 +340,13 @@ export function HostNode(p: P) {
       {sw ? <span className="cv-role-badge" data-testid="role-badge" title={`role: ${d.role}`}>{switchBadge(d.role!)}</span> : null}
       <ProvenanceMark source={d.source} confidence={d.confidence} />
       {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
-      {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
+      {group && group.countValue > 1 ? (
+        <span className={`badge cv-count-badge${group.members.length ? " has-overrides" : ""}${edit?.membersOpen.has(d.nodeId) ? " open" : ""}`} data-testid="count-badge" data-overrides={group.members.length || undefined} title={`${group.countValue} instances (count: ${String(group.count)})${group.members.length ? `; ${group.members.length} with a role override` : ""}; double-click for the members`} onDoubleClick={(e) => { e.stopPropagation(); edit?.onToggleMembers(d.nodeId); }}>
+          ×{group.countValue}
+          {group.members.length ? <span className="cv-count-dot" aria-hidden="true">·</span> : null}
+        </span>
+      ) : null}
+      {group && group.countValue > 1 && edit?.membersOpen.has(d.nodeId) ? <MemberChips name={d.nodeId} count={group.countValue} members={group.members} /> : null}
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.nodeId}</div>

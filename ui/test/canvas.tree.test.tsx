@@ -309,7 +309,7 @@ describe("on the page", () => {
     expect(hosts()).toEqual(["corp-workstation", "file-server"]);
     expect(segments()).toEqual(["office", "servers"]);
     expect(screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === "office")!.dataset["carrier"]).toBe("access-sw");
-    expect(within(host("corp-workstation")).getByTestId("count-badge").textContent).toBe("×2");
+    expect(within(host("corp-workstation")).getByTestId("count-badge").textContent).toBe("×2·");
     // Overlay off: a dot on the asserted switch and the authored host; nothing on a discovered pill.
     expect(within(dev).getByTestId("prov-dot").dataset["source"]).toBe("asserted");
     expect(screen.queryAllByTestId("prov-badge")).toEqual([]);

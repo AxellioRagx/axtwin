@@ -50,6 +50,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
+import { moveMember } from "./edit/members";
 import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
@@ -903,6 +904,7 @@ export function CanvasPage() {
       onRemoveSegment: (name) => void edit(`remove segment ${name}`, (d, m) => removeSegment(d, m, name)),
       onAddSegment,
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
+      onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
       annotations,
       onAnnotations: setAnnotations,
     };

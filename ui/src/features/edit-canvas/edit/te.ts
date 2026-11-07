@@ -11,6 +11,7 @@
  * edit.
  */
 import {
+  toPlain,
   contentEnd,
   encodeScalar,
   entry,
@@ -607,12 +608,38 @@ export function removeLink(text: string, index: number): string {
 /** Set one field of a `links[]` entry: `mode`, `state`, `native`, `vlans`
  *  (a list), or an end's `device` / `port` (`a.port`). `null` removes an
  *  optional key. */
+/** A plain value as flow YAML: maps `{ k: v }`, lists `[a, b]`, scalars quoted as needed;
+ *  `mode` / `state` / `source` values are bare words. */
+function flowText(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map((x) => flowText(x)).join(", ")}]`;
+  if (v && typeof v === "object") return `{ ${Object.entries(v as Record<string, unknown>).map(([k, x]) => `${k}: ${flowText(x)}`).join(", ")} }`;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (v === null || v === undefined) return "null";
+  return encodeScalar(String(v));
+}
+
 export function setLinkField(text: string, index: number, key: "mode" | "state" | "native" | "vlans" | "a.device" | "a.port" | "b.device" | "b.port", value: string | string[] | null): string {
   const t = new TeText(text);
   const seq = t.seq("links");
   const it = seq?.items[index];
   if (!it || it.value.kind !== "map") throw new Error(`no link at index ${index}`);
   const m = it.value;
+  // A link written as one flow line (`- { a: { device, port }, b: ..., mode, vlans }`) is
+  // re-serialised whole: a nested flow map is not addressable on its own.
+  if (m.flow && m.flowLine !== undefined && m.flowCol !== undefined && m.flowEnd !== undefined) {
+    const plain = toPlain(m) as Record<string, unknown>;
+    if (key.includes(".")) {
+      const [end, field] = key.split(".") as ["a" | "b", "device" | "port"];
+      if (typeof value !== "string" || !value.trim()) throw new Error(`a link end's ${field} is a non-empty string`);
+      const endMap = plain[end];
+      if (!endMap || typeof endMap !== "object") throw new Error(`link ${index} has no ${end} end`);
+      (endMap as Record<string, unknown>)[field] = value.trim();
+    } else if (value === null) delete plain[key];
+    else plain[key] = value;
+    const raw = t.lines[m.flowLine]!;
+    t.lines[m.flowLine] = raw.slice(0, m.flowCol) + flowText(plain) + raw.slice(m.flowEnd);
+    return t.out();
+  }
   if (key.includes(".")) {
     const [end, field] = key.split(".") as ["a" | "b", "device" | "port"];
     const endNode = get(m, end);

@@ -42,6 +42,12 @@ export interface EditState {
   /** Rule 6 (track 4): the bus a router's leg is being dragged over, the drop that would re-home it. */
   rehomeTarget: string | null;
   onContextMenu(e: React.MouseEvent, target: { kind: "host" | "router"; name: string } | { kind: "leg"; node: string; segment: string } | { kind: "segment"; name: string }): void;
+  /** Members (topology-layers §5): the `×N` groups whose chips are open, a badge's double-click,
+   *  a chip's click (the member panel) and a chip dropped on another group (a move of one). */
+  membersOpen: ReadonlySet<string>;
+  onToggleMembers(name: string): void;
+  onSelectMember(name: string, index: number): void;
+  onMoveMember(from: string, index: number, into: string): void;
 }
 
 export const EditContext = createContext<EditState | null>(null);
