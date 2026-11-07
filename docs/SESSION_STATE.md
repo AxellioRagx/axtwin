@@ -5,91 +5,92 @@ start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse t
 because it will be believed. -->
 
 **Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **not pushed** (the
-user pushes). Commits since origin's `f24648d`: `42c00de` bus plane, `5df0eb2` the brief,
-`f55d2db` the design doc, `e169f32` track 2, `0d2e3cc` track 3, `ccc680b` track 4, `ed3f183`
-5a, `08f70c1` 5b, `5e9f5ed` 5c, `663d77e` 5d, then track 6 (this commit). Rule: commit each
-track as it lands, staged by path; never `git add -A`; never push.
+user pushes). This session: `205140c` track A, `d279d3e` track B, `4b8ce61` track C, then this
+handoff. Before it: the topology-layers build (`42c00de` … `1551658`). Rule: commit each track
+as it lands, staged by path; never `git add -A`; never push.
 
-## What this session did: the topology-layers build, complete
+## What this session did: review round 3
 
-`docs/design/topology-layers.md` (§10 and §11 confirmed by the user) built as tracks 2–6,
-autonomously, with the user's three answers: restart the :8080 serve as needed; a **converted
-copy** of corp-twin for the eye check (never corp-twin itself); a dev45 deploy of a small switch
-fixture **after tearing down canvas-test**.
+Input: the review doc's "Round 3" table (R3-1..R3-10) and "Console-wide" list
+(https://claude.ai/artifact/PR6PeoXpMPjcfMikVX69qP; the local export
+`docs/design/canvas-review-2026-11-05.md` predates Round 3) and the brief's "Canvas rendering"
+(https://claude.ai/artifact/WTJm68Y7EXndjqWW1VfiiX). A "Round 3 — fixed" row now sits under every
+R3 row in the review doc, plus a line under Console-wide. Every item's proof is in
+`ui/src/features/edit-canvas/SPEC.md` → "Review round 3 checklist".
 
-- **2** twin config `kind: switch` / `links[]` / `members[]` / provenance, IR 3→4, seven validator
-  rules (114→121), the planner skips an imageless switch; `catalog/twins/switch-test`. **Live:**
-  canvas-test destroyed; `switch-test-5c614b0e` deployed on dev45 (no VM for `access-sw`), tap +
-  tfc applied, the sink's `gre-cap` RX climbed and the mirror showed 10.71.10.2 → 10.71.20.10:445.
-  **Left up** for the user (teardown in its README).
-- **3** `axr-assertions/2` (device / link / tap adds, `device_kind` / `group` overrides, link
-  overrides, confirm / doubt); the cast writes `source` everywhere; the engine's reader and
-  console mirrors follow.
-- **4** A2 kinds `traffic` / `taps` / `topology` / `inert`; the Checks badges.
-- **5a** the dagre device tree, hues, folds, the overlay, plane epoch 6 (`canvas.tree.test.tsx`).
-- **5b** the inspector by tier, the tap plan editor (`edit/tap.ts`), confirm / doubt / assert
-  through the seam, the Checks Provenance summary; NET-090 lets a switch leg carry a management
-  address; a re-select after a reload opens again (`canvas.inspector.test.tsx`).
-- **5c** `edit/members.ts`: split / merge / detach / move-one; the `×N·` dot, member chips, the
-  member panel (`canvas.members.test.tsx`).
-- **5d** `edit/subtree.ts`: subtree select, Ctrl+D parked copy with `-2` names and the next free
-  `/24`, Duplicate onto a device, attach device-device / device-host, a parked device dropped on
-  a device (`canvas.subtree.test.tsx`).
-- **6** the eye check on the final build (`scratchpad/t6-*.png`: canvas-test, datacenter,
-  corp-enterprise, corp-twin, the largest cast twin, plus `t5*`); the acceptance checklist in
-  `ui/src/features/edit-canvas/SPEC.md` ("The device tree checklist"), each line with its proof.
+- **A (205140c)** provenance and validation: the cast's tap bindings carry `source: discovered`
+  + confidence + vantage (segments and groups already did), asserted taps `asserted`, the gw
+  placeholder `unconfirmed` + vantage; the canvas reads a missing `source` as discovered on a
+  cast twin, authored on an authored one, and shows the overlay toggle only on cast twins
+  (corp-apcn-reader-20261028: 135 discovered / 0 authored). Checks counts canvas errors apart
+  from the API line; pass-with-warnings reads valid. A `switch` node type. Banners clear on the
+  next change; the unplaced count moved to Notes.
+- **B (d279d3e)** the device tree: ranks edge router → routers → switches → pills → hosts; a
+  router draws no leg to a pill its branch reaches by a trunk; router-only segments
+  (`fab-link`) are router-to-router links; orthogonal edges on dagre's ranks
+  (`canvas/orthogonal.ts`) with a geometry test over five catalog twins; neutral hue on one
+  router; per-site folds, `+N more`, an 8-icon host budget per pill, all folded by default and
+  opened in place; ×N double-click anywhere opens member chips; Re-layout; the palette loads
+  after the drawing (first paint ~7 s → 2–3 s). Archived `canvas/wiring.ts`, `canvas/route.ts`,
+  `layout/plane.ts`, `layout/viewport.ts` to `archive/ui-bus-plane/` (README there).
+- **C (4b8ce61)** a switch no router reaches (`edit/subtree.ts` `parkedDevices`) holds the
+  document on the page: no validate, no sync, every exit blocked with the reason, one undo step,
+  taps never copy; a parked copy keeps its original's uplink segments so the attach tool trunks
+  them; new boxes avoid settled ones. Console pages (built by a subagent in a worktree, reviewed
+  and merged): Twins list columns + `modified_at` on `GET /api/twins` (additive engine field),
+  Imprint page assertions list / Advanced JSON / primary Cast, run form Advanced with
+  probe-derived defaults, `EntityName` / `When` / `LinkRow` in `areas/shell/parts.tsx`.
 
 ## Current state
 
-- **Tests:** engine 4244 passed, 3 environmental failures (the user's untracked catalog folders
-  `corp-apcn-reader-20261028` without `twin.yaml`, `test2` / `test-twin-2` with no nodes);
-  discovery 2471 passed; ui typecheck clean, 23 files / 346 tests.
-- **Serve:** :8080 runs the 5d `ui/dist` (restarted six times this session; env in the
-  scratchpad's `serve.env`; the recipe in memory).
-- Untracked, the user's call: the catalog folders above, `catalog/twins/corp-tree` (keep: the
-  eye fixture, 12 switches / 13 links), `ui/dist.old/`.
+- **Tests:** ui typecheck clean, 25 files / 395; engine (run from `engine/`, its tests read
+  `tests/fixtures` relative to it) 4245 passed, 3 environmental failures (the untracked catalog
+  folders, as before); discovery 2472.
+- **Serve:** :8080 restarted once this session (pid 1419935, same env from the old pid's
+  `/proc/environ`, saved as `serve.env.live` in this session's scratchpad) for `modified_at`;
+  it serves the final `ui/dist`.
+- **dev45:** untouched. On switch-test only the working copy was read; the eye check's
+  Duplicate was held locally (no write) and undone.
+- Untracked, the user's: the catalog folders, `ui/dist.old/`.
 
-## Not built (the SPEC's checklist names them)
+## Not done / honest gaps
 
-Multi-select member rows; the split recorded as an assertion keyed by entity keys; a zoom
-threshold opening the chips; the floating copy under the cursor; drop on empty canvas;
-site-prefix re-allocation under another site; the marquee as a subtree.
-
-## Issues left
-
-- On a **deployed** twin the engine's expander refuses a parked switch (no nets, no carrying
-  link) outright, so the A2 sync reverts a Ctrl+D copy with the reason in the strip; Duplicate
-  onto a device works there. Relaxing the expander to let NET-140 carry it is a contract call.
-- The down access link to a host inside a pill routes around the pill; a link to a host could end
-  at the pill's edge instead.
-- Two corp-twin segments share one CIDR (`mx-vlan20` / `vlan20`): the lifted graph keys hosts by
-  CIDR, so one pill shows the count and no icons (delta D3: key by name).
-- Folded carriers, open member chips and the overlay are per page / per user, not saved. The
-  canvas cannot author `install:`.
-- Small, older: a tile says "1 host" for a `count: 2` group; the bar wraps below ~1500 px.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge to `master`; a server-side
-  undo stack; whether corp-twin itself converts (D2 says only by the operator's hand).
+- `layout/level0.ts` / `level1.ts` (and their site/column/tier/arc modules) still decide WHAT the
+  tree draws (shown segments, role-band collapse, top-K arcs, unplaced); their geometry is
+  unused. Replacing them with a direct graph read is what's left before the whole lifted
+  o2/console engine can be archived.
+- R3-3 on corp-apcn-reader-20261028 still reads invalid: its IPv6 /64 is a real canvas error
+  (CV-012); the engine's validator accepts IPv6 (`validator/catalog.py:394`). Re-cast or
+  remove the segment. Making the engine refuse non-IPv4 too is a contract call.
+- R3-6's 30 s freeze did not reproduce on this build; measured numbers are in the SPEC.
+- Segments no router or switch carries (corp-twin's `vlan192`, two site folds) sit one rank
+  down with no edge: honest, but they read as orphans.
+- Twins list "Deploy" links to the twin page's deploy section (the console has no deploy
+  action); the imprint JSON editor still drops `confirm` / `doubt` on save (older bug).
+- From the SPEC's earlier list, still not built: multi-select member rows, the split as an
+  assertion, a zoom threshold for chips, the floating copy under the cursor, drop on empty
+  canvas, site re-allocation under another site, the marquee as a subtree.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge to `master`.
 
 ## Gotchas
 
-- `cd` inside a Bash call does not stick between calls here: use absolute paths.
-- React Flow drops an edge whose `sourceHandle` names a handle of the wrong type; a handle
-  that fills its node swallows the node's drag (`nodrag`). Its `onSelectionChange` echoes a
-  programmatic selection back: the canvas ignores the echo while a subtree is selected.
-- `rf.screenToFlowPosition` SNAPS when snapToGrid is on: hit-tests pass `{ snapToGrid: false }`.
-- `ugrep` treats `model/graph.ts` as binary: grep it with `-a`.
-- With a working document the page opens the DESIGN view; tests wanting the cast view seed no
-  document and a tree. The page validates every edit: a test reads the newest `validate` write.
-- A one-line flow link (`- { a: {...}, ... }`) is re-serialised whole by `setLinkField`; the
-  YAML splicer cannot address a nested flow map on its own.
-- Write policy and `ConfigExits` resolve ONCE at `create_app`. Engine tests `-n auto -p
-  no:cacheprovider`; `ui/`: `npm ci` (the one `npm install` was dagre's); never build into a
-  served `ui/dist` (build to `dist.new`, swap); stage by path, never `git add -A`.
-- The contract files (`docs/contracts/*`) change only with the user's confirmation and a version
-  bump in the same commit as the code (done for IR 4 / assertions 2).
+- `cd` does not persist between Bash calls, and a failed `cd` leaves you in the checkout:
+  never chain a destructive git command after a `cd` without `&&` (this session a
+  `git reset --hard` meant for a removed worktree ran in the checkout; HEAD was unchanged and only
+  my own uncommitted edits were lost and redone).
+- A subagent worktree is created from an old base here (39fa362): make one by hand
+  (`git worktree add --detach <path> HEAD`) and point the agent at it.
+- Positions settle per session in the design view; a fold or Fan-out change drops them so the
+  tree re-ranks; a document edit keeps them.
+- React Flow drops an edge whose `sourceHandle` names a handle of the wrong type; its
+  `onSelectionChange` echoes a programmatic selection. `rf.screenToFlowPosition` snaps unless
+  `{ snapToGrid: false }`. `ugrep` reads `model/graph.ts` as binary: `grep -a`.
+- `ui/`: `npm ci` only; never build into the served `ui/dist` (build `dist.new`, swap). The
+  contract files change only with the user's confirmation and a version bump.
 
 ## Environment
 
 One venv at `.venv/`, node 22 for `ui/`, live state in `~/.axrange/`. Playwright 1.61 at
-`/home/rocky/fx-cap/mgmtui/node_modules/playwright` + `~/.cache/ms-playwright/chromium-1228`.
-dev45 API 10.80.76.108:8006, SSH root (default key); XPress-SW-A `fxadmin@10.80.72.43`.
+`/home/rocky/fx-cap/mgmtui/node_modules/playwright` + `~/.cache/ms-playwright/chromium-1228`
+(shots: `shot.cjs`, timings: `perf.cjs` in this session's scratchpad). dev45 API
+10.80.76.108:8006, SSH root; XPress-SW-A `fxadmin@10.80.72.43`.
