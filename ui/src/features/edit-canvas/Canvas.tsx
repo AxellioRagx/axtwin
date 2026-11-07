@@ -30,12 +30,11 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { TopologyExport } from "../../api/types";
 import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
-import { decodePoints, nearestPolyline } from "./canvas/legs";
-import { wire } from "./canvas/wiring";
+import { decodePoints, nearestPolyline, type Point } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
@@ -49,7 +48,7 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, RoutesContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, RoutesContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -86,8 +85,11 @@ export interface CanvasProps {
   onPin: (key: string, at: { x: number; y: number }) => void;
   /** A bus was reordered: every lane of its site, re-ranked, as one change. */
   onPinMany: (pins: Record<string, { x: number; y: number }>) => void;
-  /** A `+N more` tile was clicked. */
+  /** A `+N more` pill was clicked (its key: `carrier:<device>`). */
   onToggleSite: (siteKey: string) => void;
+  /** The rail's Fan-out: how many pills a carrier shows before folding (the page re-places). */
+  fan?: number;
+  onFan?: (n: number) => void;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
@@ -169,49 +171,6 @@ export function connectionToAttach(c: Pick<Connection, "source" | "target">): { 
   return node && segment ? { node, segment } : null;
 }
 
-/**
- * The rank a bus dropped at `centreY` takes among its site's lanes (the
- * `segment:` pin's `y`, track 4): how many OTHER lanes of the site have
- * their centre above it. Pure.
- */
-export function rankAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, laneId: string, centreY: number): number | null {
-  const lane = nodes.find((n) => n.id === laneId);
-  if (!lane || !lane.parentId) return null;
-  let rank = 0;
-  for (const n of nodes) {
-    if (n.id === laneId || n.parentId !== lane.parentId || n.data.kind !== "segment") continue;
-    const abs = absolutePosition(nodes, n.id);
-    if (!abs) continue;
-    const h = n.measured?.height ?? n.height ?? 0;
-    if (abs.y + h / 2 < centreY) rank++;
-  }
-  return rank;
-}
-
-/**
- * The rank pins a reorder writes: EVERY lane of the dropped bus's site, in
- * the order they stand with the dropped one at `centreY`'s rank -- so the
- * others shift round it rather than clash with it (with every rank settled,
- * one re-ranked lane had pushed the last lane to the top). Pure.
- */
-export function reorderPins(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, laneId: string, centreY: number): Record<string, { x: number; y: number }> | null {
-  const rank = rankAt(nodes, laneId, centreY);
-  const lane = nodes.find((n) => n.id === laneId);
-  if (rank === null || !lane) return null;
-  const others = nodes
-    .filter((n) => n.id !== laneId && n.parentId === lane.parentId && n.data.kind === "segment")
-    .map((n) => ({ n, y: (absolutePosition(nodes, n.id)?.y ?? 0) + (n.measured?.height ?? n.height ?? 0) / 2 }))
-    .sort((a, b) => a.y - b.y)
-    .map((x) => x.n);
-  const order = [...others.slice(0, rank), lane, ...others.slice(rank)];
-  const out: Record<string, { x: number; y: number }> = {};
-  order.forEach((n, i) => {
-    const key = pinKeyOf(n);
-    if (key) out[key] = { x: 0, y: i };
-  });
-  return out;
-}
-
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
 /** What a context menu is about: a node, a leg, a segment, or the empty pane
  *  (with the flow position under the pointer). */
@@ -219,7 +178,17 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
+/** The provenance overlay's toggle (§3.3), kept per user in this browser. */
+const OVERLAY_KEY = "axr-canvas-overlay";
+function readOverlay(): boolean {
+  try {
+    return localStorage.getItem(OVERLAY_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -256,7 +225,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   }, []);
   const [popover, setPopover] = useState<Popover | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab | null>(null);
-  const [roSel, setRoSel] = useState<{ kind: "host" | "router" | "segment"; id: string } | null>(null);
+  const [roSel, setRoSel] = useState<{ kind: "host" | "router" | "device" | "segment"; id: string } | null>(null);
   const togglePopover = useCallback((which: Popover) => setPopover((cur) => (cur === which ? null : which)), []);
   // ---- node level of detail (`model/detail.ts`): the zoom's bucket from the
   // store (re-renders only on a crossing), hysteresis in state, and the
@@ -276,14 +245,24 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const [folded, setFolded] = useState<string[]>([]);
   const toggleFolded = useCallback((key: string) => setFolded((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
   // The fan-out limit (rendering rule 7) and the sites whose fans the operator opened by a click on the tint.
-  const [fanN, setFanN] = useState<number>(readFan);
+  const [fanN, setFanN] = useState<number>(() => fanProp ?? readFan());
   useEffect(() => {
     try {
       localStorage.setItem(FAN_KEY, fanLabel(fanN));
     } catch {
       // no storage: the choice lives for the page
     }
-  }, [fanN]);
+    onFan?.(fanN);
+  }, [fanN]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The provenance overlay (§3.3): off, a dot on asserted and authored items; on, every state.
+  const [overlay, setOverlay] = useState<boolean>(readOverlay);
+  useEffect(() => {
+    try {
+      localStorage.setItem(OVERLAY_KEY, overlay ? "on" : "off");
+    } catch {
+      // no storage: the choice lives for the page
+    }
+  }, [overlay]);
   const [fanOpen, setFanOpen] = useState<string[]>([]);
   const toggleFanOpen = useCallback((key: string) => setFanOpen((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
   useEffect(() => {
@@ -373,14 +352,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
       const at = absolutePosition(moved, node.id);
       if (!at) return;
-      // A bus is reordered, never dropped free: the site's lanes are re-ranked with it at the rank its centre landed at (track 4).
-      if (node.data.kind === "segment") {
-        const h = node.measured?.height ?? node.height ?? 0;
-        const pins = reorderPins(moved, node.id, at.y + h / 2);
-        if (pins) onPinMany(pins);
-        else setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
-        return;
-      }
+      // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
+      void onPinMany;
       // A host icon dropped inside another bus's lane moves there (the attach gesture by drop);
       // on a lane it is already on, it just takes the spot.
       if (editing && edit && node.data.kind === "host") {
@@ -593,6 +566,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         const d = node.data;
         if (d.kind === "host") setRoSel({ kind: "host", id: d.nodeId });
         else if (d.kind === "router") setRoSel({ kind: "router", id: d.name });
+        else if (d.kind === "device") setRoSel({ kind: "device", id: d.name });
         else if (d.kind === "segment") setRoSel({ kind: "segment", id: d.name });
         else return;
         setInspectorTab("selection");
@@ -600,10 +574,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       const d = node.data;
       const cur = selectionRef.current;
-      if (d.kind === "host" || d.kind === "router") {
+      if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
-        select({ kind: "node", names }, names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : ID.host(n))));
+        select({ kind: "node", names }, names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : edit.model.te.nodes.find((x) => x.name === n)?.kind === "switch" ? `device:${n}` : ID.host(n))));
       } else if (d.kind === "segment") {
         // While a gesture is armed a segment is its TARGET, not the selection's subject.
         if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
@@ -625,9 +599,19 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           return;
         }
       }
-      if (attachArmed && (node.data.kind === "host" || node.data.kind === "router")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
+      if (attachArmed && (node.data.kind === "host" || node.data.kind === "router" || node.data.kind === "device")) setAttachFrom(node.data.kind === "host" ? node.data.nodeId : node.data.name);
     },
     [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, legAt, graph],
+  );
+
+  // A click on a link edge (the device tree, §2.3) selects it for the inspector's link row.
+  const onEdgeClick = useCallback(
+    (_e: React.MouseEvent, edge: Edge) => {
+      const d = edge.data as { kind?: string; index?: number } | undefined;
+      if (!edit || !d || d.kind !== "link" || typeof d.index !== "number") return;
+      select({ kind: "link", index: d.index }, []);
+    },
+    [edit, select],
   );
 
 
@@ -636,7 +620,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     ({ nodes: sel }: { nodes: Node[]; edges: Edge[] }) => {
       if (!edit || sel.length < 2) return;
       const data = sel.map((n) => n.data as CanvasNode["data"]);
-      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" ? d.name : ""));
+      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : ""));
       const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
       const next: Selection = hosts.length ? { kind: "node", names: hosts } : segs.length ? { kind: "segment", names: segs } : { kind: "none" };
       const key = JSON.stringify(next);
@@ -717,7 +701,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // The edges are controlled, so the selected leg's flag is derived here.
   // The legs are structure and always drawn; an arc is evidence, drawn only
   // while lit by the overlay or touching the selection.
-  const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : [];
+  const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : edit?.selection.kind === "link" ? [`link:${edit.selection.index}`] : [];
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
   // Rule 7: a selected router opens every fan it has; a click on a site's tint opens that site's.
@@ -727,11 +711,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     return open;
   }, [fanOpen, selectedNodes]);
   const edges = useMemo(() => {
-    const structural = fanOut(placement.edges.filter((e) => e.type === "leg"), fanN, fansOpen);
+    // The tree folds per carrier (`placeTree`'s `fan`); the bus plane's fan collapse is not applied to its legs.
+    const structural = placement.edges.filter((e) => e.type === "leg" && e.data?.kind === "leg");
+    void fanOut;
+    void fansOpen;
     const others = placement.edges.flatMap((e) => {
-      if (e.type === "leg") return [];
+      if (e.type === "leg" && e.data?.kind === "leg") return [];
       if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
-      return [e];
+      return [selectedLegs.includes(e.id) ? { ...e, selected: true } : e];
     });
     return [...others, ...structural.map((e) => (selectedLegs.includes(e.id) ? { ...e, selected: true } : e))];
   }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -846,6 +833,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
         case "d": setDetailMode(nextMode); break;
         case "n": setLabels(nextLabels); break;
+        case "o": setOverlay((o) => !o); break;
         case "/": e.preventDefault(); togglePopover("find"); break;
         case "t": togglePopover("traffic"); break;
         case "a": if (edit) togglePopover("palette"); break;
@@ -868,6 +856,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
+    { name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" },
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];
@@ -914,10 +903,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     });
   }, [nodes, detail, folded]);
 
-  // Rule 6: the legs' polylines over the boxes as they stand. Deferred, so a
-  // drag's frames are not held up by the routing; the legs follow a beat behind.
-  const wiredNodes = useDeferredValue(shownNodes);
-  const routes = useMemo(() => wire(wiredNodes, edges).routes, [wiredNodes, edges]);
+  // The tree plane draws a leg as the straight line between its two boxes
+  // (`LegEdge`'s fallback); the gutter routing of the bus plane is gone with it.
+  const routes = useMemo<ReadonlyMap<string, Point[]>>(() => new Map(), []);
 
   const menuItems = useMemo((): Array<{ label: string; run(): void; danger?: boolean }> => {
     if (!menu) return [];
@@ -963,14 +951,16 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
       <LabelsContext.Provider value={labels}>
+      <OverlayContext.Provider value={overlay}>
       <RoutesContext.Provider value={routes}>
         <div
           ref={shellRef}
           onMouseMove={onShellMouseMove}
           onPointerDownCapture={onShellPointerDownCapture}
           onMouseDownCapture={onShellMouseDownCapture}
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}`}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${overlay ? " overlay" : ""}`}
           data-testid="canvas"
+          data-overlay={overlay ? "on" : "off"}
           data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
           data-detail-mode={detailMode}
@@ -1001,6 +991,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             snapGrid={[GRID, GRID]}
             onNodeDragStop={onNodeDragStop}
             onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
             onSelectionChange={onSelectionChange}
             onConnect={onConnect}
             onConnectStart={() => setConnecting(true)}
@@ -1149,6 +1140,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           ) : null}
         </div>
       </RoutesContext.Provider>
+      </OverlayContext.Provider>
       </LabelsContext.Provider>
       </DetailContext.Provider>
       </EditContext.Provider>
@@ -1158,8 +1150,23 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
 /** The inspector's Selection tab without an editor (a cast or authored
  *  twin): the clicked host's or segment's facts, read from the graph. */
-function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel: { kind: "host" | "router" | "segment"; id: string } | null; placement: Placement }) {
-  if (!sel) return <p className="muted">click a host, a router or a segment</p>;
+function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel: { kind: "host" | "router" | "device" | "segment"; id: string } | null; placement: Placement }) {
+  if (!sel) return <p className="muted">click a host, a router, a switch or a segment</p>;
+  if (sel.kind === "device") {
+    const drawn = placement.nodes.find((n) => n.id === `device:${sel.id}`)?.data;
+    const dd = drawn?.kind === "device" ? drawn : null;
+    return (
+      <div className="cv-ro" data-testid="ro-device">
+        <h3 className="mono">{dd ? <span className="cv-hue-swatch" style={{ background: dd.hue }} aria-hidden="true" /> : null}{sel.id}</h3>
+        <dl className="facts">
+          <dt>kind</dt><dd>{dd?.deviceKind ?? "switch"}{dd?.role ? ` · ${dd.role}` : ""}</dd>
+          <dt>ports</dt><dd className="mono">{dd?.ports.join(", ") || "none"}</dd>
+          <dt>segments</dt><dd className="mono">{dd?.segments.join(", ") || "none"}</dd>
+          <dt>provenance</dt><dd>{dd?.source ?? "authored"}</dd>
+        </dl>
+      </div>
+    );
+  }
   if (sel.kind === "segment") {
     const seg = graph.segmentByName.get(sel.id);
     if (!seg) return <p className="muted">segment {sel.id} is not in the graph</p>;

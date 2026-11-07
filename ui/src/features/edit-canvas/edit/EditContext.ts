@@ -17,7 +17,7 @@ export interface PaletteItem {
   id: string;
   label: string;
   /** For a group: the node kind it was copied from, so a copied router stays a router. */
-  nodeKind?: "host" | "router";
+  nodeKind?: "host" | "router" | "switch";
   /** For a group: the role and image to place with. */
   role?: string | null;
   image?: string;

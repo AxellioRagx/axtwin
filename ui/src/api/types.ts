@@ -350,9 +350,10 @@ export interface TreePersona {
 /** A twin-config node GROUP: `count` instances fanned out at deploy. */
 export interface TreeNode {
   name: string;
-  kind: "host" | "router";
+  kind: "host" | "router" | "switch";
   role?: string | null;
-  image: string;
+  /** `null` on an imageless switch. */
+  image: string | null;
   count: number;
   instances: string[];
   segments: string[];
@@ -404,6 +405,11 @@ export interface TopologyNode {
   type: string;
   image?: string | null;
   requires?: string[] | null;
+  /** The device tree (`docs/design/topology-layers.md`): the node's role and provenance. */
+  role?: string | null;
+  source?: string | null;
+  confidence?: number | null;
+  vantage?: string | null;
   /** Network nodes only. */
   cidr?: string | null;
   vlan?: number | null;
@@ -420,11 +426,27 @@ export interface TopologyEdge {
   ip?: string | null;
 }
 
+/** One `layers.infra.links[]` entry: a wire between two device ports (IR_SCHEMA §3.3). */
+export interface TopologyLink {
+  a: string;
+  a_port: string;
+  b: string;
+  b_port: string;
+  mode: string;
+  native?: string | null;
+  vlans: string[];
+  state: string;
+  source?: string | null;
+  confidence?: number | null;
+  vantage?: string | null;
+}
+
 export interface Topology {
   scenario_id: string;
   deploy_id?: string | null;
   nodes: TopologyNode[];
   edges: TopologyEdge[];
+  links?: TopologyLink[];
 }
 
 // --- GET /api/twins/{id}/topology: the CAST twin with its observed evidence (the topology export) ---
@@ -583,7 +605,7 @@ export interface TwinConfigDetail {
   cluster: string | null;
   params: Array<{ name: string; default?: unknown; description?: string | null; declared?: boolean }>;
   segments: Array<{ name: string; cidr: string; zone_type?: string | null; when?: string | null }>;
-  nodes: Array<{ name: string; kind: string; image: string; count: unknown; role?: string | null; when?: string | null }>;
+  nodes: Array<{ name: string; kind: string; image: string | null; count: unknown; role?: string | null; when?: string | null }>;
   identity_domain?: string | null;
   identity_user_count?: number;
   data_count?: number;

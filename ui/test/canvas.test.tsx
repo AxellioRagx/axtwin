@@ -168,30 +168,29 @@ describe("the design canvas (C2, read-only)", () => {
     expect(screen.queryByTestId("canvas-wan")).toBeNull();
     expect(within(screen.getByTestId("canvas-router")).getByTestId("wan-badge")).toBeTruthy();
     expect(screen.getByTestId("canvas-internet").getAttribute("title")).toContain("non-local entities");
-    expect(screen.getAllByTestId("canvas-site").length).toBe(2);
+    // The tree plane (track 5): no site tint; every pill hangs under the router that serves it.
+    expect(screen.queryAllByTestId("canvas-site")).toEqual([]);
     expect(screen.getByText("cast · observed evidence")).toBeTruthy();
   });
 
   it("places a cast twin identically across two renders of the same layout document", async () => {
-    // A site pin is an absolute top-left; a segment pin is the bus's RANK in its site (track 4): seg-b first.
-    const doc = layoutDoc("corp-cast", { "segment:10.80.30.0/24": { x: 0, y: 0 }, "site:misc": { x: 1200, y: 300 } });
+    // On the tree plane (epoch 6) a segment pin is an absolute top-left, like a host's or a router's.
+    const doc = layoutDoc("corp-cast", { "segment:10.80.30.0/24": { x: 1200, y: 300 } });
     const first = seeded({ layouts: { "corp-cast": doc } });
     const r1 = renderAt(first.api, "/twins/corp-cast/canvas");
     // The layout document loads beside the graph; the pins land when it does.
-    await waitFor(() => expect(positions()["site:misc"]).toEqual([1200, 300]));
+    await waitFor(() => expect(positions()["segment:10.80.30.0/24"]).toEqual([1200, 300]));
     const a = positions();
     r1.unmount();
     const second = seeded({ layouts: { "corp-cast": doc } });
     renderAt(second.api, "/twins/corp-cast/canvas");
-    await waitFor(() => expect(positions()["site:misc"]).toEqual([1200, 300]));
+    await waitFor(() => expect(positions()["segment:10.80.30.0/24"]).toEqual([1200, 300]));
     const b = positions();
     expect(Object.keys(a).length).toBeGreaterThan(5);
     expect(b).toEqual(a);
-    // The rank pin put seg-b (10.80.30) above seg-a (10.80.20), against CIDR order; unpinned elements keep their computed slots.
-    expect(a["segment:10.80.30.0/24"]![1]).toBeLessThan(a["segment:10.80.20.0/24"]![1]);
-    expect(a["site:misc"]).toEqual([1200, 300]); // the lone 10.20 segment is the engine's misc group
-    expect(a["site:10.80"]).not.toEqual([1200, 300]);
-    // A host chip follows its (unpinned) segment: it sits inside the segment's box.
+    expect(a["segment:10.80.20.0/24"]).not.toEqual([1200, 300]); // unpinned elements keep their computed slots
+    // The router sits above the pills it serves; a host chip sits inside its pill's box.
+    expect(a["host:gw01"]![1]).toBeLessThan(a["segment:10.80.20.0/24"]![1]);
     const [sx, sy] = a["segment:10.80.20.0/24"]!;
     const [hx, hy] = a["host:address:10.80.20.4"]!;
     expect(hx).toBeGreaterThan(sx);
@@ -315,9 +314,9 @@ describe("the design canvas (C2, read-only)", () => {
     expect(canvas.dataset["locked"]).toBe("false");
   });
 
-  it("falls back to the list and the role matrix over the element budget, never a denser canvas", async () => {
-    // Twelve sites of five segments: every group is within its own budget, so
-    // nothing collapses, and 60 tiles exceed the level-0 box budget of 48.
+  it("sixty segments under no router fold to the fan and a `+N more` pill, never a denser canvas", async () => {
+    // Twelve sites of five segments and no router: on the tree plane they all
+    // hang under no carrier, so the fan (4) shows four pills and folds the rest.
     const segments: TopologyExport["segments"] = [];
     const nodes: TopologyExport["nodes"] = [];
     for (let s = 0; s < 12; s++) {
@@ -330,12 +329,13 @@ describe("the design canvas (C2, read-only)", () => {
     const big: TopologyExport = { ...CAST, imprint_id: "big", segments, nodes, edges: [{ src: nodes[0]!.id, dst: nodes[7]!.id, proto: "tcp", bytes: 10, flows: 1, evidence_class: "observed" }], census: { entities_total: 60, with_role: 60, placed: 60, local: 60 } };
     const { api } = seeded({ twins: { big: twin("big", { hosts: 60, segments: 60 }) }, exports: { big }, trees: {} });
     renderAt(api, "/twins/big/canvas");
-    const fallback = await screen.findByTestId("canvas-fallback");
-    expect(fallback.textContent).toContain("62 boxes exceed the canvas budget of 48");
-    expect(fallback.textContent).toContain("Showing the list and the role matrix instead");
-    expect(screen.queryByTestId("canvas-segment")).toBeNull();
-    expect(screen.getByTestId("canvas-matrix").textContent).toContain("domain-controller");
-    await screen.findByTestId("twin-tree");
+    await screen.findAllByTestId("canvas-segment");
+    expect(screen.getAllByTestId("canvas-segment").length).toBe(4);
+    expect(screen.getByTestId("canvas-overflow").textContent).toContain("+56 more");
+    expect(screen.queryByTestId("canvas-fallback")).toBeNull();
+    // The fold opens in place.
+    fireEvent.click(screen.getByTestId("canvas-overflow"));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-segment").length).toBe(60));
   });
 
   it("links from the twin page to its canvas", async () => {

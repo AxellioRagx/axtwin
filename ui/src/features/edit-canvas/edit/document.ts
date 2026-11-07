@@ -19,6 +19,7 @@ import {
   addNode,
   addSegment as teAddSegment,
   copyNames,
+  emptyTe,
   readTe,
   removeNode as teRemoveNode,
   removeSegment as teRemoveSegment,
@@ -63,7 +64,7 @@ export function tfcPathOf(doc: WorkingDoc, manifest: Manifest | null): string | 
 
 export function readDoc(doc: WorkingDoc): DocModel {
   const teText = doc.files[doc.teFile];
-  const te = teText === undefined ? { id: null, description: null, params: {}, segments: [], nodes: [], problems: [`the document has no '${doc.teFile}'`] } : readTe(teText);
+  const te = teText === undefined ? emptyTe(`the document has no '${doc.teFile}'`) : readTe(teText);
   const manifestText = doc.files[MANIFEST];
   const manifest = manifestText === undefined ? null : readManifest(manifestText);
   const tfcPath = tfcPathOf(doc, manifest);
@@ -75,14 +76,16 @@ export function readDoc(doc: WorkingDoc): DocModel {
 // The document as a graph: the Phase 1 authored pipeline over the twin config
 // ---------------------------------------------------------------------------
 export function documentTopology(te: TeModel, id: string): Topology {
-  const nodes: Topology["nodes"] = te.segments.map((s) => ({ id: s.name, type: "network", cidr: s.cidr, egress: s.egress || null }));
+  const nodes: Topology["nodes"] = te.segments.map((s) => ({ id: s.name, type: "network", cidr: s.cidr, egress: s.egress || null, source: s.source, confidence: s.confidence }));
   const edges: Topology["edges"] = [];
   for (const n of te.nodes) {
-    nodes.push({ id: n.name, type: n.kind === "router" ? "router" : "host", image: n.image });
+    nodes.push({ id: n.name, type: n.kind, image: n.image || null, role: n.role, source: n.source, confidence: n.confidence });
     // The chip is labelled by name; the pinned address rides on the attachment label (EditContext), not here.
     for (const leg of n.nets) edges.push({ source: n.name, target: leg.segment, ip: null });
   }
-  return { scenario_id: id, nodes, edges };
+  // The device tree (topology-layers §2.3): the document's links, as the API would list them.
+  const links: Topology["links"] = te.links.map((l) => ({ a: l.a.device, a_port: l.a.port, b: l.b.device, b_port: l.b.port, mode: l.mode, native: l.native, vlans: l.vlans, state: l.state, source: l.source, confidence: l.confidence }));
+  return { scenario_id: id, nodes, edges, links };
 }
 
 export function documentTree(te: TeModel, id: string): TwinTree {
@@ -100,10 +103,10 @@ export function documentTree(te: TeModel, id: string): TwinTree {
     personas: [],
   });
   const segments: TwinTree["segments"] = te.segments.map((s) => {
-    const nodes = te.nodes.filter((n) => n.kind === "host" && n.nets[0]?.segment === s.name);
+    const nodes = te.nodes.filter((n) => n.kind !== "router" && n.nets[0]?.segment === s.name);
     return { name: s.name, cidr: s.cidr, zone_type: s.zoneType, hosts: nodes.reduce((a, n) => a + n.countValue, 0), roles: [], taps: [], nodes: nodes.map(treeNode) };
   });
-  return { id, hosts: te.nodes.filter((n) => n.kind === "host").reduce((a, n) => a + n.countValue, 0), segments, routers: te.nodes.filter((n) => n.kind === "router").map(treeNode), warnings: [] };
+  return { id, hosts: te.nodes.filter((n) => n.kind !== "router").reduce((a, n) => a + n.countValue, 0), segments, routers: te.nodes.filter((n) => n.kind === "router").map(treeNode), warnings: [] };
 }
 
 export function documentGraph(model: DocModel, id: string): AuthoredGraph {
@@ -125,7 +128,7 @@ export interface PlaceRequest {
   count: number;
   image: string;
   role?: string | null;
-  kind?: "host" | "router";
+  kind?: "host" | "router" | "switch";
   /** The segment each copy attaches to; `null` places unattached. */
   segment: string | null;
   requires?: string[];

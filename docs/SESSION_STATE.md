@@ -4,84 +4,91 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, three commits past
-origin's `f24648d` (track 4 `42c00de`, the brief `5df0eb2`, this one), **not pushed** (the user
-pushes). Rule: commit each track as it lands, staged by path; push only when asked.
+**Last updated:** 2026-11-07 · **Branch:** `wip/design-platforms-canvas`, **not pushed** (the
+user pushes). Commits since origin's `f24648d`: `42c00de` track 4 (bus plane), `5df0eb2` the
+brief, `f55d2db` the design doc, `e169f32` track 2, `0d2e3cc` track 3, `ccc680b` track 4 (A2
+kinds), then track 5a (this commit). Rule: commit each track as it lands, staged by path.
 
-## What this session did
+## What this session did (the topology-layers build, `docs/design/topology-layers.md`)
 
-**Topology layers, step 1 (design doc only).** From the user's brief of 2026-11-07
-(`docs/design/topology-layers.brief.md`) wrote **`docs/design/topology-layers.md`** in the
-house style of `imprint-twin-split.md`: vocabulary, the device tree (`kind: switch`, `links[]`,
-`source` / `confidence` / `vantage`, `members[]`, `twin.yaml` `vantage`), provenance and the
-overlay, three change kinds per tier, groups and members, subtree select / duplicate / attach,
-canvas rendering (dagre device tree, icons, hover, inspector by tier, folding, hues), taps.
-§9 **Deltas** (D1-D14, each with file and line), §10 the **draft** diff to `IR_SCHEMA.md`
-(`3 → 4`, `links[]`, §3.6 provenance, `members[]`) and `VALIDATOR.md` (STR-210/220, REF-270/280,
-NET-120/130/140, 114 → 121) -- **not applied**; §11 the brief's four open decisions verbatim
-with a recommendation each; §12 the build order with sizes.
+The user confirmed §10 and §11 and asked for tracks 2–6 autonomously, with three answers:
+restart the :8080 serve as needed; a **converted copy** of corp-twin for the eye check (never
+corp-twin itself); a dev45 deploy of a small switch fixture **after tearing down canvas-test**.
 
-SPEC files touched only to point at the design doc: `ui/src/features/edit-canvas/SPEC.md`
-("What it is" and the "Rendering rules" heading), `api/Spec.md` (A2 and the edit-model table).
+- **Track 2 (`e169f32`)** — twin config: `kind: switch` (imageless = no VM, imaged = a VM with one
+  L2 NIC per carried segment), `links[]`, `members[] {index, role}`, `source` / `confidence` /
+  `vantage` on segments, nodes, links; `twin.yaml` `vantage`; IR `3 → 4` with `links[]` and §3.6;
+  STR-210/220, REF-270/280, NET-120/130/140 (114 → 121); the planner skips an imageless switch;
+  the topology DTO carries `links` and provenance. `catalog/twins/switch-test` is the fixture.
+  **Live:** canvas-test destroyed; `switch-test-5c614b0e` deployed (48 ops, four VMs, no VM for
+  `access-sw`, instance 02 `role=jump-host` from its member override), tap + tfc applied; the
+  sink's `gre-cap` RX climbed 264537 → 264640 and dev45's tcpdump showed `10.71.10.2 →
+  10.71.20.10:445` through the mirror. **Left up** for the user (teardown in its README).
+- **Track 3 (`0d2e3cc`)** — `axr-assertions/2`: `device` / `link` / `tap` adds, `device_kind` and
+  `group` overrides, link overrides, `confirm` / `doubt`; a `/1` file parses and re-emits as `/2`;
+  the schema file is `axr-assertions-2.schema.json` in both repos; the cast writes `source` on
+  every segment and node, emits asserted links and taps, splits members by `group`, makes an
+  asserted device a switch; the engine's reader, DTOs and the console mirrors follow.
+- **Track 4 (`ccc680b`)** — A2 kinds `traffic` / `taps` / `topology` / `inert`; `members[].role` is
+  traffic keyed by instance id; provenance-only te edits inert; the Checks badges read
+  live · traffic / live · taps / re-plan.
+- **Track 5a (this commit)** — the canvas is the device tree: `canvas/tree.ts` (dagre), `DeviceNode`,
+  `LinkEdge`, the provenance overlay (rail `O`), pills under their carriers, per-carrier folds on
+  the Fan-out, plane epoch 6 (absolute `segment:` pins), the reader/validator/document pipeline
+  carrying switches, links, members and source; `canvas.bus.test.tsx` replaced by
+  `canvas.tree.test.tsx`; the bus placement and the rank helpers are gone (git has them).
+  `@dagrejs/dagre 3.1.3` added (`npm install` worked; the lock changed by 16 lines).
+  **Seen** on :8080 (`scratchpad/t5-*.png`): switch-test, canvas-test, corp-enterprise, datacenter
+  (three hues, one fold), corp-twin (two folds), **corp-tree** (corp-twin converted by a script:
+  12 switches, 13 trunk links; an untracked fixture under `catalog/twins/corp-tree`) and the
+  largest cast twin. The serve runs the rebuilt `ui/dist` (restarted three times this session;
+  env in the scratchpad's `serve.env`).
 
-**STOP point: nothing in code starts until the user confirms the §10 contract changes and
-answers §11.** The deltas that change the brief's own wording: `kind: switch` already exists in
-the Scenario IR, the new scope is the twin config (D1); corp-twin's switches are VMs with
-images and must keep deploying as such (D2); "two segments with one CIDR" is NET-010 with the
-`isolated` anchor exemption corp-twin relies on (D3); A2 already carries `via: [tfc|tap]`, so
-track 4 is a rename plus the members rule (D6); member traffic overrides belong to the tfc
-profile's `assignments[] {node: <instance>}`, `members[]` carries `role` only (D7); a vantage is
-`<appliance>:<streams>`, not a place, so a discovered tap is proposed only when mappable (D8).
+## Not built yet (tracks 5b–5d, 6)
 
-## Standing on dev45 — left up for the user
-
-te `canvas-test-f919dae1` + tap `…-1a070fcc` (→ XPress-SW-A) + tfc `…-bb83ca92`. Teardown:
-`axrange te destroy canvas-test-f919dae1 --allow-destroy --db ~/.axrange/state.db`. The :8080
-serve (pid 1125381, `none` mode) runs track 4's `ui/dist`; no engine or ui code changed here.
+- **5b**: the inspector by tier (Identity & placement / Traffic / Taps / Provenance blocks); the
+  Provenance block's confirm / assert / mark-unconfirmed through the seam (promote); the Checks
+  tab's Provenance summary filtering the canvas; taps as amber chips (the `TapNode` exists, nothing
+  places one yet); link editing (ports, mode) in the link row (today read-only).
+- **5c**: the Members tab, split / merge / detach, member chips on the canvas.
+- **5d**: subtree select, Ctrl+D duplicate with CIDR re-allocation, drop-to-attach writing
+  `links[]`, the attach tool's device-to-device form.
+- **6**: the acceptance checklist is in the SPEC; the eye check above covers 5a only.
 
 ## Current state
 
-- **Tests:** untouched this session: ui typecheck clean, 283 tests in 20 files; engine green at
-  its last run (2026-11-06 14:43).
-- Untracked, the user's call: `catalog/twins/{test2,test-twin-2,corp-apcn-reader-20261028,mylab,
-  canvas-test-exp1}`, `catalog/twins/canvas-test/generated/`, `ui/dist.old/`.
+- **Tests:** engine 4230 passed (3 environmental failures: the user's untracked catalog folders
+  `corp-apcn-reader-20261028` without `twin.yaml`, `test2` / `test-twin-2` with no nodes);
+  discovery 2471 passed; ui typecheck clean, 20 files / 280 tests.
+- Untracked, the user's call: the catalog folders above, `catalog/twins/corp-tree` (keep: the eye
+  fixture), `ui/dist.old/`.
 
-## Issues left (unchanged from track 4)
+## Issues left
 
+- The down access link to a host inside a pill routes around the pill (smoothstep from the switch
+  to the chip); fine, but a link to a host could end at the pill's edge instead.
 - Two corp-twin segments share one CIDR (`mx-vlan20` / `vlan20`): the lifted graph keys hosts by
-  CIDR, so one bus shows the count and no icons. The design keys segments by name (D3).
-- A leg over a lane's port region is picked before the lane; press the label to reorder.
-- Folded sites and opened fans are per page, not saved. The canvas cannot author `install:`.
-- Small, older: a tile says "1 host" for a `count: 2` group; `POST /api/validate` 400 for a
-  leg-less router mid-edit; the bar wraps below ~1500 px.
-- Yours to decide: the serve's auth mode; A8 provenance; the Checks tab; the untracked catalog
-  folders; merge to `master`; a server-side undo stack.
-
-## Next steps
-
-0. The user: confirm or amend §10 (IR `3 → 4`, seven validator rules) and §11 (the seam as
-   `axr-assertions/2`; imageless switch = vnets only, with an image = VM from `links[]`; member
-   overrides by index in the config, by entity key in the assertion). Push when asked.
-1. Track 2 (IR + twin config + expander + validator; M, ~2 sessions), then 3 (cast + seam v2;
-   L), 4 (A2 three kinds; S), 5 (canvas on dagre; XL, land as 5a-5d), 6 (eyes; S). Track 2
-   blocks the rest; 5a can start on 2 alone.
-2. After that: `install:` / `requires` / `resources` on a palette group; the small items above.
+  CIDR, so one pill shows the count and no icons. The design says key by name (delta D3).
+- Folded carriers and the overlay are per page / per user, not saved. The canvas cannot author
+  `install:`.
+- Small, older: a tile says "1 host" for a `count: 2` group; the bar wraps below ~1500 px.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge to `master`; a server-side
+  undo stack; whether corp-twin itself converts (D2 says only by the operator's hand).
 
 ## Gotchas
 
+- `cd` inside a Bash call does not stick between calls here: use absolute paths.
 - React Flow drops an edge whose `sourceHandle` names a handle of the wrong type; a handle
   that fills its node swallows the node's drag (`nodrag`).
-- A `pointerdown` whose default is prevented suppresses the compat `mousedown` d3-drag needs.
-- With every lane's rank settled, pinning ONE lane's rank clashes: a reorder re-ranks the site.
 - `rf.screenToFlowPosition` SNAPS when snapToGrid is on: hit-tests pass `{ snapToGrid: false }`.
-- Any node a React Flow selection lifts covers what it overlaps: the site tint is
-  `selectable: false`. `ugrep` treats `model/graph.ts` as binary: grep it with `-a`.
+- `ugrep` treats `model/graph.ts` as binary: grep it with `-a`.
 - With a working document the page opens the DESIGN view; tests wanting the cast view seed no
   document and a tree.
 - Write policy and `ConfigExits` resolve ONCE at `create_app`. Engine tests `-n auto -p
-  no:cacheprovider`; `ui/`: `npm ci` only; never build into a served `ui/dist`; stage by path,
-  never `git add -A`. The contract files (`docs/contracts/*`) change only with the user's
-  confirmation and a version bump in the same commit as the code.
+  no:cacheprovider`; `ui/`: `npm ci` (the one `npm install` was dagre's); never build into a
+  served `ui/dist` (build to `dist.new`, swap); stage by path, never `git add -A`.
+- The contract files (`docs/contracts/*`) change only with the user's confirmation and a version
+  bump in the same commit as the code (done for IR 4 / assertions 2).
 
 ## Environment
 

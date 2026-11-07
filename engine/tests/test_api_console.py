@@ -3415,7 +3415,7 @@ def _vocabulary_of(path: Path) -> dict:
 
     doc = _json.loads(path.read_text())
     defs = doc["$defs"]
-    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment"}
+    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment", "#/$defs/linkKey": "link"}
     return {
         "schema": doc["properties"]["schema"]["const"],
         "doc_keys": sorted(doc["properties"]),
@@ -3534,7 +3534,7 @@ def test_every_closed_set_is_derived_from_the_schema_not_restated():
 
     assert cf.ASSERTIONS_SCHEMA == doc["properties"]["schema"]["const"]
     assert cf._DOC_KEYS == tuple(doc["properties"])
-    assert cf.ADD_KINDS == ("conduit", "host", "segment")
+    assert cf.ADD_KINDS == ("conduit", "device", "host", "link", "segment", "tap")
     assert set(cf.ADD_KINDS) == {
         b["properties"]["kind"]["const"] for b in defs["addRecord"]["oneOf"]
     }
@@ -3551,7 +3551,7 @@ def test_every_closed_set_is_derived_from_the_schema_not_restated():
     assert cf.RESOURCE_KEYS == tuple(sorted(defs["resources"]["propertyNames"]["enum"]))
     assert cf._SUPPRESS_KEYS == tuple(defs["suppressRecord"]["properties"])
 
-    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment"}
+    by_ref = {"#/$defs/hostKey": "host", "#/$defs/cidr": "segment", "#/$defs/linkKey": "link"}
     for branch in defs["overrideRecord"]["oneOf"]:
         kind = by_ref[branch["properties"]["key"]["$ref"]]
         assert cf.OVERRIDE_FIELDS[kind] == tuple(branch["properties"]["field"]["enum"])
@@ -4651,9 +4651,9 @@ def test_the_schema_comment_still_names_exactly_those_nine(tmp_path):
     # test that fails on a reworded clause teaches people to ignore it --
     # which is what would then hide a genuine seventh refusal.
     assert "NINE REFUSALS THIS SCHEMA CANNOT EXPRESS" in comment
-    for marker in ("(1)", "(2)", "(3)", "(4)", "(5)", "(6)"):
+    for marker in ("(1)", "(2)", "(3)", "(4)", "(5)", "(6)", "(7)", "(8)", "(9)"):
         assert marker in comment, marker
-    assert "(7)" not in comment, "a seventh unexpressible refusal appeared"
+    assert "(10)" not in comment, "a tenth unexpressible refusal appeared"
 
 
 # ===========================================================================

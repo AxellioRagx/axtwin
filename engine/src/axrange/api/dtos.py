@@ -1201,8 +1201,8 @@ class TwinConfigNodeSummaryDTO(BaseModel):
     # consumer that wants the persona bound to a host reads the `tfc` tier
     # (`GET /api/tfc`), not the twin config.
     name: str
-    kind: str = "host"
-    image: str
+    kind: str = "host"  # "host" | "router" | "switch"
+    image: Optional[str] = None  # None on an imageless `kind: switch`
     count: Any = 1
     role: Optional[str] = None
     when: Optional[str] = None
@@ -2266,9 +2266,10 @@ class TreePersonaDTO(BaseModel):
 
 class TreeNodeDTO(BaseModel):
     name: str
-    kind: str  # "host" | "router"
+    kind: str  # "host" | "router" | "switch"
     role: Optional[str] = None
-    image: str
+    # None on an imageless `kind: switch` (it deploys as nothing but its segments' vnets).
+    image: Optional[str] = None
     count: int
     instances: list[str]
     segments: list[str]

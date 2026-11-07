@@ -33,9 +33,10 @@ import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
 import { Canvas, type CanvasEditProps } from "./Canvas";
-import { authoredGraph } from "./canvas/authored";
+import { authoredGraph, EMPTY_TREE, treeStructure, type TreeStructure } from "./canvas/authored";
+import { TREE_FAN_DEFAULT, placeTree } from "./canvas/tree";
 import { castInput } from "./canvas/cast";
-import { absolutePosition, pinKeyOf, place } from "./canvas/placement";
+import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
@@ -161,7 +162,7 @@ export function paletteItems(catalog: readonly TwinConfigDetail[], personas: rea
   for (const d of ordered) {
     for (const n of d.nodes) {
       const count = typeof n.count === "number" ? n.count : typeof n.count === "string" && /^\d+$/.test(n.count) ? Number(n.count) : typeof n.count === "string" ? (Number(/:(\d+)\}/.exec(n.count)?.[1]) || 1) : 1;
-      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : "host", role: n.role ?? null, image: n.image, count, summary: `${n.kind} · ${n.image}${n.role ? ` · ${n.role}` : ""}`, foreign: d.id !== ownId });
+      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : n.kind === "switch" ? "switch" : "host", role: n.role ?? null, image: n.image ?? "", count, summary: `${n.kind} · ${n.image ?? "no image"}${n.role ? ` · ${n.role}` : ""}`, foreign: d.id !== ownId });
       if (n.image) images.add(n.image);
     }
   }
@@ -479,22 +480,25 @@ export function CanvasPage() {
   // The document reaches the editor one effect after the load lands: until it
   // does, nothing is drawn, so the design view never flashes the evidence one.
   const docPending = Boolean(data && (data.config?.document ?? data.detail?.document)) && (!model || editor.doc?.id !== (data?.config?.document ?? data?.detail?.document)?.id);
-  const built = useMemo<{ kind: "authored" | "cast" | "design"; graph: ConsoleGraph; exportData: TopologyExport | null; extraLegs: ReturnType<typeof authoredGraph>["extraLegs"]; uplinks: string[] } | null>(() => {
+  const built = useMemo<{ kind: "authored" | "cast" | "design"; graph: ConsoleGraph; exportData: TopologyExport | null; extraLegs: ReturnType<typeof authoredGraph>["extraLegs"]; uplinks: string[]; tree: TreeStructure } | null>(() => {
     if (!data || docPending) return null;
     if (model && (view === "design" || !data.exportData)) {
       const g = documentGraph(model, id);
-      return { kind: "design", graph: buildGraph(g.exportData, g.cast), exportData: null, extraLegs: g.extraLegs, uplinks: g.uplinks };
+      return { kind: "design", graph: buildGraph(g.exportData, g.cast), exportData: null, extraLegs: g.extraLegs, uplinks: g.uplinks, tree: g.tree };
     }
     if (data.exportData) {
       // A cast twin's Internet is its evidence (non-local peers); the config's uplink marker is the authored path's.
-      return { kind: "cast", graph: buildGraph(data.exportData, castInput(id, data.tree, data.twin)), exportData: data.exportData, extraLegs: [], uplinks: [] };
+      // Its switches and links come from the expanded config's topology when the API serves one.
+      return { kind: "cast", graph: buildGraph(data.exportData, castInput(id, data.tree, data.twin)), exportData: data.exportData, extraLegs: [], uplinks: [], tree: data.topology ? treeStructure(data.topology) : EMPTY_TREE };
     }
     if (data.topology) {
       const a = authoredGraph(data.topology, data.tree);
-      return { kind: "authored", graph: buildGraph(a.exportData, a.cast), exportData: null, extraLegs: a.extraLegs, uplinks: a.uplinks };
+      return { kind: "authored", graph: buildGraph(a.exportData, a.cast), exportData: null, extraLegs: a.extraLegs, uplinks: a.uplinks, tree: a.tree };
     }
     return null;
   }, [data, id, model, view, docPending]);
+  // The rail's Fan-out (§7.6): how many pills a carrier shows before folding the rest.
+  const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 
   // In the design view a site's computed position and a bus's RANK in its site
   // SETTLE for the session: a later mutation places only what has no position
@@ -509,21 +513,19 @@ export function CanvasPage() {
   const placement = useMemo(() => {
     if (!built) return null;
     const design = built.kind === "design";
-    const p = place(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks });
+    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan });
     if (design && !p.overBudget) {
+      // The tree's own positions settle for the session (a pill, a device, a
+      // router): a later mutation places only what has no position yet.
       for (const n of p.nodes) {
         const key = pinKeyOf(n);
-        if (!key || key in settled.current) continue;
-        if (key.startsWith("site:")) {
-          const abs = absolutePosition(p.nodes, n.id);
-          if (abs) settled.current[key] = abs;
-        } else if (key.startsWith("segment:") && n.data.kind === "segment" && typeof n.data.rank === "number") {
-          settled.current[key] = { x: 0, y: n.data.rank };
-        }
+        if (!key || key in settled.current || n.parentId) continue;
+        const abs = absolutePosition(p.nodes, n.id);
+        if (abs) settled.current[key] = abs;
       }
     }
     return p;
-  }, [built, pins, expanded]);
+  }, [built, pins, expanded, fan]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
@@ -1007,6 +1009,8 @@ export function CanvasPage() {
             graph={built.graph}
             exportData={built.exportData}
             placement={placement}
+            fan={fan}
+            onFan={setFan}
             onPin={onPin}
             onPinMany={onPinMany}
             onToggleSite={onToggleSite}

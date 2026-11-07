@@ -348,159 +348,91 @@ first) — all three built 2026-11-05, the basics the same evening.
 
 ### Rendering rules
 
-**Superseded by `docs/design/topology-layers.md` §7 (2026-11-07); this is
-the built state of track 4 until track 5 replaces it.**
+Decided 2026-11-07 (user, `docs/design/topology-layers.md` §7) and **built
+as track 5a the same day**; the bus plane of track 4 (2026-11-06) is gone
+from the code and lives in git (`42c00de`). The canvas is the **device
+tree**: a layered layout (`@dagrejs/dagre`, `canvas/tree.ts`) under the
+device that carries each segment, read top to bottom.
 
-Decided 2026-11-06 (user), rewritten the same day for **track 4** after the
-measurement on `/canvas/corp-twin`: the config has ONE router (`hq-mx`), no
-segment attached to more than one router, yet the canvas drew thirteen
-router-class nodes and 54 legs, and segments like `sfp25` appeared to hang off
-two routers. The twelve extra were `kind: host, role: l2-switch` promoted by
-track 3's device rule. A switch that is IN a segment is a member of it, not a
-gateway to it: that rule is reverted. One correction to the brief's premise:
-those switches are not promoted from cast adjacency -- corp-twin has no cast
--- they carry `nets[]` in the config (`{ segment, l2: true }` entries), so
-under the model below they are multi-homed hosts (rule 4), and that is how
-they draw. (Tracks 1-3's rules -- the gateway badge instead of a WAN node,
-structure always and evidence on demand, the demoted site group, the labels
-toggle, the fan collapse, one badge style -- are kept where they still apply
-and restated below; git has their earlier wording.)
+**The model.** A segment is the L2 primitive (one vnet). A host is on the
+segments its `net` / `nets[]` name. A router has one leg per segment it
+serves. A `kind: switch` is a device wired by `links[]` (trunk or access,
+`native`, `vlans[]`, `state`); a switch carries the segments its links and
+its own L2 ports name. Every segment, node and link carries `source`
+(`discovered` / `asserted` / `authored` / `unconfirmed`) and a discovered
+one its `confidence`.
 
-**The model, restated.** A segment is the L2 primitive (one Proxmox SDN
-vnet). A host is on exactly the segments its `net` / `nets[]` name. A router
-has one port per segment it serves. There are no link objects. The picture
-makes "one segment, one router port" literally true: one bus per segment,
-one drop per router port, nothing inferred.
+1. **Ranks.** The Internet (drawn only on evidence of non-local peers or a
+   configured uplink) over the gateway routers; routers at rank 0; switches
+   by depth along their up links from a router (`treeDepths`); each segment
+   a **pill** under its carrier -- the deepest switch whose link or port
+   carries it (`carriersOf`), else the router with a leg on it; the hosts as
+   icons on the pill. No switches (canvas-test, datacenter) degrades to
+   router → pills → hosts. There is no site tint.
+2. **Icons only.** Router, switch (`DeviceNode`: the switch glyph with the
+   `L2` / `L3` / `FW` badge), host (the role glyph in the evidence ring, the
+   `×N` badge inside it), the `+N more` fold pill, and the provenance mark.
+   Routers and switches keep a short name above the icon; a pill keeps its
+   name and CIDR at the left and its host-count badge at the right; the
+   rail's **Labels** toggle captions host icons (all / selected / none).
+3. **Hover** is the facts: a host's name, address, role, segments,
+   provenance; a device's kind, image, ports, segments, provenance; a
+   link's port pair, mode, VLANs and state while selected.
+4. **One hue per router** (`canvas/hues.ts`, eight then grey) on its ring,
+   on every device its links reach (`hueOfDevice`), on the links and the
+   carry branch below it, on each pill's border and the port dot where a
+   leg lands; a pill carried by no device wears its first router's hue.
+5. **Edges.** A `links[]` entry is a `link` edge between two devices (or
+   from a device to a host's icon), orthogonal, in the branch's hue, dashed
+   when `down`, `blocked` or `unconfirmed`, clickable (the inspector's link
+   row). A switch carrying a pill is a `carry` edge labelled with the
+   segment. A router's legs are the config's `nets[]`: one `leg` edge per
+   pill, straight from box to box, re-homed by drag as before; a leg to a
+   folded segment goes to the fold, once. A multi-homed host sits on its
+   first segment's pill with a `stub` to each other one. Observed flows stay
+   evidence: arcs under Light-up or for the selection.
+6. **Folding.** A carrier shows at most **Fan-out** pills (the rail's
+   button; 2 / 4 / 8 / all, default 4) and a dashed `+N more` pill for the
+   rest (`overflow:carrier:<device>`); a click expands that carrier in
+   place (`expanded` carries `carrier:<device>`). Segments no device carries
+   fold under `none`. A `×N` group folds its instances; a segment over the
+   band budget folds its role bands. The box budget is 120 drawn boxes after
+   folding (`TREE_BUDGET_BOXES`); past it, the list and the matrix.
+7. **Provenance overlay** (rail button, `O`): off, a dot marks an asserted
+   (accent) or authored (green) item; on, every item wears its state's badge
+   (`D` discovered with its confidence, `A` asserted, `+` authored, `?`
+   unconfirmed) and border (accent / green / dashed amber). Kept per user.
+8. **Positions.** dagre's, then the layout side-car's pins override them:
+   `host:<name>` (a host, a router or a switch) and `segment:<cidr>` are
+   absolute top-lefts on this plane -- **plane epoch 6**; pins saved on the
+   bus plane are read but not applied, and the page says so. A pill drags
+   free; a host icon dropped on another pill moves there; "Add a segment"
+   lands the new pill under the selection's carrier at dagre's next free
+   slot.
 
-1. **Segment = a horizontal bus.** A single line (`canvas/bus.ts`,
-   `SegmentNode`): its name and CIDR at the left end, a host-count badge at
-   the right end, no enclosing box. The hosts sit ON the bus as icons -- the
-   role glyph in the evidence ring, the `×N` badge inside the icon's bounds
-   -- their name, address and role on the hover card and in the inspector
-   (the rail's **Labels** toggle still captions them under the line: all /
-   selected / none). The bus grows with its host count and the icons wrap to
-   a row above past the width budget (`BUS_HOSTS_PER_ROW` 10). The lane's
-   box (the host rows over the line) is the drop target of every attach
-   gesture; its right end, left of the badge, is the PORT REGION where no
-   host sits and every drop lands. Compact (zoomed out), the icons give way
-   to a glyph row. The placement is `canvas/placement.ts`; the lifted engine
-   still decides the site groups, each group's budgeted set (`+N more` is a
-   lane at the bottom of the site) and the arcs.
-2. **Routers above, one hue each, one vertical drop per port.** The routers
-   sit in a row above the sites (packed by their drawn boxes; a site's lanes
-   are at least as wide as the row of routers serving it, so they share one
-   row). The k-th router of the twin wears the k-th hue of an eight-hue
-   palette (`canvas/hues.ts`, grey past eight) on its icon ring, on its
-   legs, and as a small dot at the left end of every bus it serves. A leg
-   leaves the icon's bottom and drops onto the bus's line in the site's port
-   region -- one drop column per source into the site (`canvas/wiring.ts`),
-   by the sources' x, so drops never cross -- routed orthogonally through
-   the gutters (`canvas/route.ts`), never through a host row, a label or a
-   badge; it ends in a port dot on the line. Past N buses in one site (the
-   rail's **Fan-out** button, 2 / 4 / 8 / all, default 4, `axr-canvas-fan`)
-   the router draws ONE trunk to the site's top edge, badged `N segments`,
-   and a rail down the port column to each bus (`canvas/fan.ts`), in its
-   hue; selecting the router, or a click on the site's tint, expands the
-   fan. The gateway badge (rule 1 of 2026-11-06) and the Internet node's
-   rule are unchanged.
-3. **Switches are members, not gateways.** A `kind: host` whose role is in
-   the switch class (`model/roles.ts` `SWITCH_ROLES`: `l2-switch`,
-   `l3-switch`, `router`, `firewall` -- the API enumerates no role
-   vocabulary, so the set is the canvas's) is a host on its bus with the
-   switch glyph and a role badge (`L2` / `L3` / `FW`). Observed adjacency is
-   EVIDENCE only, never a structural leg: (a) the inspector's node panel
-   reads *observed on N segments: <list> -- Attach…* for a cast twin's
-   switch, from the cast roster's members and observed networks and the
-   export's edges (`canvas/evidence.ts` `observedSegments`), and Attach
-   writes those segments into its `nets[]` (a topology change, a re-plan);
-   (b) under Light-up or on selection its observed flows draw as the dashed
-   arcs every host's do. An authored twin has nothing observed and shows no
-   row.
-4. **A multi-homed host** (`nets[]` > 1) is one icon, placed on the LOWEST
-   of its buses in its first segment's site, with a stub from its icon to
-   each other bus it is on (`stub:` edges, dashed, a hollow port dot) -- the
-   only legitimate "two paths" rendering. corp-twin's `ms120` sits on
-   `vlan20` with nine stubs; its hover card lists every segment.
-5. **The site group** is a faint band behind its buses with a small label
-   and the collapse caret; no border, no title bar (`.cv-site`, not a
-   selection target; the caret folds it to its label). The sites fill rows
-   near a window's shape (`chooseSitesPerRow`).
-6. **Edit gestures follow the metaphor.** A palette item dropped or
-   click-placed ON a bus attaches there (`segmentAt` reads the lane's box).
-   A router's drop dragged from one bus to another re-homes that leg
-   (`Canvas.tsx` `legDrag`: the shell catches the press over a leg by the
-   pane's hit-test, follows the pointer with a rubber line in the router's
-   hue, highlights the bus under it, and on release `rehome` in
-   `edit/document.ts` rewrites that `nets[]` entry with no address; Esc
-   cancels). **Add segment** inserts the new bus under the selected site
-   (the site of the bus asked beside, else of the selection, else of the
-   first segment: the next free /24 under that prefix). A bus dragged within
-   its site is reordered, never dropped free: its `segment:<cidr>` pin in
-   the layout side-car is its y RANK in the site (`{ x: 0, y: rank }`,
-   `Canvas.tsx` `rankAt`, `placement.ts` `orderByRank`); `host:` and
-   `site:` pins stay absolute top-lefts. In the design view a bus's rank
-   settles for the session like a site's position, so a new segment lands
-   at the end of its site. Plane epoch 5: pins saved on the tile plane are
-   read but not applied, and the page says so.
+Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`): the reader carries
+`kind: switch`, `links[]`, `members[]` and `source`; `treeDepths`,
+`carriersOf`, `linkSegments`, `pillSize`; on the switch-test shape one
+router, one device with the `L2` badge, two pills (office carried by the
+switch, servers by the router), the trunk link gw→switch in hue 0, the down
+access link to the file server dashed and `unconfirmed`, two legs, one carry
+edge, no arcs; pins absolute; on a corp shape the switches chain by depth,
+each pill under its deepest carrier, the fold per carrier at fan 2 with its
+`legs:` edge and its expansion, the branch in hue 0; the budget fallback past
+120 boxes; on the page the device, its badge, the pills' carriers, the `×N`
+badge, the overlay's dots and badges (`O` toggles), the link's panel on
+click.
 
-Acceptance (Vitest, `ui/test/canvas.bus.test.tsx`; the geometry is checked
-over the computed layout, since jsdom draws no edge): a corp-twin-shaped
-design (one router into two sites, two `l2-switch` hosts on several buses, a
-workstation on two) renders exactly one router node, `leg` edges only from
-routers to their `nets[]`, every switch an icon on a bus with zero legs, no
-bus with two drops from one router, every bus's dots exactly the routers the
-config puts on it; a three-router design wears three hues and a shared bus's
-dots name both routers in those hues; canvas-test's shape puts `gw` above two
-buses with two drops landing in the port region; with every leg drawn and
-with the fans collapsed, no run crosses a host row, a label or a badge, every
-drop leaves the router's bottom and lands on the line from above, two sources
-into one site take different columns; the multi-homed hosts sit on their
-lowest bus with the right stubs; `observedSegments` and the inspector's
-Attach…; `rehome`, `rankAt` and `orderByRank`; Add segment under the selected
-bus's site; the attach gesture; the badge and the labels icon; the Hosts
-list. The grid router's arrival from below is tested on its own.
-
-**Manual checklist, track 4, 2026-11-06** (the running build on :8080,
-Playwright 1622 × 980, `scratchpad/t4.cjs`, the probe re-running the
-host-row / label / badge crossing check over every drawn leg's `data-pts`;
-read by eye on the shots):
-
-1. `/canvas/corp-twin` (design view): 5 sites in two rows, 26 lanes, ONE
-   router node (`hq-mx`, red, 32 legs), 70 icons, 8 switch-class icons with
-   the `L2` badge, each a multi-homed host on its lowest bus; 35 drawn edges
-   (3 fans badged `10 segments · 4 behind +N more` / `11 · 5` / `10 · 4`,
-   17 rail drops, 1 leg, 14 stubs), all routed, zero crossings of any host
-   row, label or badge; a red dot at the left end of every bus `hq-mx`
-   serves, none on the switches' buses; `hq-mx` selected expands to 18 legs
-   + 14 stubs, zero crossings; Fan-out: all the same. `ms120`'s card lists
-   its ten segments; its panel says a switch is a member of its segments and
-   lists the ten attachments; no observed-adjacency row (no cast). **Seen.**
-2. `/canvas/corp-enterprise`: ONE router (`gw`, red) above four buses, four
-   drops, four red dots; the fit stops at zoom 1.5. (The brief called it
-   "several routers": its config has one; the multi-router check is item 3.)
-   **Seen.**
-3. `/canvas/datacenter` (three routers): `fab-r1` blue, `fab-r2` green, `gw`
-   red, side by side above the one site; `fab-link`'s left end carries the
-   blue and the green dot, every other bus the red one; `gw`'s five legs
-   collapse to one trunk and a red rail with a port dot on each of its
-   buses; the two single legs land with their own dots. **Seen.**
-4. `/canvas/canvas-test`: `gw` above two buses with two red drops, each
-   landing in the port region; the workstation's `×2` inside its icon; the
-   fit at 1.5, not 2.5. **Seen.**
-5. `/canvas/pit-395a61f04e-1780405200` (the largest cast twin, design
-   view, 40 segments, six drawn): one site, one fan `40 segments · 34
-   behind +N more`, the rail down to each lane and the `+34 more` lane; 45
-   icons; zero crossings. **Seen.**
-6. datacenter, rule 6 by hand: `fab-r1`'s drop dragged from `fab-link` onto
-   `edge` re-homes it (the rubber line in blue, `edge` highlighted, the
-   document dirty, Ctrl+Z puts it back); the first bus dragged below the
-   second takes rank 1 and the layout bar counts one unsaved change.
-   **Seen** -- see the handoff for the probe's record.
-7. Known, left: two corp-twin segments with ONE CIDR (`mx-vlan20` and
-   `vlan20`, both 10.180.16.0/20) share one host list, keyed by CIDR as the
-   lifted graph keys them, so the second bus shows the count and no icons
-   -- as the tiles did; a fan trunk's badge sits at its polyline's midpoint,
-   which on a long trunk is over another site.
+**Seen (2026-11-07, :8080, Playwright 1622 × 980, `scratchpad/shot.cjs`,
+shots `t5-*.png`):** switch-test as above with the trunk orthogonal in red
+and the down link dashed; canvas-test and corp-enterprise as router → pills →
+hosts; datacenter's three hues with `fab-link` under both fabric routers and
+gw's fifth segment folded; corp-twin (unconverted) as hq-mx over its first
+four pills and two folds; **corp-tree** (corp-twin converted: 12 switches, 13
+trunk links, an untracked fixture) as hq-mx and mx-sw over ms120 over the
+six access switches, the 9k pair and the 8325 pair chained below, 28 pills
+drawn and 26 folded; the largest cast twin as one router, four pills and a
+`+36 more` fold.
 
 ## Notes
 

@@ -36,6 +36,9 @@ export interface TeNet {
   ip: string | null;
 }
 
+/** Provenance (`docs/design/topology-layers.md` §3.1): absent means `authored`. */
+export type TeSource = "discovered" | "asserted" | "authored" | "unconfirmed";
+
 export interface TeSegment {
   name: string;
   cidr: string;
@@ -43,12 +46,36 @@ export interface TeSegment {
   isolated: boolean;
   /** `egress: true`: the segment is the twin's uplink (IR `Network.egress`), so a router with a leg on it is a gateway. */
   egress: boolean;
+  source: TeSource | null;
+  confidence: number | null;
+}
+
+/** A `members[]` entry: one instance's role override (topology-layers §5). */
+export interface TeMember {
+  index: number;
+  role: string | null;
+  source: TeSource | null;
+}
+
+/** A `links[]` entry: a wire between two device ports (topology-layers §2.3). */
+export interface TeLink {
+  a: { device: string; port: string };
+  b: { device: string; port: string };
+  mode: "trunk" | "access";
+  native: string | null;
+  vlans: string[];
+  state: "up" | "down" | "blocked";
+  source: TeSource | null;
+  confidence: number | null;
+  /** The list index, for edits that address the entry. */
+  index: number;
 }
 
 export interface TeNode {
   name: string;
-  kind: "host" | "router";
+  kind: "host" | "router" | "switch";
   role: string | null;
+  /** Empty on an imageless switch (it deploys as nothing but its segments' vnets). */
   image: string;
   /** The `count` as written: a number, a `${PARAM:default}` reference, or 1 when absent. */
   count: number | string;
@@ -57,6 +84,9 @@ export interface TeNode {
   nets: TeNet[];
   requires: string[];
   resources: Record<string, string | number> | null;
+  members: TeMember[];
+  source: TeSource | null;
+  confidence: number | null;
   /** Keys this reader does not model but the node carries (install, provides, joins, ...). */
   otherKeys: string[];
 }
@@ -67,12 +97,30 @@ export interface TeModel {
   params: Record<string, string | number | boolean | null>;
   segments: TeSegment[];
   nodes: TeNode[];
+  links: TeLink[];
   /** What the reader could not make sense of; the engine's validator says more. */
   problems: string[];
 }
 
-const NODE_KEY_ORDER = ["name", "role", "kind", "image", "requires", "resources", "count", "net", "nets", "when", "install", "provides", "joins", "persona", "observation"];
-const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources"]);
+const NODE_KEY_ORDER = ["name", "role", "kind", "image", "requires", "resources", "count", "net", "nets", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
+const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources", "members", "source", "confidence", "vantage"]);
+const SOURCES = new Set(["discovered", "asserted", "authored", "unconfirmed"]);
+
+function sourceOf(raw: YNode | null): TeSource | null {
+  const s = scalarText(raw);
+  return s && SOURCES.has(s) ? (s as TeSource) : null;
+}
+
+function numberOf(raw: YNode | null): number | null {
+  const s = scalarText(raw);
+  if (s === null) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function emptyTe(problem?: string): TeModel {
+  return { id: null, description: null, params: {}, segments: [], nodes: [], links: [], problems: problem ? [problem] : [] };
+}
 
 // ---------------------------------------------------------------------------
 // Reading
@@ -115,7 +163,7 @@ export function readTe(text: string): TeModel {
   const tc = get(doc.root, "twin_config");
   const problems: string[] = [];
   if (!tc || tc.kind !== "map") {
-    return { id: null, description: null, params: {}, segments: [], nodes: [], problems: ["no `twin_config:` mapping at the top of the file"] };
+    return emptyTe("no `twin_config:` mapping at the top of the file");
   }
   const params: TeModel["params"] = {};
   const p = get(tc, "params");
@@ -130,7 +178,7 @@ export function readTe(text: string): TeModel {
         problems.push(`segment at line ${it.line + 1} has no name or cidr`);
         continue;
       }
-      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true" });
+      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
     }
   }
   const nodes: TeNode[] = [];
@@ -146,9 +194,22 @@ export function readTe(text: string): TeModel {
       const res = get(it.value, "resources");
       const resources: Record<string, string | number> = {};
       if (res && res.kind === "map") for (const e of res.entries) if (e.value.kind === "scalar" && e.value.value !== null && typeof e.value.value !== "boolean") resources[e.key] = e.value.value;
+      const kindText = scalarText(get(it.value, "kind"));
+      const members: TeMember[] = [];
+      const ms = get(it.value, "members");
+      if (ms && ms.kind === "seq") {
+        for (const m of ms.items) {
+          const index = numberOf(get(m.value, "index"));
+          if (index === null) {
+            problems.push(`node ${name}: a members[] entry at line ${m.line + 1} has no index`);
+            continue;
+          }
+          members.push({ index, role: scalarText(get(m.value, "role")), source: sourceOf(get(m.value, "source")) });
+        }
+      }
       nodes.push({
         name,
-        kind: scalarText(get(it.value, "kind")) === "router" ? "router" : "host",
+        kind: kindText === "router" ? "router" : kindText === "switch" ? "switch" : "host",
         role: scalarText(get(it.value, "role")),
         image: scalarText(get(it.value, "image")) ?? "",
         count: c.count,
@@ -156,11 +217,46 @@ export function readTe(text: string): TeModel {
         nets: netsOf(it.value),
         requires: stringList(get(it.value, "requires")),
         resources: res ? resources : null,
+        members,
+        source: sourceOf(get(it.value, "source")),
+        confidence: numberOf(get(it.value, "confidence")),
         otherKeys: it.value.entries.map((e) => e.key).filter((k) => !KNOWN_NODE_KEYS.has(k)),
       });
     }
   }
-  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, problems };
+  const links: TeLink[] = [];
+  const ls = get(tc, "links");
+  if (ls && ls.kind === "seq") {
+    ls.items.forEach((it, index) => {
+      const a = get(it.value, "a");
+      const b = get(it.value, "b");
+      const end = (raw: YNode | null) => {
+        const device = scalarText(get(raw, "device"));
+        const port = scalarText(get(raw, "port"));
+        return device && port ? { device, port } : null;
+      };
+      const ea = end(a);
+      const eb = end(b);
+      const modeText = scalarText(get(it.value, "mode"));
+      if (!ea || !eb || (modeText !== "trunk" && modeText !== "access")) {
+        problems.push(`link at line ${it.line + 1} needs a and b {device, port} and a mode (trunk | access)`);
+        return;
+      }
+      const stateText = scalarText(get(it.value, "state"));
+      links.push({
+        a: ea,
+        b: eb,
+        mode: modeText,
+        native: scalarText(get(it.value, "native")),
+        vlans: stringList(get(it.value, "vlans")),
+        state: stateText === "down" || stateText === "blocked" ? stateText : "up",
+        source: sourceOf(get(it.value, "source")),
+        confidence: numberOf(get(it.value, "confidence")),
+        index,
+      });
+    });
+  }
+  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, links, problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +391,7 @@ export function renameSegment(text: string, from: string, to: string): string {
 // ---------------------------------------------------------------------------
 export interface NewNode {
   name: string;
-  kind?: "host" | "router";
+  kind?: "host" | "router" | "switch";
   role?: string | null;
   image: string;
   count?: number | string;
@@ -322,7 +418,7 @@ export function addNode(text: string, node: NewNode): string {
   if (slot.blankBefore) lines.push("");
   lines.push(`${dash}- name: ${encodeScalar(node.name)}`);
   if (node.role) lines.push(`${pad}role: ${encodeScalar(node.role)}`);
-  if (node.kind === "router") lines.push(`${pad}kind: router`);
+  if (node.kind === "router" || node.kind === "switch") lines.push(`${pad}kind: ${node.kind}`);
   lines.push(`${pad}image: ${encodeScalar(node.image)}`);
   if (node.requires?.length) lines.push(`${pad}requires: [${node.requires.map(encodeScalar).join(", ")}]`);
   if (node.resources && Object.keys(node.resources).length) lines.push(`${pad}resources: { ${Object.entries(node.resources).map(([k, v]) => `${k}: ${encodeScalar(v)}`).join(", ")} }`);

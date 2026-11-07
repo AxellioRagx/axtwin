@@ -16,6 +16,7 @@ import type { DetailLevel } from "./model/detail";
 import { roleBadgeLabel, SWITCH_ROLES, switchBadge } from "./model/roles";
 import { clipLine, encodePoints, legPath, polylineMid, polylinePath, type Point } from "./canvas/legs";
 import { BUS_BADGE_W, BUS_LABEL_W } from "./canvas/bus";
+import { PILL_LABEL_W, PILL_PAD_RIGHT } from "./canvas/tree";
 import { HANDLE, type CanvasEdge, type CanvasNode, type Rect } from "./canvas/placement";
 import { clipBox, ROUTER_ICON } from "./canvas/wiring";
 import { useEdit } from "./edit/EditContext";
@@ -38,6 +39,25 @@ export const LabelsContext = createContext<LabelsMode>("selected");
  *  (`canvas/wiring.ts`) and read by edge id; a leg with no entry falls back
  *  to its straight line. */
 export const RoutesContext = createContext<ReadonlyMap<string, Point[]>>(new Map());
+
+/** The provenance overlay (`docs/design/topology-layers.md` §3.3): off, a
+ *  small dot marks an asserted or authored item; on, the four states render
+ *  (solid / accent border + badge / dashed) and the taps light up. */
+export const OverlayContext = createContext<boolean>(false);
+
+/** The provenance mark an icon wears: nothing for a discovered item with the
+ *  overlay off; a dot for an asserted or authored one; with the overlay on,
+ *  the state's own badge. */
+export function ProvenanceMark({ source, confidence }: { source?: string | null; confidence?: number | null }) {
+  const overlay = useContext(OverlayContext);
+  const s = source ?? "authored";
+  if (!overlay) {
+    if (s === "asserted" || s === "authored") return <span className={`cv-prov-dot cv-prov-${s}`} data-testid="prov-dot" data-source={s} title={`${s}: survives a re-cast`} />;
+    return null;
+  }
+  const word = s === "discovered" && typeof confidence === "number" ? `${s} ${confidence.toFixed(2)}` : s;
+  return <span className={`cv-prov-badge cv-prov-${s}`} data-testid="prov-badge" data-source={s} title={word}>{s === "discovered" ? "D" : s === "asserted" ? "A" : s === "authored" ? "+" : "?"}</span>;
+}
 
 /** How many role glyphs a compact bus carries before folding the rest. */
 export const TILE_GLYPH_MAX = 6;
@@ -115,12 +135,14 @@ export function SegmentNode(p: P) {
   const d = p.data;
   const edit = useEdit();
   const detail = useContext(DetailContext);
+  const overlay = useContext(OverlayContext);
   if (d.kind !== "segment") return null;
   const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
   const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing || edit.rehomeTarget === d.name));
   const glyphs = [...d.roleBadges].sort((a, b) => b.count - a.count);
-  // Compact: as many glyphs as the host rows hold between the label and the port region (60 px a glyph), the ghost glyph and a `+N` fold each taking a slot.
-  const perRow = Math.max(1, Math.floor(((p.width ?? 360) - BUS_LABEL_W - BUS_BADGE_W - 20 + 6) / 60));
+  // Compact: as many glyphs as the host rows hold between the label and the badge (60 px a glyph), the ghost glyph and a `+N` fold each taking a slot. A pill's label column is the tree's (`PILL_LABEL_W`).
+  const pill = d.carrier !== undefined;
+  const perRow = Math.max(1, Math.floor(((p.width ?? 360) - (pill ? PILL_LABEL_W : BUS_LABEL_W) - (pill ? PILL_PAD_RIGHT : BUS_BADGE_W + 20) + 6) / 60));
   const capacity = Math.max(1, perRow * Math.max(1, d.rows ?? 1) - (d.ghosts ? 1 : 0));
   const limit = Math.min(TILE_GLYPH_MAX, glyphs.length <= capacity ? capacity : Math.max(1, capacity - 1));
   const shown = glyphs.slice(0, limit);
@@ -130,20 +152,23 @@ export function SegmentNode(p: P) {
   const hostsWord = `${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`;
   return (
     <div
-      className={`cv-segment cv-bus ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}`}
+      className={`cv-segment cv-bus cv-pill ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
       data-testid="canvas-segment"
       data-cidr={d.cidr}
       data-name={d.name}
+      data-carrier={d.carrier ?? undefined}
+      data-source={d.source ?? undefined}
       data-detail={detail}
       data-rank={d.rank}
       {...posAttrs(p, `segment:${d.cidr}`)}
-      style={{ width: p.width, height: p.height }}
-      title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}${served.length ? `\nrouters: ${served.map((s) => s.router).join(", ")}` : ""}${legend ? `\n${legend}` : ""}`}
+      style={{ width: p.width, height: p.height, ...(d.hue ? ({ "--hue": d.hue } as React.CSSProperties) : {}) }}
+      title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}${d.carrier ? `\ncarried by ${d.carrier}` : ""}${served.length ? `\nrouters: ${served.map((s) => s.router).join(", ")}` : ""}${legend ? `\n${legend}` : ""}`}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "segment", name: d.name }) : undefined}
     >
       <div className="cv-bus-label">
         <span className="mono cv-segment-name">{d.name}</span>
         <span className="mono muted cv-segment-cidr">{d.cidr}</span>
+        <ProvenanceMark source={d.source} confidence={d.confidence} />
       </div>
       {detail === "compact" ? (
         <div className="cv-glyphs" data-testid="segment-glyphs" aria-label={legend || "no roles"}>
@@ -224,6 +249,7 @@ export function HostNode(p: P) {
   const glow = useContext(GlowContext);
   const edit = useEdit();
   const card = useHoverCard(p.dragging);
+  const overlay = useContext(OverlayContext);
   if (d.kind !== "host") return null;
   const lit = glow.hosts.has(d.nodeId);
   // In edit mode the icon is a node GROUP of the working document: its count and pinned address ride along.
@@ -235,9 +261,10 @@ export function HostNode(p: P) {
   const sw = d.role !== null && SWITCH_ROLES.has(d.role);
   return (
     <div
-      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}`}
+      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
       data-testid="canvas-host"
       data-node-id={d.nodeId}
+      data-source={d.source ?? undefined}
       data-role={d.roleLabel}
       data-switch={sw || undefined}
       data-multi={d.multi || undefined}
@@ -254,6 +281,7 @@ export function HostNode(p: P) {
         {sw ? <Icon.switch /> : <RoleIcon label={d.roleLabel} />}
       </span>
       {sw ? <span className="cv-role-badge" data-testid="role-badge" title={`role: ${d.role}`}>{switchBadge(d.role!)}</span> : null}
+      <ProvenanceMark source={d.source} confidence={d.confidence} />
       {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
       {group && group.countValue > 1 ? <span className="badge cv-count-badge" data-testid="count-badge" title={`${group.countValue} instances (count: ${String(group.count)})`}>×{group.countValue}</span> : null}
       {card.open ? (
@@ -292,10 +320,80 @@ export function HostNode(p: P) {
                 <dd className="mono">{d.listen.join(", ")}</dd>
               </>
             ) : null}
+            <dt>Provenance</dt>
+            <dd>{d.source ?? "authored"}{typeof d.confidence === "number" ? ` (${d.confidence.toFixed(2)})` : ""}</dd>
           </dl>
         </div>
       ) : null}
       <Handles role="host" />
+    </div>
+  );
+}
+
+/** A switch of the device tree (§2.2, §7.2): the switch glyph in its branch's
+ *  hue, the `L2` / `L3` / `FW` badge, its name above (a landmark, like a
+ *  router's); ports, carried segments and provenance on the hover card. */
+export function DeviceNode(p: P) {
+  const d = p.data;
+  const edit = useEdit();
+  const card = useHoverCard(p.dragging);
+  const overlay = useContext(OverlayContext);
+  if (d.kind !== "device") return null;
+  const armed = edit?.attachFrom === d.name;
+  return (
+    <div
+      className={`cv-router cv-device${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
+      data-testid="canvas-device"
+      data-node-id={d.name}
+      data-device-kind={d.deviceKind}
+      data-hue={d.hue}
+      data-source={d.source ?? undefined}
+      {...posAttrs(p, `host:${d.name}`)}
+      style={{ width: p.width, height: p.height, "--hue": d.hue } as React.CSSProperties}
+      ref={card.el}
+      onMouseEnter={card.enter}
+      onMouseLeave={card.close}
+      onPointerDown={card.close}
+      onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "host", name: d.name }) : undefined}
+    >
+      <span className="mono cv-icon-name">{d.name}</span>
+      <span className="muted cv-icon-sub">{d.ports.length ? `${d.ports.length} port${d.ports.length === 1 ? "" : "s"}` : `${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}`}</span>
+      <span className="cv-icon-box" aria-hidden="true">
+        {d.deviceKind === "switch" ? <Icon.switch /> : <Icon.router />}
+        <span className="cv-role-badge cv-device-badge" data-testid="device-badge">{d.badge}</span>
+        <ProvenanceMark source={d.source} confidence={d.confidence} />
+      </span>
+      {card.open ? (
+        <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
+          <div className="mono">{d.name}</div>
+          <dl className="facts">
+            <dt>Kind</dt>
+            <dd>{d.deviceKind}{d.role ? ` · ${d.role}` : ""}</dd>
+            <dt>Image</dt>
+            <dd className="mono">{d.image ?? <span className="muted">none: deploys as its segments' vnets</span>}</dd>
+            <dt>Ports</dt>
+            <dd className="mono">{d.ports.join(", ") || "none"}</dd>
+            <dt>Segments</dt>
+            <dd className="mono">{d.segments.join(", ") || "none"}</dd>
+            <dt>Provenance</dt>
+            <dd>{d.source ?? "authored"}{typeof d.confidence === "number" ? ` (${d.confidence.toFixed(2)})` : ""}</dd>
+          </dl>
+        </div>
+      ) : null}
+      <Handles role="host" />
+    </div>
+  );
+}
+
+/** A tap chip on a segment or a link (§8): amber, the sensor names on hover. */
+export function TapNode(p: P) {
+  const d = p.data;
+  if (d.kind !== "tap") return null;
+  return (
+    <div className="cv-tap" data-testid="canvas-tap" data-target={d.target} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : ""}`}>
+      <span className="cv-tap-chip">tap</span>
+      <ProvenanceMark source={d.source} />
+      <Handles />
     </div>
   );
 }
@@ -328,17 +426,19 @@ export function RouterNode(p: P) {
   const d = p.data;
   const edit = useEdit();
   const card = useHoverCard(p.dragging);
+  const overlay = useContext(OverlayContext);
   if (d.kind !== "router") return null;
   const armed = edit?.attachFrom === d.name;
   const gateway = d.uplink || d.crossing !== null;
   const wan = d.uplink ? "the config's uplink" : d.crossing ? "the gateway by observed crossing traffic" : null;
   return (
     <div
-      className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}`}
+      className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`}
       data-testid="canvas-router"
       data-node-id={d.name}
       data-gateway={gateway || undefined}
       data-hue={d.hue}
+      data-source={d.source ?? undefined}
       {...posAttrs(p, `host:${d.name}`)}
       style={{ width: p.width, height: p.height, "--hue": d.hue } as React.CSSProperties}
       ref={card.el}
@@ -353,6 +453,7 @@ export function RouterNode(p: P) {
       <span className="cv-icon-box" aria-hidden="true">
         <Icon.router />
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
+        <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
@@ -448,6 +549,8 @@ export const nodeTypes = {
   host: HostNode,
   rungs: RungsNode,
   router: RouterNode,
+  device: DeviceNode,
+  tap: TapNode,
   overflow: OverflowNode,
   chrome: ChromeNode,
   unplaced: UnplacedNode,
@@ -523,9 +626,9 @@ export function LegEdge(e: E) {
   // leg is selected or hovered (`canvas.css`): forty labelled legs from one
   // router were a wedge of text. A folded leg names its count instead; a
   // fan's badge (its count) is always on.
-  const label = kind === "fan" ? (e.data as { label: string }).label : kind === "bus" ? (e.data as { segment: string }).segment : folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
-  const hue = kind === "leg" || kind === "fan" || kind === "bus" ? (e.data as { hue?: string }).hue : undefined;
-  const cls = kind === "fan" ? " cv-leg-fan" : kind === "bus" ? " cv-leg-bus" : kind === "stub" ? " cv-leg-stub" : folded ? " cv-leg-folded" : "";
+  const label = kind === "fan" ? (e.data as { label: string }).label : kind === "bus" ? (e.data as { segment: string }).segment : kind === "carry" ? (e.data as { label: string }).label : folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
+  const hue = kind === "leg" || kind === "fan" || kind === "bus" || kind === "carry" ? (e.data as { hue?: string }).hue : undefined;
+  const cls = kind === "fan" ? " cv-leg-fan" : kind === "bus" ? " cv-leg-bus" : kind === "carry" ? " cv-leg-carry" : kind === "stub" ? " cv-leg-stub" : folded ? " cv-leg-folded" : "";
   const end = pts[pts.length - 1];
   // A drop ends in a port dot on its bus (a stub in a hollow one); a fan's trunk ends at the site's edge, no dot.
   const dot = end && kind !== "fan" && !(kind === "leg" && folded) && dst?.type === "segment";
@@ -543,4 +646,21 @@ export function TrunkEdge(e: E) {
   return <BaseEdge id={e.id} path={path} className="cv-trunk" style={e.style} />;
 }
 
-export const edgeTypes = { arc: ArcEdge, leg: LegEdge, trunk: TrunkEdge };
+/** A `links[]` entry (§2.3): an orthogonal wire between two devices in the
+ *  branch's hue, dashed when down, blocked or unconfirmed; the port pair,
+ *  mode, VLANs and state on hover or while selected; clickable, so the
+ *  inspector can show its row. */
+export function LinkEdge(e: E) {
+  const overlay = useContext(OverlayContext);
+  const d = e.data;
+  if (!d || d.kind !== "link") return null;
+  const [path, labelX, labelY] = getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const weak = d.state !== "up" || d.source === "unconfirmed";
+  return (
+    <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+      <BaseEdge id={e.id} path={path} className={`cv-link${e.selected ? " selected" : ""}${weak ? " cv-link-weak" : ""}`} style={{ ...e.style, stroke: d.hue }} label={e.selected ? d.label : undefined} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+    </g>
+  );
+}
+
+export const edgeTypes = { arc: ArcEdge, leg: LegEdge, trunk: TrunkEdge, link: LinkEdge };

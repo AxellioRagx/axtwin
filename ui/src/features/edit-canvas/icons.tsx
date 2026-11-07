@@ -219,6 +219,14 @@ export const Icon = {
       <path d="M8 2v5M8 7l-5 6M8 7v6M8 7l5 6" />
     </Svg>
   ),
+  /** The provenance overlay (topology-layers §3.3): a ring with a dot, the mark an item wears. */
+  overlay: () => (
+    <Svg>
+      <circle cx="8" cy="8" r="5.5" />
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+      <path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
+    </Svg>
+  ),
   chevronRight: () => (
     <Svg>
       <path d="M6 3l5 5-5 5" />

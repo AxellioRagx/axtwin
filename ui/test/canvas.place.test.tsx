@@ -8,7 +8,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { EDGE_Z, orderByRank, place } from "../src/features/edit-canvas/canvas/placement";
+import { orderByRank } from "../src/features/edit-canvas/canvas/placement";
+import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import { clickPane, item, seeded, segment, segments } from "./helpers/canvasFixtures";
@@ -53,37 +54,24 @@ describe("a bus is ranked in its site, never dropped free (track 4)", () => {
     expect(orderByRank(["a", "b", "c"], rank({ b: 9 }))).toEqual(["a", "c", "b"]);
   });
 
-  it("place: a segment pinned to rank 0 goes to the top of its site; the lanes never overlap and the site holds them all", () => {
+  it("placeTree: a segment pin is an absolute top-left; unpinned pills keep CIDR order under their router (epoch 6)", () => {
     const graph = graphOf(TE);
-    const abs = (p: ReturnType<typeof place>, id: string) => {
+    const abs = (p: ReturnType<typeof placeTree>, id: string) => {
       const n = p.nodes.find((x) => x.id === id)!;
       const parent = n.parentId ? p.nodes.find((x) => x.id === n.parentId)! : null;
       return { x: n.position.x + (parent?.position.x ?? 0), y: n.position.y + (parent?.position.y ?? 0), w: n.width!, h: n.height! };
     };
-    const plain = place(graph);
-    // CIDR order by default: segment-3 (10.70.0) above office (.10) above servers (.20).
-    expect(abs(plain, "seg:segment-3").y).toBeLessThan(abs(plain, "seg:office").y);
-    expect(abs(plain, "seg:office").y).toBeLessThan(abs(plain, "seg:servers").y);
-    const pinned = place(graph, { "segment:10.70.20.0/24": { x: 0, y: 0 } });
-    const o = abs(pinned, "seg:office");
-    const sv = abs(pinned, "seg:servers");
-    const s3 = abs(pinned, "seg:segment-3");
-    expect(sv.y).toBeLessThan(s3.y);
-    expect(s3.y).toBeLessThan(o.y);
-    expect(pinned.nodes.find((n) => n.id === "seg:servers")!.data).toMatchObject({ rank: 0 });
+    const plain = placeTree(graph);
+    // CIDR order by default, left to right under the router: segment-3 (10.70.0), office (.10), servers (.20).
+    expect(abs(plain, "seg:segment-3").x).toBeLessThan(abs(plain, "seg:office").x);
+    expect(abs(plain, "seg:office").x).toBeLessThan(abs(plain, "seg:servers").x);
+    const pinned = placeTree(graph, { "segment:10.70.20.0/24": { x: 5, y: 900 } });
+    expect(pinned.nodes.find((n) => n.id === "seg:servers")!.position).toEqual({ x: 5, y: 900 });
+    expect(abs(pinned, "seg:office")).toEqual(abs(plain, "seg:office")); // the others keep their computed slots
+    const o = abs(plain, "seg:office");
+    const s3 = abs(plain, "seg:segment-3");
     const overlap = (a: typeof o, b: typeof o) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    expect(overlap(o, sv)).toBe(false);
-    expect(overlap(s3, sv)).toBe(false);
     expect(overlap(o, s3)).toBe(false);
-    const site = pinned.nodes.find((n) => n.type === "site")!;
-    for (const b of [o, sv, s3]) {
-      expect(b.x).toBeGreaterThanOrEqual(site.position.x);
-      expect(b.x + b.w).toBeLessThanOrEqual(site.position.x + site.width! + 0.01);
-      expect(b.y + b.h).toBeLessThanOrEqual(site.position.y + site.height! + 0.01);
-    }
-    // Legs ride above the boxes.
-    expect(plain.edges.filter((e) => e.type === "leg").every((e) => e.zIndex === EDGE_Z)).toBe(true);
-    expect(EDGE_Z).toBeGreaterThan(2);
   });
 });
 

@@ -44,7 +44,12 @@ import { BUS_BADGE_W, BUS_GAP_Y, BUS_HOSTS_PER_ROW, BUS_ICON, BUS_ICON_GAP, BUS_
 // vertical stack, not a tile in a grid, and a `segment:` pin is the lane's
 // RANK in its site, not a free position; a tile's pin read as a rank would
 // put every bus at the end of its site.
-export const CANVAS_PLANE_EPOCH = 5;
+// Epoch 6 (2026-11-07, the device tree, `docs/design/topology-layers.md` §7):
+// positions come from a layered layout under the carrying device, a segment
+// is a compact pill whose `segment:` pin is an absolute top-left (a bus's
+// rank is gone), and a switch is a node of its own; a pin saved on the bus
+// plane would put a pill at a rank number.
+export const CANVAS_PLANE_EPOCH = 6;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],

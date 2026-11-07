@@ -40,6 +40,8 @@ export type Selection =
   | { kind: "node"; names: string[] }
   | { kind: "segment"; names: string[] }
   | { kind: "leg"; node: string; segment: string }
+  /** A `links[]` entry, by its list index (the device tree, topology-layers §2.3). */
+  | { kind: "link"; index: number }
   | { kind: "annotation"; id: string };
 
 export interface SidePanelProps {
@@ -89,6 +91,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "segment" && selection.names.length === 1 ? <SegmentPanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "segment" && selection.names.length > 1 ? <SegmentsPanel {...p} names={selection.names} /> : null}
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
+      {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
     </aside>
@@ -506,6 +509,31 @@ function LegPanel(p: SidePanelProps & { node: string; segment: string }) {
       <button type="button" className="danger" disabled={p.locked} onClick={() => p.apply(`detach ${n.name} from ${leg.segment}`, (d, m) => detach(d, m, n.name, leg.segment))}>
         Detach
       </button>
+    </section>
+  );
+}
+
+/** A `links[]` entry (the device tree, topology-layers §2.3): its two ports,
+ *  mode, the segments it carries, its state and provenance. */
+function LinkPanel(p: SidePanelProps & { index: number }) {
+  const link = p.model.te.links[p.index];
+  if (!link) return <p className="muted">no link at index {p.index}</p>;
+  const segs = [...(link.native ? [link.native] : []), ...link.vlans.filter((v) => v !== link.native)];
+  return (
+    <section className="cv-side-section" data-testid="link-panel">
+      <h3>
+        Link <span className="mono">{link.a.device}#{link.a.port} — {link.b.device}#{link.b.port}</span>
+      </h3>
+      <dl className="facts">
+        <dt>Mode</dt>
+        <dd>{link.mode}{link.native ? <span className="muted"> · native {link.native}</span> : null}</dd>
+        <dt>Segments</dt>
+        <dd className="mono">{segs.join(", ") || "none"}</dd>
+        <dt>State</dt>
+        <dd>{link.state}</dd>
+        <dt>Provenance</dt>
+        <dd>{link.source ?? "authored"}{typeof link.confidence === "number" ? ` (${link.confidence.toFixed(2)})` : ""}</dd>
+      </dl>
     </section>
   );
 }

@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { stackFits } from "../src/features/edit-canvas/CanvasPage";
 import { clipLine, distanceToSegment, legPath, nearestLeg, parseLegPath } from "../src/features/edit-canvas/canvas/legs";
-import { LEG_CLASS, place } from "../src/features/edit-canvas/canvas/placement";
+import { LEG_CLASS } from "../src/features/edit-canvas/canvas/placement";
+import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import { enabled, host, panel, seeded } from "./helpers/canvasFixtures";
@@ -82,37 +83,6 @@ describe("the command stack is restored by its content", () => {
   });
 });
 
-describe("a site grows around its children", () => {
-  const abs = (p: ReturnType<typeof place>, id: string) => {
-    const n = p.nodes.find((x) => x.id === id)!;
-    const parent = n.parentId ? p.nodes.find((x) => x.id === n.parentId)! : null;
-    return { x: n.position.x + (parent?.position.x ?? 0), y: n.position.y + (parent?.position.y ?? 0), w: n.width!, h: n.height! };
-  };
-
-  it("a segment pinned to rank 0 goes first; the others keep their order; the site's box holds every lane", () => {
-    const graph = graphOf(TE);
-    const plain = place(graph);
-    const site0 = plain.nodes.find((n) => n.type === "site")!;
-    const office0 = abs(plain, "seg:office");
-    const servers0 = abs(plain, "seg:servers");
-    expect(office0.y).toBeLessThan(servers0.y);
-    const pinned = place(graph, { "segment:10.70.20.0/24": { x: 0, y: 0 } });
-    const site = pinned.nodes.find((n) => n.type === "site")!;
-    const office = abs(pinned, "seg:office");
-    const servers = abs(pinned, "seg:servers");
-    expect(servers.y).toBeLessThan(office.y);
-    expect([servers.x, servers.y]).toEqual([office0.x, office0.y]); // it took the first slot
-    for (const b of [office, servers]) {
-      expect(b.x).toBeGreaterThanOrEqual(site.position.x);
-      expect(b.y).toBeGreaterThan(site.position.y);
-      expect(b.x + b.w).toBeLessThanOrEqual(site.position.x + site.width! + 0.01);
-      expect(b.y + b.h).toBeLessThanOrEqual(site.position.y + site.height! + 0.01);
-    }
-    // Nothing moved: the site is as it was.
-    expect(place(graph).nodes.find((n) => n.type === "site")!.position).toEqual(site0.position);
-  });
-});
-
 describe("a leg runs border to border and takes no pointer events", () => {
   it("clipLine: below, above, beside, and overlapping", () => {
     const router = { x: 100, y: 0, w: 100, h: 40 };
@@ -145,7 +115,7 @@ describe("a leg runs border to border and takes no pointer events", () => {
   });
 
   it("every leg edge carries the class that takes its pointer events away", () => {
-    const p = place(graphOf(TE));
+    const p = placeTree(graphOf(TE));
     const legs = p.edges.filter((e) => e.type === "leg");
     expect(legs.length).toBe(2);
     expect(legs.every((e) => e.className === LEG_CLASS)).toBe(true);

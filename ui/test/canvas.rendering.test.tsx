@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { arcScope, arcShown, NO_SCOPE } from "../src/features/edit-canvas/canvas/evidence";
 import { authoredGraph } from "../src/features/edit-canvas/canvas/authored";
-import { place } from "../src/features/edit-canvas/canvas/placement";
+import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import type { TopologyExport, TwinTree } from "../src/api/types";
@@ -140,7 +140,7 @@ describe("rule 1: the Internet and the gateway", () => {
 
 describe("rule 2: structure always, evidence on demand", () => {
   const graph = buildGraph(EVIDENCE, { imprintId: "corp-cast", deployMinOccupancy: 0, routers: [{ name: "gw01", segments: ["net-lan", "net-dmz"] }] });
-  const placed = place(graph);
+  const placed = placeTree(graph);
   const arcs = placed.edges.filter((e) => e.type === "arc");
 
   it("the placement carries the arcs, and nothing shows them until the overlay lights one or the selection touches one", () => {
@@ -176,20 +176,13 @@ describe("rule 2: structure always, evidence on demand", () => {
   });
 });
 
-describe("rule 3: the site group is a tint that folds", () => {
-  it("has no border element: a small label with a fold toggle; folding hides its segments and chips", async () => {
+describe("the tree plane has no site tint (track 5)", () => {
+  it("draws every segment as a pill under its carrier and no site group", async () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    const site = screen.getByTestId("canvas-site");
-    expect(site.querySelector(".cv-site-header")).toBeNull();
-    expect(within(site).getByTestId("site-label").textContent).toContain("2 segments");
-    fireEvent.click(within(site).getByRole("button", { name: /^Collapse/ }));
-    await waitFor(() => expect(screen.queryAllByTestId("canvas-segment").length).toBe(0));
-    expect(screen.queryAllByTestId("canvas-host").length).toBe(0);
-    expect(screen.getByTestId("canvas-site").dataset["collapsed"]).toBe("true");
-    fireEvent.click(within(screen.getByTestId("canvas-site")).getByRole("button", { name: /^Expand/ }));
-    await waitFor(() => expect(screen.queryAllByTestId("canvas-segment").length).toBe(2));
+    expect(screen.queryAllByTestId("canvas-site")).toEqual([]);
+    expect(screen.getAllByTestId("canvas-segment").length).toBe(2);
   });
 });
 

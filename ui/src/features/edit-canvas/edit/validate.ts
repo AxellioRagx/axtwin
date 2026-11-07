@@ -35,7 +35,15 @@ export function validateTe(model: TeModel): ValidationFinding[] {
     if (!NAME.test(n.name)) err("CV-020", `node name '${n.name}' is not a name (letters, digits, '.', '_', '-')`, loc);
     if (nodeNames.has(n.name)) err("CV-021", `two node groups are named '${n.name}'`, loc);
     nodeNames.add(n.name);
-    if (!n.image.trim()) err("CV-022", `node '${n.name}' names no image`, `${loc}.image`);
+    // An imageless `kind: switch` deploys as nothing but its segments' vnets (topology-layers §2.5).
+    if (!n.image.trim() && n.kind !== "switch") err("CV-022", `node '${n.name}' names no image`, `${loc}.image`);
+    // A member override names an instance of the group (topology-layers §5).
+    const indexes = new Set<number>();
+    for (const m of n.members) {
+      if (!(Number.isInteger(m.index) && m.index >= 1 && m.index <= n.countValue)) err("CV-033", `node '${n.name}': members[].index ${m.index} is outside 1..${n.countValue}`, `${loc}.members`);
+      if (indexes.has(m.index)) err("CV-034", `node '${n.name}': members[] overrides instance ${m.index} twice`, `${loc}.members`);
+      indexes.add(m.index);
+    }
     if (typeof n.count === "number" ? !(Number.isInteger(n.count) && n.count >= 1) : !/^\$\{[A-Za-z_][A-Za-z0-9_]*(:\d+)?\}$/.test(n.count)) {
       err("CV-023", `node '${n.name}': count must be a whole number of 1 or more, or a \${PARAM:default} reference, got ${JSON.stringify(n.count)}`, `${loc}.count`);
     }
@@ -59,6 +67,32 @@ export function validateTe(model: TeModel): ValidationFinding[] {
         if (n.countValue > 1 && typeof n.count === "number") err("CV-030", `node '${n.name}' pins ${leg.ip} but fans out to ${n.count} instances; a pinned address needs a count of 1`, `${loc}.nets`);
       }
     }
+  }
+  // The device tree's links (topology-layers §2.3): the engine repeats these as STR-210,
+  // REF-270 / 280 and NET-120 / 130 on the expanded IR.
+  const ports = new Map<string, number>();
+  const linked = new Set<string>();
+  model.links.forEach((l, i) => {
+    const loc = `twin_config.links[${i}]`;
+    for (const end of [l.a, l.b]) {
+      const node = model.nodes.find((x) => x.name === end.device);
+      if (!node) err("CV-040", `link ${i}: '${end.device}' is not a node of this twin`, loc);
+      else if (node.countValue > 1) err("CV-041", `link ${i}: '${end.device}' is a group of ${node.countValue}; a link names one device`, loc);
+      const key = `${end.device}#${end.port}`;
+      const first = ports.get(key);
+      if (first !== undefined && first !== i) err("CV-042", `link ${i}: port '${end.port}' on '${end.device}' is already used by link ${first}`, loc);
+      ports.set(key, i);
+      linked.add(end.device);
+    }
+    if (l.a.device === l.b.device) err("CV-043", `link ${i}: both ends are '${l.a.device}'`, loc);
+    for (const seg of [...(l.native ? [l.native] : []), ...l.vlans]) if (!segNames.has(seg)) err("CV-044", `link ${i}: '${seg}' is not a segment of this twin`, loc);
+    if (l.mode === "access" && l.vlans.length !== 1) err("CV-045", `link ${i}: an access link carries exactly one segment (found ${l.vlans.length})`, loc);
+    if (l.mode === "access" && l.native) err("CV-046", `link ${i}: native is a trunk's field`, loc);
+    if (l.mode === "trunk" && !l.vlans.length && !l.native) err("CV-047", `link ${i}: a trunk names the segments it carries`, loc);
+  });
+  // A switch on no link and no segment is parked: a warning (NET-140), never an error, so one can be placed first and wired after.
+  for (const n of model.nodes) {
+    if (n.kind === "switch" && n.nets.length === 0 && !linked.has(n.name)) warn("CV-048", `switch '${n.name}' is wired to nothing yet: add a link or attach it to a segment`, `twin_config.nodes[${n.name}]`);
   }
   return out;
 }

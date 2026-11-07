@@ -24,6 +24,37 @@ export interface ExtraLeg {
   ip: string | null;
 }
 
+/** The device tree's structure the bipartite graph cannot carry
+ *  (`docs/design/topology-layers.md` §2): the switches, the links, and
+ *  where every node and segment came from. */
+export interface TreeDevice {
+  name: string;
+  kind: "switch" | "router";
+  role: string | null;
+  image: string | null;
+  /** The segments the device's own legs name (a switch's L2 ports). */
+  segments: string[];
+}
+export interface TreeLink {
+  a: { device: string; port: string };
+  b: { device: string; port: string };
+  mode: string;
+  native: string | null;
+  vlans: string[];
+  state: string;
+  source: string | null;
+  index: number;
+}
+export interface TreeStructure {
+  devices: TreeDevice[];
+  links: TreeLink[];
+  /** `source` by node name and by segment name (absent == authored). */
+  sources: Record<string, string>;
+  confidences: Record<string, number>;
+}
+
+export const EMPTY_TREE: TreeStructure = { devices: [], links: [], sources: {}, confidences: {} };
+
 export interface AuthoredGraph {
   exportData: TopologyExport;
   cast: CastInput;
@@ -31,6 +62,23 @@ export interface AuthoredGraph {
   /** The routers with a leg on an `egress: true` network: the config's
    *  uplinks, which are what draws an Internet node over an authored twin. */
   uplinks: string[];
+  tree: TreeStructure;
+}
+
+export function treeStructure(topology: Topology): TreeStructure {
+  const sources: Record<string, string> = {};
+  const confidences: Record<string, number> = {};
+  for (const n of topology.nodes) {
+    if (n.source) sources[n.id] = n.source;
+    if (typeof n.confidence === "number") confidences[n.id] = n.confidence;
+  }
+  const legs = new Map<string, string[]>();
+  for (const e of topology.edges) legs.set(e.source, [...(legs.get(e.source) ?? []), e.target]);
+  const devices: TreeDevice[] = topology.nodes
+    .filter((n) => n.type === "switch")
+    .map((n) => ({ name: n.id, kind: "switch" as const, role: n.role ?? null, image: n.image ?? null, segments: legs.get(n.id) ?? [] }));
+  const links: TreeLink[] = (topology.links ?? []).map((l, index) => ({ a: { device: l.a, port: l.a_port }, b: { device: l.b, port: l.b_port }, mode: l.mode, native: l.native ?? null, vlans: l.vlans, state: l.state, source: l.source ?? null, index }));
+  return { devices, links, sources, confidences };
 }
 
 export function authoredGraph(topology: Topology, tree: TwinTree | null): AuthoredGraph {
@@ -74,6 +122,8 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
   const entities = new Map<string, number>();
   for (const n of topology.nodes) {
     if (n.type === "network") continue;
+    // A switch is a device of the tree (`treeStructure`), not a host on a pill.
+    if (n.type === "switch") continue;
     const legs = legsOf.get(n.id) ?? [];
     if (n.type === "router") {
       routers.push({ name: n.id, segments: legs.map((e) => e.target) });
@@ -127,5 +177,5 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
     routers,
     segmentRoster: networks.map((n) => ({ name: n.id, cidr: cidrOf(n.id), zone_type: zoneByName.get(n.id) ?? null })),
   };
-  return { exportData, cast, extraLegs, uplinks };
+  return { exportData, cast, extraLegs, uplinks, tree: treeStructure(topology) };
 }
