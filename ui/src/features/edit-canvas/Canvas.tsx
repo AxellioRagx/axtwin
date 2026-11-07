@@ -101,6 +101,8 @@ export interface CanvasProps {
   onFan?: (n: number) => void;
   /** The Checks tab's provenance filter: the one source left bright, or null. */
   provFilter?: string | null;
+  /** Whether the provenance overlay applies (R3-1): a cast twin's; a hand-authored twin has none (everything is authored). */
+  provenanceOverlay?: boolean;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
@@ -211,7 +213,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -278,14 +280,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     onFan?.(fanN);
   }, [fanN]); // eslint-disable-line react-hooks/exhaustive-deps
   // The provenance overlay (§3.3): off, a dot on asserted and authored items; on, every state.
-  const [overlay, setOverlay] = useState<boolean>(readOverlay);
+  const [overlayPref, setOverlay] = useState<boolean>(readOverlay);
+  const overlay = provenanceOverlay && overlayPref;
   useEffect(() => {
     try {
-      localStorage.setItem(OVERLAY_KEY, overlay ? "on" : "off");
+      localStorage.setItem(OVERLAY_KEY, overlayPref ? "on" : "off");
     } catch {
       // no storage: the choice lives for the page
     }
-  }, [overlay]);
+  }, [overlayPref]);
   const [fanOpen, setFanOpen] = useState<string[]>([]);
   const toggleFanOpen = useCallback((key: string) => setFanOpen((xs) => (xs.includes(key) ? xs.filter((x) => x !== key) : [...xs, key])), []);
   useEffect(() => {
@@ -932,7 +935,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
         case "d": setDetailMode(nextMode); break;
         case "n": setLabels(nextLabels); break;
-        case "o": setOverlay((o) => !o); break;
+        case "o": if (provenanceOverlay) setOverlay((o) => !o); break;
         case "/": e.preventDefault(); togglePopover("find"); break;
         case "t": togglePopover("traffic"); break;
         case "a": if (edit) togglePopover("palette"); break;
@@ -941,7 +944,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, [rf, edit, locked, togglePopover]);
+  }, [rf, edit, locked, togglePopover, provenanceOverlay]);
 
   const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
 
@@ -955,7 +958,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
-    { name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" },
+    ...(provenanceOverlay ? [{ name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" }] : []),
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];

@@ -25,7 +25,7 @@
  */
 import * as dagre from "@dagrejs/dagre";
 
-import { CANVAS_PAD, DEVICE_H, DEVICE_W, INTERNET_W, TIER_INTERNET_H, TILE_H, TILE_W } from "../layout/geometry";
+import { CANVAS_PAD, DEVICE_H, DEVICE_W, INTERNET_W, TIER_INTERNET_H, TILE_W } from "../layout/geometry";
 import { layout0, overflowAnchorKey, siteKeyOfOverflowAnchor, type Level0Options } from "../layout/level0";
 import { NO_PINS, type Pins } from "../layout/pins";
 import { BUDGET_LEVEL1_BANDS } from "../model/budgets";
@@ -48,6 +48,9 @@ export interface TreeOptions extends Level0Options {
   fan?: number;
   /** The tap plan's bindings (topology-layers §8): a chip on each segment or device a tap sits on. */
   taps?: readonly TreeTap[];
+  /** What a missing `source` means (review R3-1): `discovered` on a twin cast from an imprint
+   *  (a cast older than track 3 wrote none), `authored` on a hand-authored twin. */
+  defaultSource?: Source;
 }
 
 export interface TreeTap {
@@ -196,7 +199,8 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   const nameOfCidr = new Map(graph.segments.map((s) => [s.observedCidr, s.name]));
   const cidrOfName = new Map(graph.segments.map((s) => [s.name, s.observedCidr]));
-  const source = (name: string): Source | null => (tree.sources[name] as Source | undefined) ?? null;
+  const fallbackSource: Source | null = options.defaultSource ?? null;
+  const source = (name: string): Source | null => (tree.sources[name] as Source | undefined) ?? fallbackSource;
   const confidence = (name: string): number | null => tree.confidences[name] ?? null;
 
   // ---- the devices: routers (the graph's) and switches (the tree's) ----
@@ -255,7 +259,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   const hiddenSegments = [...folded.values()].reduce((n, f) => n + f.hidden.length, 0);
   // The budget, on what is DRAWN after the fold: the pills, the folds, the devices.
-  const boxCount = drawnSegments.length + folded.size + devices.length + (l0.unplaced ? 1 : 0) + 2;
+  const boxCount = drawnSegments.length + folded.size + devices.length + 2;
   if (boxCount > TREE_BUDGET_BOXES) return empty(`${boxCount} boxes exceed the canvas budget of ${TREE_BUDGET_BOXES} after folding (the tree's cap)`);
 
   // ---- the Internet and the gateways ----
@@ -278,7 +282,6 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     g.setNode(ID.segment(seg.name), { width: size.w, height: size.h });
   }
   for (const carrier of folded.keys()) g.setNode(TREE_ID.carrierOverflow(carrier), { width: TILE_W, height: OVERFLOW_LANE_H });
-  if (l0.unplaced) g.setNode(ID.unplaced, { width: TILE_W, height: TILE_H });
   // Ranking edges: the Internet over its gateways; a link from the shallower
   // device to the deeper; a carrier over its pills; a router over a pill no
   // switch carries. The routers with no edge at all still sit at rank 0.
@@ -363,7 +366,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       source: source(d.name),
       confidence: confidence(d.name),
     };
-    nodes.push({ id, type: "device", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });
+    nodes.push({ id, type: d.kind === "switch" ? "switch" : "device", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });
   }
   const multi = new Set(extraByHost.keys());
   for (const seg of drawnSegments) {
@@ -425,15 +428,12 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       const parent = nodes.find((n) => n.id === parentId);
       if (!parent) continue;
       const w = parent.width ?? DEVICE_W;
-      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: tap.scope === "segment", selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? null } });
+      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: tap.scope === "segment", selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? fallbackSource } });
     }
   }
   for (const [carrier, f] of folded) {
     const id = TREE_ID.carrierOverflow(carrier);
     nodes.push({ id, type: "overflow", position: topLeft(id), width: TILE_W, height: OVERFLOW_LANE_H, draggable: false, ...common, data: { kind: "overflow", siteKey: `carrier:${carrier}`, hidden: f.hidden.length, total: f.total, expanded: false } });
-  }
-  if (l0.unplaced) {
-    nodes.push({ id: ID.unplaced, type: "unplaced", position: topLeft(ID.unplaced), width: TILE_W, height: TILE_H, draggable: false, ...common, data: { kind: "unplaced", count: l0.unplaced.count } });
   }
 
   // ---- edges ----
@@ -458,7 +458,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       sourceHandle: HANDLE.bottom,
       targetHandle: HANDLE.top,
       zIndex: EDGE_Z,
-      data: { kind: "link", a: from.device, aPort: from.port, b: to.device, bPort: to.port, mode: l.mode, native: l.native, vlans: l.vlans, state: l.state, hue: hueSrc, source: (l.source as Source | null) ?? null, label: `${from.port} — ${to.port} · ${l.mode}${segs.length ? ` · ${segs.join(", ")}` : ""}${l.state !== "up" ? ` · ${l.state}` : ""}`, index: l.index },
+      data: { kind: "link", a: from.device, aPort: from.port, b: to.device, bPort: to.port, mode: l.mode, native: l.native, vlans: l.vlans, state: l.state, hue: hueSrc, source: (l.source as Source | null) ?? fallbackSource, label: `${from.port} — ${to.port} · ${l.mode}${segs.length ? ` · ${segs.join(", ")}` : ""}${l.state !== "up" ? ` · ${l.state}` : ""}`, index: l.index },
     });
   }
   // A switch carrying a pill (§7.1): the segment is a label on the branch.
@@ -510,5 +510,5 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   void cidrOfName;
 
-  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: l0.hiddenPairs, anchorByName };
+  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: l0.hiddenPairs, anchorByName, unplaced: l0.unplaced?.count ?? 0 };
 }

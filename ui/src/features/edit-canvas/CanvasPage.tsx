@@ -297,6 +297,8 @@ export function CanvasPage() {
   const [copies, setCopies] = useState(1);
   const [blocked, setBlocked] = useState<string | null>(null);
   const [serverReason, setServerReason] = useState<string | null>(null);
+  /** The working-copy poll's last failure; the next good poll clears it (R3-9). */
+  const [pollError, setPollError] = useState<unknown>(null);
   const [exitError, setExitError] = useState<unknown>(null);
   const [exitNote, setExitNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -370,6 +372,15 @@ export function CanvasPage() {
     };
   }, [editor.files, editor.doc, api]);
 
+  // R3-9: a banner about a refused or blocked edit clears on the next change that lands (an
+  // edit, an Undo, a Redo, a reload): it described a document that is no longer on screen.
+  const lastFiles = useRef(editor.files);
+  useEffect(() => {
+    if (lastFiles.current === editor.files) return;
+    lastFiles.current = editor.files;
+    setBlocked(null);
+  }, [editor.files]);
+
   // One mutation: the editor validates and records it; the reason it was blocked is shown in place.
   const edit = useCallback(
     (label: string, fn: (d: WorkingDoc, m: DocModel) => Files): string | null => {
@@ -429,8 +440,9 @@ export function CanvasPage() {
         editor.load({ id: cfg.document.id, teFile: cfg.document.te_file, files: cfg.document.files });
         synced.current = { ...cfg.document.files };
       }
+      setPollError(null);
     } catch (e) {
-      setExitError(e);
+      setPollError(e);
     }
   }, [api, deployId, editor]);
   const inFlight = Boolean(busy) || Boolean(config?.exit);
@@ -499,6 +511,10 @@ export function CanvasPage() {
     }
     return null;
   }, [data, id, model, view, docPending]);
+  // R3-1: a twin cast from an imprint reads a missing `source` as discovered (a cast older than
+  // track 3 wrote none); a hand-authored twin reads it as authored and has no overlay to show.
+  const castTwin = Boolean(data && (data.twin.pit_id || data.exportData || data.cast));
+  const defaultSource = castTwin ? "discovered" : "authored";
   // The rail's Fan-out (§7.6): how many pills a carrier shows before folding the rest.
   const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 
@@ -516,7 +532,7 @@ export function CanvasPage() {
     if (!built) return null;
     const design = built.kind === "design";
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
-    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps });
+    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource });
     if (design && !p.overBudget) {
       // The tree's own positions settle for the session (a pill, a device, a
       // router): a later mutation places only what has no position yet.
@@ -528,7 +544,7 @@ export function CanvasPage() {
       }
     }
     return p;
-  }, [built, pins, expanded, fan, model?.tap]);
+  }, [built, pins, expanded, fan, model?.tap, defaultSource]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
@@ -883,9 +899,10 @@ export function CanvasPage() {
     if (built?.kind === "design") out.push(deployed ? "design view: the working copy" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push(whoami.can_write ? "read-only: the catalog serves no document for this twin" : "read-only: the API serves this twin's document only to a caller that may write; sign in to edit it");
+    if (placement?.unplaced) out.push(`${placement.unplaced} local entit${placement.unplaced === 1 ? "y" : "ies"} in no segment: observed on this network but bound to no subnet the cast could place`);
     if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} in the layout side-car`);
     return out;
-  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length, whoami.can_write]);
+  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length, whoami.can_write, placement?.unplaced]);
 
   const editProps = useMemo<CanvasEditProps | undefined>(() => {
     if (!model || built?.kind !== "design") return undefined;
@@ -1077,6 +1094,7 @@ export function CanvasPage() {
       <div className="cv-strip" data-testid="canvas-strip">
         <ErrorLine error={error} prefix="could not load the twin" />
         <ErrorLine error={draft.error} prefix="could not save the layout" />
+        <ErrorLine error={pollError} prefix="could not refresh the working copy" />
         {exitError ? (
           <div className="error" role="alert" data-testid="exit-error">
             {exitErrorText(exitError)}
@@ -1112,6 +1130,7 @@ export function CanvasPage() {
             placement={placement}
             fan={fan}
             provFilter={provFilter}
+            provenanceOverlay={castTwin}
             onFan={setFan}
             onPin={onPin}
             onPinMany={onPinMany}
@@ -1166,7 +1185,7 @@ export function CanvasPage() {
                         validating={validating || !(validation && files && sameFiles(validation.files, files))}
                         changes={deployed ? (config?.changes ?? []) : null}
                         onDiscard={deployed && baselineFiles && !locked ? onDiscardChange : undefined}
-                        provenance={{ filter: provFilter, onFilter: setProvFilter }}
+                        provenance={{ filter: provFilter, onFilter: setProvFilter, fallback: defaultSource }}
                       />
                     ),
                     checksBadge: checksBadge({

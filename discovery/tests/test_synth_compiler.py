@@ -929,6 +929,22 @@ def test_the_tap_plan_omits_sensors_rather_than_guessing(tmp_path):
     assert any("INCOMPLETE by design" in c for c in out["caveats"])
 
 
+def test_every_cast_entity_carries_its_provenance(tmp_path):
+    """Review R3-1 (2026-11-07): the canvas read a cast twin as all-`authored` because nothing
+    said otherwise. Every node, segment and tap binding the cast produces says where it came
+    from; the discovered ones say how firmly and from which vantage."""
+    out = _compiled(tmp_path)
+    tc = _tc(out)
+    for item in tc["segments"] + tc["nodes"]:
+        assert item.get("source") in ("discovered", "unconfirmed", "asserted"), item
+        if item["source"] == "discovered":
+            assert isinstance(item.get("confidence"), float), item
+    bindings = out["tap_plan"]["tap-plan"]["bindings"]
+    assert bindings and all(b["source"] == "discovered" for b in bindings)
+    conf = {sg["name"]: sg.get("confidence") for sg in tc["segments"]}
+    assert all(b.get("confidence") == conf[b["selector"]["target"]] for b in bindings)
+
+
 def test_every_observed_segment_gets_a_tap_selector_and_the_sink_does_not(tmp_path):
     """Every segment the capture saw is bound. The internet sink's is deliberately NOT.
 

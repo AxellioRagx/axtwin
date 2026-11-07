@@ -226,6 +226,33 @@ the session scratchpad (`t5-*`, `t5b-*`, `t5c-*`, `t5d-*`, `t6-*`).
       another site, the marquee as a subtree; the planner's L2 port table for an
       imaged switch is the expander's and not drawn.
 
+### Review round 3 checklist (2026-11-07, `docs/design/canvas-review-2026-11-05.md` R3-1..R3-10)
+
+Shots in the session scratchpad (`A-*`, `B-*`, `C-*`).
+
+Track A — provenance and validation:
+
+- [x] R3-1: the cast writes `source` + `confidence` + `vantage` on every segment, node
+      group and tap binding (the gateway placeholder: `unconfirmed` + `vantage`); operator
+      taps re-applied after the cast are `asserted` — `discovery/tests/test_synth_compiler.py`.
+      A missing `source` reads `discovered` on a twin cast from an imprint and `authored`
+      on a hand-authored one; the overlay toggle (rail and `O`) exists only on a cast twin —
+      `canvas.round3.test.tsx`, `canvas.tree.test.tsx`. Eye: corp-apcn-reader-20261028 (cast
+      2026-10-28, before the cast wrote `source`) reads discovered 135 / authored 0 with the
+      overlay on (`A-apcn.png`); switch-test has no overlay button.
+- [x] R3-3: a pass with warnings reads `valid` — `canvas.round3.test.tsx`. The IPv6 /64 on
+      corp-apcn-reader-20261028 is the canvas's own CV-012 error (the engine's validator
+      takes IPv6); the Checks tab now counts it apart from the API line and labels it
+      `error`, and its message says the cast drops IPv6 segments (it has since the twin was
+      cast) — that twin still reads `invalid` until the segment is removed or it is re-cast.
+- [x] R3-7: a switch is a `switch` node (`.react-flow__node-switch`) — `canvas.round3.test.tsx`;
+      one on switch-test's DOM.
+- [x] R3-9: the blocked banner clears on the next change (an edit, Undo, Redo); the
+      working-copy poll's failure is its own line, cleared by the next good poll; the
+      "N local entities in no segment" count is a Notes line, not a box —
+      `canvas.round3.test.tsx`; Evidence on corp-apcn-reader-20261028 shows 111 in Notes
+      and no box (`A-evidence-notes.png`).
+
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it

@@ -229,6 +229,19 @@ UNMEASURED_RUNG = "unmeasured"
 #: boundary flip between the two would produce a `core` group the deploy silently drops.
 _RUNG_EPSILON = 1e-9
 
+def _cast_tap_binding(seg: dict, pit_row: dict) -> dict:
+    """One default tap binding on a cast segment, with its provenance (topology-layers §3.1,
+    review R3-1): the cast produced it, so it is `discovered`, from the PIT's vantage, as firm
+    as the segment it sits on."""
+    binding: dict = {"selector": {"scope": "segment", "target": seg["name"]}, "mode": "exclusive",
+                     "source": "discovered"}
+    if seg.get("confidence") is not None:
+        binding["confidence"] = seg["confidence"]
+    if pit_row.get("vantage"):
+        binding["vantage"] = pit_row["vantage"]
+    return binding
+
+
 def _is_ipv4_network(cidr: str) -> bool:
     """Whether a segment CIDR is one the twin IR can take (IPv4)."""
     try:
@@ -2093,7 +2106,8 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                       "nets": [{"segment": s["name"]} for s in segments],
                       # The compiler's placeholder for a gateway nothing identified: the
                       # thing an operator confirms or replaces (topology-layers §3.1).
-                      "source": "unconfirmed"})
+                      "source": "unconfirmed",
+                      **({"vantage": pit_row["vantage"]} if pit_row.get("vantage") else {})})
         prov(f"twin_config.nodes[{gw_idx}]", COMPILER_CLASS,
              "synth/compiler.py GATEWAY_NAME",
              reason="synthetic: no gateway is identifiable at this vantage (no L2 addresses, no "
@@ -2446,8 +2460,7 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
     tapped = [s for s in segments if s["cidr"] != SINK_CIDR]
     tap_plan = {"tap-plan": {
         "target": twin_id,
-        "bindings": [{"selector": {"scope": "segment", "target": s["name"]}, "mode": "exclusive"}
-                     for s in tapped]}}
+        "bindings": [_cast_tap_binding(s, pit_row) for s in tapped]}}
     # ASSERTED TAPS (`docs/design/topology-layers.md` §8): a sensor binding the operator placed
     # on a whole segment or on one device port -- the one binding kind that DOES name its
     # sensors, because the operator knows them. A port tap resolves its segment through the
@@ -2481,6 +2494,8 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                 binding = {"selector": {"scope": "port", "target": node_name, "segment": carried[0]}}
             binding["mode"] = "exclusive"
             binding["sensors"] = list(record.fields.get("sensors") or [])
+            # Re-applied after the cast from an operator's record: `asserted` (topology-layers §3.1).
+            binding["source"] = ASSERTIONS_EVIDENCE_CLASS
             aview.mark("add", "tap", key)
             j = len(tap_plan["tap-plan"]["bindings"])
             tap_plan["tap-plan"]["bindings"].append(binding)

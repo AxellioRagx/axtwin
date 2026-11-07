@@ -26,7 +26,7 @@ export function validateTe(model: TeModel): ValidationFinding[] {
     if (!NAME.test(s.name)) err("CV-010", `segment name '${s.name}' is not a name (letters, digits, '.', '_', '-')`, loc);
     if (segNames.has(s.name)) err("CV-011", `two segments are named '${s.name}'`, loc);
     segNames.add(s.name);
-    if (!isNetworkAddress(s.cidr)) err("CV-012", `segment '${s.name}': '${s.cidr}' is not an IPv4 network address in CIDR form (10.1.2.0/24)`, loc);
+    if (!isNetworkAddress(s.cidr)) err("CV-012", `segment '${s.name}': '${s.cidr}' is not an IPv4 network address in CIDR form (10.1.2.0/24)${s.cidr.includes(":") ? "; the twin IR is IPv4-only and a cast since 2026-10-28 drops an IPv6 segment (its dual-stack hosts are already present by IPv4): remove it, or re-cast" : ""}`, loc);
   }
   const nodeNames = new Set<string>();
   const pinned = new Map<string, string>();

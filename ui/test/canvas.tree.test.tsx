@@ -197,7 +197,7 @@ describe("placeTree on the switch-test shape", () => {
     const types = new Map<string, number>();
     for (const n of p.nodes) types.set(n.type!, (types.get(n.type!) ?? 0) + 1);
     expect(types.get("router")).toBe(1);
-    expect(types.get("device")).toBe(1);
+    expect(types.get("switch")).toBe(1); // R3-7: its own node type
     expect(types.get("segment")).toBe(2);
     expect(types.get("host")).toBe(2);
     expect(types.get("site")).toBeUndefined();
@@ -298,8 +298,17 @@ describe("placeTree on a corp-shaped design", () => {
 });
 
 describe("on the page", () => {
-  it("the design renders the switch as a device with its badge, the pills, the ×N badge, and the link; the overlay marks provenance", async () => {
+  it("a hand-authored twin has no provenance overlay toggle (R3-1)", async () => {
     const { api } = withTwin("tree-test", TREE_TE);
+    renderAt(api, "/twins/tree-test/canvas");
+    await screen.findAllByTestId("canvas-host");
+    expect(screen.queryByTestId("rail-overlay")).toBeNull();
+    fireEvent.keyDown(window, { key: "o" });
+    expect(screen.getByTestId("canvas").dataset["overlay"]).toBe("off");
+  });
+  it("the design renders the switch as a device with its badge, the pills, the ×N badge, and the link; the overlay marks provenance", async () => {
+    const base = seeded();
+    const { api } = withTwin("tree-test", TREE_TE, { twins: { ...base.state.twins, "tree-test": { ...base.state.twins["corp-auth"]!, id: "tree-test", pit_id: "pit-tree" } } });
     renderAt(api, "/twins/tree-test/canvas");
     await screen.findAllByTestId("canvas-host");
     expect(screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"])).toEqual(["gw"]);
@@ -310,13 +319,13 @@ describe("on the page", () => {
     expect(segments()).toEqual(["office", "servers"]);
     expect(screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === "office")!.dataset["carrier"]).toBe("access-sw");
     expect(within(host("corp-workstation")).getByTestId("count-badge").textContent).toBe("×2·");
-    // Overlay off: a dot on the asserted switch and the authored host; nothing on a discovered pill.
+    // Overlay off: a dot on the asserted switch; nothing on a discovered (or unmarked, on a cast twin) item.
     expect(within(dev).getByTestId("prov-dot").dataset["source"]).toBe("asserted");
     expect(screen.queryAllByTestId("prov-badge")).toEqual([]);
     fireEvent.click(screen.getByTestId("rail-overlay"));
     await waitFor(() => expect(screen.getByTestId("canvas").dataset["overlay"]).toBe("on"));
     expect(within(dev).getByTestId("prov-badge").dataset["source"]).toBe("asserted");
-    expect(screen.getAllByTestId("prov-badge").map((b) => b.dataset["source"]).sort()).toEqual(["asserted", "authored", "authored", "authored", "authored", "discovered"]);
+    expect(screen.getAllByTestId("prov-badge").map((b) => b.dataset["source"]).sort()).toEqual(["asserted", "discovered", "discovered", "discovered", "discovered", "discovered"]); // R3-1: unmarked reads discovered on a cast twin
     fireEvent.keyDown(window, { key: "o" });
     await waitFor(() => expect(screen.getByTestId("canvas").dataset["overlay"]).toBe("off"));
   });

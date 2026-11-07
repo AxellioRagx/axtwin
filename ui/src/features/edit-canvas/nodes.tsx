@@ -617,6 +617,8 @@ export const nodeTypes = {
   rungs: RungsNode,
   router: RouterNode,
   device: DeviceNode,
+  // R3-7: a switch is its own node type (`.react-flow__node-switch`), drawn by the device component.
+  switch: DeviceNode,
   tap: TapNode,
   overflow: OverflowNode,
   chrome: ChromeNode,

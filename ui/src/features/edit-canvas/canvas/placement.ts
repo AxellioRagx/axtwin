@@ -189,6 +189,8 @@ export interface Placement {
   hiddenPairs: number;
   /** Segment NAME -> the anchor it is drawn through (itself, or its group's `+N more` lane when collapsed). */
   anchorByName: Record<string, string>;
+  /** Local entities in no segment (O7): a count for the Notes tab, not a box on the drawing (R3-9). */
+  unplaced?: number;
 }
 
 export interface PlacementOptions extends Level0Options {

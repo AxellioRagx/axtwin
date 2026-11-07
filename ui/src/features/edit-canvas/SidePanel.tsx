@@ -135,22 +135,22 @@ export function SidePanel(p: SidePanelProps) {
 /** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
  *  baseline's text (a pending change is one file's delta), when the page has
  *  the baseline and the canvas is not locked. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void } | undefined }) {
+export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
       <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
       {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
-      {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} /> : null}
+      {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} fallback={p.provenance.fallback ?? "authored"} /> : null}
     </div>
   );
 }
 
 /** The counts per source over the document's segments, nodes and links
  *  (topology-layers §3.3); a row filters the canvas to that state. */
-export function provenanceCounts(model: DocModel): Record<"discovered" | "asserted" | "authored" | "unconfirmed", number> {
+export function provenanceCounts(model: DocModel, fallback: "discovered" | "authored" = "authored"): Record<"discovered" | "asserted" | "authored" | "unconfirmed", number> {
   const counts = { discovered: 0, asserted: 0, authored: 0, unconfirmed: 0 };
   const bump = (s: string | null) => {
-    const k = (s ?? "authored") as keyof typeof counts;
+    const k = (s ?? fallback) as keyof typeof counts;
     if (k in counts) counts[k] += 1;
   };
   for (const s of model.te.segments) bump(s.source);
@@ -159,8 +159,8 @@ export function provenanceCounts(model: DocModel): Record<"discovered" | "assert
   return counts;
 }
 
-function ProvenanceSummary({ model, filter, onFilter }: { model: DocModel; filter: string | null; onFilter(source: string | null): void }) {
-  const counts = provenanceCounts(model);
+function ProvenanceSummary({ model, filter, onFilter, fallback }: { model: DocModel; filter: string | null; onFilter(source: string | null): void; fallback: "discovered" | "authored" }) {
+  const counts = provenanceCounts(model, fallback);
   return (
     <section className="cv-side-section" data-testid="provenance-summary">
       <h3>Provenance</h3>
@@ -246,6 +246,11 @@ function Validation({ findings, serverReason, validation, validating }: { findin
         {state}
       </p>
       {validation?.error ? <p className="error">the API could not validate: {errorText(validation.error)}</p> : null}
+      {local.length ? (
+        <p className="muted" data-testid="validation-local">
+          canvas: {local.length} error{local.length === 1 ? "" : "s"} the API's pass does not cover (the twin IR's own rules)
+        </p>
+      ) : null}
       {validation?.result && !validating ? (
         <p className="muted" data-testid="validation-api">
           API: {validation.result.disposition.toLowerCase()} · {validation.result.errors} error{validation.result.errors === 1 ? "" : "s"}, {validation.result.warnings} warning{validation.result.warnings === 1 ? "" : "s"}
@@ -254,7 +259,7 @@ function Validation({ findings, serverReason, validation, validating }: { findin
       <ul className="cv-findings" data-testid="findings">
         {local.map((f, i) => (
           <li key={`l${i}`} data-testid="finding" data-rule={f.rule_id}>
-            <span className="mono">{f.rule_id}</span> {f.message}
+            <span className="mono">{f.rule_id}</span> <span className="badge bad">error</span> {f.message}
             {f.location ? <span className="muted"> · {f.location}</span> : null}
           </li>
         ))}
