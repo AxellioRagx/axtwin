@@ -4,54 +4,55 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 (evening) · **Branch:** `wip/design-platforms-canvas`. Pushed to origin
-(through the R4 items below; push only when the user asks).
-Rule: commit each piece as it lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 (evening, R5) · **Branch:** `wip/design-platforms-canvas`. Origin is
+at `5873e85` (the R4 items); the three R5 commits below are **local only** (push only when the
+user asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
 
 ## What this session did
 
-The user's re-test of 06:50 left seven items (R4); one commit each (4 + 5 as one):
+The user's re-test of 08:00 verified R4 and left two items plus a count mismatch (R5):
 
-- **`51d9bc3`** R4-3 duplicate: a subtree is the device, deeper devices over `up` links, the
-  segments they carry, the hosts ON them, links among that set. switch-test's access-sw no
-  longer drags file-server (behind the down P24) into its copy.
-- **`28b9c40`** the canvas stamps `source: authored` on everything it creates or changes
-  (`edit/provenance.ts`, one diff pass in `useEditor.apply`; asserted kept; discard not
-  stamped; promote adopts the re-cast baseline's marks).
-- **`a54aa02`** R4-4: the cast ALREADY wrote source/confidence/vantage; the tree route had no
-  fields and the topology route dropped a segment's. Both now carry them (engine DTOs,
-  `twin_tree.py`, `service.topology`, `api/Spec.md`, UI types).
-- **`d7f9f92`** R4-2b + R4-8: a segment only a bridging host reaches joins the router's rail
-  with its site (dashed `via <host>`); rails are one row, site then CIDR, `+N more` last; an
-  open site is a tile with its pills in a row below; fold open/close refits the view.
-- **`b0a6dc9`** R4-10: Esc folds member chips, chips sit below the label, override dot.
-- **`eb281a8`** R4-7: one timestamp style, `ui/src/model/time.ts` (local + zone, UTC tooltip).
-- **`4c41738`** SPEC checklist "Review round 4" with what the eye saw; plus this handoff and a
-  topology-layers §6 sentence (the R4-3 rule) in the last commit.
+- **`f370f95`** R5-1: the cast's provenance was in the YAML all along (111 `source:` lines in a
+  fresh cast); the re-test read it through `GET /api/twin-configs/{id}`, whose segment and node
+  summary rows had no fields for it. They carry `source`/`confidence`/`vantage` now. What the
+  cast really left bare: **conduits**. Each now gets `discovered` + the PIT's vantage, or
+  `asserted` (also when observed). No confidence, because nothing scores a pair. Schema +
+  expander accept/check the three fields on a conduit.
+- **`482f3dd`** R5-2: every site pill a router serves is always on its rail; Fan-out (default 4)
+  budgets loose pills only; `+N more` holds only loose segments. An open site pages its row by
+  the budget with its own `+N more` (`site:<c>|<p>#2`, ...; closing the site closes its pages).
+  The fold refit (`canvas/fit.ts`) frames router + row, never below 50 %, left edge when too
+  wide. `+N more`, `fold N back` and the strip are one count (was 54 vs 43); closed sites get
+  their own strip line. `Placement.rows` publishes each rail / row.
+- **`968f587`** SPEC checklist "Review round 5" with what the eye saw; topology-layers §7.6.
 
 ## Current state
 
-- **Tests:** ui typecheck clean, 29 files / 441. Engine: `test_twin_tree`, `test_api`,
-  `test_topology_layers`, `test_api_console` 680 passed, 2 skipped; discovery
-  `test_synth_topology_layers` 13 passed. Full engine suite not re-run.
-- **Serve:** :8080 restarted 2026-11-08 evening (pid 1524004, `none` mode, same env, from the
-  saved `/proc/<pid>/environ` minus the token) on the rebuilt `ui/dist`.
-- **Eye checks** (headless, scratchpad `R4-*`): switch-test duplicate → drop on gw (exactly
-  three copies + one authored trunk) then **Reset** (working copy equals baseline);
-  corp-twin collapsed, `+41 more` open, 10.180 open and closed; corp-apcn-reader; a fresh
-  cast `r4-scratch` (provenance in the tree and the overlay), **deleted**. dev45 untouched
-  beyond switch-test's working copy.
+- **Tests:** ui typecheck clean, 30 files / 462 (new `canvas.foldbudget.test.tsx`, over the real
+  corp-twin bundle). Discovery full suite 2474 passed. Engine full suite 4249 passed, 3 failed:
+  `test_twin_bundle_layout` / `test_twinconfig_registry` x2 scan the real catalog and trip on
+  the **untracked** folders (`canvas-test-exp1`, `mylab`, `corp-apcn-reader-20261028` with no
+  `twin.yaml`), not on this change.
+- **Serve:** :8080 restarted twice this round (engine change, then the rebuilt `ui/dist`): now
+  pid 1587831, `none` mode, env from the live `/proc/<pid>/environ` minus the token. Script:
+  scratchpad `restart.sh <envfile>` (env in `serve-r5.env`).
+- **Eye checks** (headless, scratchpad `R5-*`, `r5fold.cjs`): corp-twin collapsed (4 sites, 4
+  loose, `+7 more`, 73 %), 10.180 once (4 + `+20 more`, 65 %), twice (8 + `+16 more`, 50 %, left
+  edge), closed, carrier open (`fold 7 back`); fresh cast `r5-probe` through the API: no row
+  without a source, conduits and taps all `discovered`, overlay on; **deleted**. switch-test has
+  no working copy; dev45 untouched.
 - Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/` (the
   previous build, safe to delete).
 
 ## Not done / honest gaps
 
-- An open 24-segment site (corp-twin 10.180) is one ~3,400 px row as specified; its fit lands
-  near 17 % zoom. Wrapping the row is a design call, not made.
-- The Deploy panel has still never run a real deploy (plan only). *Split and assert* is
-  proven in jsdom only (no live cast has member keys).
-- corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): re-cast, remove, or rule on
-  non-IPv4 in the engine — the user's call. Fresh casts drop the segment.
+- A second page of corp-twin's 10.180 lands at the 50 % floor framed from the left; the newest
+  segments are a pan away (as the brief specified). The rail's right end can sit off-screen
+  after a site opens, because the refit frames the router + row, not the whole rail.
+- Conduit `confidence` is absent by design (no per-pair score exists); say so if asked.
+- The Deploy panel has still never run a real deploy (plan only). *Split and assert* proven
+  in jsdom only.
+- corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): the user's call.
 - Yours to decide: the serve's auth mode (`none` on 0.0.0.0); push; merge.
 
 ## Gotchas
@@ -61,15 +62,15 @@ The user's re-test of 06:50 left seven items (R4); one commit each (4 + 5 as one
 - A subagent worktree is created from an old base here (39fa362): make one by hand.
 - corp-twin has segments that SHARE a CIDR (10.180.34.0/25 ×4, 10.180.93.0/24 ×2): never map
   a host to its pill by CIDR; `ExtraLeg.home` carries the segment name.
+- `test/helpers/canvasFixtures.tsx` imports `imprints.page.test`, so every file using it re-runs
+  those tests under its own name (not a new failure).
+- The engine's catalog-scanning tests fail while untracked twin folders sit in `catalog/twins`.
 - A UI-only change goes live by swapping `ui/dist` (the serve reads it per request); an engine
-  change needs the restart.
+  change needs the restart. `restart.sh` stops the serve FIRST: pass the env file.
 - React Flow drops an edge whose `sourceHandle` names a handle of the wrong type; its
   `onSelectionChange` echoes a programmatic selection. `rf.screenToFlowPosition` snaps unless
   `{ snapToGrid: false }`. `ugrep` reads `model/graph.ts` as binary: `grep -a`.
-- Importing a helper from another `*.test.tsx` re-runs that file's tests: define it locally.
 - Playwright: off-viewport tree nodes refuse `.click()`; use `el.evaluate((e) => e.click())`.
-  A canvas button that disables itself after acting can time out the click AFTER it acted:
-  check the serve log before retrying.
 - `ui/`: `npm ci` only; never build into the served `ui/dist` (build `dist.new`, swap). The
   contract files change only with the user's confirmation and a version bump.
 
@@ -77,5 +78,5 @@ The user's re-test of 06:50 left seven items (R4); one commit each (4 + 5 as one
 
 One venv at `.venv/`, node 22 for `ui/`, live state in `~/.axrange/`. Playwright 1.61 at
 `/home/rocky/fx-cap/mgmtui/node_modules/playwright` + `~/.cache/ms-playwright/chromium-1228`
-(scripts in this session's scratchpad: `shot.cjs`, `dup.cjs`, `reset.cjs`, `members.cjs`,
-`dates.cjs`, `stress.cjs`). dev45 API 10.80.76.108:8006, SSH root.
+(scripts in this session's scratchpad: `shot.cjs`, `r5fold.cjs`, `stress.cjs`, `restart.sh`).
+dev45 API 10.80.76.108:8006, SSH root.
