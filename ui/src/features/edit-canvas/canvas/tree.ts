@@ -295,21 +295,66 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   // ---- a multi-homed host sits on its first segment's pill, with a stub to each other one ----
   const extraByHost = new Map<string, ExtraLeg[]>();
   for (const leg of options.extraLegs ?? []) extraByHost.set(leg.host, [...(extraByHost.get(leg.host) ?? []), leg]);
-  const stubs: Array<{ host: string; segment: string; ip: string | null }> = [];
+  const stubs: Array<{ host: string; segment: string; ip: string | null; home?: string }> = [];
   for (const [host, extras] of extraByHost) {
     if (!graph.nodeById.get(host)) continue;
-    for (const e of extras) stubs.push({ host, segment: e.segment, ip: e.ip });
+    for (const e of extras) stubs.push({ host, segment: e.segment, ip: e.ip, home: e.home });
   }
 
   // ---- folding: per carrier, by site; a site of several segments folds into one pill; `fan` items, then `+N more` ----
   const NO_CARRIER = "none";
-  const carrierKey = (seg: GraphSegment): string => {
+  const baseCarrier = (seg: GraphSegment): string => {
     const c = carrierOf.get(seg.name);
     if (c) return c;
     const r = graph.routers.find((x) => x.segments.includes(seg.name));
     return r ? r.name : NO_CARRIER;
   };
-  type Item = { kind: "pill"; seg: GraphSegment } | { kind: "site"; site: string; segs: GraphSegment[] };
+  // A segment no device carries but a multi-homed host bridges to a carried one (corp-twin's
+  // `l2-switch` hosts) sits on THAT carrier's rail, with its site (R4-2b, 2026-11-08): it used to
+  // hang under whichever box held the bridging host, so 10.180, 10.199 and vlan192 chained down
+  // off the "+N more" pill as if they were its children.
+  const adopted = new Map<string, { carrier: string; via: string[] }>();
+  const homeOf = (st: { host: string; home?: string }): string | undefined => {
+    if (st.home) return st.home;
+    const cidr = graph.nodeById.get(st.host)?.segment;
+    return cidr ? nameOfCidr.get(cidr) : undefined;
+  };
+  {
+    const byName = new Map(shown.map((sg) => [sg.name, sg]));
+    const carrierNow = (name: string): string => {
+      const sg = byName.get(name);
+      return sg ? (adopted.get(name)?.carrier ?? baseCarrier(sg)) : NO_CARRIER;
+    };
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const st of stubs) {
+        const a = homeOf(st);
+        if (!a || !byName.has(a) || !byName.has(st.segment)) continue;
+        for (const [from, to] of [[a, st.segment], [st.segment, a]] as const) {
+          const cf = carrierNow(from);
+          if (cf === NO_CARRIER || carrierNow(to) !== NO_CARRIER) continue;
+          adopted.set(to, { carrier: cf, via: [st.host] });
+          grew = true;
+        }
+      }
+    }
+    for (const st of stubs) {
+      const a = homeOf(st);
+      for (const name of [st.segment, a]) {
+        const ad = name ? adopted.get(name) : undefined;
+        if (ad && !ad.via.includes(st.host)) ad.via.push(st.host);
+      }
+    }
+  }
+  const carrierKey = (seg: GraphSegment): string => adopted.get(seg.name)?.carrier ?? baseCarrier(seg);
+  type Item = { kind: "pill"; seg: GraphSegment } | { kind: "site"; site: string; segs: GraphSegment[] } | { kind: "open"; key: string; site: string; segs: GraphSegment[] };
+  /** Each carrier's rail, left to right: its items (site, then CIDR), the `+N more` last. */
+  const rails = new Map<string, string[]>();
+  /** The pills an open site tile holds (its own row, below the rail), by tile id. */
+  const tileRows = new Map<string, string[]>();
+  /** Which open site tile a pill hangs under. */
+  const underTile = new Map<string, string>();
+  const openFoldId = (key: string) => overflowAnchorKey(`open:${key}`);
   const byCarrier = new Map<string, GraphSegment[]>();
   for (const seg of shown) byCarrier.set(carrierKey(seg), [...(byCarrier.get(carrierKey(seg)) ?? []), seg]);
   const anchorByName: Record<string, string> = {};
@@ -327,21 +372,34 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     for (const [site, group] of bySite) {
       const siteKey = `site:${carrier}|${site}`;
       // One site under the carrier is not worth a fold of its own: its pills stand under the carrier's budget.
-      if (group.length === 1 || bySite.size === 1 || expanded.has(siteKey)) {
-        for (const seg of group) items.push({ kind: "pill", seg });
-        if (group.length > 1 && bySite.size > 1) openFolds.push({ carrier, key: siteKey, total: group.length });
-      } else items.push({ kind: "site", site, segs: group });
+      if (group.length === 1 || bySite.size === 1) for (const seg of group) items.push({ kind: "pill", seg });
+      // An open site is ONE item on the rail (its collapse tile); its pills fan in a row below it (R4-8).
+      else if (expanded.has(siteKey)) items.push({ kind: "open", key: siteKey, site, segs: group });
+      else items.push({ kind: "site", site, segs: group });
     }
     const carrierOpen = expanded.has(`carrier:${carrier}`);
     const open = carrierOpen || items.length <= fan;
     const visible = open ? items : items.slice(0, fan);
+    const rail: string[] = [];
     for (const it of visible) {
       if (it.kind === "pill") {
         anchorByName[it.seg.name] = it.seg.name;
         drawnSegments.push(it.seg);
+        rail.push(ID.segment(it.seg.name));
+      } else if (it.kind === "open") {
+        const tile = openFoldId(it.key);
+        openFolds.push({ carrier, key: it.key, total: it.segs.length });
+        rail.push(tile);
+        tileRows.set(tile, it.segs.map((sg) => ID.segment(sg.name)));
+        for (const sg of it.segs) {
+          anchorByName[sg.name] = sg.name;
+          drawnSegments.push(sg);
+          underTile.set(sg.name, tile);
+        }
       } else {
         siteFolds.push({ carrier, site: it.site, segs: it.segs });
         for (const s of it.segs) anchorByName[s.name] = TREE_ID.siteFold(carrier, it.site);
+        rail.push(TREE_ID.siteFold(carrier, it.site));
       }
     }
     if (!open) {
@@ -349,7 +407,12 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       const hidden = rest.flatMap((it) => (it.kind === "pill" ? [it.seg] : it.segs));
       folded.set(carrier, { hidden, total: segs.length, items: rest.length });
       for (const s of hidden) anchorByName[s.name] = TREE_ID.carrierOverflow(carrier);
-    } else if (carrierOpen && items.length > fan) openFolds.push({ carrier, key: `carrier:${carrier}`, total: segs.length });
+      rail.push(TREE_ID.carrierOverflow(carrier));
+    } else if (carrierOpen && items.length > fan) {
+      openFolds.push({ carrier, key: `carrier:${carrier}`, total: segs.length });
+      rail.push(openFoldId(`carrier:${carrier}`));
+    }
+    rails.set(carrier, rail);
   }
   const hiddenSegments = [...folded.values()].reduce((n, f) => n + f.hidden.length, 0) + siteFolds.reduce((n, f) => n + f.segs.length, 0);
   const boxCount = drawnSegments.length + siteFolds.length + folded.size + openFolds.length + devices.length + 2;
@@ -388,12 +451,18 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     hiddenChipsOf.set(seg.name, chips.length - vis.length);
     const size = pillSize(vis.length + (chips.length > vis.length ? 1 : 0), seg.roleBadges.length + (seg.ghostCount ? 1 : 0));
     sizeOf.set(seg.name, size);
-    g.setNode(ID.segment(seg.name), { width: size.w, height: size.h });
   }
-  for (const f of siteFolds) g.setNode(TREE_ID.siteFold(f.carrier, f.site), { width: TILE_W, height: OVERFLOW_LANE_H });
-  for (const carrier of folded.keys()) g.setNode(TREE_ID.carrierOverflow(carrier), { width: TILE_W, height: OVERFLOW_LANE_H });
-  const openFoldId = (key: string) => overflowAnchorKey(`open:${key}`);
-  for (const f of openFolds) g.setNode(openFoldId(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
+  // Boxes go to dagre in rail order (each carrier's items left to right, then each open site's row):
+  // siblings under one parent keep their insertion order through its crossing reduction.
+  const boxOf = new Map<string, { width: number; height: number }>();
+  for (const seg of drawnSegments) boxOf.set(ID.segment(seg.name), { width: sizeOf.get(seg.name)!.w, height: sizeOf.get(seg.name)!.h });
+  for (const f of siteFolds) boxOf.set(TREE_ID.siteFold(f.carrier, f.site), { width: TILE_W, height: OVERFLOW_LANE_H });
+  for (const carrier of folded.keys()) boxOf.set(TREE_ID.carrierOverflow(carrier), { width: TILE_W, height: OVERFLOW_LANE_H });
+  for (const f of openFolds) boxOf.set(openFoldId(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
+  for (const id of [...[...rails.values()].flat(), ...[...tileRows.values()].flat(), ...boxOf.keys()]) {
+    const b = boxOf.get(id);
+    if (b && !g.hasNode(id)) g.setNode(id, b);
+  }
   const rankEdge = (a: string, b: string) => {
     if (a !== b && g.hasNode(a) && g.hasNode(b) && !g.hasEdge(b, a)) g.setEdge(a, b);
   };
@@ -413,16 +482,16 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       rankEdge(nodeIdOf(a), nodeIdOf(b));
     }
   }
-  for (const seg of drawnSegments) {
-    const carrier = carrierKey(seg);
-    if (deviceNames.has(carrier)) rankEdge(nodeIdOf(carrier), ID.segment(seg.name));
-  }
+  // Each rail under its carrier, each open site's row under its tile (the tile is the row's parent, so
+  // the row is one rank below the rail and never chains through a pill's hosts).
+  for (const [tile, row] of tileRows) for (const id of row) rankEdge(tile, id);
+  for (const [carrier, rail] of rails) if (deviceNames.has(carrier)) for (const id of rail) rankEdge(nodeIdOf(carrier), id);
   for (const f of siteFolds) if (deviceNames.has(f.carrier)) rankEdge(nodeIdOf(f.carrier), TREE_ID.siteFold(f.carrier, f.site));
   for (const carrier of folded.keys()) if (deviceNames.has(carrier)) rankEdge(nodeIdOf(carrier), TREE_ID.carrierOverflow(carrier));
   for (const f of openFolds) if (deviceNames.has(f.carrier)) rankEdge(nodeIdOf(f.carrier), openFoldId(f.key));
   for (const r of graph.routers) for (const name of legsOf(r)) {
     const t = pillOrFold(name);
-    if (t) rankEdge(ID.router(r.name), t);
+    if (t) rankEdge(underTile.get(name) ?? ID.router(r.name), t);
   }
   // A link from a device to a host ranks the device above the host's pill.
   const pillOfHost = (host: string): string | null => {
@@ -482,6 +551,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const id of notCarried) rankEdge(UNCARRIED_ID, id);
   }
   dagre.layout(g);
+  orderRows(g, [...rails.values(), ...tileRows.values()]);
 
   const topLeft = (id: string): { x: number; y: number } => {
     const n = g.node(id);
@@ -699,9 +769,28 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
         continue;
       }
       const segOf = graph.segmentByName.get(name);
-      edges.push({ id: `leg:${r.name}>${name}`, type: "leg", className: LEG_CLASS, source: ID.router(r.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, site: segOf ? `carrier:${carrierKey(segOf)}` : undefined, hue } });
+      edges.push({ id: `leg:${r.name}>${name}`, type: "leg", className: LEG_CLASS, source: underTile.get(name) ?? ID.router(r.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, site: segOf ? `carrier:${carrierKey(segOf)}` : undefined, hue } });
     }
     for (const [anchor, n] of foldedTo) edges.push({ id: `legs:${r.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(r.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} folded`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
+  }
+  // An item on a rail (or an open site's row) its parent draws no leg or carry to -- a segment a
+  // bridging host adopted onto the rail, or a fold of only such segments: one dashed edge from the
+  // parent naming the hosts that bridge it (R4-2b).
+  {
+    const hasEdge = new Set(edges.map((x) => `${x.source}>${x.target}`));
+    const viaOf = (id: string): string[] => {
+      const names = drawnSegments.some((sg) => ID.segment(sg.name) === id) ? [id.slice(ID.segment("").length)] : Object.entries(anchorByName).filter(([, a]) => a === id).map(([n]) => n);
+      return [...new Set(names.flatMap((n) => adopted.get(n)?.via ?? []))];
+    };
+    const dashedFrom = (parent: string, id: string) => {
+      if (hasEdge.has(`${parent}>${id}`)) return;
+      const via = viaOf(id);
+      if (!via.length) return;
+      edges.push({ id: `bridge:${parent}>${id}`, type: "leg", className: LEG_CLASS, source: parent, target: id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: "", segment: id, label: `via ${via.slice(0, 2).join(", ")}${via.length > 2 ? ` +${via.length - 2}` : ""}`, hue: plainHue, dashed: true } });
+      hasEdge.add(`${parent}>${id}`);
+    };
+    for (const [carrier, rail] of rails) if (deviceNames.has(carrier)) for (const id of rail) dashedFrom(nodeIdOf(carrier), id);
+    for (const [tile, row] of tileRows) for (const id of row) dashedFrom(tile, id);
   }
   // The "not carried" box's members: dashed, so the box reads as a group, not a device.
   for (const id of notCarried) if (g.hasNode(UNCARRIED_ID)) edges.push({ id: `uncarried>${id}`, type: "leg", className: LEG_CLASS, source: UNCARRIED_ID, target: id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: "", segment: id, label: "", hue: plainHue, dashed: true } });
@@ -745,6 +834,35 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
 
   return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
+}
+
+/** Lay each row (a carrier's rail, an open site's pills) left to right in its given order, where
+ *  dagre put its boxes in one rank with nothing else between them: the row keeps its left edge and
+ *  dagre's spacing, only the order is ours (R4-2b: site then CIDR, `+N more` last). A row dagre
+ *  split across ranks, or interleaved with another box, is left as dagre placed it. Mutates `g`. */
+function orderRows(g: dagre.graphlib.Graph, rows: readonly (readonly string[])[]): void {
+  for (const row of rows) {
+    const boxes = row.filter((id) => g.hasNode(id)).map((id) => ({ id, n: g.node(id) as { x: number; y: number; width: number; height: number } }));
+    if (boxes.length < 2) continue;
+    const y = boxes[0]!.n.y;
+    if (boxes.some((b) => Math.abs(b.n.y - y) > 0.5)) continue;
+    const left = Math.min(...boxes.map((b) => b.n.x - b.n.width / 2));
+    const right = Math.max(...boxes.map((b) => b.n.x + b.n.width / 2));
+    const mine = new Set(row);
+    const between = g.nodes().some((id) => {
+      if (mine.has(id)) return false;
+      const n = g.node(id) as { x: number; y: number } | undefined;
+      return n !== undefined && Math.abs(n.y - y) <= 0.5 && n.x > left && n.x < right;
+    });
+    if (between) continue;
+    const widths = boxes.reduce((w, b) => w + b.n.width, 0);
+    const gap = boxes.length > 1 ? Math.max(TREE_NODE_SEP, (right - left - widths) / (boxes.length - 1)) : 0;
+    let x = left;
+    for (const b of boxes) {
+      b.n.x = x + b.n.width / 2;
+      x += b.n.width + gap;
+    }
+  }
 }
 
 /** The pin key of a top-level node of the tree (`host:` for a device, `segment:` for a pill). */

@@ -205,6 +205,7 @@
 .cv-router.selected .cv-icon-box, .cv-router.cv-armed .cv-icon-box { box-shadow: 0 0 0 2px var(--accent); }
 .canvas-shell.compact .cv-router .cv-icon-sub { display: none; }
 .cv-overflow { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; border: 1px dashed var(--muted); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 12.5px; cursor: pointer; }
+.cv-overflow > .muted { max-width: calc(100% - 8px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
 /* The Internet pill and the WAN edge: the icon box is the node's full-height
    centre, so the trunk's top and bottom handles (at the node's centre line)
    touch the icon; the label hangs off its right side, outside the centring. */

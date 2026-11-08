@@ -339,3 +339,91 @@ describe("on the page", () => {
     expect(np.textContent).toContain("access-sw");
   });
 });
+
+/** corp-twin's shape in small (R4-2b / R4-8, 2026-11-08): one router with legs on several sites,
+ *  and bridging hosts (`l2-switch` hosts with legs on two segments) that carry 10.180, 10.199 and
+ *  10.192 segments the router has no leg on. */
+const RAIL_TE = `twin_config:
+  id: rail
+  segments:
+    - { name: s100, cidr: 10.100.21.0/24 }
+    - { name: s120a, cidr: 10.120.1.0/24 }
+    - { name: s120b, cidr: 10.120.2.0/24 }
+    - { name: s180a, cidr: 10.180.0.0/20 }
+    - { name: s180b, cidr: 10.180.88.0/24 }
+    - { name: s192, cidr: 10.192.168.0/24 }
+    - { name: s199a, cidr: 10.199.0.0/29 }
+    - { name: s199b, cidr: 10.199.0.8/29 }
+  nodes:
+    - name: hq
+      kind: router
+      image: debian-12-cloud@v1
+      nets: [{ segment: s100 }, { segment: s120a }, { segment: s120b }, { segment: s180b }]
+    - { name: ws100, role: corp-workstation, image: debian-12-cloud@v1, net: s100 }
+    - { name: ws120a, role: corp-workstation, image: debian-12-cloud@v1, net: s120a }
+    - { name: ws120b, role: corp-workstation, image: debian-12-cloud@v1, net: s120b }
+    - { name: ws180a, role: corp-workstation, image: debian-12-cloud@v1, net: s180a }
+    - name: mx-sw
+      role: l2-switch
+      image: debian-12-cloud@v1
+      nets: [{ segment: s180b }, { segment: s180a }, { segment: s199a }]
+    - name: ms120
+      role: l2-switch
+      image: debian-12-cloud@v1
+      nets: [{ segment: s199a }, { segment: s199b }]
+    - name: labswitch
+      role: l2-switch
+      image: debian-12-cloud@v1
+      nets: [{ segment: s199b }, { segment: s192 }]
+`;
+
+describe("a router's rail (R4-2b) and an open site's row (R4-8)", () => {
+  const box = (p: ReturnType<typeof placed>, id: string) => {
+    const n = p.byId.get(id);
+    if (!n) throw new Error(`no node ${id}`);
+    return { ...p.abs(n), w: n.width ?? 0, h: n.height ?? 0 };
+  };
+  it("every site and segment the router serves, or a bridging host carries, sits on its rail in one row, site then CIDR, the +N more last and no parent", () => {
+    const p = placed("rail", RAIL_TE);
+    expect(p.overBudget).toBeNull();
+    // Nothing is "not carried": the bridged segments joined the router's rail with their sites.
+    expect(p.nodes.some((n) => n.data.kind === "uncarried")).toBe(false);
+    const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), ID.segment("s192"), TREE_ID.carrierOverflow("hq")];
+    const boxes = rail.map((id) => box(p, id));
+    expect(new Set(boxes.map((b) => Math.round(b.y + b.h / 2))).size).toBe(1);
+    const xs = boxes.map((b) => b.x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+    expect(p.anchorByName["s199a"]).toBe(TREE_ID.carrierOverflow("hq"));
+    // The overflow is a leaf: nothing hangs below it.
+    const over = box(p, TREE_ID.carrierOverflow("hq"));
+    expect(p.nodes.filter((n) => !n.parentId && p.abs(n).y > over.y + over.h)).toEqual([]);
+    expect(p.edges.filter((e) => e.source === TREE_ID.carrierOverflow("hq"))).toEqual([]);
+  });
+  it("opened, the carrier's items stay one row with the collapse tile last; a fold of bridged segments hangs from the router, dashed, naming the bridge", () => {
+    const p = placed("rail", RAIL_TE, { expanded: ["carrier:hq"] });
+    const tile = p.nodes.find((n) => n.data.kind === "overflow" && n.data.siteKey === "carrier:hq")!;
+    const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), ID.segment("s192"), TREE_ID.siteFold("hq", "10.199"), tile.id];
+    const xs = rail.map((id) => box(p, id).x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+    expect(new Set(rail.map((id) => Math.round(box(p, id).y + box(p, id).h / 2))).size).toBe(1);
+    const bridge = p.edges.find((e) => e.target === TREE_ID.siteFold("hq", "10.199"));
+    expect(bridge).toMatchObject({ source: ID.router("hq"), data: { kind: "carry", dashed: true } });
+    expect((bridge!.data as { label?: string }).label).toMatch(/^via /);
+  });
+  it("an open site is one tile on the rail; its segments fan in their own row below it, CIDR order, legs drawn from the tile, never chained through a pill", () => {
+    const p = placed("rail", RAIL_TE, { expanded: ["carrier:hq", "site:hq|10.180"] });
+    const tile = p.nodes.find((n) => n.data.kind === "overflow" && n.data.siteKey === "site:hq|10.180")!;
+    const t = box(p, tile.id);
+    const a = box(p, ID.segment("s180a"));
+    const b = box(p, ID.segment("s180b"));
+    expect(Math.round(a.y)).toBe(Math.round(b.y));
+    expect(a.y).toBeGreaterThan(t.y + t.h);
+    expect(a.x).toBeLessThan(b.x);
+    // The router's real leg to s180b is drawn from the tile; the bridged s180a hangs from the tile, dashed.
+    expect(p.edges.find((e) => e.id === "leg:hq>s180b")?.source).toBe(tile.id);
+    expect(p.edges.find((e) => e.target === ID.segment("s180a") && e.source === tile.id)?.data).toMatchObject({ dashed: true });
+    // No pill is the parent of another pill.
+    const pills = new Set(p.nodes.filter((n) => n.type === "segment").map((n) => n.id));
+    expect(p.edges.filter((e) => pills.has(e.source) && pills.has(e.target) && e.data?.kind !== "stub")).toEqual([]);
+  });
+});

@@ -22,6 +22,8 @@ export interface ExtraLeg {
   /** The network id, which is the segment NAME in the export vocabulary. */
   segment: string;
   ip: string | null;
+  /** The segment NAME the host sits on (its first leg): two segments may share a CIDR, so the CIDR does not name it. */
+  home?: string;
 }
 
 /** The device tree's structure the bipartite graph cannot carry
@@ -148,7 +150,7 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
       listen_ports: listenByInstance.get(n.id) ?? [],
       dial_ports: [],
     });
-    for (const leg of legs.slice(1)) extraLegs.push({ host: n.id, segment: leg.target, ip: leg.ip ?? null });
+    for (const leg of legs.slice(1)) extraLegs.push({ host: n.id, segment: leg.target, ip: leg.ip ?? null, home: first!.target });
   }
 
   const exportData: TopologyExport = {

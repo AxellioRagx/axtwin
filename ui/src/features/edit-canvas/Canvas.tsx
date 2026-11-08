@@ -707,9 +707,32 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
   }, [legDrag !== null, rf, edit]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A fold opened or closed refits the view to what changed once the tree has re-laid out (R4-8):
+  // the open site's tile and its row, or the closed tile's rail.
+  const pendingFit = useRef<{ key: string; opening: boolean } | null>(null);
+  useEffect(() => {
+    const want = pendingFit.current;
+    if (!want) return;
+    const tile = placement.nodes.find((n) => n.data.kind === "overflow" && n.data.siteKey === want.key && n.data.expanded === want.opening);
+    if (!tile) return;
+    const from = (id: string) => placement.edges.filter((x) => x.source === id && x.type !== "arc").map((x) => x.target);
+    const parent = placement.edges.find((x) => x.target === tile.id && x.type !== "arc")?.source ?? null;
+    const row = from(tile.id);
+    // An open site: the tile and its row. A closed one, or an open carrier (its items rejoined the rail): the rail.
+    const ids = want.opening && row.length ? [tile.id, ...row] : parent ? [parent, ...from(parent)] : [tile.id];
+    const t = window.setTimeout(() => {
+      pendingFit.current = null;
+      void rf.fitView({ nodes: ids.map((id) => ({ id })), duration: 300, padding: 0.15, maxZoom: FIT_MAX_ZOOM });
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [placement, rf]);
+
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
-      if (node.data.kind === "overflow") onToggleSite(node.data.siteKey);
+      if (node.data.kind === "overflow") {
+        pendingFit.current = { key: node.data.siteKey, opening: !node.data.expanded };
+        onToggleSite(node.data.siteKey);
+      }
       // A pill's host fold (`+N`, the per-segment host budget) opens or closes in place.
       const hostFold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-host-fold]") : null;
       if (hostFold?.dataset["hostFold"]) {

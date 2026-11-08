@@ -203,10 +203,12 @@ const BRIDGED = `twin_config:
 `;
 
 describe("segments no device carries", () => {
-  it("a segment a bridging host reaches hangs under that host's pill; the rest under a labelled 'Not carried' box", () => {
+  it("a segment a bridging host reaches sits on the router's rail beside the bridged one (R4-2b), dashed from the router via the host; the rest under a labelled 'Not carried' box", () => {
     const p = placed("bridged", BRIDGED);
     const y = (id: string) => p.nodes.find((n) => n.id === id)!.position.y;
-    expect(y(ID.segment("access"))).toBeGreaterThan(y(ID.segment("lan")));
+    // One row under the router: the bridged segment is not a child of the bridging host's pill.
+    expect(y(ID.segment("access"))).toBe(y(ID.segment("lan")));
+    expect(p.edges.find((e) => e.target === ID.segment("access") && e.source === ID.router("gw"))?.data).toMatchObject({ kind: "carry", dashed: true, label: "via bridge" });
     const box = p.nodes.find((n) => n.id === "chrome:uncarried")!;
     expect(box.data).toMatchObject({ kind: "uncarried", label: "Not carried" });
     expect(p.edges.filter((e) => e.source === "chrome:uncarried").map((e) => e.target)).toEqual([ID.segment("island")]);
