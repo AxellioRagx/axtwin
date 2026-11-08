@@ -16,6 +16,7 @@ import type {
   SourceDefaults,
   SourceWrite,
 } from "../api/types";
+import { formatInstant } from "./time";
 
 export type AccessChoice = "none" | "basic" | "api_key" | "ssh_tunnel";
 export type TunnelAuth = "none" | "basic" | "api_key";
@@ -212,15 +213,16 @@ export function windowPreview(probe: Probe | null | undefined, days: number): { 
   return { from, to };
 }
 
+/** Epoch seconds in the console's one timestamp style (`model/time.ts`); `unknown` when absent. */
 export function formatTs(epoch: number | null | undefined): string {
   if (epoch === null || epoch === undefined || !Number.isFinite(epoch)) return "unknown";
-  return new Date(epoch * 1000).toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC");
+  return formatInstant(epoch, "unknown");
 }
 
+/** An ISO string in the same style; an unparseable one is shown as it came. */
 export function formatIso(iso: string | null | undefined): string {
   if (!iso) return "unknown";
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? formatTs(t / 1000) : iso;
+  return formatInstant(iso, iso);
 }
 
 export function formatDuration(seconds: number): string {

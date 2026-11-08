@@ -60,10 +60,11 @@ describe("the imprints page", () => {
     expect(rows[1]!.textContent).toContain("pit-1");
     expect(screen.getByRole("link", { name: "corp-apcn-2h" }).getAttribute("href")).toBe("/imprints/pit-1");
 
-    // One name+id presentation: the id sits under the name; one date style, no raw UTC.
+    // One name+id presentation: the id sits under the name; one date style (R4-7: local time with
+    // the zone, the exact UTC instant in the tooltip; the suite runs in UTC).
     expect(first.querySelector(".entity-id")?.textContent).toBe("pit-1");
-    expect(first.querySelector("time")?.textContent).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d$/);
-    expect(first.textContent).not.toContain("UTC");
+    expect(first.querySelector("time")?.textContent).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d [A-Z][A-Za-z0-9+:-]*$/);
+    expect(first.querySelector("time")?.getAttribute("title")).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC$/);
     // No delete control on any row.
     expect(within(screen.getByRole("table")).queryAllByRole("button")).toEqual([]);
     expect(screen.queryByText("🗑")).toBeNull();

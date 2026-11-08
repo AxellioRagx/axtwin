@@ -61,9 +61,9 @@ describe("the run page", () => {
     renderAt(api, "/discovery/runs/disc-7");
     const bar = await screen.findByRole("progressbar", { name: "Ingest progress" });
     expect(bar.getAttribute("aria-valuenow")).toBe("25");
-    expect(screen.getByText(/^Ingest has reached 2026-09-29 07:30:37 UTC: 2\.50 of 10\.00 days \(25%\)/)).toBeTruthy();
-    expect(screen.getByText("2026-09-26 19:30:37 UTC")).toBeTruthy();
-    expect(screen.getByText("2026-10-06 19:30:37 UTC")).toBeTruthy();
+    expect(screen.getByText(/^Ingest has reached 2026-09-29 07:30 UTC: 2\.50 of 10\.00 days \(25%\)/)).toBeTruthy();
+    expect(screen.getByText("2026-09-26 19:30 UTC")).toBeTruthy();
+    expect(screen.getByText("2026-10-06 19:30 UTC")).toBeTruthy();
   });
 
   it("cancels after a confirmation and shows the run stopping, then cancelled", async () => {

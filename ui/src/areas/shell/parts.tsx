@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { signinHref, useWhoami } from "../../api/whoami";
+import { formatInstant, formatInstantUtc, instantOf } from "../../model/time";
 
 /** A refused write, in words the operator can act on (ui/Spec.md C1.6): a
  *  `401` is "sign in required", a `403` "read-only for this account". Neither
@@ -41,27 +42,19 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${status}`}>{status}</span>;
 }
 
-/** The ONE date style of the console pages: `2026-11-07 14:02`, local time, on one line,
- *  with the absolute UTC instant in the tooltip. Accepts an ISO string or epoch seconds. */
+/** The ONE date style of the console (`model/time.ts`): `2026-11-07 14:02 CST`, local time with
+ *  the zone, on one line; `When` puts the exact UTC instant in the tooltip. Accepts an ISO string
+ *  or epoch seconds. */
 export function formatWhen(value: string | number | null | undefined): string {
-  const d = whenDate(value);
-  if (!d) return "—";
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function whenDate(value: string | number | null | undefined): Date | null {
-  if (value === null || value === undefined || value === "") return null;
-  const d = typeof value === "number" ? new Date(value * 1000) : new Date(Date.parse(value));
-  return Number.isFinite(d.getTime()) ? d : null;
+  return formatInstant(value);
 }
 
 export function When({ value }: { value: string | number | null | undefined }) {
-  const d = whenDate(value);
+  const d = instantOf(value);
   if (!d) return <span className="muted">—</span>;
   return (
-    <time className="when" dateTime={d.toISOString()} title={d.toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC")}>
-      {formatWhen(value)}
+    <time className="when" dateTime={d.toISOString()} title={formatInstantUtc(value)}>
+      {formatInstant(value)}
     </time>
   );
 }

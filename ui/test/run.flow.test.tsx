@@ -15,9 +15,9 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(state.writes).toEqual([{ op: "probe", id: "src-1" }]);
     expect(screen.getByText("axellio-hq/corp-apcn-rdr1:12")).toBeTruthy();
     expect(screen.getByText("16.9 G (16,893,421,675)")).toBeTruthy();
-    expect(screen.getByText(/2026-09-06 19:30:36 UTC → 2026-10-06 19:30:36 UTC \(30\.0 days\)/)).toBeTruthy();
+    expect(screen.getByText(/2026-09-06 19:30 UTC → 2026-10-06 19:30 UTC \(30\.0 days\)/)).toBeTruthy();
     // The run form previews the window the server will resolve.
-    expect(screen.getByText(/Resolves to 2026-09-26 19:30:37 UTC → 2026-10-06 19:30:37 UTC/)).toBeTruthy();
+    expect(screen.getByText(/Resolves to 2026-09-26 19:30 UTC → 2026-10-06 19:30 UTC/)).toBeTruthy();
   });
 
   it("starts a 10-day run, polls it to completion and opens the imprint", async () => {
@@ -41,7 +41,7 @@ describe("C1.2 -- test, run, poll, open", () => {
     });
     // First poll: running, ingest done, window resolved.
     await waitFor(() => expect(screen.getByText("ingest").className).toBe("done"));
-    await screen.findByText(/2026-09-26 19:30:37 UTC → 2026-10-06 19:30:37 UTC \(10\.00 days\)/);
+    await screen.findByText(/2026-09-26 19:30 UTC → 2026-10-06 19:30 UTC \(10\.00 days\)/);
     // Second poll (2 s later): completed, with the imprint on offer.
     const open = await screen.findByTestId("open-imprint", {}, { timeout: 6000 });
     expect(open.textContent).toBe("Open imprint corp-apcn-10d");
