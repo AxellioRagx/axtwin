@@ -4,9 +4,8 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`. Pushed to origin up to
-`cb05aa4`; the commits after it (below) are **local, not pushed** (push only when the user
-asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`. Pushed to origin
+(through the five fixes below; push only when the user asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
 
 ## What this session did
 
@@ -14,7 +13,7 @@ Earlier today (pushed): the canvas follow-ups after review round 3 — the tree 
 directly (`2fe0b04`), no orphan segments (`28ecfbf`), members (`9c853f1`), duplicate (`de8df00`).
 Round 3's review doc: https://claude.ai/artifact/PR6PeoXpMPjcfMikVX69qP.
 
-Then, asked to fix five open items (local):
+Then, asked to fix five open items (pushed):
 
 - **`211de33`** imprint JSON editor keeps `confirm` / `doubt` through a save (it sent only
   add / override / suppress, erasing the marks).
@@ -33,8 +32,7 @@ Then, asked to fix five open items (local):
   alone, 8.8 s under load), a read of every other twin's config, the 5 s validate beside them;
   first clicks waited ~10 s. The palette's catalog now loads on first open; the engine's
   listing memoises each file's head (LES-283 key) and skips YAML without `twin_config`
-  (repeat listing 3.25 s → 0.07 s). corp-twin quiet in 4.3 s, was 10.7 s (UI half only: see
-  below).
+  (repeat listing 3.25 s → 0.07 s). corp-twin quiet in 4.3 s, was 10.7 s.
 - SPEC: "Canvas follow-ups (2026-11-08)" gained the four lines; rule 11 says the new split.
 
 ## Current state
@@ -44,9 +42,8 @@ Then, asked to fix five open items (local):
   `test_default_catalog_dir_exists_and_has_the_expected_configs`,
   `test_load_twin_config_every_shipped_config_parses`,
   `test_every_migrated_twin_folder_has_a_valid_manifest`). Full engine suite not re-run.
-- **Serve:** :8080 (pid 1419935) serves the rebuilt `ui/dist`. **Not restarted**, so the
-  engine half of R3-6 (the listing memo) is not live until it is (recipe in memory; restart
-  only when asked).
+- **Serve:** :8080 restarted 2026-11-08 (pid 1509220, `none` mode, same env) on the rebuilt
+  `ui/dist`; the listing memo is live (first listing 3.4 s, repeat 0.06 s).
 - **Eye checks** (headless, scratchpad): `I1-*` (corp-tree carry → parked drop: the copy's pills
   at the original's offset; only a validate sent), `J1/J2` (Deploy panel, plan only),
   `stress.cjs` / `net.cjs` (the R3-6 numbers). dev45 untouched.
@@ -61,7 +58,7 @@ Then, asked to fix five open items (local):
   are cheap. Validate of corp-twin is ~2 s per edit, server side.
 - corp-apcn-reader-20261028 still reads invalid (its IPv6 /64, CV-012); re-cast or remove the
   segment, or decide whether the engine should refuse non-IPv4 too (a contract call).
-- Yours to decide: push; restart the serve; the serve's auth mode (`none` on 0.0.0.0); merge.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge.
 
 ## Gotchas
 
