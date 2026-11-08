@@ -4,8 +4,8 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 (evening) · **Branch:** `wip/design-platforms-canvas`. Origin is
-at `ffd18c7`; the eight commits below are LOCAL, not pushed (push only when the user asks).
+**Last updated:** 2026-11-08 (evening) · **Branch:** `wip/design-platforms-canvas`. Pushed to origin
+(through the R4 items below; push only when the user asks).
 Rule: commit each piece as it lands, staged by path; never `git add -A`.
 
 ## What this session did
