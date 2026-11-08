@@ -1,8 +1,11 @@
 /**
  * Subtree select, duplicate and attach (`docs/design/topology-layers.md` §6,
- * track 5d). A device's subtree is the device and everything the links hang
- * below it: the deeper devices, the segments they carry, the host groups on
- * those segments, their member overrides and the links among them. Duplicate
+ * track 5d; the rule tightened by R4-3, 2026-11-08). A device's subtree is the
+ * device and the deeper devices its `up` links reach, the segments they carry
+ * (their deepest carrier is in the set), the host groups ON those segments,
+ * their member overrides and the links among that set only. A down or blocked
+ * link never extends it; a host whose segment is outside it is never copied; a
+ * copied link that would point outside it is dropped. Duplicate
  * copies the lot under `{name}-{n}` names, every copied segment taking the
  * next free `/24` in its two-octet prefix and its hosts addresses in it;
  * roles, personas, counts and member overrides copy; taps never do; the copy
@@ -22,9 +25,9 @@ export interface Subtree {
   devices: string[];
   /** The segments whose deepest carrier is in the subtree. */
   segments: string[];
-  /** The host groups on those segments or wired to a subtree device. */
+  /** The host groups on those segments (a host wired to a subtree device but on no such segment is not). */
   hosts: string[];
-  /** The `links[]` indices with an end in the subtree (the uplink excluded). */
+  /** The `links[]` indices with both ends in the subtree (the uplink excluded). */
   links: number[];
   /** The link from the root up to a shallower device, or null when the root is parked or a root of its own. */
   uplink: TeLink | null;
@@ -83,37 +86,55 @@ export function subtreeOf(model: DocModel, root: string): Subtree {
   const devices: string[] = [];
   let uplink: TeLink | null = null;
   if (isDevice(rootNode)) {
+    // Only an `up` link extends the subtree (R4-3): a down or blocked one deploys nothing, so
+    // whatever hangs off it is not below this device.
+    for (const l of te.links) {
+      const other = l.a.device === root ? l.b.device : l.b.device === root ? l.a.device : null;
+      if (other && deviceNames.has(other) && below(other) < below(root) && (!uplink || (uplink.state !== "up" && l.state === "up"))) uplink = l;
+    }
     const seen = new Set<string>([root]);
     const queue = [root];
     while (queue.length) {
       const d = queue.shift()!;
       devices.push(d);
       for (const l of te.links) {
+        if (l.state !== "up") continue;
         const other = l.a.device === d ? l.b.device : l.b.device === d ? l.a.device : null;
         if (!other || !deviceNames.has(other) || seen.has(other)) continue;
-        if (d === root && below(other) < below(root)) { uplink = uplink ?? l; continue; }
-        if (below(other) > below(d) || (below(other) === below(d) && l.state !== "up")) { seen.add(other); queue.push(other); }
+        const deeper = below(other) > below(d) || (below(d) === Number.POSITIVE_INFINITY && below(other) === Number.POSITIVE_INFINITY);
+        if (deeper) {
+          seen.add(other);
+          queue.push(other);
+        }
       }
     }
   }
   const inTree = new Set(devices);
-  // A segment belongs to the subtree when its deepest carrier does (ties go to the subtree).
+  // A segment belongs to the subtree when its deepest carrier does (ties go to the subtree). A
+  // carrier is a device whose up links (or own legs) carry the segment; a router's own legs count,
+  // so the segments it serves directly stay with it rather than with any copy of a switch below.
+  const carried = (d: string): string[] => {
+    const own = te.nodes.find((n) => n.name === d)?.kind === "router" ? (te.nodes.find((n) => n.name === d)?.nets.map((l) => l.segment) ?? []) : [];
+    return [...new Set([...carriedBy(te, d), ...own])];
+  };
   const segments: string[] = [];
   const carrier = new Map<string, { device: string; depth: number }>();
-  for (const d of deviceNames) for (const s of carriedBy(te, d)) {
+  for (const d of deviceNames) for (const s of carried(d)) {
     const cur = carrier.get(s);
     const dd = below(d);
     if (!cur || dd > cur.depth || (dd === cur.depth && inTree.has(d) && !inTree.has(cur.device))) carrier.set(s, { device: d, depth: dd });
   }
   for (const [s, c] of carrier) if (inTree.has(c.device)) segments.push(s);
+  // The hosts ON those segments, and only those: a host wired to a subtree device but on a segment
+  // outside the set (the file server behind a down port) is never copied.
   const hosts: string[] = [];
   for (const n of te.nodes) {
     if (isDevice(n)) continue;
-    const wired = te.links.some((l) => (l.a.device === n.name && inTree.has(l.b.device)) || (l.b.device === n.name && inTree.has(l.a.device)));
-    if (n.name === root || wired || n.nets.some((l) => segments.includes(l.segment))) hosts.push(n.name);
+    if (n.name === root || n.nets.some((l) => segments.includes(l.segment))) hosts.push(n.name);
   }
+  // The links among that set only: both ends in it, the uplink aside.
   const members = new Set([...devices, ...hosts]);
-  const links = te.links.filter((l) => l !== uplink && (members.has(l.a.device) || members.has(l.b.device)) && !(l.a.device === root && !members.has(l.b.device)) && !(l.b.device === root && !members.has(l.a.device))).map((l) => l.index);
+  const links = te.links.filter((l) => l !== uplink && members.has(l.a.device) && members.has(l.b.device)).map((l) => l.index);
   return { root, devices, segments, hosts, links, uplink };
 }
 
@@ -273,21 +294,28 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
   const upCarried = attachTo === null && tree.uplink ? [...(tree.uplink.native ? [tree.uplink.native] : []), ...tree.uplink.vlans].filter((s, i, xs) => tree.segments.includes(s) && xs.indexOf(s) === i) : [];
   for (const name of [...tree.devices, ...tree.hosts]) {
     const n = te.nodes.find((x) => x.name === name)!;
-    const nets = n.nets.map((l) => ({ segment: seg(l.segment), ip: l.ip && n.countValue === 1 && !isDevice(n) ? allocate(seg(l.segment), 1)[0] ?? null : null }));
+    // A leg on a segment outside the set is not copied: the copy never joins an original segment.
+    const nets = n.nets.filter((l) => tree.segments.includes(l.segment)).map((l) => ({ segment: seg(l.segment), ip: l.ip && n.countValue === 1 && !isDevice(n) ? allocate(seg(l.segment), 1)[0] ?? null : null }));
     if (name === root) for (const s of upCarried) if (!nets.some((l) => l.segment === seg(s))) nets.push({ segment: seg(s), ip: null });
     text = addNode(text, { name: names[name]!, kind: n.kind, role: n.role, image: n.image, count: n.count, nets, requires: n.requires, resources: n.resources });
     for (const m of n.members) if (m.role) text = setMemberRole(text, names[name]!, m.index, m.role);
   }
   for (const i of tree.links) {
     const l = te.links[i]!;
-    text = addLink(text, { a: { device: names[l.a.device] ?? l.a.device, port: l.a.port }, b: { device: names[l.b.device] ?? l.b.device, port: l.b.port }, mode: l.mode, native: l.native ? seg(l.native) : null, vlans: l.vlans.map(seg), state: l.state === "up" ? null : l.state });
+    // A copied link carries only the copied segments; one that would point outside the set is dropped.
+    const vlans = l.vlans.filter((v) => tree.segments.includes(v)).map(seg);
+    const native = l.native && tree.segments.includes(l.native) ? seg(l.native) : null;
+    if (!vlans.length && !native) continue;
+    text = addLink(text, { a: { device: names[l.a.device]!, port: l.a.port }, b: { device: names[l.b.device]!, port: l.b.port }, mode: l.mode, native, vlans, state: l.state === "up" ? null : l.state });
   }
   const newRoot = names[root]!;
   if (attachTo !== null) {
     const up = tree.uplink;
     const carried = tree.segments.map(seg);
-    const native = up?.native ? seg(up.native) : null;
-    const vlans = up ? up.vlans.map(seg).filter((s) => carried.includes(s) || !tree.segments.includes(s)) : carried;
+    // The new trunk carries the copied segments only, never an original one (that would hang the
+    // original segment under the copy).
+    const native = up?.native && tree.segments.includes(up.native) ? seg(up.native) : null;
+    const vlans = up ? up.vlans.filter((s) => tree.segments.includes(s)).map(seg) : carried;
     const rootPort = up ? (up.a.device === root ? up.a.port : up.b.port) : freePort(readDocTe(text, doc), newRoot);
     text = addLink(text, { a: { device: attachTo, port: freePort(readDocTe(text, doc), attachTo) }, b: { device: newRoot, port: rootPort }, mode: "trunk", native, vlans: vlans.length || native ? vlans : carried });
   }

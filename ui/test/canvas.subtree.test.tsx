@@ -352,3 +352,69 @@ describe("parkedDevices (R3-2)", () => {
     expect(parkedDevices(readDoc({ ...d, files: attached }).te)).toEqual([]);
   });
 });
+
+/** switch-test's te.yaml as the catalog ships it (R4-3, 2026-11-08). */
+const SWITCH_TEST = `twin_config:
+  id: switch-test
+  segments:
+    - { name: office, cidr: 10.71.10.0/24, zone_type: vlan }
+    - { name: servers, cidr: 10.71.20.0/24, zone_type: vlan }
+  nodes:
+    - name: corp-workstation
+      role: corp-workstation
+      image: debian-12-cloud@v1
+      count: 2
+      net: office
+      members:
+        - { index: 2, role: jump-host, source: authored }
+    - name: file-server
+      role: file-server
+      image: ubuntu-server-22@v5
+      nets:
+        - { segment: servers, ip: 10.71.20.10 }
+    - name: access-sw
+      kind: switch
+      role: l2-switch
+      source: authored
+    - name: gw
+      kind: router
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: office }
+        - { segment: servers }
+  links:
+    - a: { device: gw, port: eth1 }
+      b: { device: access-sw, port: SFP1 }
+      mode: trunk
+      native: office
+      vlans: [office]
+      source: authored
+    - a: { device: access-sw, port: P24 }
+      b: { device: file-server, port: eth0 }
+      mode: access
+      vlans: [servers]
+      state: down
+      source: authored
+`;
+
+describe("a down link never extends the subtree (R4-3)", () => {
+  const sw = () => ({ id: "switch-test", teFile: "te.yaml", files: { "te.yaml": SWITCH_TEST } });
+  it("access-sw's subtree is itself, office and the workstations: not the file server behind the down P24", () => {
+    const t = subtreeOf(readDoc(sw()), "access-sw");
+    expect(t).toMatchObject({ devices: ["access-sw"], segments: ["office"], hosts: ["corp-workstation"], links: [] });
+    expect(t.uplink?.index).toBe(0);
+  });
+  it("duplicating access-sw onto gw yields exactly access-sw-2, office-2, corp-workstation-2 and one new gw link", () => {
+    const before = readTe(SWITCH_TEST);
+    const r = duplicateSubtree(sw(), readDoc(sw()), "access-sw", "gw");
+    const te = readTe(r.files["te.yaml"]!);
+    expect(te.problems).toEqual([]);
+    expect(te.nodes.map((n) => n.name).filter((n) => !before.nodes.some((b) => b.name === n))).toEqual(["access-sw-2", "corp-workstation-2"]);
+    expect(te.segments.map((s) => s.name).filter((n) => !before.segments.some((b) => b.name === n))).toEqual(["office-2"]);
+    expect(te.links.length).toBe(before.links.length + 1);
+    expect(te.links.at(-1)).toMatchObject({ a: { device: "gw", port: "eth2" }, b: { device: "access-sw-2", port: "SFP1" }, mode: "trunk", native: "office-2", vlans: ["office-2"], state: "up" });
+    // The original servers segment still holds one host.
+    expect(te.nodes.filter((n) => n.nets.some((l) => l.segment === "servers")).map((n) => n.name)).toEqual(["file-server", "gw"]);
+    expect(te.nodes.find((n) => n.name === "corp-workstation-2")!.nets).toEqual([{ segment: "office-2", ip: null }]);
+  });
+});
