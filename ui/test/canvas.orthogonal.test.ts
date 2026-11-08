@@ -185,3 +185,44 @@ describe("positions", () => {
     expect(nb.position.x).toBeGreaterThanOrEqual(na.position.x + (na.width ?? 0));
   });
 });
+
+const BRIDGED = `twin_config:
+  id: bridged
+  segments:
+    - { name: lan, cidr: 10.1.1.0/24 }
+    - { name: access, cidr: 10.1.2.0/24 }
+    - { name: island, cidr: 10.9.9.0/24 }
+  nodes:
+    - { name: ws, role: workstation, image: img@v1, net: access }
+    - { name: lonely, role: workstation, image: img@v1, net: island }
+    - name: bridge
+      role: l2-switch
+      image: img@v1
+      nets: [{ segment: lan, l2: true }, { segment: access, l2: true }]
+    - { name: gw, kind: router, image: vyos@v1, net: lan }
+`;
+
+describe("segments no device carries", () => {
+  it("a segment a bridging host reaches hangs under that host's pill; the rest under a labelled 'Not carried' box", () => {
+    const p = placed("bridged", BRIDGED);
+    const y = (id: string) => p.nodes.find((n) => n.id === id)!.position.y;
+    expect(y(ID.segment("access"))).toBeGreaterThan(y(ID.segment("lan")));
+    const box = p.nodes.find((n) => n.id === "chrome:uncarried")!;
+    expect(box.data).toMatchObject({ kind: "uncarried", label: "Not carried" });
+    expect(p.edges.filter((e) => e.source === "chrome:uncarried").map((e) => e.target)).toEqual([ID.segment("island")]);
+    expect(y(ID.segment("island"))).toBeGreaterThan(box.position.y);
+    expect(crossings(p)).toEqual([]);
+    expect(unrouted(p)).toEqual([]);
+  });
+  it("corp-twin: every segment is reached through its bridging hosts; nothing is 'not carried'", () => {
+    const te = readFileSync(resolve(CATALOG, "corp-twin", "te.yaml"), "utf8");
+    for (const fan of [undefined, 1000]) {
+      const p = placed("corp-twin", te, fan ? { fan } : {});
+      expect(p.nodes.some((n) => n.id === "chrome:uncarried")).toBe(false);
+      // No orphan: every top-level box but the routers and the Internet has an edge coming in.
+      const reached = new Set(p.edges.filter((e) => e.type !== "arc").map((e) => e.target));
+      const orphans = p.nodes.filter((n) => !n.parentId && n.type !== "router" && n.id !== ID.internet && !reached.has(n.id)).map((n) => n.id);
+      expect(orphans).toEqual([]);
+    }
+  });
+});

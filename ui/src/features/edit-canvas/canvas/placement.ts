@@ -156,7 +156,7 @@ export type TapData = { kind: "tap"; id: string; target: string; scope: string; 
  *  Drawn only when the cast evidence has non-local peers or the config
  *  defines an uplink on a router; the gateway is folded into that router
  *  (`RouterData.uplink` / `crossing`), there is no WAN node. */
-export type ChromeData = { kind: "internet"; label: string; sub: string; title: string };
+export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: string; title: string };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };
@@ -178,7 +178,7 @@ export type BusData = { kind: "bus"; router: string; site: string; segment: stri
 export type TrunkData = { kind: "trunk"; bytes: number; flows: number };
 /** A `links[]` entry drawn between two devices, or a device's carrying of a segment (topology-layers §2.3). */
 export type LinkData = { kind: "link"; a: string; aPort: string; b: string; bPort: string; mode: string; native: string | null; vlans: string[]; state: string; hue: string; source?: Source | null; label: string; index: number };
-export type CarryData = { kind: "carry"; device: string; segment: string; label: string; hue: string };
+export type CarryData = { kind: "carry"; device: string; segment: string; label: string; hue: string; /** The "not carried" group's members (no device). */ dashed?: boolean };
 /** A segment whose only members are routers (a `/30` such as `fab-link`): a router-to-router link labelled with it. */
 export type SegLinkData = { kind: "seglink"; segment: string; cidr: string; a: string; b: string; hue: string; source?: Source | null; label: string };
 /** The orthogonal polyline the tree routed through the gutters (`canvas/tree.ts` `routeTree`), absolute on the

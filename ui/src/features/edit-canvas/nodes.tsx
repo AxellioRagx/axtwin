@@ -593,10 +593,11 @@ export function OverflowNode(p: P) {
 
 export function ChromeNode(p: P) {
   const d = p.data;
-  if (d.kind !== "internet") return null;
+  if (d.kind !== "internet" && d.kind !== "uncarried") return null;
+  const internet = d.kind === "internet";
   return (
-    <div className="cv-chrome cv-internet" data-testid="canvas-internet" style={{ width: p.width, height: p.height }} title={d.title}>
-      <span className="cv-icon-box" aria-hidden="true"><Icon.globe /></span>
+    <div className={`cv-chrome ${internet ? "cv-internet" : "cv-uncarried"}`} data-testid={internet ? "canvas-internet" : "canvas-uncarried"} style={{ width: p.width, height: p.height }} title={d.title}>
+      {internet ? <span className="cv-icon-box" aria-hidden="true"><Icon.globe /></span> : null}
       <span className="cv-icon-text">
         <span className="cv-icon-name">{d.label}</span>
         <span className="muted cv-icon-sub">{d.sub}</span>
@@ -715,7 +716,7 @@ export function LegEdge(e: E) {
   // fan's badge (its count) is always on.
   const label = kind === "fan" ? (e.data as { label: string }).label : kind === "bus" ? (e.data as { segment: string }).segment : kind === "carry" ? (e.data as { label: string }).label : folded ? (e.data as { label?: string }).label : edit && parts ? (leg?.ip ?? parts.segment) : undefined;
   const hue = kind === "leg" || kind === "fan" || kind === "bus" || kind === "carry" ? (e.data as { hue?: string }).hue : undefined;
-  const cls = kind === "fan" ? " cv-leg-fan" : kind === "bus" ? " cv-leg-bus" : kind === "carry" ? " cv-leg-carry" : kind === "stub" ? " cv-leg-stub" : folded ? " cv-leg-folded" : "";
+  const cls = kind === "fan" ? " cv-leg-fan" : kind === "bus" ? " cv-leg-bus" : kind === "carry" ? ((e.data as { dashed?: boolean }).dashed ? " cv-leg-carry cv-leg-dashed" : " cv-leg-carry") : kind === "stub" ? " cv-leg-stub" : folded ? " cv-leg-folded" : "";
   const end = pts[pts.length - 1];
   // A drop ends in a port dot on its bus (a stub in a hollow one); a fan's trunk ends at the site's edge, no dot.
   const dot = end && kind !== "fan" && !(kind === "leg" && folded) && dst?.type === "segment";

@@ -213,6 +213,10 @@
 .cv-chrome .cv-icon-text { position: absolute; left: calc(50% + 26px); max-width: calc(50% - 30px); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; white-space: nowrap; text-align: left; }
 .cv-chrome .cv-icon-name, .cv-chrome .cv-icon-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canvas-shell.compact .cv-chrome .cv-icon-sub { display: none; }
+/* The "not carried" group: a dashed box with its label inside, so it reads as a group, not a device. */
+.cv-chrome.cv-uncarried { border: 1px dashed var(--muted); border-radius: 8px; background: var(--bg); align-items: center; }
+.cv-chrome.cv-uncarried .cv-icon-text { position: static; transform: none; max-width: 100%; padding: 0 8px; text-align: center; }
+.react-flow__edge-path.cv-leg-dashed { stroke-dasharray: 5 4; opacity: 0.6; }
 
 .react-flow__edge-path.cv-arc { stroke: var(--muted); fill: none; }
 .react-flow__edge-path.cv-arc-asserted { stroke-dasharray: 6 4; }

@@ -374,6 +374,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   g.setGraph({ rankdir: "TB", nodesep: TREE_NODE_SEP, ranksep: TREE_RANK_SEP, edgesep: 12, marginx: CANVAS_PAD, marginy: CANVAS_PAD });
   g.setDefaultEdgeLabel(() => ({}));
   const INTERNET_H = TIER_INTERNET_H - 12;
+  const UNCARRIED_ID = "chrome:uncarried";
   if (showInternet) g.setNode(ID.internet, { width: INTERNET_W, height: INTERNET_H });
   for (const d of devices) g.setNode(nodeIdOf(d.name), { width: DEVICE_W, height: DEVICE_H });
   const sizeOf = new Map<string, ReturnType<typeof pillSize>>();
@@ -436,13 +437,49 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       if (pill) rankEdge(nodeIdOf(dev), pill);
     }
   }
-  // Items no device carries (a segment no router has a leg on) hang one rank down from an invisible
-  // root, not beside the routers at rank 0 where they would read as gateways.
-  const UNCARRIED = "layout:uncarried";
-  const uncarried = [...drawnSegments.filter((s) => carrierKey(s) === NO_CARRIER).map((s) => ID.segment(s.name)), ...siteFolds.filter((f) => f.carrier === NO_CARRIER).map((f) => TREE_ID.siteFold(f.carrier, f.site)), ...(folded.has(NO_CARRIER) ? [TREE_ID.carrierOverflow(NO_CARRIER)] : [])];
-  if (devices.length && uncarried.length) {
-    g.setNode(UNCARRIED, { width: 1, height: 1 });
-    for (const id of uncarried) rankEdge(UNCARRIED, id);
+  // Items no device carries (a segment no router has a leg on, no switch carries). A host with a leg
+  // on two segments bridges them (corp-twin's bridging hosts, `role: l2-switch` with `l2: true` legs):
+  // an uncarried item a bridge reaches from a ranked one hangs under that one's pill, the stub its
+  // edge. What no bridge reaches hangs under a visible "not carried" box one rank down, labelled,
+  // not beside the routers at rank 0 where it would read as a gateway.
+  const itemOf = (seg: GraphSegment): string | null => pillOrFold(seg.name);
+  const ranked = new Set<string>();
+  const uncarriedItems = new Set<string>();
+  for (const seg of shown) {
+    const it = itemOf(seg);
+    if (!it) continue;
+    (carrierKey(seg) === NO_CARRIER ? uncarriedItems : ranked).add(it);
+  }
+  for (const it of ranked) uncarriedItems.delete(it);
+  if (folded.has(NO_CARRIER)) uncarriedItems.add(TREE_ID.carrierOverflow(NO_CARRIER));
+  const bridges: Array<[string, string, string]> = [];
+  for (const st of stubs) {
+    const a = pillOfHost(st.host);
+    const b = pillOrFold(st.segment);
+    if (a && b && a !== b) bridges.push([a, b, st.host]);
+  }
+  /** The bridge edges that ranked an item: `from>to` -> the hosts bridging them. */
+  const bridged = new Map<string, { from: string; to: string; hosts: string[] }>();
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [a, b] of bridges) {
+      const [from, to] = ranked.has(a) && uncarriedItems.has(b) ? [a, b] : ranked.has(b) && uncarriedItems.has(a) ? [b, a] : [null, null];
+      if (!from || !to) continue;
+      rankEdge(from, to);
+      bridged.set(`${from}>${to}`, { from, to, hosts: [] });
+      uncarriedItems.delete(to);
+      ranked.add(to);
+      grew = true;
+    }
+  }
+  const notCarried = [...uncarriedItems];
+  if (devices.length && notCarried.length) {
+    g.setNode(UNCARRIED_ID, { width: INTERNET_W, height: INTERNET_H });
+    for (const [a, b, host] of bridges) {
+    const e = bridged.get(`${a}>${b}`) ?? bridged.get(`${b}>${a}`);
+    if (e && !e.hosts.includes(host)) e.hosts.push(host);
+  }
+  for (const id of notCarried) rankEdge(UNCARRIED_ID, id);
   }
   dagre.layout(g);
 
@@ -516,6 +553,10 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     };
     // R3-7: a switch is its own node type, so the DOM (and a test) can tell it from any other device.
     nodes.push({ id, type: d.kind === "switch" ? "switch" : "device", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });
+  }
+  if (g.hasNode(UNCARRIED_ID)) {
+    const n = notCarried.length;
+    nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title: "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree" } });
   }
   const multi = new Set(extraByHost.keys());
   for (const seg of drawnSegments) {
@@ -662,6 +703,8 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     }
     for (const [anchor, n] of foldedTo) edges.push({ id: `legs:${r.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(r.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} folded`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
   }
+  // The "not carried" box's members: dashed, so the box reads as a group, not a device.
+  for (const id of notCarried) if (g.hasNode(UNCARRIED_ID)) edges.push({ id: `uncarried>${id}`, type: "leg", className: LEG_CLASS, source: UNCARRIED_ID, target: id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: "", segment: id, label: "", hue: plainHue, dashed: true } });
   // A multi-homed host's stubs.
   const stubFolded = new Map<string, { host: string; anchor: string; n: number }>();
   for (const st of stubs) {
@@ -677,6 +720,15 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     edges.push({ id: `stub:${st.host}>${st.segment}`, type: "leg", className: LEG_CLASS, source: ID.host(st.host), target: ID.segment(st.segment), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: st.host, segment: st.segment, label: st.ip ?? st.segment } });
   }
   for (const f of stubFolded.values()) edges.push({ id: `stubs:${f.host}>${f.anchor}`, type: "leg", className: LEG_CLASS, source: ID.host(f.host), target: f.anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: f.host, segment: f.anchor, label: `${f.n} segment${f.n === 1 ? "" : "s"} folded`, folded: f.n } });
+  // A bridge that ranked an item and that no drawn stub shows (its host is folded away): one dashed
+  // edge between the two boxes, naming the bridging hosts.
+  const parentOfNode = new Map(nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId!]));
+  const stubShown = (from: string, to: string) => edges.some((x) => x.data?.kind === "stub" && x.target === to && parentOfNode.get(x.source) === from);
+  for (const b of bridged.values()) {
+    if (stubShown(b.from, b.to) || stubShown(b.to, b.from)) continue;
+    const label = `via ${b.hosts.slice(0, 2).join(", ")}${b.hosts.length > 2 ? ` +${b.hosts.length - 2}` : ""}`;
+    edges.push({ id: `bridge:${b.from}>${b.to}`, type: "leg", className: LEG_CLASS, source: b.from, target: b.to, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: "", segment: b.to, label, hue: plainHue, dashed: true } });
+  }
 
   // ---- a new box never lands on a pinned one: it moves right into free space (brief "Positions") ----
   freeSpace(nodes, pins);
