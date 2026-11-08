@@ -2156,6 +2156,7 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
     # REPORTED rather than emitted, because `name_of` would `KeyError` and because a conduit to
     # nowhere is a stale record, not a malformed one — the operator's remedy is `add: segment`.
     asserted_pairs: list[tuple] = []
+    declared_pairs: set[tuple] = set()  # every live asserted pair, observed or not
     if aview is not None:
         for key, record in sorted(aview.conduit_adds.items()):
             a, b = key.split("|")
@@ -2168,11 +2169,20 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
                 continue
             aview.mark("add", "conduit", key)
             pair = (a, b)
+            declared_pairs.add(pair)
             if pair not in observed_pairs:
                 asserted_pairs.append(pair)
     pairs = sorted(set(observed_pairs) | set(asserted_pairs))
-    conduits = [{"from": name_of[a], "to": name_of[b]} for a, b in pairs]
     _asserted_pairs = set(asserted_pairs)
+    # `source` on every conduit too (§3.1, review R5-1): an observed pair is `discovered` from
+    # the PIT's vantage, a declared one `asserted` (even when also observed: the assertion pins
+    # it, as `confirm` does a node). No `confidence`: no score is computed for a cross-segment
+    # pair (`ir_edge` carries counts, not a belief), and one is never invented.
+    conduits = [{"from": name_of[a], "to": name_of[b],
+                 **({"source": ASSERTIONS_EVIDENCE_CLASS} if (a, b) in declared_pairs else
+                    {"source": "discovered",
+                     **({"vantage": pit_row["vantage"]} if pit_row.get("vantage") else {})})}
+                for a, b in pairs]
     for i, (a, b) in enumerate(pairs):
         if (a, b) in _asserted_pairs:
             record = aview.conduit_adds[conduit_key(a, b)]

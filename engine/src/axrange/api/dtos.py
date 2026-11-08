@@ -1190,6 +1190,11 @@ class TwinConfigSegmentSummaryDTO(BaseModel):
     cidr: str
     zone_type: Optional[str] = None
     when: Optional[str] = None
+    # Provenance (`docs/design/topology-layers.md` §3.1), as the twin config
+    # carries it; absent == authored (an old or hand-written twin).
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class TwinConfigNodeSummaryDTO(BaseModel):
@@ -1206,6 +1211,9 @@ class TwinConfigNodeSummaryDTO(BaseModel):
     count: Any = 1
     role: Optional[str] = None
     when: Optional[str] = None
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 # `TwinConfigTapPointSummaryDTO` REMOVED (`docs/WORK_ORDER_tap_eligibility.md`

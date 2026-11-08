@@ -205,7 +205,9 @@ document is the bundle's text files keyed by bundle-relative path.
 `engine/src/axrange/api/edits.py`; tests `engine/tests/test_api_edit_model.py`).
 `GET /api/twin-configs/{id}` carries the `document` the two writers take, but
 only on a read that sends the bearer token (a bundle holds lab passwords; the
-`?secrets=true` rule); the open read stays the summary.
+`?secrets=true` rule); the open read stays the summary. The summary's
+`segments[]` and `nodes[]` rows carry `source`, `confidence` and `vantage` as
+the config holds them, null where it has none (R5-1, 2026-11-08).
 - `POST /api/twin-configs` — create a new twin-config under a chosen id from a
   body (Save-As). An id that already exists is refused, never overwritten.
 - `PUT /api/twin-configs/{id}` — overwrite the baseline (Persist from a working

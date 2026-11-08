@@ -214,3 +214,37 @@ def test_the_tree_and_the_topology_carry_what_the_cast_wrote_as_provenance(tmp_p
     assert topo.status_code == 200, topo.text
     nets = {n["id"]: (n["source"], n["confidence"], n["vantage"]) for n in topo.json()["nodes"] if n["type"] == "network"}
     assert nets == {"lan": ("discovered", 0.75, "hq/rdr1:12"), "sink": ("unconfirmed", None, None)}
+
+
+def test_the_twin_config_detail_carries_provenance_on_its_segment_and_node_rows(tmp_path):
+    """R5-1 (2026-11-08): `GET /api/twin-configs/{id}` summarised a cast's 89 nodes and 44
+    segments without the `source` / `confidence` / `vantage` the twin config carries, so a
+    check through it read every cast as provenance-free. Conduits accept the fields too."""
+    root = tmp_path / "bundles"
+    root.mkdir()
+    d = root / "prov"
+    d.mkdir()
+    (d / "prov.yaml").write_text(
+        "twin_config:\n"
+        "  id: prov\n"
+        "  segments:\n"
+        "    - { name: lan, cidr: 10.5.0.0/24, source: discovered, confidence: 0.75, vantage: hq/rdr1:12 }\n"
+        "    - { name: dmz, cidr: 10.6.0.0/24 }\n"
+        "  nodes:\n"
+        "    - { name: gw, kind: router, image: debian-12-cloud@v1, requires: [linux],\n"
+        "        nets: [{ segment: lan }, { segment: dmz }], source: unconfirmed, vantage: hq/rdr1:12 }\n"
+        "    - { name: ws, role: corp-workstation, image: debian-12-cloud@v1, requires: [linux], net: lan,\n"
+        "        source: asserted }\n"
+        "  conduits:\n"
+        "    - { from: lan, to: dmz, source: discovered, vantage: hq/rdr1:12 }\n"
+    )
+    settings = ApiSettings(db_path=str(tmp_path / "state.db"), adapter_config="/nonexistent.conf",
+                           imprints_dir=str(root), twin_configs_dir=str(root))
+    c = TestClient(create_app(settings))
+    r = c.get("/api/twin-configs/prov")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    segs = {s["name"]: (s["source"], s["confidence"], s["vantage"]) for s in j["segments"]}
+    assert segs == {"lan": ("discovered", 0.75, "hq/rdr1:12"), "dmz": (None, None, None)}
+    nodes = {n["name"]: (n["source"], n["confidence"], n["vantage"]) for n in j["nodes"]}
+    assert nodes == {"gw": ("unconfirmed", None, "hq/rdr1:12"), "ws": ("asserted", None, None)}

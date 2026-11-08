@@ -1102,6 +1102,7 @@ def _build_ir(
     gate_removed_segments = {g.name for g in report.gated if g.kind == "segment"}
     conduits: list[TwinConfigConduit] = []
     for c in tc.conduits:
+        _check_provenance(f"twin_config.conduits[{c.from_}->{c.to}]", c)  # type: ignore[arg-type]
         dropped = [s for s in (c.from_, c.to) if s in gate_removed_segments]
         if dropped:
             report.gated.append(GatedEntity(

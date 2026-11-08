@@ -3372,6 +3372,7 @@ def twin_config_detail(
         segments=[
             dtos.TwinConfigSegmentSummaryDTO(
                 name=s.name, cidr=s.cidr, zone_type=s.zone_type, when=s.when,
+                source=s.source, confidence=s.confidence, vantage=s.vantage,
             )
             for s in tc.segments
         ],
@@ -3379,6 +3380,7 @@ def twin_config_detail(
             dtos.TwinConfigNodeSummaryDTO(
                 name=n.name, kind=n.kind, image=n.image, count=n.count,
                 role=n.role, when=n.when,
+                source=n.source, confidence=n.confidence, vantage=n.vantage,
             )
             for n in tc.nodes
         ],

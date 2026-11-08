@@ -608,13 +608,21 @@ export interface TwinConfigDocument {
   skipped: string[];
 }
 
+/** `source` / `confidence` / `vantage` as the engine reports them (null when unset). */
+export interface ProvenanceFields {
+  source?: string | null;
+  confidence?: number | null;
+  vantage?: string | null;
+}
+
 export interface TwinConfigDetail {
   id: string;
   description: string | null;
   cluster: string | null;
   params: Array<{ name: string; default?: unknown; description?: string | null; declared?: boolean }>;
-  segments: Array<{ name: string; cidr: string; zone_type?: string | null; when?: string | null }>;
-  nodes: Array<{ name: string; kind: string; image: string | null; count: unknown; role?: string | null; when?: string | null }>;
+  /** Rows carry the twin config's provenance (topology-layers §3.1); absent on an old twin. */
+  segments: Array<{ name: string; cidr: string; zone_type?: string | null; when?: string | null } & ProvenanceFields>;
+  nodes: Array<{ name: string; kind: string; image: string | null; count: unknown; role?: string | null; when?: string | null } & ProvenanceFields>;
   identity_domain?: string | null;
   identity_user_count?: number;
   data_count?: number;

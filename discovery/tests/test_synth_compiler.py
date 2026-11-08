@@ -320,7 +320,8 @@ def test_the_sidecar_declares_its_own_schema_distinct_from_the_ir_passthrough(tm
 def test_a_conduit_is_emitted_for_each_segment_pair_that_carried_traffic(tmp_path):
     tc = _tc(_compiled(tmp_path))
     names = {s["name"] for s in tc["segments"]}
-    assert tc["conduits"] == [{"from": "seg-10-0-1-0", "to": "seg-10-0-2-0"}]
+    assert tc["conduits"] == [{"from": "seg-10-0-1-0", "to": "seg-10-0-2-0",
+                               "source": "discovered"}]
     assert all(c["from"] in names and c["to"] in names for c in tc["conduits"])
 
 
@@ -1715,8 +1716,7 @@ def test_an_added_conduit_joins_two_live_segments(tmp_path):
               "note": "the OT lab's server"},
              {"kind": "conduit", "key": "10.0.9.0/24|10.0.1.0/24",
               "note": "the OT lab reaches the DC"}]))
-    assert {"from": "seg-10-0-1-0", "to": "seg-ot"} in _tc(out)["conduits"] or \
-           {"from": "seg-ot", "to": "seg-10-0-1-0"} in _tc(out)["conduits"]
+    assert {"from": "seg-10-0-1-0", "to": "seg-ot", "source": "asserted"} in _tc(out)["conduits"]
     assert out["provenance"]["population"]["assertions"]["added_conduits"] == [
         "10.0.1.0/24|10.0.9.0/24"]
 

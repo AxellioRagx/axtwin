@@ -370,6 +370,11 @@ class TwinConfigConduit(TCBase):
 
     from_: str = Field(alias="from")
     to: str
+    # Provenance (`docs/design/topology-layers.md` §3.1): the cast writes
+    # `source` (and `vantage`) on every conduit it emits; absent == authored.
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
     # `policy:` REMOVED (2026-08-04, Authority: user) -- zero references in
     # `expand.py`. The conduit ENTRY is load-bearing (the cross-check below
     # errors when no router implements it); its `policy:` string was not.

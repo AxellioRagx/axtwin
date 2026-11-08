@@ -202,3 +202,34 @@ def test_a_group_override_splits_a_member_into_its_own_named_group(tmp_path):
     others = [n for n in _tc(out)["nodes"] if n.get("role") == "file-server"
               and n["name"] != "backup-server" and n.get("net") == "seg-10-0-1-0"]
     assert sum(n.get("count", 1) for n in others) == 2, "the other two stay together"
+
+
+# -- review R5-1: nothing the cast emits goes without a source ---------------------------
+
+def _unsourced(out):
+    tc = _tc(out)
+    rows = [("segment", e) for e in tc["segments"]] + [("node", e) for e in tc["nodes"]]
+    rows += [("conduit", e) for e in tc.get("conduits") or []]
+    rows += [("link", e) for e in tc.get("links") or []]
+    rows += [("tap", e) for e in out["tap_plan"]["tap-plan"]["bindings"]]
+    return [(kind, e) for kind, e in rows if not e.get("source")]
+
+
+def test_no_node_segment_conduit_link_or_tap_of_a_cast_lacks_a_source(tmp_path):
+    out = compile_twin(_pit(tmp_path, _TWO_SEGMENTS), assertions=_wired())
+    tc = _tc(out)
+    assert tc["conduits"] and tc["links"], "the fixture exercises every kind"
+    assert _unsourced(out) == []
+    plain = compile_twin(_pit(tmp_path, _TWO_SEGMENTS, "plain.duckdb"))
+    assert _unsourced(plain) == []
+    assert all(c["source"] == "discovered" and "confidence" not in c
+               for c in _tc(plain)["conduits"]), "no score exists for a conduit; none is invented"
+
+
+def test_a_cast_with_one_asserted_conduit_marks_that_conduit_asserted(tmp_path):
+    out = compile_twin(_pit(tmp_path, _TWO_SEGMENTS), assertions=_assertions(
+        add=[{"kind": "conduit", "key": f"{_SEG1}|{_SEG2}", "note": "n"}]))
+    (conduit,) = [c for c in _tc(out)["conduits"]
+                  if {c["from"], c["to"]} == {"seg-10-0-1-0", "seg-10-0-2-0"}]
+    assert conduit["source"] == "asserted" and "vantage" not in conduit
+    assert _unsourced(out) == []
