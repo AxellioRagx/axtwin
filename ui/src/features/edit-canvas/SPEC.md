@@ -220,11 +220,13 @@ the session scratchpad (`t5-*`, `t5b-*`, `t5c-*`, `t5d-*`, `t6-*`).
 - [x] The engine side: IR 4, the seven rules, the planner skipping an imageless
       switch, A2's three kinds, the seam v2 — `engine/tests/test_topology_layers.py`,
       `discovery/tests/test_synth_topology_layers.py`; the dev45 deploy of switch-test.
-- [ ] Not built (recorded in rules 11 and 12 above): multi-select member rows, the
-      split recorded as an assertion, a zoom threshold for the chips, the floating
-      copy under the cursor, drop on empty canvas, site-prefix re-allocation under
-      another site, the marquee as a subtree; the planner's L2 port table for an
-      imaged switch is the expander's and not drawn.
+- [x] Built 2026-11-08 (rules 11 and 12 above): multi-select member rows, the split
+      recorded as an assertion, the chips' zoom threshold — `canvas.members.test.tsx`,
+      `canvas.inspector.test.tsx`; the floating copy, drop on the canvas, re-allocation
+      under another site, the marquee as a subtree — `canvas.subtree.test.tsx`, eye on
+      corp-tree (`E1-*.png`, nothing saved).
+- [ ] Not built: the copy's pills carried along with its pinned root; the planner's L2
+      port table for an imaged switch is the expander's and not drawn.
 
 ### Review round 3 checklist (2026-11-07, `docs/design/canvas-review-2026-11-05.md` R3-1..R3-10)
 
@@ -586,9 +588,14 @@ one its `confidence`.
    copies); the node panel **merges** the group into another of the same
    image and segments (the count grows, a differing role becomes a member
    override, bindings re-key, links naming the group re-point). All four are
-   topology changes. Not built: multi-select rows, the split recorded as an
-   assertion keyed by the members' entity keys (§5), a zoom threshold that
-   opens the chips.
+   topology changes. **Built 2026-11-08**: multi-select rows (Shift-click a
+   range, the header box for all; two or more picked get a bulk row that sets
+   their role override or persona at once, one undo step); *Split and assert*
+   on a cast twin, an override `field: group` per picked member keyed by the
+   roster's entity key (instance i is the i-th of the roster's sorted keys; a
+   roster whose size is not the count is refused with the reason); past zoom
+   1.6 (`MEMBERS_ZOOM`) every `×N` group shows its chips, a double-click still
+   closes one.
 
 12. **Subtree select, duplicate, attach** (§6, **built 2026-11-07, track
    5d**, `edit/subtree.ts`): Alt-click a switch or router (or the menu's
@@ -609,9 +616,15 @@ one its `confidence`.
    another device attaches the same way. A parked switch is CV-048 on the
    canvas and NET-140 in the engine, but the expander refuses it outright,
    so on a **deployed** twin the working copy's sync reverts a parked copy
-   with the reason in the strip: duplicate onto a device there. Not built:
-   the floating copy under the cursor, drop on empty canvas, site-prefix
-   re-allocation when dropped under another site, marquee as a subtree.
+   with the reason in the strip: duplicate onto a device there. **Built
+   2026-11-08**: Ctrl+D (or the menu) carries a floating copy under the cursor
+   that says where it would land; a press drops it on a switch or router (a
+   trunk) or on the canvas (parked, its root pinned where it landed); dropped
+   under a pill or site fold of another two-octet prefix every copied segment
+   re-allocates there (`duplicateSubtree`'s `prefix`); Enter parks in place,
+   Esc cancels; a marquee that takes a switch and only devices below it is
+   that switch's subtree (`marqueeSubtree`). Not built: the copy's pills follow
+   the tree's placement, not the pinned root.
 
 Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
 taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and
@@ -674,3 +687,20 @@ device, the attach tool between a device and a host and between devices.
   copied.
 - The old console's edit path writes imprint assertions; this feature writes
   twin-configs. Keep the two apart.
+
+### Canvas follow-ups (2026-11-08)
+
+- [x] The lifted level-0 / level-1 engine is archived (`archive/ui-level0-engine/`): the tree
+      reads `graph.segments`, `graph.unplacedLocal`, `canvas/bands.ts` (role bands) and
+      `canvas/pairs.ts` (east-west pairs, merged on the boxes they are drawn between, keyed as
+      the selection keys them). Shown segments and bands checked identical on the 17 catalog
+      twins with a `te.yaml` before the move — `canvas.pairs.test.ts`.
+- [x] No orphan segments: a host with legs on two segments bridges them, an uncarried item a
+      bridge reaches ranks under that pill (its stub, or a dashed `via <host>` edge when the host
+      is folded away); what nothing reaches sits under a dashed *Not carried* box —
+      `canvas.orthogonal.test.ts` (corp-twin folded and open: no box without an incoming edge);
+      eye `D2-corp-twin.png`.
+- [x] R3-6 re-measured on this build: first paint corp-twin 3.0 s, pit-395a61f04e-1780405200
+      2.0 s, corp-tree 2.7 s; pan 61 fps; on corp-twin each fold opens in 70–165 ms up to 175
+      nodes, a host fold in under 190 ms. The 30 s freeze still does not reproduce.
+
