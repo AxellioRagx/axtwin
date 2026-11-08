@@ -929,6 +929,16 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     },
     [membersOpen],
   );
+  // Esc folds every open strip back to its `×N` (R4-10), the ones the zoom opened included.
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || membersOpen.size === 0) return;
+      setMembersOpened(new Set());
+      setMembersClosed((s) => new Set([...s, ...membersOpen]));
+    };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [membersOpen]);
   const onNodeDoubleClick = useCallback(
     (_e: React.MouseEvent, node: CanvasNode) => {
       // R3-8: a double-click anywhere on a `×N` group's icon (not only its badge) opens its member chips.

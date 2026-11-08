@@ -279,6 +279,7 @@ function MemberChips({ name, count, members }: { name: string; count: number; me
             type="button"
             className={`cv-member-chip${m ? " overridden" : ""}`}
             data-testid="member-chip"
+            data-overridden={m ? "true" : undefined}
             data-index={i}
             draggable={!edit?.locked}
             title={`${name}${String(i).padStart(2, "0")}${m?.role ? ` · ${m.role}` : ""}`}

@@ -178,6 +178,22 @@ describe("members on the canvas and in the inspector", () => {
     fireEvent.doubleClick(hostIcon("srv"));
     expect(screen.queryByTestId("member-chips")).toBeNull();
   });
+  it("R4-10: Esc folds the open chips back, the zoom's included; an overridden member's chip wears the dot", async () => {
+    sessionStorage.setItem("axr-canvas-viewport:mem", JSON.stringify({ x: 0, y: 0, zoom: 2 }));
+    const { api } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
+    renderAt(api, "/twins/mem/canvas");
+    await screen.findAllByTestId("canvas-host");
+    await waitFor(() => expect(screen.queryAllByTestId("member-chips").length).toBe(2));
+    const ws = within(screen.getAllByTestId("member-chips").find((st) => within(st).getAllByTestId("member-chip").length === 4)!);
+    expect(ws.getAllByTestId("member-chip").map((c) => c.dataset["overridden"] ?? "")).toEqual(["", "true", "", "true"]);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("member-chips")).toBeNull());
+    // A double-click opens one again.
+    fireEvent.doubleClick(hostIcon("ws"));
+    expect(within(await screen.findByTestId("member-chips")).getAllByTestId("member-chip").length).toBe(4);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("member-chips")).toBeNull());
+  });
   it("past the zoom threshold every ×N group shows its chips; a double-click closes one there", async () => {
     sessionStorage.setItem("axr-canvas-viewport:mem", JSON.stringify({ x: 0, y: 0, zoom: 2 }));
     const { api } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });

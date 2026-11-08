@@ -362,9 +362,10 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-dim { opacity: 0.28; }
 .cv-host .cv-count-badge .cv-count-dot { margin-left: 1px; color: var(--accent); font-weight: 700; }
 .cv-host .cv-count-badge.open { border-color: var(--accent); }
-.cv-members-strip { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); z-index: 6; }
+.cv-members-strip { position: absolute; top: calc(100% + 22px); left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); z-index: 6; }
 .cv-member-chip { font: 9.5px/12px ui-monospace, monospace; padding: 1px 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); cursor: grab; }
-.cv-member-chip.overridden { border-color: var(--accent); }
+.cv-member-chip.overridden { border-color: var(--accent); position: relative; }
+.cv-member-chip.overridden::after { content: ""; position: absolute; top: -3px; right: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .cv-member-chip:hover { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
 .cv-split-pick { display: inline-flex; align-items: center; }
 .cv-link-row { background: none; border: none; padding: 0; color: var(--ink); cursor: pointer; text-align: left; font: inherit; }
