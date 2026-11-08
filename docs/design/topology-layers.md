@@ -265,7 +265,10 @@ attachment point.
 
 1. **Select a subtree.** Alt-click or right-click → *Select subtree* on a
    device selects it and everything below it: links, the segments they carry,
-   the host groups on them, their member overrides. Marquee works too. The bar
+   the host groups on them, their member overrides. Only an `up` link extends
+   it (R4-3, 2026-11-08): what hangs off a down or blocked port is not below
+   the device, a host on a segment outside the set is not in it, and a copied
+   link never carries an original segment. Marquee works too. The bar
    shows the count (`1 switch · 2 segments · 14 hosts`).
 2. **Duplicate** (Ctrl+D, or right-click). A floating copy follows the
    cursor. Names follow `{name}-{n}` (`labswitch-2`, `lab-10-20-193-2`). Every
