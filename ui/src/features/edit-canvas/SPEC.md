@@ -591,9 +591,9 @@ one its `confidence`.
    topology changes. **Built 2026-11-08**: multi-select rows (Shift-click a
    range, the header box for all; two or more picked get a bulk row that sets
    their role override or persona at once, one undo step); *Split and assert*
-   on a cast twin, an override `field: group` per picked member keyed by the
-   roster's entity key (instance i is the i-th of the roster's sorted keys; a
-   roster whose size is not the count is refused with the reason); past zoom
+   on a cast twin, an override `field: group` per observed host the operator
+   names in a second step, as many as the instances split off (the cast ties
+   no instance to a host, so nothing is guessed); past zoom
    1.6 (`MEMBERS_ZOOM`) every `×N` group shows its chips, a double-click still
    closes one.
 
@@ -703,4 +703,19 @@ device, the attach tool between a device and a host and between devices.
 - [x] R3-6 re-measured on this build: first paint corp-twin 3.0 s, pit-395a61f04e-1780405200
       2.0 s, corp-tree 2.7 s; pan 61 fps; on corp-twin each fold opens in 70–165 ms up to 175
       nodes, a host fold in under 190 ms. The 30 s freeze still does not reproduce.
+- [x] R3-6 found (later 2026-11-08): no main-thread long task over 92 ms through load, every
+      fold, zoom, pan, marquee, drag and the overlay, but the page sent a dozen slow requests
+      while drawing — the twin-config listing (4 s alone, 8.8 s under load), a read of every
+      other twin's config, and the 5 s validate beside them — so the first clicks waited ~10 s.
+      The palette's other-twin items now load when the palette first opens; the engine's
+      catalog listing memoises each file's head (LES-283 key) and skips YAML that never spells
+      `twin_config` (repeat listing 3.25 s → 0.07 s). corp-twin goes quiet in 4.3 s, was 10.7 s
+      — `canvas.edit.test.tsx` (R3-6), `engine/tests/test_twinconfig_registry.py`.
+- [x] A copy dropped on the canvas keeps the original's shape: every copied device and pill is
+      pinned at its original's position shifted by the root's offset (`copyPositions`) —
+      `canvas.subtree.test.tsx`; eye `I1-3-dropped.png` (corp-tree, nothing saved).
+- [x] *Split and assert* asks which observed hosts the split instances are (the cast ties no
+      instance to a host); the override goes on the hosts named, as many as split off; the
+      count-mismatch refusal is gone — `canvas.inspector.test.tsx`. No live cast carries member
+      keys yet (older casts), so on the serve the button shows its reason.
 

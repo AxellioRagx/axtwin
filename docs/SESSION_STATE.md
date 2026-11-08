@@ -4,61 +4,64 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`, **pushed to origin**,
-this session's commits included (push only when the user asks). Rule: commit each piece as it
-lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`. Pushed to origin up to
+`cb05aa4`; the commits after it (below) are **local, not pushed** (push only when the user
+asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
 
-## What this session did: the canvas follow-ups after review round 3
+## What this session did
 
-Round 3 itself (`205140c` A, `d279d3e` B, `4b8ce61` C) is done and in the review doc
-(https://claude.ai/artifact/PR6PeoXpMPjcfMikVX69qP). Then, asked to finish every open canvas item:
+Earlier today (pushed): the canvas follow-ups after review round 3 — the tree reads the graph
+directly (`2fe0b04`), no orphan segments (`28ecfbf`), members (`9c853f1`), duplicate (`de8df00`).
+Round 3's review doc: https://claude.ai/artifact/PR6PeoXpMPjcfMikVX69qP.
 
-- **`2fe0b04`** the tree reads the graph directly: shown segments `graph.segments`, unplaced
-  `graph.unplacedLocal`, role bands `canvas/bands.ts`, east-west pairs `canvas/pairs.ts` (merged
-  on the boxes drawn, so an arc's key now matches the `arcKey(anchor, anchor)` the selection and
-  overlay compute; folded pairs used to miss). `layout/` level0, level1, arcs, columns, infra,
-  sites, tiers, trunk, scale → `archive/ui-level0-engine/` (README). `layout/` keeps geometry,
-  pins, matrix (the list view).
-- **`28ecfbf`** no orphan segments: bridging hosts (a host with legs on two segments, corp-twin's
-  `role: l2-switch` hosts) rank what they reach under their pill, to a fixpoint; a dashed
-  `via <host>` edge when the host is folded away; what nothing reaches sits under a dashed
-  *Not carried* box (`chrome:uncarried`). corp-twin: 22 such segments, all now reached.
-- **`9c853f1`** members (§5): multi-select rows + bulk role / persona (one undo step); *Split and
-  assert* on a cast twin (override `field: group` per member; instance i = i-th of the roster's
-  sorted keys; refused when the roster size is not the count); chips open past zoom 1.6. The
-  promote now re-opens a deployed working copy with the files after the edit (it read them
-  stale).
-- **`de8df00`** duplicate (§6): Ctrl+D / the menu carry a floating copy; a press drops it on a
-  device (trunk) or the canvas (parked, root pinned there), under another site's pill it
-  re-allocates in that prefix; Enter parks in place, Esc cancels; a marquee of a switch and
-  devices below it is that switch's subtree.
-- SPEC: rules 11 / 12 and a "Canvas follow-ups (2026-11-08)" checklist, each line with its proof.
+Then, asked to fix five open items (local):
+
+- **`211de33`** imprint JSON editor keeps `confirm` / `doubt` through a save (it sent only
+  add / override / suppress, erasing the marks).
+- **`89ce070`** deploy from the console: the twin page's Deploy panel (Twins list "Deploy" lands
+  there) — `POST /api/twins/{id}/plan` (pure), then *Deploy this plan* → a confirmation naming
+  the VM count and target → `POST /api/twins/{id}/deploy` with `expect_plan_id`. A standing
+  deploy or a read-only caller gets the reason. **Never run for real**: tested against the fake
+  API; on the serve only the plan was clicked (corp-tree: 147 VMs, 1,264 ops).
+- **`4f65174`** a copy dropped on the canvas keeps the original's shape (`copyPositions`: every
+  copied device and pill pinned at its original's position shifted by the root's offset).
+- **`a4b3e6b`** *Split and assert* asks which observed hosts the split instances are (the cast
+  ties no instance to a host; it used to take the i-th sorted key); the count-mismatch refusal
+  is gone.
+- **`769df72`** R3-6 found: not a main-thread freeze (no long task over 92 ms through load,
+  folds, zoom, pan, marquee, drag) but a request flood on open — the twin-config listing (4 s
+  alone, 8.8 s under load), a read of every other twin's config, the 5 s validate beside them;
+  first clicks waited ~10 s. The palette's catalog now loads on first open; the engine's
+  listing memoises each file's head (LES-283 key) and skips YAML without `twin_config`
+  (repeat listing 3.25 s → 0.07 s). corp-twin quiet in 4.3 s, was 10.7 s (UI half only: see
+  below).
+- SPEC: "Canvas follow-ups (2026-11-08)" gained the four lines; rule 11 says the new split.
 
 ## Current state
 
-- **Tests:** ui typecheck clean, 26 files / 409. Engine and discovery untouched this session
-  (last: engine 4245 passed + 3 environmental failures, run from `engine/`; discovery 2472).
-- **Serve:** :8080 unchanged (pid 1419935); it serves the rebuilt `ui/dist` (no restart needed:
-  no engine change).
-- **Eye checks** (headless, scratchpad): corp-twin `D2-*` (every item on a line), corp-tree
-  `E1-*` (carry, device target, parked drop; nothing saved, only a validate sent), the six round-3
-  twins `G-*` (no page errors). dev45 untouched.
+- **Tests:** ui typecheck clean, 27 files / 431. Engine: the 50 catalog-touching test files
+  2811 passed + the 3 known environmental failures (the user's untracked catalog folders:
+  `test_default_catalog_dir_exists_and_has_the_expected_configs`,
+  `test_load_twin_config_every_shipped_config_parses`,
+  `test_every_migrated_twin_folder_has_a_valid_manifest`). Full engine suite not re-run.
+- **Serve:** :8080 (pid 1419935) serves the rebuilt `ui/dist`. **Not restarted**, so the
+  engine half of R3-6 (the listing memo) is not live until it is (recipe in memory; restart
+  only when asked).
+- **Eye checks** (headless, scratchpad): `I1-*` (corp-tree carry → parked drop: the copy's pills
+  at the original's offset; only a validate sent), `J1/J2` (Deploy panel, plan only),
+  `stress.cjs` / `net.cjs` (the R3-6 numbers). dev45 untouched.
 - Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/` (the
   previous build, safe to delete).
 
 ## Not done / honest gaps
 
-- R3-6's 30 s freeze still does not reproduce (fold opens 70–165 ms up to 175 nodes on
-  corp-twin; numbers in the SPEC).
-- A dropped copy's pills follow the tree's placement, not its pinned root (they can land far
-  from it).
-- *Split and assert* maps instances to the roster's sorted keys by position: nothing in the cast
-  records which instance is which entity, so that is a convention, stated in the code.
+- No live cast carries group member keys (all five casts predate the field), so on the serve
+  *Split and assert* shows "no observed members"; the new step is proven in jsdom only.
+- The first catalog listing after a serve restart still costs ~3 s (cold parse); only repeats
+  are cheap. Validate of corp-twin is ~2 s per edit, server side.
 - corp-apcn-reader-20261028 still reads invalid (its IPv6 /64, CV-012); re-cast or remove the
   segment, or decide whether the engine should refuse non-IPv4 too (a contract call).
-- Console, not canvas: the imprint JSON editor drops `confirm` / `doubt` on save; Twins list
-  "Deploy" links to the twin page (no console deploy action).
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge.
+- Yours to decide: push; restart the serve; the serve's auth mode (`none` on 0.0.0.0); merge.
 
 ## Gotchas
 
@@ -72,6 +75,8 @@ Round 3 itself (`205140c` A, `d279d3e` B, `4b8ce61` C) is done and in the review
   `onSelectionChange` echoes a programmatic selection (the marquee-as-subtree runs on
   `onSelectionEnd` for that reason). `rf.screenToFlowPosition` snaps unless
   `{ snapToGrid: false }`. `ugrep` reads `model/graph.ts` as binary: `grep -a`.
+- CanvasPage's edit-props memo omits `pins`: read them through `pinsRef` in a handler.
+- Importing a helper from another `*.test.tsx` re-runs that file's tests: define it locally.
 - Playwright: off-viewport tree nodes refuse `.click()`; use `el.evaluate((e) => e.click())`.
 - `ui/`: `npm ci` only; never build into the served `ui/dist` (build `dist.new`, swap). The
   contract files change only with the user's confirmation and a version bump.
@@ -80,5 +85,5 @@ Round 3 itself (`205140c` A, `d279d3e` B, `4b8ce61` C) is done and in the review
 
 One venv at `.venv/`, node 22 for `ui/`, live state in `~/.axrange/`. Playwright 1.61 at
 `/home/rocky/fx-cap/mgmtui/node_modules/playwright` + `~/.cache/ms-playwright/chromium-1228`
-(scripts in this session's scratchpad: `shot.cjs`, `perf.cjs`, `carry.cjs`, `folds.cjs`). dev45 API
-10.80.76.108:8006, SSH root; XPress-SW-A `fxadmin@10.80.72.43`.
+(scripts in this session's scratchpad: `shot.cjs`, `perf.cjs`, `carry2.cjs`, `stress.cjs`,
+`net.cjs`, `deploy.cjs`). dev45 API 10.80.76.108:8006, SSH root; XPress-SW-A `fxadmin@10.80.72.43`.
