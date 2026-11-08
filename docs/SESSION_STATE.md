@@ -4,9 +4,9 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`. Pushed to origin up to
-`c0d38a8`; this session's commits after it are **local, not pushed** (push only when the user
-asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 · **Branch:** `wip/design-platforms-canvas`, **pushed to origin**,
+this session's commits included (push only when the user asks). Rule: commit each piece as it
+lands, staged by path; never `git add -A`.
 
 ## What this session did: the canvas follow-ups after review round 3
 
@@ -58,7 +58,7 @@ Round 3 itself (`205140c` A, `d279d3e` B, `4b8ce61` C) is done and in the review
   segment, or decide whether the engine should refuse non-IPv4 too (a contract call).
 - Console, not canvas: the imprint JSON editor drops `confirm` / `doubt` on save; Twins list
   "Deploy" links to the twin page (no console deploy action).
-- Yours to decide: push these commits; the serve's auth mode (`none` on 0.0.0.0); merge.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge.
 
 ## Gotchas
 
