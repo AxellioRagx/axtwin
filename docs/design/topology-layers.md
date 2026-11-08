@@ -344,8 +344,12 @@ preference); selecting the router expands the fan.
 
 ### 7.6 Folding
 
-Each site shows a budget of pills and a dashed `+N more` pill; each segment
-shows a budget of host icons and a count; the `×N` badge folds instances by
+Every site a router serves is always a pill on its rail; the budget (the
+rail's Fan-out, default 4) counts the loose segments, and a dashed `+N more`
+holds only those beyond it. An open site shows a budget of its segments per
+page on its own row, then its own `+N more` for the next page; the refit
+frames the router and that row, never below 50 % zoom (R5-2, 2026-11-08).
+Each segment shows a budget of host icons and a count; the `×N` badge folds instances by
 role. A click on a fold expands it in place and the tree re-ranks around it.
 Fit-to-window of the fully expanded tree stays available; the folded view is
 the default. Width is bounded by the sum of visible pills.

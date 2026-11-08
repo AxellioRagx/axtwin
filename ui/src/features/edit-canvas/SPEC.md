@@ -531,10 +531,20 @@ one its `confidence`.
    folded segment goes to the fold, once. A multi-homed host sits on its
    first segment's pill with a `stub` to each other one. Observed flows stay
    evidence: arcs under Light-up or for the selection.
-6. **Folding.** A carrier shows at most **Fan-out** pills (the rail's
-   button; 2 / 4 / 8 / all, default 4) and a dashed `+N more` pill for the
-   rest (`overflow:carrier:<device>`); a click expands that carrier in
-   place (`expanded` carries `carrier:<device>`). Segments no device carries
+6. **Folding.** Segments of one site (two-octet prefix) under a carrier
+   fold into a site pill, and **every site pill is always on the carrier's
+   rail**. The **Fan-out** (the rail's button; 2 / 4 / 8 / all, default 4)
+   budgets the loose (site-less) pills: past it a dashed `+N more` pill
+   (`overflow:carrier:<device>`) holds only the loose segments beyond it; a
+   click expands that carrier in place (`expanded` carries
+   `carrier:<device>`) and its tile reads `fold N back`, the same N. An open
+   site shows Fan-out of its segments on its own row under the rail, then
+   its own `+N more` (`overflow:more:site:<c>|<p>`), which opens the next
+   page (`site:<c>|<p>#2`, `#3`, ...); closing the site closes its pages. A
+   fold's refit frames the router plus the row that changed, padded, never
+   below 50 % zoom; a row too wide for that is framed from its left edge.
+   The status strip counts the segments behind `+N more` pills and, apart,
+   those in closed site folds (R5-2). Segments no device carries
    fold under `none`. A `×N` group folds its instances; a segment over the
    band budget folds its role bands. The box budget is 120 drawn boxes after
    folding (`TREE_BUDGET_BOXES`); past it, the list and the matrix.
@@ -755,7 +765,8 @@ Seen on the rebuilt build at :8080 (headless, shots `R4-*` in the session scratc
       router's legs drawn from the tile), never chained through a pill; opening or closing a
       fold refits the view to the tile and its row, or back to the rail — `canvas.tree.test.tsx`.
       Eye: corp-twin, 10.180 opened: 24 pills in one row under the tile; closed, the view
-      returns to the rail. A 24-segment row is ~3,400 px wide, so its fit sits near 17 % zoom.
+      returns to the rail. A 24-segment row is ~3,400 px wide, so its fit sits near 17 % zoom
+      (superseded by R5-2: the row pages by the budget, the refit never goes below 50 %).
 - [x] R4-10: double-click (or the zoom threshold) opens one chip per instance below the group's
       label; a chip opens the member panel and drags onto another group; Esc folds every open
       strip; an overridden member's chip wears the dot — `canvas.members.test.tsx`. Eye:
@@ -767,3 +778,34 @@ Seen on the rebuilt build at :8080 (headless, shots `R4-*` in the session scratc
       `2026-10-06 19:00 UTC`-style. The canvas shows no timestamp of its own.
 - [ ] corp-apcn-reader-20261028 still reads invalid (its IPv6 /64, CV-012); fresh casts drop
       the segment. Re-cast, remove it, or rule on non-IPv4 in the engine: the user's call.
+
+### Review round 5 checklist (2026-11-08, re-test of 08:00: R5-1 / R5-2)
+
+Seen on the rebuilt build at :8080 (headless, viewport 1622 × 980, shots `R5-*` in the session
+scratchpad).
+
+- [x] R5-1: the re-test read the cast through `GET /api/twin-configs/{id}`, whose segment and
+      node summary rows had no provenance fields; the YAML already carried them. The rows now
+      carry `source` / `confidence` / `vantage`, and the cast writes `source` on every conduit
+      (`discovered` with the PIT's vantage, or `asserted`; no confidence: nothing scores a
+      cross-segment pair) — `discovery/tests/test_synth_topology_layers.py` (no node, segment,
+      conduit, link or tap without a source; one asserted conduit is `asserted`),
+      `engine/tests/test_twin_tree.py` (the detail route). Eye: a fresh cast of
+      pit-094b299eb4-1791313200 into `r5-probe` through the API — 44 segments (40 discovered /
+      4 unconfirmed) and 89 nodes (71 / 18), none without a source; 43 of each kind carry a
+      confidence (only the synthetic sink and `gw` do not); 47 conduits and 43 tap bindings
+      all `discovered`. The overlay marks 14 discovered and 10 unconfirmed drawn items. Deleted
+      afterwards. The UI's default-by-origin stays the fallback for old twins.
+- [x] R5-2 collapsed: every site pill on the rail, loose pills up to the budget, `+N more` holds
+      only loose segments — `canvas.foldbudget.test.tsx` over the real corp-twin bundle. Eye:
+      corp-twin — 10.100 · 10.101 · `10.120 · 10 segments` · 10.121 · 10.155 · `10.180 · 24` ·
+      `10.192 · 2` · `10.199 · 7` · `+7 more` in one row at 73 % zoom (`R5-corp-twin-collapsed`).
+- [x] R5-2 expanded: 10.180 once — a row of 4 under its tile and `+20 more`, the refit on the
+      router and the row at 65 %; twice — 8 and `+16 more`, at the 50 % floor framed from the
+      row's left edge (the rest is a pan away); closed — back on the rail at 62 %. Switches stay
+      host leaves on their segment (`R5-corp-twin-open-*`).
+- [x] R5-2 one count: `+7 more`, the strip's `7 segments behind "+N more" tiles` and the opened
+      tile's `fold 7 back` agree (were 54 vs 43); with 10.180 open the strip reads 27 = 7 + 20.
+      Closed sites have their own line (`43 segments in closed site folds`). Eye on the fresh
+      cast too: `10.20 · 11`, `10.80 · 20`, `192.168 · 2`, `+7 more`; 10.80 pages 4 at a time.
+- [x] switch-test left reset (no working copy); dev45 not touched.
