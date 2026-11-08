@@ -695,9 +695,9 @@ device, the attach tool between a device and a host and between devices.
       `canvas/pairs.ts` (east-west pairs, merged on the boxes they are drawn between, keyed as
       the selection keys them). Shown segments and bands checked identical on the 17 catalog
       twins with a `te.yaml` before the move — `canvas.pairs.test.ts`.
-- [x] No orphan segments: a host with legs on two segments bridges them, an uncarried item a
-      bridge reaches ranks under that pill (its stub, or a dashed `via <host>` edge when the host
-      is folded away); what nothing reaches sits under a dashed *Not carried* box —
+- [x] No orphan segments: a host with legs on two segments bridges them; what nothing reaches
+      sits under a dashed *Not carried* box (superseded for the bridged ones by R4-2b below: a
+      bridged segment joins the carrier's rail, it no longer ranks under the host's pill) —
       `canvas.orthogonal.test.ts` (corp-twin folded and open: no box without an incoming edge);
       eye `D2-corp-twin.png`.
 - [x] R3-6 re-measured on this build: first paint corp-twin 3.0 s, pit-395a61f04e-1780405200
@@ -719,3 +719,51 @@ device, the attach tool between a device and a host and between devices.
       count-mismatch refusal is gone — `canvas.inspector.test.tsx`. No live cast carries member
       keys yet (older casts), so on the serve the button shows its reason.
 
+### Review round 4 checklist (2026-11-08, R4-2b / R4-3 / R4-4 / R4-7 / R4-8 / R4-10)
+
+Seen on the rebuilt build at :8080 (headless, shots `R4-*` in the session scratchpad).
+
+- [x] R4-3: a subtree is the device, the deeper devices its `up` links reach, the segments
+      they carry, the hosts ON those segments and the links among that set; a down or blocked
+      link never extends it, a host on a segment outside it is never copied, a copied link (or
+      the new trunk) never carries an original segment — `canvas.subtree.test.tsx`. Eye:
+      switch-test, access-sw → Duplicate → drop on gw: exactly `access-sw-2`, `office-2`,
+      `corp-workstation-2` and one `gw eth2 → access-sw-2 SFP1` trunk carrying `office-2`;
+      `servers` still holds file-server alone. Reset afterwards: the working copy equals the
+      baseline (`R4-dup-dropped.png`).
+- [x] Provenance on what the canvas writes: one pass at the editor's apply stamps every new or
+      changed segment, node, link, member override and tap binding `source: authored` and drops
+      `confidence` / `vantage`; `asserted` keeps its mark; a discard back to the baseline is not
+      stamped; a promote adopts the re-cast baseline's marks — `canvas.provenance.test.ts`. Eye:
+      the switch-test working copy after the duplicate carries `source: authored` on the three
+      copies and on the attach link.
+- [x] R4-4: the cast already wrote `source` / `confidence` / `vantage` (all 89 node groups and
+      44 segments of a fresh cast; only the synthetic sink and gateway lack a confidence, by
+      §3.2), but `GET /api/twins/{id}/tree` had no field for them and the scenario topology
+      route dropped a segment's. Both now carry them — `engine/tests/test_twin_tree.py`;
+      `discovery/tests/test_synth_topology_layers.py` keeps the cast side. Eye: a fresh cast of
+      pit-094b299eb4-1791313200 into `r4-scratch` — tree: segments 40 discovered / 4
+      unconfirmed, nodes 71 / 17, `gw` unconfirmed; the overlay draws them
+      (`R4-scratch.png`); deleted afterwards.
+- [x] R4-2b: a segment no device carries but a bridging host reaches sits on the carrier's
+      rail with its site, dashed from the router `via <host>`; each rail is one row, site then
+      CIDR, the `+N more` last and a leaf — `canvas.tree.test.tsx` (rail), `canvas.orthogonal`
+      (bridged). Eye: corp-twin collapsed — hq-mx, then 10.100 · 10.101 · 10.120 · 10.121 ·
+      `+41 more of 54 segments` in one row; nothing chains down the left; opened, 10.180 (24
+      segments), 10.192 (2) and 10.199 (7) are site tiles on the same row (`R4-corp-*.png`).
+- [x] R4-8: an open site is one tile on the rail, its segments in their own row below it (the
+      router's legs drawn from the tile), never chained through a pill; opening or closing a
+      fold refits the view to the tile and its row, or back to the rail — `canvas.tree.test.tsx`.
+      Eye: corp-twin, 10.180 opened: 24 pills in one row under the tile; closed, the view
+      returns to the rail. A 24-segment row is ~3,400 px wide, so its fit sits near 17 % zoom.
+- [x] R4-10: double-click (or the zoom threshold) opens one chip per instance below the group's
+      label; a chip opens the member panel and drags onto another group; Esc folds every open
+      strip; an overridden member's chip wears the dot — `canvas.members.test.tsx`. Eye:
+      switch-test `corp-workstation` ×2: chips 01, 02•; Esc closes them (`R4-members3-crop.png`).
+- [x] R4-7: one timestamp style, `model/time.ts`: local time with the zone, to the minute
+      (`2026-10-06 14:00 CDT`), the exact UTC instant in the tooltip; the pages' `When` and the
+      Discovery pages' `formatTs` / `formatIso` go through it — `time.test.ts`. Eye (the
+      headless browser runs in UTC): Imprints, a source page, Twins and Designs all read
+      `2026-10-06 19:00 UTC`-style. The canvas shows no timestamp of its own.
+- [ ] corp-apcn-reader-20261028 still reads invalid (its IPv6 /64, CV-012); fresh casts drop
+      the segment. Re-cast, remove it, or rule on non-IPv4 in the engine: the user's call.
