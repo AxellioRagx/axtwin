@@ -148,6 +148,35 @@ describe("the imprint page", () => {
     expect(screen.getByText("pit-1", { selector: "a" })).toBeTruthy();
   });
 
+  it("the JSON editor keeps confirm and doubt through a save (it used to drop them)", async () => {
+    const { api, state } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")] });
+    const confirm = [{ key: "address:10.1.1.1", note: "seen on the rack" }];
+    const doubt = [{ key: "cidr:10.9.0.0/24", note: "one probe only" }];
+    state.assertions["pit-1"] = {
+      imprint_id: "pit-1", path: "/store/pits/pit-1/pit-1.assertions.yaml", exists: true, etag: "etag-0",
+      schema: "axr-assertions/2", imprint: "pit-1", as_of: "2026-11-08T00:00:00Z", source: "operator:console",
+      add: [], override: [], suppress: [], confirm, doubt,
+    };
+    renderAt(api, "/imprints/pit-1");
+    fireEvent.click(await screen.findByText(/^Advanced/));
+    const box = (await screen.findByLabelText("Assertions document")) as HTMLTextAreaElement;
+    await waitFor(() => expect(JSON.parse(box.value)).toEqual({ add: [], override: [], suppress: [], confirm, doubt }));
+    // An unrelated edit: the marks go back with it.
+    fireEvent.change(box, { target: { value: JSON.stringify({ ...JSON.parse(box.value), suppress: [{ key: "address:10.1.1.9", note: "scanner" }] }) } });
+    fireEvent.click(screen.getByRole("button", { name: "Save assertions" }));
+    await screen.findByText("saved");
+    const body = state.writes.at(-1)!.body as Record<string, unknown>;
+    expect(body.confirm).toEqual(confirm);
+    expect(body.doubt).toEqual(doubt);
+    expect(body.etag).toBe("etag-0");
+    expect(JSON.parse(box.value).confirm).toEqual(confirm);
+    // Emptying a block in the text removes it.
+    fireEvent.change(box, { target: { value: JSON.stringify({ ...JSON.parse(box.value), doubt: [] }) } });
+    fireEvent.click(screen.getByRole("button", { name: "Save assertions" }));
+    await waitFor(() => expect((state.writes.at(-1)!.body as Record<string, unknown>).etag).not.toBe("etag-0"));
+    expect("doubt" in (state.writes.at(-1)!.body as Record<string, unknown>)).toBe(false);
+  });
+
   it("deletes from its page and returns to the list", async () => {
     const { api } = fakeApi({ imprints: [imprint("pit-1", "corp-apcn-2h")] });
     renderAt(api, "/imprints/pit-1");

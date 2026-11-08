@@ -367,6 +367,8 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         add: d.add ?? [],
         override: d.override ?? [],
         suppress: d.suppress ?? [],
+        ...(d.confirm?.length ? { confirm: d.confirm } : {}),
+        ...(d.doubt?.length ? { doubt: d.doubt } : {}),
         exists: true,
         etag: `etag-${nextId++}`,
       };

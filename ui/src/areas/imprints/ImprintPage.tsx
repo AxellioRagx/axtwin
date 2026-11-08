@@ -187,7 +187,16 @@ function SaveAs({ imprint }: { imprint: Imprint }) {
   );
 }
 
-/** The three record lists of the assertions document, edited as JSON. The etag the GET
+/** The record lists the JSON box edits: the three core ones always, `confirm` / `doubt` when
+ *  the document holds any (a save used to drop them). */
+export function editableText(doc: AssertionsDoc): string {
+  const out: Record<string, unknown> = { add: doc.add, override: doc.override, suppress: doc.suppress };
+  if (doc.confirm?.length) out.confirm = doc.confirm;
+  if (doc.doubt?.length) out.doubt = doc.doubt;
+  return JSON.stringify(out, null, 2);
+}
+
+/** The record lists of the assertions document, edited as JSON. The etag the GET
  *  carried goes back inside the body, so a save over someone else's is refused. */
 function AssertionsEditor({ imprint, onSaved }: { imprint: Imprint; onSaved: () => void }) {
   const api = useApi();
@@ -200,7 +209,7 @@ function AssertionsEditor({ imprint, onSaved }: { imprint: Imprint; onSaved: () 
   useEffect(() => {
     if (loaded.data) {
       setDoc(loaded.data);
-      setText(JSON.stringify({ add: loaded.data.add, override: loaded.data.override, suppress: loaded.data.suppress }, null, 2));
+      setText(editableText(loaded.data));
     }
   }, [loaded.data]);
   async function save(e: React.FormEvent) {
@@ -225,10 +234,16 @@ function AssertionsEditor({ imprint, onSaved }: { imprint: Imprint; onSaved: () 
         override: edited.override ?? [],
         suppress: edited.suppress ?? [],
       };
+      // `confirm` / `doubt` ride along (the text shows them when the document has any); an
+      // emptied block is sent as nothing, which is how the server stores an empty one.
+      for (const mark of ["confirm", "doubt"] as const) {
+        const recs = edited[mark];
+        if (Array.isArray(recs) && recs.length) body[mark] = recs;
+      }
       if (doc.etag) body.etag = doc.etag;
       const saved = await api.putAssertions(imprint.pit_id, body);
       setDoc(saved);
-      setText(JSON.stringify({ add: saved.add, override: saved.override, suppress: saved.suppress }, null, 2));
+      setText(editableText(saved));
       setSavedAt(new Date().toISOString());
       onSaved();
     } catch (err) {
