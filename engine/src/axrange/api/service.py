@@ -1011,6 +1011,8 @@ def topology(settings: ApiSettings, scenario: str, *,
         net_ids.add(net.id)
         nodes.append(dtos.TopologyNodeDTO(
             id=net.id, type="network", cidr=net.cidr, vlan=net.vlan, egress=net.egress,
+            # A segment's provenance (R4-4): the IR network carries it; the route used to drop it.
+            source=net.source, confidence=net.confidence, vantage=net.vantage,
         ))
 
     # op-status overlay: map node id -> a representative op status from state.db

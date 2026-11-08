@@ -2284,6 +2284,12 @@ class TreeNodeDTO(BaseModel):
     joins: Optional[str] = None
     observation: Optional[TreeObservationDTO] = None
     personas: list[TreePersonaDTO] = []
+    # Provenance as the twin config writes it (`docs/design/topology-layers.md` §3.1; R4-4,
+    # 2026-11-08): `discovered | asserted | authored | unconfirmed`, the cast's per-entity
+    # `confidence` and the PIT's `vantage`. Absent on a config that predates them.
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class TreeRoleCountDTO(BaseModel):
@@ -2307,6 +2313,10 @@ class TreeSegmentDTO(BaseModel):
     observation: Optional[TreeObservationDTO] = None
     taps: list[TreeTapDTO] = []
     nodes: list[TreeNodeDTO] = []
+    # Provenance, as on `TreeNodeDTO`.
+    source: Optional[str] = None
+    confidence: Optional[float] = None
+    vantage: Optional[str] = None
 
 
 class TwinTreeDTO(BaseModel):

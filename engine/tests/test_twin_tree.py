@@ -177,3 +177,40 @@ def test_a_manifest_folder_reads_its_declared_tier_files(tmp_path):
     assert t.traffic_profile == "tfc/cast.yaml" and t.tap_plan == "tap/cast.yaml"
     assert t.hosts == 137 and len(t.segments) == 27
     assert any(g.personas for s in t.segments for g in s.nodes)
+
+
+def test_the_tree_and_the_topology_carry_what_the_cast_wrote_as_provenance(tmp_path):
+    """R4-4 (2026-11-08): a cast writes `source` / `confidence` / `vantage` on every node and
+    segment, but the tree route had no field for them and the topology route dropped a
+    segment's, so a check through either read every cast as provenance-free."""
+    root = tmp_path / "bundles"
+    root.mkdir()
+    d = root / "prov"
+    d.mkdir()
+    (d / "prov.yaml").write_text(
+        "twin_config:\n"
+        "  id: prov\n"
+        "  segments:\n"
+        "    - { name: lan, cidr: 10.5.0.0/24, source: discovered, confidence: 0.75, vantage: hq/rdr1:12 }\n"
+        "    - { name: sink, cidr: 10.200.254.0/24, source: unconfirmed }\n"
+        "  nodes:\n"
+        "    - { name: gw, kind: router, image: debian-12-cloud@v1, requires: [linux],\n"
+        "        nets: [{ segment: lan }, { segment: sink }], source: unconfirmed, vantage: hq/rdr1:12 }\n"
+        "    - { name: ws, role: corp-workstation, image: debian-12-cloud@v1, requires: [linux], net: lan, count: 2,\n"
+        "        source: discovered, confidence: 0.5, vantage: hq/rdr1:12 }\n"
+    )
+    (d / "prov.topology.json").write_text(json.dumps({"imprint_id": "prov", "as_of": "2026-10-06T19:00:00Z", "windows": 2}))
+    tree = load_twin_tree("prov", fixtures_dir=root)
+    segs = {s.name: (s.source, s.confidence, s.vantage) for s in tree.segments}
+    assert segs == {"lan": ("discovered", 0.75, "hq/rdr1:12"), "sink": ("unconfirmed", None, None)}
+    ws = next(n for s in tree.segments for n in s.nodes if n.name == "ws")
+    assert (ws.source, ws.confidence, ws.vantage) == ("discovered", 0.5, "hq/rdr1:12")
+    assert [(r.name, r.source, r.confidence) for r in tree.routers] == [("gw", "unconfirmed", None)]
+
+    c = TestClient(create_app(_settings(root, tmp_path)))
+    body = c.get("/api/twins/prov/tree").json()
+    assert all(s["source"] for s in body["segments"]) and all(n["source"] for s in body["segments"] for n in s["nodes"])
+    topo = c.get("/api/scenarios/prov/topology")
+    assert topo.status_code == 200, topo.text
+    nets = {n["id"]: (n["source"], n["confidence"], n["vantage"]) for n in topo.json()["nodes"] if n["type"] == "network"}
+    assert nets == {"lan": ("discovered", 0.75, "hq/rdr1:12"), "sink": ("unconfirmed", None, None)}

@@ -366,6 +366,10 @@ export interface TreeNode {
   joins?: string | null;
   observation?: TreeObservation | null;
   personas: TreePersona[];
+  /** Provenance as the twin config carries it (topology-layers §3.1; R4-4): absent on a config that predates it. */
+  source?: string | null;
+  confidence?: number | null;
+  vantage?: string | null;
 }
 
 export interface TreeRoleCount {
@@ -387,6 +391,9 @@ export interface TreeSegment {
   observation?: TreeObservation | null;
   taps: TreeTap[];
   nodes: TreeNode[];
+  source?: string | null;
+  confidence?: number | null;
+  vantage?: string | null;
 }
 
 export interface TwinTree {

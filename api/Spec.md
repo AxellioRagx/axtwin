@@ -140,7 +140,10 @@ twin's canvas.
   in `routers[]`. `traffic_profile` / `tap_plan` name the files read (null
   when the bundle ships none); an unreadable one is a warning, the config
   alone is the tree. This is the surface twin-tier editing will address:
-  every row carries the group name as its handle.
+  every row carries the group name as its handle. Every segment and node
+  row carries the config's provenance as written (`source`, `confidence`,
+  `vantage`; R4-4, 2026-11-08), null where the config has none; the
+  scenario topology route's `network` nodes carry a segment's likewise.
 - `DELETE /api/twins/{id}` (token, `204`) — remove a twin from the catalog
   and the belief store a run of that name left. `409` while a live deploy
   stands on it (destroy it first); `404` unknown; `400` misaddressed.

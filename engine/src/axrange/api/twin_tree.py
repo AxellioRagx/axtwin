@@ -70,6 +70,7 @@ def load_twin_tree(imprint_id: str, *, fixtures_dir: Optional[str | Path] = None
             observation=_observation(seg.observation),
             taps=taps_by_segment.get(seg.name, []),
             nodes=sorted(members, key=lambda g: (-g.count, g.name)),
+            **_provenance(seg),
         ))
     segments.sort(key=lambda s: (-s.hosts, s.name))
 
@@ -105,7 +106,19 @@ def _group(node: TwinConfigNode, tc: TwinConfig, *, imprint_id: str) -> dtos.Tre
         install=[_install_label(step) for step in (node.install or [])],
         joins=node.joins,
         observation=_observation(node.observation),
+        **_provenance(node),
     )
+
+
+def _provenance(entry: Any) -> dict[str, Any]:
+    """The entry's `source` / `confidence` / `vantage` as the twin config carries them (R4-4):
+    the cast writes all three, a hand-authored config usually none, and the tree passes on
+    exactly what is there."""
+    return {
+        "source": getattr(entry, "source", None),
+        "confidence": float(entry.confidence) if getattr(entry, "confidence", None) is not None else None,
+        "vantage": getattr(entry, "vantage", None),
+    }
 
 
 def _segments_with_links(node: TwinConfigNode, tc: TwinConfig) -> list[str]:
