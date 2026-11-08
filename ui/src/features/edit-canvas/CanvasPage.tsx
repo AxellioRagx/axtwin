@@ -638,6 +638,8 @@ export function CanvasPage() {
 
   // ---- exits ----
   const files = editor.files;
+  const filesRef = useRef(files);
+  filesRef.current = files;
   const dirty = deployed ? Boolean(config?.dirty) || editor.dirty : editor.dirty;
   const structurallyValid = model ? !model.findings.some((f) => f.severity === "error") : false;
   // The gate: the API's latest answer, for exactly the files on screen, with no error.
@@ -765,11 +767,13 @@ export function CanvasPage() {
         await api.putAssertions(pit, body);
         await api.castImprint(pit, { twin_id: id, replace: true });
         // Re-open the working copy over the re-cast baseline: the edit is now the baseline's.
-        if (deployId && files) await api.putDeployConfig(deployId, files).catch(() => null);
+        // The files as they are NOW (a split-and-assert edits and promotes in one click; this runs after its re-render).
+        const latest = filesRef.current;
+        if (deployId && latest) await api.putDeployConfig(deployId, latest).catch(() => null);
         reload();
         return `promoted: ${what}; the twin was re-cast and the working copy re-opened`;
       }),
-    [api, pit, id, deployId, files, reload, run],
+    [api, pit, id, deployId, reload, run],
   );
   // A twin-config node NAME is a cast group name (`role-band-segment-rung`) and a segment's
   // `cidr` the deployed (possibly relocated) network; neither is a key the assertions seam
@@ -810,6 +814,33 @@ export function CanvasPage() {
       void promote({ override: hosts, suppress: [{ key: fromCidr, note }] }, `${from} is ${to}`);
     },
     [model, observedCidrOf, membersOf, promote],
+  );
+
+  // A member split (§5) is an override `field: group` per member, keyed by entity key. The roster's
+  // members are the group's observed keys, sorted; the expander numbers instances 01..NN in that
+  // order, so instance i is the i-th key. A roster whose size is not the group's count (a count
+  // edited by hand, an older cast) keys nothing reliably and is refused.
+  const splitBlock = useCallback(
+    (node: string): string | null => {
+      if (pit === null) return "this twin was not cast from an imprint; there is nothing to assert on";
+      if (!cast) return "the cast roster could not be read; nothing to key an assertion by";
+      const keys = membersOf(node);
+      const count = model?.te.nodes.find((n) => n.name === node)?.countValue ?? 0;
+      if (!keys.length) return `${node} has no observed members in the cast (added by hand, synthetic, or an older cast); nothing to key the split by`;
+      if (keys.length !== count) return `${node} has ${count} instances but the cast observed ${keys.length} members; the instances cannot be matched to entity keys`;
+      return null;
+    },
+    [pit, cast, membersOf, model],
+  );
+  const onPromoteSplit = useCallback(
+    (node: string, indices: number[], name: string) => {
+      const keys = membersOf(node);
+      const note = `promoted from the design canvas: split ${indices.length} of ${node} off as ${name}`;
+      const override = indices.map((i) => keys[i - 1]).filter((k): k is string => Boolean(k)).map((key) => ({ key, field: "group", value: name, note }));
+      if (override.length !== indices.length) return;
+      void promote({ override }, `${indices.length} of ${node} are ${name}`);
+    },
+    [membersOf, promote],
   );
 
   // ---- the Provenance block (topology-layers §3.2, §3.3): confirm / doubt / assert through the seam ----
@@ -1197,6 +1228,8 @@ export function CanvasPage() {
                         promoteBlock={promoteBlock}
                         apply={edit}
                         onPromoteRole={onPromoteRole}
+                        onPromoteSplit={pit !== null ? onPromoteSplit : undefined}
+                        splitBlock={splitBlock}
                         onPromoteMerge={onPromoteMerge}
                         annotations={annotations}
                         onAnnotation={(aid, patch) => setAnnotations(annotations.map((a) => (a.id === aid ? { ...a, ...patch } : a)))}

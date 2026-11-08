@@ -275,6 +275,29 @@ describe("the Provenance block through the seam (a cast twin)", () => {
   const castTwin = () => withTwin("insp", { "te.yaml": TE, "tap/default.yaml": TAP }, { casts: { insp: ROSTER } }, true);
   const putBody = (state: ReturnType<typeof seeded>["state"]) => state.writes.filter((w) => w.op === "put-assertions").at(-1)!.body as Record<string, unknown[]>;
 
+  it("Split and assert writes an override `field: group` per picked member, keyed by the roster's entity key in instance order", async () => {
+    const { api, state } = castTwin();
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "corp-workstation")!);
+    const np = await screen.findByTestId("node-panel");
+    fireEvent.click(within(np).getByLabelText("Pick corp-workstation02"));
+    fireEvent.change(within(np).getByLabelText("New group name"), { target: { value: "jumpers" } });
+    const btn = within(np).getByTestId("split-assert") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    await waitFor(() => expect(state.writes.some((w) => w.op === "put-assertions")).toBe(true));
+    expect(putBody(state)["override"]).toMatchObject([{ key: "address:10.71.10.3", field: "group", value: "jumpers" }]);
+  });
+  it("Split and assert is refused when the roster does not match the group's count", async () => {
+    const roster = { ...ROSTER, node_roster: ROSTER.node_roster.map((n) => (n.name === "corp-workstation" ? { ...n, members: ["address:10.71.10.2"] } : n)) };
+    const { api } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": TAP }, { casts: { insp: roster } }, true);
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "corp-workstation")!);
+    const np = await screen.findByTestId("node-panel");
+    expect(within(np).getByTestId("split-assert-block").textContent).toContain("2 instances but the cast observed 1");
+  });
   it("Confirm on a node writes a confirm mark per observed member; Mark unconfirmed writes doubt and lifts the confirm", async () => {
     const { api, state } = castTwin();
     renderAt(api, "/twins/insp/canvas");

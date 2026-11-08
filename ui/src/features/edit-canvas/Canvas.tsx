@@ -44,7 +44,7 @@ import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
-import { invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
+import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
@@ -783,21 +783,39 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   // Double-click a segment (or a site) to zoom to it: past the detail
   // threshold the tile expands to its chips.
-  const [membersOpen, setMembersOpen] = useState<ReadonlySet<string>>(() => new Set());
+  // Member chips (§5): open by a double-click, and for every `×N` group past `MEMBERS_ZOOM`
+  // (re-rendered only on the crossing); a double-click past it closes one.
+  const [membersOpened, setMembersOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const [membersClosed, setMembersClosed] = useState<ReadonlySet<string>>(() => new Set());
+  const chipsZoom = useStore((st) => st.transform[2] >= MEMBERS_ZOOM);
+  const teNodes = edit?.model.te.nodes;
+  const membersOpen = useMemo<ReadonlySet<string>>(() => {
+    if (!chipsZoom || !teNodes) return membersOpened;
+    return new Set([...membersOpened, ...teNodes.filter((n) => n.countValue > 1 && !membersClosed.has(n.name)).map((n) => n.name)]);
+  }, [chipsZoom, teNodes, membersOpened, membersClosed]);
+  const toggleMembers = useCallback(
+    (name: string) => {
+      const shown = membersOpen.has(name);
+      const flip = (s: ReadonlySet<string>, on: boolean) => { const n = new Set(s); if (on) n.add(name); else n.delete(name); return n; };
+      setMembersOpened((s) => flip(s, !shown));
+      setMembersClosed((s) => flip(s, shown));
+    },
+    [membersOpen],
+  );
   const onNodeDoubleClick = useCallback(
     (_e: React.MouseEvent, node: CanvasNode) => {
       // R3-8: a double-click anywhere on a `×N` group's icon (not only its badge) opens its member chips.
       if (node.data.kind === "host" && edit) {
         const name = node.data.nodeId;
         const group = edit.model.te.nodes.find((n) => n.name === name);
-        if (group && group.countValue > 1) setMembersOpen((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+        if (group && group.countValue > 1) toggleMembers(name);
         return;
       }
       if (node.data.kind !== "segment" && node.data.kind !== "site") return;
       setZoomTarget(node.id);
       void rf.fitView({ nodes: [{ id: node.id }], duration: 300, maxZoom: 1.5, padding: 0.15 });
     },
-    [rf, edit],
+    [rf, edit, toggleMembers],
   );
 
   // The edges are controlled, so the selected leg's flag is derived here.
@@ -827,7 +845,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   const rehomeTarget = legDrag?.over ?? null;
   // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
-  const onToggleMembers = useCallback((name: string) => setMembersOpen((s) => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; }), []);
+  const onToggleMembers = toggleMembers;
   const onSelectMember = useCallback((name: string, index: number) => { if (edit) { edit.onSelection({ kind: "member", node: name, index }); setInspectorTab("selection"); } }, [edit]);
   const onMoveMember = useCallback((from: string, index: number, into: string) => edit?.onMoveMember?.(from, index, into), [edit]);
   const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);

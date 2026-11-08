@@ -12,6 +12,8 @@ export const DETAIL_EXPAND = 0.6;
 /** ... and collapse to glyph tiles below this one; between the two the
  *  level holds, so a tile does not flicker while panning at the boundary. */
 export const DETAIL_COLLAPSE = 0.5;
+/** Past this zoom every `×N` group shows its member chips (topology-layers §5); a double-click still closes one. */
+export const MEMBERS_ZOOM = 1.6;
 
 export function nextLevel(prev: DetailLevel, zoom: number): DetailLevel {
   if (zoom >= DETAIL_EXPAND) return "full";

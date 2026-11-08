@@ -76,6 +76,11 @@ export interface SidePanelProps {
   apply(label: string, fn: (doc: WorkingDoc, model: DocModel) => Files): string | null;
   onPromoteRole(node: string, role: string): void;
   onPromoteMerge(from: string, to: string): void;
+  /** Record a member split in the imprint's assertions (topology-layers §5): an override `field: group`
+   *  on each picked member's entity key, so a re-cast proposes the split. Absent on a twin not cast. */
+  onPromoteSplit?: ((node: string, indices: number[], name: string) => void) | undefined;
+  /** Why the members of this group cannot be keyed (no roster, or a roster that does not match the count), or null. */
+  splitBlock?: ((node: string) => string | null) | undefined;
   annotations: Annotation[];
   onAnnotation(id: string, patch: Partial<Annotation>): void;
   onRemoveAnnotation(id: string): void;
@@ -358,13 +363,47 @@ function Provenance(p: SidePanelProps & { subject: ProvenanceSubject; source: st
 function Members(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [picked, setPicked] = useState<number[]>([]);
+  const [anchor, setAnchor] = useState<number | null>(null);
   const [splitName, setSplitName] = useState("");
+  const [bulkRole, setBulkRole] = useState("");
+  const [bulkPersona, setBulkPersona] = useState("");
   if (!n || n.countValue <= 1) return null;
   const ro = p.locked;
   const rows = Array.from({ length: n.countValue }, (_, i) => i + 1);
   const instance = (i: number) => instanceId(n.name, i);
-  const pick = (i: number) => setPicked((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i]));
+  // Shift-click picks the range from the last row picked (multi-select rows, §5).
+  const pick = (i: number, range: boolean) => {
+    setPicked((s) => {
+      if (range && anchor !== null) {
+        const [lo, hi] = anchor < i ? [anchor, i] : [i, anchor];
+        const span = rows.filter((r) => r >= lo && r <= hi);
+        return [...new Set([...s, ...span])].sort((a, b) => a - b);
+      }
+      return s.includes(i) ? s.filter((x) => x !== i) : [...s, i].sort((a, b) => a - b);
+    });
+    setAnchor(i);
+  };
   const picking = picked.filter((i) => i <= n.countValue);
+  const allPicked = picking.length === n.countValue;
+  const setRoles = (role: string | null) => p.apply(`role of ${picking.length} members of ${n.name}`, (d) => picking.reduce((files, i) => setMemberRole({ ...d, files }, n.name, i, role), d.files));
+  const setPersonas = (persona: string) =>
+    p.apply(`persona of ${picking.length} members of ${n.name}`, (d) =>
+      picking.reduce((files, i) => {
+        const doc = { ...d, files };
+        const mo = readDoc(doc);
+        return persona ? setPersona(doc, mo, "node", instance(i), { persona }) : clearPersona(doc, mo, "node", instance(i));
+      }, d.files),
+    );
+  const split = (assert: boolean) => {
+    const name = splitName.trim();
+    const which = [...picking];
+    if (p.apply(`split ${which.length} of ${n.name} off as ${name}`, (d, m) => splitGroup(d, m, n.name, which, name)) !== null) return;
+    if (assert) p.onPromoteSplit?.(n.name, which, name);
+    setPicked([]);
+    setSplitName("");
+  };
+  const splitReady = !ro && picking.length > 0 && picking.length < n.countValue && splitName.trim() !== "";
+  const splitBlock = p.onPromoteSplit ? (p.splitBlock?.(n.name) ?? null) : null;
   return (
     <>
       <h4>Members</h4>
@@ -372,7 +411,9 @@ function Members(p: SidePanelProps & { name: string }) {
         <thead>
           <tr>
             <th>
-              <span className="cv-split-pick" title="pick members to split off">pick</span>
+              <label className="cv-split-pick" title="pick every member (Shift-click a row picks a range)">
+                <input type="checkbox" aria-label="Pick every member" checked={allPicked} disabled={ro} onChange={() => setPicked(allPicked ? [] : rows)} /> pick
+              </label>
             </th>
             <th>instance</th>
             <th>role</th>
@@ -385,10 +426,10 @@ function Members(p: SidePanelProps & { name: string }) {
             const bound = p.model.tfc?.assignments.find((a) => a.by === "node" && a.target === instance(i)) ?? null;
             const inherited = effectiveAssignment(p.model.tfc, n.name, m?.role ?? n.role);
             return (
-              <tr key={i} data-testid="member-row" data-index={i} data-overridden={m ? "true" : undefined}>
+              <tr key={i} data-testid="member-row" data-index={i} data-overridden={m ? "true" : undefined} data-picked={picking.includes(i) ? "true" : undefined}>
                 <td>
                   <label className="cv-split-pick">
-                    <input type="checkbox" aria-label={`Pick ${instance(i)}`} checked={picking.includes(i)} disabled={ro} onChange={() => pick(i)} /> {i}
+                    <input type="checkbox" aria-label={`Pick ${instance(i)}`} checked={picking.includes(i)} disabled={ro} onChange={() => undefined} onClick={(e) => pick(i, e.shiftKey)} /> {i}
                   </label>
                 </td>
                 <td>
@@ -414,12 +455,44 @@ function Members(p: SidePanelProps & { name: string }) {
         </tbody>
       </table>
       <p className="muted hint">a member's role override is a traffic change while the group's image stands; its persona is the traffic profile's binding of that instance</p>
+      {picking.length > 1 ? (
+        <div className="cv-members-bulk" data-testid="members-bulk">
+          <p className="hint">{picking.length} picked: change them at once (one undo step)</p>
+          <div className="row cv-inline">
+            <input type="text" aria-label="Role for picked members" placeholder={n.role ? `role (empty: inherit ${n.role})` : "role"} value={bulkRole} disabled={ro} onChange={(e) => setBulkRole(e.target.value)} />
+            <button type="button" disabled={ro} data-testid="bulk-role" onClick={() => { if (setRoles(bulkRole.trim() || null) === null) setBulkRole(""); }}>
+              Set role
+            </button>
+          </div>
+          <div className="row cv-inline">
+            <select aria-label="Persona for picked members" value={bulkPersona} disabled={ro} onChange={(e) => setBulkPersona(e.target.value)}>
+              <option value="">unbind (inherit)</option>
+              {p.personas.map((ps) => (
+                <option key={ps.id} value={ps.id}>{ps.id}</option>
+              ))}
+            </select>
+            <button type="button" disabled={ro} data-testid="bulk-persona" onClick={() => setPersonas(bulkPersona)}>
+              Set persona
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="row cv-inline" data-testid="split-form">
         <input type="text" aria-label="New group name" placeholder={`split ${picking.length || "…"} off as…`} value={splitName} disabled={ro} onChange={(e) => setSplitName(e.target.value)} />
-        <button type="button" disabled={ro || !picking.length || picking.length >= n.countValue || !splitName.trim()} data-testid="split" title="the picked members become a new group with this name (the original keeps the rest); a topology change" onClick={() => { if (p.apply(`split ${picking.length} of ${n.name} off as ${splitName.trim()}`, (d, m) => splitGroup(d, m, n.name, picking, splitName.trim())) === null) { setPicked([]); setSplitName(""); } }}>
+        <button type="button" disabled={!splitReady} data-testid="split" title="the picked members become a new group with this name (the original keeps the rest); a topology change" onClick={() => split(false)}>
           Split
         </button>
+        {p.onPromoteSplit ? (
+          <button type="button" disabled={!splitReady || splitBlock !== null} data-testid="split-assert" title={splitBlock ?? "split, and record it in the imprint's assertions keyed by the members' entity keys, so a re-cast proposes the split instead of the whole group (re-casts the twin)"} onClick={() => split(true)}>
+            Split and assert
+          </button>
+        ) : null}
       </div>
+      {p.onPromoteSplit && splitBlock !== null ? (
+        <p className="hint" data-testid="split-assert-block">
+          {splitBlock}
+        </p>
+      ) : null}
     </>
   );
 }

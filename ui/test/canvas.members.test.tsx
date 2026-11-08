@@ -178,6 +178,18 @@ describe("members on the canvas and in the inspector", () => {
     fireEvent.doubleClick(hostIcon("srv"));
     expect(screen.queryByTestId("member-chips")).toBeNull();
   });
+  it("past the zoom threshold every ×N group shows its chips; a double-click closes one there", async () => {
+    sessionStorage.setItem("axr-canvas-viewport:mem", JSON.stringify({ x: 0, y: 0, zoom: 2 }));
+    const { api } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
+    renderAt(api, "/twins/mem/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const strips = () => screen.queryAllByTestId("member-chips").map((st) => within(st).getAllByTestId("member-chip").length).sort();
+    await waitFor(() => expect(strips()).toEqual([2, 4]));
+    fireEvent.doubleClick(hostIcon("ws"));
+    await waitFor(() => expect(strips()).toEqual([2]));
+    fireEvent.doubleClick(hostIcon("ws"));
+    await waitFor(() => expect(strips()).toEqual([2, 4]));
+  });
   it("the ×N badge wears a dot for overrides; a double-click opens the chips; a chip opens the member panel, whose Detach makes a ×1 group", async () => {
     const { api, state } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
     renderAt(api, "/twins/mem/canvas");
@@ -219,6 +231,37 @@ describe("members on the canvas and in the inspector", () => {
     expect(te.nodes.find((n) => n.name === "ops")!.count).toBe(3);
     expect(te.nodes.find((n) => n.name === "ops")!.members.map((m) => [m.index, m.role])).toEqual([[3, "kiosk"]]);
     expect(readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.map((a) => [a.target, a.persona]).sort()).toEqual([["ops", "generic-endpoint"], ["ops03", "kiosk-browser"], ["ws", "corp-workstation"], ["ws02", "backup-server"]]);
+  });
+  it("multi-select rows: Shift-click picks a range, the bulk row sets the role and the persona of every picked member as one undo step", async () => {
+    const { api, state } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
+    renderAt(api, "/twins/mem/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(hostIcon("ws"));
+    const np = await screen.findByTestId("node-panel");
+    expect(within(np).queryByTestId("members-bulk")).toBeNull();
+    fireEvent.click(within(np).getByLabelText("Pick ws01"));
+    fireEvent.click(within(np).getByLabelText("Pick ws03"), { shiftKey: true });
+    expect(within(np).getAllByTestId("member-row").filter((r) => r.dataset["picked"]).map((r) => r.dataset["index"])).toEqual(["1", "2", "3"]);
+    const bulk = within(np).getByTestId("members-bulk");
+    fireEvent.change(within(bulk).getByLabelText("Role for picked members"), { target: { value: "lab-host" } });
+    fireEvent.click(within(bulk).getByTestId("bulk-role"));
+    await settle();
+    expect(nodeOf(lastFiles(state), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[1, "lab-host"], [2, "lab-host"], [3, "lab-host"], [4, "kiosk"]]);
+    fireEvent.change(within(bulk).getByLabelText("Persona for picked members"), { target: { value: "generic-endpoint" } });
+    fireEvent.click(within(bulk).getByTestId("bulk-persona"));
+    await settle();
+    const bound = readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.filter((a) => /^ws0[123]$/.test(a.target)).map((a) => [a.target, a.persona]).sort();
+    expect(bound).toEqual([["ws01", "generic-endpoint"], ["ws02", "generic-endpoint"], ["ws03", "generic-endpoint"]]);
+    // One Undo takes the three persona bindings back together, a second the three roles.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await settle();
+    expect(readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.find((a) => a.target === "ws02")!.persona).toBe("backup-server");
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await settle();
+    expect(nodeOf(lastFiles(state), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[2, "jump-host"], [4, "kiosk"]]);
+    // The header box picks every member.
+    fireEvent.click(within(np).getByLabelText("Pick every member"));
+    expect(within(np).getAllByTestId("member-row").filter((r) => r.dataset["picked"]).length).toBe(4);
   });
   it("the Members block splits the picked members into a named group; the node panel merges into another group", async () => {
     const { api, state } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
