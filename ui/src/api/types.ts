@@ -717,6 +717,51 @@ export interface DeployList {
   warnings: string[];
 }
 
+/** `POST /api/twins/{id}/plan`: the deploy's preview, pure (nothing written, no lease). */
+export interface PlanSummary {
+  plan_id: string;
+  scenario_id: string;
+  scenario_version?: number | null;
+  ir_hash: string;
+  ops: number;
+  barriers: number;
+  edges: number;
+  tree: string;
+  /** The deploy gate's findings (what it removed and why). */
+  config_warnings: string[];
+  vm_count: number;
+  params: Record<string, unknown>;
+}
+
+/** `POST /api/twins/{id}/deploy`'s body: `expect_plan_id` refuses (409) a deploy that re-plans to anything else. */
+export interface TwinDeployRequest {
+  target_node?: string;
+  expect_plan_id?: string;
+}
+
+/** `POST /api/twins/{id}/deploy`: the deploy runs detached; its row appears in `GET /api/deploys`. */
+export interface CreateDeployResponse {
+  deploy_id: string;
+  status: string;
+  detached: boolean;
+  plan_id?: string | null;
+  config_warnings: string[];
+}
+
+/** `GET /api/targets`: the clusters the API deploys to, redacted. */
+export interface Target {
+  node: string;
+  name?: string | null;
+  default: boolean;
+  nodes?: string[];
+  platform?: string | null;
+  error?: string | null;
+}
+
+export interface TargetList {
+  targets: Target[];
+}
+
 export interface ValidationFinding {
   rule_id: string;
   severity: "error" | "warning" | "info" | string;

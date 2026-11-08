@@ -12,6 +12,7 @@ import type {
   AssertionsDoc,
   DeployConfig,
   DeploySummary,
+  Target,
   Imprint,
   LayoutDoc,
   PendingChange,
@@ -146,9 +147,11 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError; plan?: ApiError; deploy?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
+  /** What `GET /api/targets` lists. */
+  targets: Target[];
 }
 
 export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeState } {
@@ -178,6 +181,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     writes: [],
     refuse: {},
     runSteps: [],
+    targets: [{ node: "dev45", name: "dev45", default: true, nodes: ["dev45"], platform: "proxmox", error: null }],
     ...seed,
   };
   let nextId = 100;
@@ -563,6 +567,24 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         wc.applied = { at: wc.updated_at, tiers: Object.fromEntries(tiers.map((t) => [t, "done"])), roles };
       }
       return { deploy_id: deployId, twin_id: cfg.twin_id, applied: tiers, roles, warnings: [], config: configOf(deployId) };
+    },
+    async listTargets() {
+      return { targets: [...state.targets] };
+    },
+    async planTwin(id, body) {
+      state.writes.push({ op: "plan", id, body });
+      if (state.refuse.plan) throw state.refuse.plan;
+      const t = state.twins[id];
+      if (!t) throw notFound(`twin '${id}'`);
+      return { plan_id: `${id}-plan${nextId++}`, scenario_id: id, scenario_version: 1, ir_hash: "h", ops: t.hosts * 8, barriers: 4, edges: 10, tree: "", config_warnings: ["deploy gate: 1 node spec(s) removed"], vm_count: t.hosts, params: {} };
+    },
+    async deployTwin(id, body) {
+      state.writes.push({ op: "deploy", id, body });
+      if (state.refuse.deploy) throw state.refuse.deploy;
+      const deploy_id = `dep-${nextId++}`;
+      const now = Date.now() / 1000;
+      state.deploys.push({ deploy_id, scenario_id: id, status: "running", started_at: now, updated_at: now, tier: "te", plan_id: body.expect_plan_id ?? null, target: "dev45" });
+      return { deploy_id, status: "running", detached: true, plan_id: body.expect_plan_id ?? null, config_warnings: [] };
     },
     async validateDocument(document) {
       state.writes.push({ op: "validate", id: document.id, body: document });

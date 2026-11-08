@@ -83,7 +83,7 @@ export function TwinsPage() {
                       <Link className="linkbutton" to={`/canvas/${enc}`}>
                         Canvas
                       </Link>
-                      <Link className="linkbutton" to={`/twins/${enc}#deploy`} title="Deploy state and the deploy commands, on the twin's page">
+                      <Link className="linkbutton" to={`/twins/${enc}#deploy`} title="Plan and deploy the twin, on its page">
                         Deploy
                       </Link>
                       <button className="quiet" type="button" onClick={() => navigate(`/twins/${enc}#delete`)} aria-label={`Delete twin ${t.id}…`}>

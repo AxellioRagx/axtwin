@@ -7,6 +7,7 @@ import { standingDeploy, tierStatus } from "../shell/deployState";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { ErrorLine, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { DeployPanel } from "./DeployPanel";
 import { TwinTree } from "./TwinTree";
 
 /** One twin in the catalog: the summary the deploy tiers read, and what stands
@@ -18,7 +19,7 @@ export function TwinPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const { hash } = useLocation();
-  const { data, error, loading } = useLoad<{ twin: TwinSummary; deploys: DeploySummary[] }>(async (signal) => {
+  const { data, error, loading, reload } = useLoad<{ twin: TwinSummary; deploys: DeploySummary[] }>(async (signal) => {
     const twin = await api.getTwin(id, signal);
     const deploys = await api.listDeploys(signal).catch(() => ({ deploys: [], warnings: [] }));
     return { twin, deploys: deploys.deploys };
@@ -119,10 +120,11 @@ export function TwinPage() {
               ))}
             </ul>
           ) : null}
+          <DeployPanel id={id} standing={te} focus={hash === "#deploy"} onDeployed={reload} />
           <h2>Segments</h2>
           <TwinTree id={id} />
           <p className="muted">
-            The twin is in the catalog; the deploy tiers read it from there (<code>axrange te deploy --config {id}</code>, then <code>tap deploy</code> and <code>tfc deploy --twin {id}</code>). <Link to="/twins">All twins</Link>
+            The twin is in the catalog; the deploy tiers read it from there (Deploy above, or <code>axrange te deploy --config {id}</code>; then <code>tap deploy</code> and <code>tfc deploy --twin {id}</code>). <Link to="/twins">All twins</Link>
           </p>
         </div>
       ) : null}

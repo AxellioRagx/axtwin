@@ -5,6 +5,7 @@ import type {
   CastResponse,
   CastRoster,
   ConfigExitCancel,
+  CreateDeployResponse,
   DeployConfig,
   DeployConfigApply,
   DeployConfigReset,
@@ -19,15 +20,18 @@ import type {
   LayoutDoc,
   LayoutWrite,
   PersonaList,
+  PlanSummary,
   ProbeResult,
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
+  TargetList,
   Topology,
   TopologyExport,
   TwinConfigDetail,
   TwinConfigList,
   TwinConfigWrite,
+  TwinDeployRequest,
   TwinList,
   TwinSummary,
   TwinTree,
@@ -107,6 +111,12 @@ export interface Api {
   cancelDeployConfigExit(deployId: string): Promise<ConfigExitCancel>;
   /** Validate a document (`{id, files}`) through the Save / Persist path without writing; a FAIL is a 200 with the findings. */
   validateDocument(document: { id: string; files: Record<string, string> }, signal?: AbortSignal): Promise<ValidateResult>;
+  // Deploy a twin from the console (2026-11-08): the pure plan, then the deploy pinned to it.
+  listTargets(signal?: AbortSignal): Promise<TargetList>;
+  /** Plan a twin's deploy without running anything. */
+  planTwin(id: string, body?: { target_node?: string }, signal?: AbortSignal): Promise<PlanSummary>;
+  /** Start the twin's te deploy on the cluster (write-gated, lease-guarded, detached). */
+  deployTwin(id: string, body: TwinDeployRequest): Promise<CreateDeployResponse>;
 }
 
 const enc = encodeURIComponent;
@@ -157,5 +167,8 @@ export function makeApi(request: Requester): Api {
     resetDeployConfig: (deployId, body) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: body ?? {} }),
     cancelDeployConfigExit: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/cancel`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
+    listTargets: (signal) => request("GET", "/api/targets", { signal }),
+    planTwin: (id, body, signal) => request("POST", `/api/twins/${enc(id)}/plan`, { body: body ?? {}, signal }),
+    deployTwin: (id, body) => request("POST", `/api/twins/${enc(id)}/deploy`, { body }),
   };
 }
