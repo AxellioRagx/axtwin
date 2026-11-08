@@ -77,10 +77,13 @@ export interface SidePanelProps {
   onPromoteRole(node: string, role: string): void;
   onPromoteMerge(from: string, to: string): void;
   /** Record a member split in the imprint's assertions (topology-layers §5): an override `field: group`
-   *  on each picked member's entity key, so a re-cast proposes the split. Absent on a twin not cast. */
-  onPromoteSplit?: ((node: string, indices: number[], name: string) => void) | undefined;
-  /** Why the members of this group cannot be keyed (no roster, or a roster that does not match the count), or null. */
+   *  on each of `keys` (the observed hosts the operator named), so a re-cast proposes the split.
+   *  Absent on a twin not cast. */
+  onPromoteSplit?: ((node: string, keys: string[], name: string) => void) | undefined;
+  /** Why the members of this group cannot be keyed (no roster, or no observed members), or null. */
   splitBlock?: ((node: string) => string | null) | undefined;
+  /** The group's observed entity keys from the cast roster, sorted (nothing ties one to an instance). */
+  memberKeys?: ((node: string) => string[]) | undefined;
   annotations: Annotation[];
   onAnnotation(id: string, patch: Partial<Annotation>): void;
   onRemoveAnnotation(id: string): void;
@@ -367,6 +370,9 @@ function Members(p: SidePanelProps & { name: string }) {
   const [splitName, setSplitName] = useState("");
   const [bulkRole, setBulkRole] = useState("");
   const [bulkPersona, setBulkPersona] = useState("");
+  // Split and assert, step two: which observed hosts the split instances are (null: not asked yet).
+  const [assertKeys, setAssertKeys] = useState<string[] | null>(null);
+  const [keyFilter, setKeyFilter] = useState("");
   if (!n || n.countValue <= 1) return null;
   const ro = p.locked;
   const rows = Array.from({ length: n.countValue }, (_, i) => i + 1);
@@ -394,16 +400,26 @@ function Members(p: SidePanelProps & { name: string }) {
         return persona ? setPersona(doc, mo, "node", instance(i), { persona }) : clearPersona(doc, mo, "node", instance(i));
       }, d.files),
     );
-  const split = (assert: boolean) => {
+  // `keys`: the observed hosts to assert the split on (Split and assert), or none (a plain Split).
+  const split = (keys: string[] | null) => {
     const name = splitName.trim();
     const which = [...picking];
     if (p.apply(`split ${which.length} of ${n.name} off as ${name}`, (d, m) => splitGroup(d, m, n.name, which, name)) !== null) return;
-    if (assert) p.onPromoteSplit?.(n.name, which, name);
+    if (keys) p.onPromoteSplit?.(n.name, keys, name);
     setPicked([]);
     setSplitName("");
+    setAssertKeys(null);
+    setKeyFilter("");
   };
   const splitReady = !ro && picking.length > 0 && picking.length < n.countValue && splitName.trim() !== "";
   const splitBlock = p.onPromoteSplit ? (p.splitBlock?.(n.name) ?? null) : null;
+  // A cast's instances are interchangeable: nothing records which observed host an instance
+  // stands for (the roster's members are only the group's sorted entity keys). So the operator
+  // names the hosts the assertion is about, as many as the instances split off (2026-11-08;
+  // it used to take the i-th sorted key for instance i, a guess).
+  const keys = p.memberKeys?.(n.name) ?? [];
+  const shownKeys = keyFilter.trim() ? keys.filter((k) => k.includes(keyFilter.trim())) : keys;
+  const toggleKey = (k: string) => setAssertKeys((s) => (s === null ? [k] : s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
   return (
     <>
       <h4>Members</h4>
@@ -479,15 +495,40 @@ function Members(p: SidePanelProps & { name: string }) {
       ) : null}
       <div className="row cv-inline" data-testid="split-form">
         <input type="text" aria-label="New group name" placeholder={`split ${picking.length || "…"} off as…`} value={splitName} disabled={ro} onChange={(e) => setSplitName(e.target.value)} />
-        <button type="button" disabled={!splitReady} data-testid="split" title="the picked members become a new group with this name (the original keeps the rest); a topology change" onClick={() => split(false)}>
+        <button type="button" disabled={!splitReady} data-testid="split" title="the picked members become a new group with this name (the original keeps the rest); a topology change" onClick={() => split(null)}>
           Split
         </button>
         {p.onPromoteSplit ? (
-          <button type="button" disabled={!splitReady || splitBlock !== null} data-testid="split-assert" title={splitBlock ?? "split, and record it in the imprint's assertions keyed by the members' entity keys, so a re-cast proposes the split instead of the whole group (re-casts the twin)"} onClick={() => split(true)}>
-            Split and assert
+          <button type="button" disabled={!splitReady || splitBlock !== null || assertKeys !== null} data-testid="split-assert" title={splitBlock ?? "split, and record it in the imprint's assertions keyed by the observed hosts you name next, so a re-cast proposes the split instead of the whole group (re-casts the twin)"} onClick={() => setAssertKeys([])}>
+            Split and assert…
           </button>
         ) : null}
       </div>
+      {assertKeys !== null && p.onPromoteSplit ? (
+        <div className="cv-members-bulk" data-testid="split-assert-keys">
+          <p className="hint">
+            Which observed hosts are the {picking.length} split off? The cast does not record which host an instance stands for; the assertion is about the hosts you pick ({assertKeys.length} of {picking.length}).
+          </p>
+          {keys.length > 12 ? <input type="text" aria-label="Filter observed hosts" placeholder="filter, e.g. 10.20.193." value={keyFilter} onChange={(e) => setKeyFilter(e.target.value)} /> : null}
+          <ul className="cv-key-list">
+            {shownKeys.map((k) => (
+              <li key={k}>
+                <label className="cv-split-pick mono">
+                  <input type="checkbox" aria-label={`Observed host ${k}`} checked={assertKeys.includes(k)} onChange={() => toggleKey(k)} disabled={ro || (!assertKeys.includes(k) && assertKeys.length >= picking.length)} /> {k}
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="row cv-inline">
+            <button type="button" className="primary" data-testid="split-assert-go" disabled={!splitReady || assertKeys.length !== picking.length} onClick={() => split([...assertKeys].sort())}>
+              Split and assert {picking.length} host{picking.length === 1 ? "" : "s"}
+            </button>
+            <button type="button" onClick={() => { setAssertKeys(null); setKeyFilter(""); }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
       {p.onPromoteSplit && splitBlock !== null ? (
         <p className="hint" data-testid="split-assert-block">
           {splitBlock}

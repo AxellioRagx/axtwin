@@ -275,7 +275,7 @@ describe("the Provenance block through the seam (a cast twin)", () => {
   const castTwin = () => withTwin("insp", { "te.yaml": TE, "tap/default.yaml": TAP }, { casts: { insp: ROSTER } }, true);
   const putBody = (state: ReturnType<typeof seeded>["state"]) => state.writes.filter((w) => w.op === "put-assertions").at(-1)!.body as Record<string, unknown[]>;
 
-  it("Split and assert writes an override `field: group` per picked member, keyed by the roster's entity key in instance order", async () => {
+  it("Split and assert asks which observed hosts the split instances are, and writes an override `field: group` on exactly those", async () => {
     const { api, state } = castTwin();
     renderAt(api, "/twins/insp/canvas");
     await screen.findAllByTestId("canvas-host");
@@ -286,17 +286,47 @@ describe("the Provenance block through the seam (a cast twin)", () => {
     const btn = within(np).getByTestId("split-assert") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     fireEvent.click(btn);
+    // Nothing is split or written yet: the second step names the hosts.
+    const step = within(np).getByTestId("split-assert-keys");
+    expect(state.writes.some((w) => w.op === "put-assertions")).toBe(false);
+    const go = within(step).getByTestId("split-assert-go") as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+    // One instance split off: one host, and the other box locks once it is picked. Instance 2 is not "the 2nd key".
+    fireEvent.click(within(step).getByLabelText("Observed host address:10.71.10.2"));
+    expect((within(step).getByLabelText("Observed host address:10.71.10.3") as HTMLInputElement).disabled).toBe(true);
+    expect(go.disabled).toBe(false);
+    fireEvent.click(go);
     await waitFor(() => expect(state.writes.some((w) => w.op === "put-assertions")).toBe(true));
-    expect(putBody(state)["override"]).toMatchObject([{ key: "address:10.71.10.3", field: "group", value: "jumpers" }]);
+    expect(putBody(state)["override"]).toMatchObject([{ key: "address:10.71.10.2", field: "group", value: "jumpers" }]);
+    expect(putBody(state)["override"]).toHaveLength(1);
   });
-  it("Split and assert is refused when the roster does not match the group's count", async () => {
-    const roster = { ...ROSTER, node_roster: ROSTER.node_roster.map((n) => (n.name === "corp-workstation" ? { ...n, members: ["address:10.71.10.2"] } : n)) };
+  it("Split and assert no longer needs the roster to match the count; Cancel leaves everything as it was", async () => {
+    const roster = { ...ROSTER, node_roster: ROSTER.node_roster.map((n) => (n.name === "corp-workstation" ? { ...n, members: ["address:10.71.10.2", "address:10.71.10.3", "address:10.71.10.4"] } : n)) };
+    const { api, state } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": TAP }, { casts: { insp: roster } }, true);
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "corp-workstation")!);
+    const np = await screen.findByTestId("node-panel");
+    expect(within(np).queryByTestId("split-assert-block")).toBeNull();
+    fireEvent.click(within(np).getByLabelText("Pick corp-workstation01"));
+    fireEvent.change(within(np).getByLabelText("New group name"), { target: { value: "jumpers" } });
+    fireEvent.click(within(np).getByTestId("split-assert"));
+    const step = within(np).getByTestId("split-assert-keys");
+    expect(within(step).getAllByRole("checkbox")).toHaveLength(3);
+    const writes = state.writes.length;
+    fireEvent.click(within(step).getByRole("button", { name: "Cancel" }));
+    expect(within(np).queryByTestId("split-assert-keys")).toBeNull();
+    expect(state.writes.length).toBe(writes);
+    expect(within(np).getAllByTestId("member-row")).toHaveLength(2);
+  });
+  it("Split and assert is blocked on a group the cast observed no member of", async () => {
+    const roster = { ...ROSTER, node_roster: ROSTER.node_roster.map((n) => (n.name === "corp-workstation" ? { ...n, members: [] } : n)) };
     const { api } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": TAP }, { casts: { insp: roster } }, true);
     renderAt(api, "/twins/insp/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "corp-workstation")!);
     const np = await screen.findByTestId("node-panel");
-    expect(within(np).getByTestId("split-assert-block").textContent).toContain("2 instances but the cast observed 1");
+    expect(within(np).getByTestId("split-assert-block").textContent).toContain("no observed members in the cast");
   });
   it("Confirm on a node writes a confirm mark per observed member; Mark unconfirmed writes doubt and lifts the confirm", async () => {
     const { api, state } = castTwin();

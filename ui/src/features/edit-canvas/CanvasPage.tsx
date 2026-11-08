@@ -827,21 +827,18 @@ export function CanvasPage() {
     (node: string): string | null => {
       if (pit === null) return "this twin was not cast from an imprint; there is nothing to assert on";
       if (!cast) return "the cast roster could not be read; nothing to key an assertion by";
-      const keys = membersOf(node);
-      const count = model?.te.nodes.find((n) => n.name === node)?.countValue ?? 0;
-      if (!keys.length) return `${node} has no observed members in the cast (added by hand, synthetic, or an older cast); nothing to key the split by`;
-      if (keys.length !== count) return `${node} has ${count} instances but the cast observed ${keys.length} members; the instances cannot be matched to entity keys`;
+      if (!membersOf(node).length) return `${node} has no observed members in the cast (added by hand, synthetic, or an older cast); nothing to key the split by`;
       return null;
     },
-    [pit, cast, membersOf, model],
+    [pit, cast, membersOf],
   );
+  // The keys are the observed hosts the operator named: the cast ties no instance to a host.
   const onPromoteSplit = useCallback(
-    (node: string, indices: number[], name: string) => {
-      const keys = membersOf(node);
-      const note = `promoted from the design canvas: split ${indices.length} of ${node} off as ${name}`;
-      const override = indices.map((i) => keys[i - 1]).filter((k): k is string => Boolean(k)).map((key) => ({ key, field: "group", value: name, note }));
-      if (override.length !== indices.length) return;
-      void promote({ override }, `${indices.length} of ${node} are ${name}`);
+    (node: string, keys: string[], name: string) => {
+      const known = new Set(membersOf(node));
+      if (!keys.length || keys.some((k) => !known.has(k))) return;
+      const note = `promoted from the design canvas: split ${keys.length} of ${node} off as ${name}`;
+      void promote({ override: keys.map((key) => ({ key, field: "group", value: name, note })) }, `${keys.length} of ${node} are ${name}`);
     },
     [membersOf, promote],
   );
@@ -1241,6 +1238,7 @@ export function CanvasPage() {
                         onPromoteRole={onPromoteRole}
                         onPromoteSplit={pit !== null ? onPromoteSplit : undefined}
                         splitBlock={splitBlock}
+                        memberKeys={membersOf}
                         onPromoteMerge={onPromoteMerge}
                         annotations={annotations}
                         onAnnotation={(aid, patch) => setAnnotations(annotations.map((a) => (a.id === aid ? { ...a, ...patch } : a)))}
