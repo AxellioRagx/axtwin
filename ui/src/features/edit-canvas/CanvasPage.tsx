@@ -51,7 +51,7 @@ import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
 import { moveMember } from "./edit/members";
-import { attachDevices, duplicateSubtree, parkedDevices } from "./edit/subtree";
+import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
 import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
@@ -286,6 +286,9 @@ export function CanvasPage() {
   // only by "Save layout" (or alongside a document Save / Persist).
   const draft = useLayoutDraft(api, id, layout.data);
   const { pins, annotations, onPin, onPinMany, setAnnotations } = draft;
+  // The pins as they are now, for handlers memoized without them (the duplicate's drop).
+  const pinsRef = useRef(pins);
+  pinsRef.current = pins;
   const layoutChanges = draft.changes;
   const saveLayout = draft.save;
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -977,14 +980,16 @@ export function CanvasPage() {
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
       onDuplicateSubtree: (root, drop) => {
-        const r = { root: "" };
+        let r: { result: DuplicateResult; model: DocModel } | null = null;
         const attachTo = drop?.attachTo ?? null;
         const prefix = drop?.prefix ?? null;
         const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}${prefix ? ` under ${prefix}` : ""}`;
-        if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r.root = out.root; return out.files; }) !== null) return;
-        // Dropped on empty canvas: the parked copy's root stands where it was dropped (a side-car position).
-        if (!attachTo && drop?.at) onPin(`host:${r.root}`, { x: Math.round(drop.at.x), y: Math.round(drop.at.y) });
-        setSelection({ kind: "subtree", root: r.root });
+        if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r = { result: out, model: m }; return out.files; }) !== null || !r) return;
+        const done: { result: DuplicateResult; model: DocModel } = r;
+        // Dropped on empty canvas: the parked copy stands where it was dropped, its root at the
+        // drop point and its devices and pills in the original's shape around it (side-car positions).
+        if (!attachTo && drop?.at) onPinMany(copyPositions(done.model, root, done.result, { ...settled.current, ...pinsRef.current }, drop.at));
+        setSelection({ kind: "subtree", root: done.result.root });
       },
       onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,

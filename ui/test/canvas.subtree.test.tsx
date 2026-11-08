@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { readDoc } from "../src/features/edit-canvas/edit/document";
-import { attachDevices, carriedBy, deviceDepths, duplicateSubtree, freePort, marqueeSubtree, subtreeOf, subtreePrefixes } from "../src/features/edit-canvas/edit/subtree";
+import { attachDevices, carriedBy, copyPositions, deviceDepths, duplicateSubtree, freePort, marqueeSubtree, subtreeOf, subtreePrefixes } from "../src/features/edit-canvas/edit/subtree";
 import { carryTarget, siteAbove } from "../src/features/edit-canvas/Canvas";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { readTfc } from "../src/features/edit-canvas/edit/tfc";
@@ -311,6 +311,22 @@ describe("the carried copy (§6.2, §6.3) and the marquee (§6.1)", () => {
     expect(carryTarget(nodes, { x: 50, y: 300 }, ["access"], ["10.70"])).toEqual({ prefix: null });
     expect(siteAbove(nodes, { x: 800, y: 400 })).toBe("10.90");
     expect(siteAbove(nodes, { x: 450, y: 50 })).toBeNull();
+  });
+  it("copyPositions: a copy dropped on the canvas keeps the original's shape around the drop point", () => {
+    const m = model();
+    const out = duplicateSubtree(doc(), m, "core", null);
+    expect(out.cidrs).toMatchObject({ "a1-2": "10.70.3.0/24", "a2-2": "10.70.4.0/24" });
+    // b1 (also core's) has no position here: folded away, it is left to the tree.
+    const positions = { "host:core": { x: 100, y: 0 }, "host:access": { x: 120, y: 200 }, "segment:10.70.1.0/24": { x: 40, y: 400 }, "segment:10.70.2.0/24": { x: 300, y: 400 }, "host:hq": { x: 0, y: -200 } };
+    expect(copyPositions(m, "core", out, positions, { x: 1000.4, y: 50 })).toEqual({
+      "host:core-2": { x: 1000, y: 50 },
+      "host:access-2": { x: 1020, y: 250 },
+      "segment:10.70.3.0/24": { x: 940, y: 450 },
+      "segment:10.70.4.0/24": { x: 1200, y: 450 },
+    });
+    // No position for the original's devices or pills: only the root is pinned.
+    expect(Object.keys(copyPositions(m, "core", out, { "host:core": { x: 0, y: 0 } }, { x: 5, y: 5 }))).toEqual(["host:core-2"]);
+    expect(copyPositions(m, "core", out, {}, { x: 5, y: 5 })).toEqual({ "host:core-2": { x: 5, y: 5 } });
   });
   it("marqueeSubtree: a switch and devices below it is that switch's subtree; a router at the top or no device is not", () => {
     const m = model();

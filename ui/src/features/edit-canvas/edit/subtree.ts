@@ -159,6 +159,38 @@ export interface DuplicateResult {
   /** Old name → new name for every copied device, host and segment. */
   names: Record<string, string>;
   root: string;
+  /** Each copied segment's (new name's) CIDR. */
+  cidrs: Record<string, string>;
+}
+
+type Point = { x: number; y: number };
+
+/** Where a copy dropped on the canvas stands: its root at `at`, and every copied device and
+ *  segment the original has a position for at that position shifted by the same offset, so
+ *  the copy keeps the original's shape instead of its pills going wherever the tree puts
+ *  them (2026-11-08). `positions` is what is on screen, by pin key (`host:<name>`,
+ *  `segment:<cidr>`); an item without one (folded away) is left to the tree. */
+export function copyPositions(model: DocModel, root: string, result: Pick<DuplicateResult, "names" | "root" | "cidrs">, positions: Readonly<Record<string, Point>>, at: Point): Record<string, Point> {
+  const out: Record<string, Point> = { [`host:${result.root}`]: { x: Math.round(at.x), y: Math.round(at.y) } };
+  const from = positions[`host:${root}`];
+  if (!from) return out;
+  const dx = at.x - from.x;
+  const dy = at.y - from.y;
+  const shift = (p: Point): Point => ({ x: Math.round(p.x + dx), y: Math.round(p.y + dy) });
+  const t = subtreeOf(model, root);
+  for (const d of t.devices) {
+    const p = positions[`host:${d}`];
+    const nn = result.names[d];
+    if (p && nn && d !== root) out[`host:${nn}`] = shift(p);
+  }
+  for (const s of t.segments) {
+    const cidr = model.te.segments.find((x) => x.name === s)?.cidr;
+    const p = cidr ? positions[`segment:${cidr}`] : undefined;
+    const nn = result.names[s];
+    const ncidr = nn ? result.cidrs[nn] : undefined;
+    if (p && ncidr) out[`segment:${ncidr}`] = shift(p);
+  }
+  return out;
 }
 
 /** `{name}-2`, `{name}-3`, … the first not taken (§6.2: the copy is the second of its name). */
@@ -277,7 +309,7 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
       }
     }
   }
-  return { files, names, root: newRoot };
+  return { files, names, root: newRoot, cidrs };
 }
 
 function readDocTe(text: string, doc: WorkingDoc): TeModel {
