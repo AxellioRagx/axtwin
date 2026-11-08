@@ -109,7 +109,7 @@ export interface Filters {
    *
    * **Widths move when this is toggled** and that is not a data change: the
    * stroke scale is normalised over the DRAWN set's own range (§5 D2,
-   * `layout/scale.ts`), so the same pair is wider among 12 arcs than among 40.
+   * `canvas/pairs.ts`), so the same pair is wider among 12 arcs than among 40.
    */
   eastWestAll: boolean;
   /**

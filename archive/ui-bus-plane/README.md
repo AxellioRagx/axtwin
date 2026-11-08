@@ -11,9 +11,5 @@ dagre device tree whose edges are routed on its own ranks (`ui/src/features/edit
 | `plane.ts` | the frozen console's level-0 plane stamp (the canvas has its own, `canvas/plane.ts`) |
 | `viewport.ts` | the level-0 viewport fit for the frozen console's plane |
 
-Still live and NOT archived: `layout/level0.ts` and `layout/level1.ts` (with the site, column,
-tier and arc modules they import). The tree reads what they decide is drawn -- the shown
-segments, each segment's role bands collapsed by occupancy rung, the top-K observed arcs, the
-unplaced count -- and discards their positions. Replacing that with a direct read of the graph
-is the remaining step before the whole lifted engine can follow these files here.
+The level-0 / level-1 engine followed on 2026-11-08: `../ui-level0-engine/`.
 Reference only; nothing imports this folder.

@@ -34,14 +34,12 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import type { Point } from "../layout/geometry";
-import { overflowAnchorKey, type Level0Options } from "../layout/level0";
-import { layout1 } from "../layout/level1";
+import { segmentBands } from "./bands";
 import type { RungTally } from "../model/budgets";
 import type { ConsoleGraph, EvidenceMixEntry, GraphNode } from "../model/graph";
 import { shortName } from "../model/detail";
 import { roleBadgeLabel, roleBucket } from "../model/roles";
 import type { Annotation } from "../edit/annotations";
-import type { ExtraLeg } from "./authored";
 
 // ---------------------------------------------------------------------------
 // Node and edge data -- `type` aliases, not interfaces, so they satisfy React
@@ -204,11 +202,16 @@ export interface Placement {
   unplaced?: number;
 }
 
-export interface PlacementOptions extends Level0Options {
-  /** A multi-homed authored host's further attachments (rule 4). */
-  extraLegs?: readonly ExtraLeg[];
-  /** The routers the config names as uplinks (`AuthoredGraph.uplinks`). */
-  uplinks?: readonly string[];
+/** The id prefix of a fold box (a `+N more`, a site fold, an open fold's collapse tile). */
+export const OVERFLOW_ANCHOR_PREFIX = "overflow:";
+
+export function overflowAnchorKey(key: string): string {
+  return `${OVERFLOW_ANCHOR_PREFIX}${key}`;
+}
+
+/** The expand key a fold id names, or `null` for an ordinary anchor. */
+export function siteKeyOfOverflowAnchor(id: string): string | null {
+  return id.startsWith(OVERFLOW_ANCHOR_PREFIX) ? id.slice(OVERFLOW_ANCHOR_PREFIX.length) : null;
 }
 
 export const ID = {
@@ -290,20 +293,20 @@ export function orderByRank<T>(items: readonly T[], rankOf: (item: T) => number 
 }
 
 // ---------------------------------------------------------------------------
-// Icons on a bus: the lifted level-1 band rule gives role order, which band
-// collapses and its rung tally; the row is the canvas's own.
+// Icons on a pill: `bands.ts` gives role order, which band collapses and its
+// rung tally; the row is the canvas's own.
 // ---------------------------------------------------------------------------
 export type ChipSpec = { node: GraphNode } | { rungs: RungsData };
 
 export function chipsOf(graph: ConsoleGraph, cidr: string): { chips: ChipSpec[]; bands: number } {
-  const l1 = layout1(graph, cidr);
-  if (!l1) return { chips: [], bands: 0 };
-  const chips: ChipSpec[] = l1.bands.flatMap((b): ChipSpec[] =>
+  const bands = segmentBands(graph, cidr);
+  if (!bands) return { chips: [], bands: 0 };
+  const chips: ChipSpec[] = bands.flatMap((b): ChipSpec[] =>
     b.collapsed
-      ? [{ rungs: { kind: "rungs", role: b.role, roleLabel: roleBadgeLabel(b.role), count: b.count, rungs: b.rungs } }]
-      : b.chips.map((c) => ({ node: c.node })),
+      ? [{ rungs: { kind: "rungs", role: b.role, roleLabel: roleBadgeLabel(b.role), count: b.hosts.length, rungs: b.rungs } }]
+      : b.hosts.map((node) => ({ node })),
   );
-  return { chips, bands: l1.bands.length };
+  return { chips, bands: bands.length };
 }
 
 export interface Rect {

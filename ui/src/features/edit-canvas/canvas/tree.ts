@@ -33,7 +33,6 @@
 import * as dagre from "@dagrejs/dagre";
 
 import { CANVAS_PAD, DEVICE_H, DEVICE_W, INTERNET_W, TIER_INTERNET_H, TILE_W } from "../layout/geometry";
-import { layout0, overflowAnchorKey, siteKeyOfOverflowAnchor, type Level0Options } from "../layout/level0";
 import { NO_PINS, type Pins } from "../layout/pins";
 import { BUDGET_LEVEL1_BANDS } from "../model/budgets";
 import type { ConsoleGraph, GraphSegment } from "../model/graph";
@@ -43,9 +42,14 @@ import type { ExtraLeg, TreeLink, TreeStructure } from "./authored";
 import { BUS_ICON, OVERFLOW_LANE_H, iconSlot, laneHeight, laneRows } from "./bus";
 import { HUE_GREY, hueOf } from "./hues";
 import { routeOrthogonal, type Box, type RouteRequest } from "./orthogonal";
-import { EDGE_Z, HANDLE, ID, LEG_CLASS, arcKey, chipsOf, hostData, type CanvasEdge, type CanvasNode, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
+import { selectPairs } from "./pairs";
+import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
 
-export interface TreeOptions extends Level0Options {
+export interface TreeOptions {
+  /** The expand keys the operator opened (`carrier:`, `site:`, `hosts:`). */
+  expanded?: readonly string[];
+  /** Draw every observed pair, not the busiest `PAIR_TOP_K`. */
+  showAllPairs?: boolean;
   /** A multi-homed host's further attachments (its stubs). */
   extraLegs?: readonly ExtraLeg[];
   /** The routers the config names as uplinks (`AuthoredGraph.uplinks`). */
@@ -245,15 +249,13 @@ export function routerPairs(graph: ConsoleGraph, carried: ReadonlySet<string>): 
 }
 
 export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: TreeOptions = {}): Placement {
-  // What is drawn: every site expanded (the tree folds per carrier and site, not per level-0 site).
-  const probe = layout0(graph, NO_PINS, options);
-  const l0 = layout0(graph, NO_PINS, { ...options, expanded: probe.sites.map((s) => s.site.key) });
+  // What is drawn: every segment (the tree folds per carrier and site below).
   const tree = options.tree ?? { devices: [], links: [], sources: {}, confidences: {} };
   const fan = options.fan ?? TREE_FAN_DEFAULT;
   const expanded = new Set(options.expanded ?? []);
-  const empty = (overBudget: string | null): Placement => ({ nodes: [], edges: [], width: 0, height: 0, overBudget, hiddenSegments: 0, hiddenPairs: l0.hiddenPairs, anchorByName: {} });
+  const empty = (overBudget: string | null): Placement => ({ nodes: [], edges: [], width: 0, height: 0, overBudget, hiddenSegments: 0, hiddenPairs: 0, anchorByName: {} });
 
-  const allShown: GraphSegment[] = l0.tiles.map((t) => t.segment).sort((a, b) => compareCidr(a.observedCidr, b.observedCidr));
+  const allShown: GraphSegment[] = [...graph.segments].sort((a, b) => compareCidr(a.observedCidr, b.observedCidr));
   const nameOfCidr = new Map(graph.segments.map((s) => [s.observedCidr, s.name]));
   const fallbackSource: Source | null = options.defaultSource ?? null;
   const source = (name: string): Source | null => (tree.sources[name] as Source | undefined) ?? fallbackSource;
@@ -682,18 +684,15 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   // ---- orthogonal routes through the gutters (R3-4), on dagre's positions ----
   routeTree(g, nodes, edges);
 
-  // The observed pairs: evidence, drawn under Light-up or for the selection (never structure, never routed).
-  for (const arc of l0.arcs) {
-    const srcName = nameOfCidr.get(arc.a) ?? arc.a;
-    const dstName = nameOfCidr.get(arc.b) ?? arc.b;
-    const src = pillOrFold(srcName);
-    const dst = pillOrFold(dstName);
-    if (!src || !dst) continue;
-    const key = arcKey(arc.a, arc.b);
-    edges.push({ id: `arc:${arc.kind}:${key}`, type: "arc", source: src, target: dst, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: arc.strokeWidth }, data: { kind: "arc", key, arcKind: arc.kind, bytes: arc.bytes, flows: arc.flows, pairs: arc.pairs, label: arc.kind === "asserted" && !arc.hasTraffic ? "conduit (declared, no traffic observed)" : `${arc.bytes.toLocaleString()} bytes · ${arc.flows.toLocaleString()} flows${arc.pairs > 1 ? ` · ${arc.pairs} pairs` : ""}` } });
+  // The east-west pairs: evidence, drawn under Light-up or for the selection (never structure, never
+  // routed), merged on the boxes they are drawn between (`pairs.ts`).
+  const pairSel = selectPairs(graph, (name) => anchorByName[name] ?? null, { showAll: options.showAllPairs === true });
+  const boxOfAnchor = (a: string): string => (anchorByName[a] === a ? ID.segment(a) : a);
+  for (const p of pairSel.drawn) {
+    edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}` } });
   }
 
-  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: l0.hiddenPairs, anchorByName, unplaced: l0.unplaced?.count ?? 0 };
+  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
 }
 
 /** The pin key of a top-level node of the tree (`host:` for a device, `segment:` for a pill). */
