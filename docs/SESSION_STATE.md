@@ -4,9 +4,8 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 (evening, R5) · **Branch:** `wip/design-platforms-canvas`. Origin is
-at `5873e85` (the R4 items); the three R5 commits below are **local only** (push only when the
-user asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 (evening, R5) · **Branch:** `wip/design-platforms-canvas`. Pushed to origin
+through the R5 items below (push only when the user asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
 
 ## What this session did
 
@@ -53,7 +52,7 @@ The user's re-test of 08:00 verified R4 and left two items plus a count mismatch
 - The Deploy panel has still never run a real deploy (plan only). *Split and assert* proven
   in jsdom only.
 - corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): the user's call.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); push; merge.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); merge.
 
 ## Gotchas
 
