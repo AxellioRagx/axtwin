@@ -37,7 +37,9 @@ only as the legacy compatibility reader until Phase 4 removes it. Inside a root,
 """
 from __future__ import annotations
 
+import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
@@ -131,6 +133,59 @@ def _under_generated(root: Path, path: Path) -> bool:
     return False
 
 
+#: The listing's per-file memo: resolved path -> (stat key, `(id, description)`
+#: or None for a YAML that is not a twin-config). The catalog listing parsed
+#: every `*.yaml` under every twin folder (tap, tfc, personas, history: ~350
+#: files, 4 s with ruamel's pure-Python parser) on every call, and the canvas
+#: lists it on each open (R3-6, 2026-11-08). Keyed per LES-283 like
+#: `manifest._MEMO`: resolved path + (ino, size, mtime_ns, ctime_ns) with the
+#: stat taken BEFORE the read, failures never cached, locked. Unbounded on
+#: purpose: one small entry per catalog file. Residual, named: a
+#: same-nanosecond in-place rewrite keeping all four signals is invisible.
+_ENTRY_MEMO: dict[Path, tuple[tuple, Optional[tuple[str, Optional[str]]]]] = {}
+_ENTRY_LOCK = threading.Lock()
+
+
+def _stat_key(p: Path) -> Optional[tuple]:
+    try:
+        st = os.stat(p)
+    except OSError:
+        return None
+    return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _catalog_head(path: Path) -> Optional[tuple[str, Optional[str]]]:
+    """`(twin_config.id, description)` of one YAML, or None when it is not a
+    twin-config. Raises `YamlLoadError` (never cached) when it does not load."""
+    key = path.resolve()
+    st = _stat_key(path)  # BEFORE the read (LES-283)
+    with _ENTRY_LOCK:
+        hit = _ENTRY_MEMO.get(key)
+    if hit is not None and st is not None and hit[0] == st:
+        return hit[1]
+    # A file that never spells `twin_config` cannot carry the block: skip the
+    # parse (most of a twin folder's YAML is tap / traffic / persona files).
+    try:
+        if b"twin_config" not in path.read_bytes():
+            head: Optional[tuple[str, Optional[str]]] = None
+        else:
+            head = _parse_head(path)
+    except OSError as e:
+        raise YamlLoadError(f"{path}: {e}") from e
+    if st is not None:
+        with _ENTRY_LOCK:
+            _ENTRY_MEMO[key] = (st, head)
+    return head
+
+
+def _parse_head(path: Path) -> Optional[tuple[str, Optional[str]]]:
+    raw = load_yaml_raw(path, loader=_yaml_loader())
+    tc_raw = raw.get("twin_config") if isinstance(raw, dict) else None
+    if not isinstance(tc_raw, dict) or not isinstance(tc_raw.get("id"), str):
+        return None
+    return tc_raw["id"], tc_raw.get("description")
+
+
 def _list_one_dir(root: Path) -> list[TwinConfigCatalogEntry]:
     """One search-path directory's scan -- `list_twin_configs` below calls
     this once per entry in the search path."""
@@ -149,12 +204,12 @@ def _list_one_dir(root: Path) -> list[TwinConfigCatalogEntry]:
         if _under_generated(root, path):
             continue
         try:
-            raw = load_yaml_raw(path, loader=_yaml_loader())
+            head = _catalog_head(path)
         except YamlLoadError:
             continue
-        tc_raw = raw.get("twin_config") if isinstance(raw, dict) else None
-        if not isinstance(tc_raw, dict) or not isinstance(tc_raw.get("id"), str):
+        if head is None:
             continue
+        twin_id, description = head
         error: Optional[str] = None
         folder = path.parent
         if (folder / MANIFEST_FILENAME).is_file():
@@ -167,7 +222,7 @@ def _list_one_dir(root: Path) -> list[TwinConfigCatalogEntry]:
             error = manifest_errors[folder]
         out.append(
             TwinConfigCatalogEntry(
-                id=tc_raw["id"], path=path, description=tc_raw.get("description"),
+                id=twin_id, path=path, description=description,
                 error=error,
             )
         )

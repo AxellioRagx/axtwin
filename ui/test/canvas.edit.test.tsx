@@ -78,6 +78,22 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(host("ws01-2").dataset["address"]).toBe("10.1.1.11");
   });
 
+  it("R3-6: the other twins' items load when the palette first opens, not with the page", async () => {
+    const { api, state } = seeded();
+    const reads: string[] = [];
+    const list = api.listTwinConfigs.bind(api);
+    const one = api.getTwinConfig.bind(api);
+    api.listTwinConfigs = (signal) => (reads.push("list"), list(signal));
+    api.getTwinConfig = (cid, signal) => (reads.push(cid), one(cid, signal));
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
+    await settle();
+    expect(reads).toEqual(["corp-auth"]); // this twin's own document only
+    openPalette();
+    await waitFor(() => expect(reads).toEqual(["corp-auth", "list", "corp-live"]));
+    expect(state.writes.filter((w) => w.op !== "validate")).toEqual([]);
+  });
+
   it("C3.3: Save-As from an undeployed config and from a working copy appears in the list and reopens identical; a taken name is refused", async () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");

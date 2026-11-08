@@ -259,26 +259,29 @@ export function CanvasPage() {
     }
     return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail };
   }, [id]);
-  // The palette's catalog -- every other twin's config and the persona library -- loads AFTER
-  // the drawing (R3-6, 2026-11-07: listing and reading every twin-config held first paint ~6 s
-  // on a 14-node twin); until it lands the palette offers this twin's own items.
-  const paletteLoad = useLoad<{ others: TwinConfigDetail[]; personas: Persona[]; note: string | null }>(async (signal) => {
-    const notes: string[] = [];
-    const list = await api.listTwinConfigs(signal).catch((e: unknown) => {
-      notes.push(`twin-configs not listed: ${errorText(e)}`);
-      return { twin_configs: [] };
-    });
+  // The palette's catalog -- every other twin's config -- loads when the palette is first
+  // opened, not with the page (R3-6). It loaded beside the drawing: one listing (4 s server
+  // side, every catalog YAML parsed) and a read of every config, a dozen requests holding the
+  // browser's connections and the server while the canvas validated, so the first clicks
+  // waited ~10 s (2026-11-08). Until it lands the palette offers this twin's own items.
+  // The persona library is one cheap read the member rows need, so it loads with the page.
+  const [catalogWanted, setCatalogWanted] = useState(false);
+  useEffect(() => setCatalogWanted(false), [id]);
+  const wantCatalog = useCallback(() => setCatalogWanted(true), []);
+  const catalogLoad = useLoad<{ others: TwinConfigDetail[]; note: string | null } | null>(async (signal) => {
+    if (!catalogWanted) return null;
+    const list = await api.listTwinConfigs(signal).catch((e: unknown) => ({ twin_configs: [], note: `twin-configs not listed: ${errorText(e)}` }));
     const others = list.twin_configs.filter((c) => c.id !== id && !c.error).slice(0, CATALOG_DETAIL_LIMIT);
     const details = await Promise.all(others.map((c) => api.getTwinConfig(c.id, signal).catch(() => null)));
-    const personaList = await api.listPersonas(signal).catch((e: unknown) => {
-      notes.push(`personas not listed: ${errorText(e)}`);
-      return { twin: null, personas: [], warnings: [] };
-    });
-    return { others: details.filter((d): d is TwinConfigDetail => d !== null), personas: personaList.personas, note: notes.join("; ") || null };
-  }, [id]);
-  const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(paletteLoad.data?.others ?? [])], [data?.detail, paletteLoad.data]);
-  const personas = paletteLoad.data?.personas ?? [];
-  const paletteNote = paletteLoad.loading && !paletteLoad.data ? "loading the other twins' items…" : (paletteLoad.data?.note ?? null);
+    return { others: details.filter((d): d is TwinConfigDetail => d !== null), note: "note" in list ? list.note : null };
+  }, [id, catalogWanted]);
+  const personaLoad = useLoad<{ personas: Persona[]; note: string | null }>(
+    (signal) => api.listPersonas(signal).then((p) => ({ personas: p.personas, note: null }), (e: unknown) => ({ personas: [], note: `personas not listed: ${errorText(e)}` })),
+    [id],
+  );
+  const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(catalogLoad.data?.others ?? [])], [data?.detail, catalogLoad.data]);
+  const personas = personaLoad.data?.personas ?? [];
+  const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
 
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
@@ -1219,7 +1222,7 @@ export function CanvasPage() {
             locked={Boolean(locked)}
             layoutBar={layoutBar}
             {...(editProps ? { edit: editProps } : {})}
-            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={paletteNote} /> } : {})}
+            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={paletteNote} onOpen={wantCatalog} /> } : {})}
             {...(editProps && model
               ? {
                   inspector: {

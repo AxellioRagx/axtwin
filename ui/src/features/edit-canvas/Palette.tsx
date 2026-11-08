@@ -11,7 +11,7 @@
  * once. Nothing here names an image or persona: every entry is read from
  * the API.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { PaletteItem } from "./edit/EditContext";
 
@@ -28,6 +28,8 @@ export interface PaletteProps {
   hasNodeSelection: boolean;
   disabled: boolean;
   note: string | null;
+  /** Called when the palette is shown: the page loads the other twins' items then. */
+  onOpen?: () => void;
 }
 
 export const PALETTE_MIME = "application/x-axr-palette";
@@ -55,7 +57,9 @@ export function armsOnClick(item: PaletteItem): boolean {
   return item.kind !== "segment" && item.kind !== "persona";
 }
 
-export function Palette({ items, placing, onArm, onPlace, count, onCount, hasNodeSelection, disabled, note }: PaletteProps) {
+export function Palette({ items, placing, onArm, onPlace, count, onCount, hasNodeSelection, disabled, note, onOpen }: PaletteProps) {
+  // Shown: the page loads the other twins' items now (the palette is mounted only while open).
+  useEffect(() => onOpen?.(), [onOpen]);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<Record<string, boolean>>({ segment: true, router: true, group: true, image: true, persona: false, foreign: false });
   const shown = useMemo(() => {

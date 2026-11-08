@@ -256,3 +256,36 @@ def test_resolve_twin_config_path_names_the_file_the_loader_reads(tmp_path):
         assert resolve_twin_config_path(config_id, catalog_dir=search) == loaded == expected
     with pytest.raises(TwinConfigNotFoundError):
         resolve_twin_config_path("z", catalog_dir=search)
+
+
+def test_listing_memo_parses_a_file_once_and_sees_an_edit(tmp_path, monkeypatch):
+    """R3-6 (2026-11-08): the catalog listing parsed every YAML in every twin
+    folder on every call (~350 files, 4 s on the real catalog) and the canvas
+    lists it on each open. Each file's head is memoised on its identity and
+    change signals (LES-283); a YAML that never spells `twin_config` is not
+    parsed at all; an edit is seen on the next listing; a broken file is
+    skipped and not cached."""
+    from axrange.twinconfig import registry
+
+    cfg = tmp_path / "corp" / "corp.yaml"
+    cfg.parent.mkdir()
+    cfg.write_text("twin_config:\n  id: corp\n  description: one\n")
+    (tmp_path / "corp" / "tap-default.yaml").write_text("tap-plan:\n  target: corp\n  bindings: []\n")
+    parsed: list[str] = []
+    real = registry.load_yaml_raw
+
+    def _counting(path, *a, **kw):
+        parsed.append(path.name)
+        return real(path, *a, **kw)
+
+    monkeypatch.setattr(registry, "load_yaml_raw", _counting)
+    assert [(e.id, e.description) for e in list_twin_configs(tmp_path)] == [("corp", "one")]
+    assert parsed == ["corp.yaml"]  # the tap plan was never parsed
+    assert [e.id for e in list_twin_configs(tmp_path)] == ["corp"]
+    assert parsed == ["corp.yaml"]  # the second listing is a stat
+    cfg.write_text("twin_config:\n  id: corp\n  description: two, longer\n")
+    assert [e.description for e in list_twin_configs(tmp_path)] == ["two, longer"]
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("twin_config: [unclosed\n")
+    assert [e.id for e in list_twin_configs(tmp_path)] == ["corp"]
+    assert broken.resolve() not in registry._ENTRY_MEMO
