@@ -21,9 +21,11 @@
  * (`orthogonal.ts`), so none crosses a box. One hue per router only when there
  * are two or more; a one-router twin is neutral.
  *
- * Folding, folded by default: a carrier shows at most `fan` items and a
- * `+N more` for the rest; segments of one site (two-octet prefix) under one
- * carrier fold into one site pill until clicked; a pill shows at most
+ * Folding, folded by default: segments of one site (two-octet prefix) under
+ * one carrier fold into one site pill, and every site pill is always on the
+ * carrier's rail; the loose (site-less) pills show up to `fan` and a `+N more`
+ * holds the rest. An open site shows `fan` of its segments per page on its own
+ * row, then its own `+N more` for the next page (R5-2); a pill shows at most
  * `TREE_HOST_BUDGET` host icons and a `+N`; the `×N` badge folds a group's
  * instances. A click expands in place and the tree re-ranks around it.
  *
@@ -89,6 +91,20 @@ export const TREE_NODE_SEP = 36;
 export const TREE_RANK_SEP = 72;
 /** The default fold: a carrier with more items than this folds the rest. */
 export const TREE_FAN_DEFAULT = 4;
+/** The expand key of an open site's page `page` (2, 3, ...): its row's `+N more` opens it (R5-2). */
+export function sitePageKey(siteKey: string, page: number): string {
+  return `${siteKey}#${page}`;
+}
+/** How many budgets of an open site's segments its row shows: 1, plus each further page opened in turn. */
+export function sitePages(expanded: ReadonlySet<string>, siteKey: string): number {
+  let pages = 1;
+  while (expanded.has(sitePageKey(siteKey, pages + 1))) pages++;
+  return pages;
+}
+/** Closing `key` closes what it opened: a site's further pages go with it. */
+export function withoutFold(keys: readonly string[], key: string): string[] {
+  return keys.filter((x) => x !== key && !x.startsWith(`${key}#`));
+}
 /** The per-segment host budget: a pill draws this many host icons and folds the rest behind `+N`. */
 export const TREE_HOST_BUDGET = 8;
 /** The hue of every branch on a one-router twin (R3-5: hues only distinguish two or more routers). */
@@ -102,6 +118,8 @@ export const TREE_ID = {
   device: (name: string) => `device:${name}`,
   carrierOverflow: (carrier: string) => overflowAnchorKey(`carrier:${carrier}`),
   siteFold: (carrier: string, site: string) => overflowAnchorKey(`site:${carrier}|${site}`),
+  /** An open site's own `+N more`, at the end of its row. */
+  rowOverflow: (siteKey: string) => overflowAnchorKey(`more:${siteKey}`),
   link: (index: number) => `link:${index}`,
   carry: (device: string, segment: string) => `carry:${device}>${segment}`,
   segLink: (segment: string) => `seglink:${segment}`,
@@ -361,7 +379,11 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const drawnSegments: GraphSegment[] = [];
   const siteFolds: Array<{ carrier: string; site: string; segs: GraphSegment[] }> = [];
   const folded = new Map<string, { hidden: GraphSegment[]; total: number; items: number }>();
-  const openFolds: Array<{ carrier: string; key: string; total: number }> = [];
+  const openFolds: Array<{ carrier: string; key: string; total: number; foldBack: number }> = [];
+  /** An open site's own `+N more` at the end of its row: the next budget of its segments (R5-2). */
+  const rowFolds: Array<{ carrier: string; key: string; tile: string; next: string; hidden: GraphSegment[]; total: number }> = [];
+  /** The tile a row fold's segments hang under (their legs and rank come from it). */
+  const tileOfAnchor = new Map<string, string>();
   for (const [carrier, segs] of byCarrier) {
     const bySite = new Map<string, GraphSegment[]>();
     for (const s of segs) {
@@ -377,9 +399,13 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       else if (expanded.has(siteKey)) items.push({ kind: "open", key: siteKey, site, segs: group });
       else items.push({ kind: "site", site, segs: group });
     }
+    // R5-2 (2026-11-08): every site a carrier serves is always on its rail; the budget (the rail's
+    // Fan-out) counts the loose (site-less) pills only, and "+N more" holds only those beyond it.
     const carrierOpen = expanded.has(`carrier:${carrier}`);
-    const open = carrierOpen || items.length <= fan;
-    const visible = open ? items : items.slice(0, fan);
+    const loose = items.filter((it): it is Extract<Item, { kind: "pill" }> => it.kind === "pill");
+    const open = carrierOpen || loose.length <= fan;
+    const kept = new Set<Item>(loose.slice(0, fan));
+    const visible = open ? items : items.filter((it) => it.kind !== "pill" || kept.has(it));
     const rail: string[] = [];
     for (const it of visible) {
       if (it.kind === "pill") {
@@ -387,35 +413,50 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
         drawnSegments.push(it.seg);
         rail.push(ID.segment(it.seg.name));
       } else if (it.kind === "open") {
+        // An open site opens a budget of its segments per page on its own row, then its own "+N more".
         const tile = openFoldId(it.key);
-        openFolds.push({ carrier, key: it.key, total: it.segs.length });
+        const pages = sitePages(expanded, it.key);
+        const shownSegs = it.segs.slice(0, fan * pages);
+        const rest = it.segs.slice(shownSegs.length);
+        openFolds.push({ carrier, key: it.key, total: it.segs.length, foldBack: it.segs.length });
         rail.push(tile);
-        tileRows.set(tile, it.segs.map((sg) => ID.segment(sg.name)));
-        for (const sg of it.segs) {
+        const row = shownSegs.map((sg) => ID.segment(sg.name));
+        for (const sg of shownSegs) {
           anchorByName[sg.name] = sg.name;
           drawnSegments.push(sg);
           underTile.set(sg.name, tile);
         }
+        if (rest.length) {
+          const more = TREE_ID.rowOverflow(it.key);
+          rowFolds.push({ carrier, key: it.key, tile, next: sitePageKey(it.key, pages + 1), hidden: rest, total: it.segs.length });
+          tileOfAnchor.set(more, tile);
+          for (const sg of rest) anchorByName[sg.name] = more;
+          row.push(more);
+        }
+        tileRows.set(tile, row);
       } else {
         siteFolds.push({ carrier, site: it.site, segs: it.segs });
         for (const s of it.segs) anchorByName[s.name] = TREE_ID.siteFold(carrier, it.site);
         rail.push(TREE_ID.siteFold(carrier, it.site));
       }
     }
+    const beyond = loose.slice(fan).map((it) => it.seg);
     if (!open) {
-      const rest = items.slice(fan);
-      const hidden = rest.flatMap((it) => (it.kind === "pill" ? [it.seg] : it.segs));
-      folded.set(carrier, { hidden, total: segs.length, items: rest.length });
-      for (const s of hidden) anchorByName[s.name] = TREE_ID.carrierOverflow(carrier);
+      folded.set(carrier, { hidden: beyond, total: segs.length, items: beyond.length });
+      for (const s of beyond) anchorByName[s.name] = TREE_ID.carrierOverflow(carrier);
       rail.push(TREE_ID.carrierOverflow(carrier));
-    } else if (carrierOpen && items.length > fan) {
-      openFolds.push({ carrier, key: `carrier:${carrier}`, total: segs.length });
+    } else if (carrierOpen && beyond.length) {
+      // Its "fold N back" names the very segments the collapsed "+N more" holds.
+      openFolds.push({ carrier, key: `carrier:${carrier}`, total: segs.length, foldBack: beyond.length });
       rail.push(openFoldId(`carrier:${carrier}`));
     }
     rails.set(carrier, rail);
   }
-  const hiddenSegments = [...folded.values()].reduce((n, f) => n + f.hidden.length, 0) + siteFolds.reduce((n, f) => n + f.segs.length, 0);
-  const boxCount = drawnSegments.length + siteFolds.length + folded.size + openFolds.length + devices.length + 2;
+  // The segments behind a "+N more" (a carrier's, or an open site's row's): what those pills say.
+  // A closed site's segments are counted apart: its pill names them itself (R5-2).
+  const hiddenSegments = [...folded.values()].reduce((n, f) => n + f.hidden.length, 0) + rowFolds.reduce((n, f) => n + f.hidden.length, 0);
+  const siteSegments = siteFolds.reduce((n, f) => n + f.segs.length, 0);
+  const boxCount = drawnSegments.length + siteFolds.length + folded.size + openFolds.length + rowFolds.length + devices.length + 2;
   if (boxCount > TREE_BUDGET_BOXES) return empty(`${boxCount} boxes exceed the canvas budget of ${TREE_BUDGET_BOXES} after folding (the tree's cap)`);
 
   // ---- the Internet and the gateways ----
@@ -459,6 +500,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const f of siteFolds) boxOf.set(TREE_ID.siteFold(f.carrier, f.site), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const carrier of folded.keys()) boxOf.set(TREE_ID.carrierOverflow(carrier), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const f of openFolds) boxOf.set(openFoldId(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
+  for (const f of rowFolds) boxOf.set(TREE_ID.rowOverflow(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const id of [...[...rails.values()].flat(), ...[...tileRows.values()].flat(), ...boxOf.keys()]) {
     const b = boxOf.get(id);
     if (b && !g.hasNode(id)) g.setNode(id, b);
@@ -491,7 +533,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const f of openFolds) if (deviceNames.has(f.carrier)) rankEdge(nodeIdOf(f.carrier), openFoldId(f.key));
   for (const r of graph.routers) for (const name of legsOf(r)) {
     const t = pillOrFold(name);
-    if (t) rankEdge(underTile.get(name) ?? ID.router(r.name), t);
+    if (t) rankEdge(underTile.get(name) ?? tileOfAnchor.get(t) ?? ID.router(r.name), t);
   }
   // A link from a device to a host ranks the device above the host's pill.
   const pillOfHost = (host: string): string | null => {
@@ -704,7 +746,11 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   for (const f of openFolds) {
     const id = openFoldId(f.key);
-    nodes.push({ id, type: "overflow", position: topLeft(id), width: TILE_W, height: OVERFLOW_LANE_H, draggable: false, ...common, data: { kind: "overflow", siteKey: f.key, hidden: 0, total: f.total, expanded: true, ...(f.key.startsWith("site:") ? { label: f.key.slice(f.key.indexOf("|") + 1) } : {}) } });
+    nodes.push({ id, type: "overflow", position: topLeft(id), width: TILE_W, height: OVERFLOW_LANE_H, draggable: false, ...common, data: { kind: "overflow", siteKey: f.key, hidden: f.foldBack, total: f.total, expanded: true, ...(f.key.startsWith("site:") ? { label: f.key.slice(f.key.indexOf("|") + 1) } : {}) } });
+  }
+  for (const f of rowFolds) {
+    const id = TREE_ID.rowOverflow(f.key);
+    nodes.push({ id, type: "overflow", position: topLeft(id), width: TILE_W, height: OVERFLOW_LANE_H, draggable: false, ...common, data: { kind: "overflow", siteKey: f.next, hidden: f.hidden.length, total: f.total, expanded: false, hosts: hostsIn(f.hidden) } });
   }
 
   // ---- edges ----
@@ -771,7 +817,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       const segOf = graph.segmentByName.get(name);
       edges.push({ id: `leg:${r.name}>${name}`, type: "leg", className: LEG_CLASS, source: underTile.get(name) ?? ID.router(r.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, site: segOf ? `carrier:${carrierKey(segOf)}` : undefined, hue } });
     }
-    for (const [anchor, n] of foldedTo) edges.push({ id: `legs:${r.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: ID.router(r.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} folded`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
+    for (const [anchor, n] of foldedTo) edges.push({ id: `legs:${r.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: tileOfAnchor.get(anchor) ?? ID.router(r.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} folded`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
   }
   // An item on a rail (or an open site's row) its parent draws no leg or carry to -- a segment a
   // bridging host adopted onto the rail, or a fold of only such segments: one dashed edge from the
@@ -822,6 +868,10 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   // ---- a new box never lands on a pinned one: it moves right into free space (brief "Positions") ----
   freeSpace(nodes, pins);
 
+  const rowsOut: Record<string, string[]> = {};
+  for (const [carrier, rail] of rails) if (deviceNames.has(carrier)) rowsOut[nodeIdOf(carrier)] = [...rail];
+  for (const [tile, row] of tileRows) rowsOut[tile] = [...row];
+
   // ---- orthogonal routes through the gutters (R3-4), on dagre's positions ----
   routeTree(g, nodes, edges);
 
@@ -833,7 +883,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}` } });
   }
 
-  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
+  return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, siteSegments, rows: rowsOut, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
 }
 
 /** Lay each row (a carrier's rail, an open site's pills) left to right in its given order, where

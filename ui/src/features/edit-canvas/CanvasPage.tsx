@@ -34,7 +34,7 @@ import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
 import { Canvas, type CanvasEditProps } from "./Canvas";
 import { authoredGraph, EMPTY_TREE, treeStructure, type TreeStructure } from "./canvas/authored";
-import { TREE_FAN_DEFAULT, placeTree } from "./canvas/tree";
+import { TREE_FAN_DEFAULT, placeTree, withoutFold } from "./canvas/tree";
 import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
@@ -575,7 +575,7 @@ export function CanvasPage() {
     return p;
   }, [built, pins, expanded, fan, model?.tap, defaultSource]);
 
-  const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? xs.filter((x) => x !== siteKey) : [...xs, siteKey])), []);
+  const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? withoutFold(xs, siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
     (v: Viewport) => {
       try {

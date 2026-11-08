@@ -23,6 +23,7 @@ import {
   useOnViewportChange,
   useReactFlow,
   useStore,
+  useStoreApi,
   type Connection,
   type Edge,
   type Node,
@@ -38,6 +39,7 @@ import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
+import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
 import { hostsKey } from "./canvas/tree";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
 import { Icon } from "./icons";
@@ -707,30 +709,29 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
   }, [legDrag !== null, rf, edit]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A fold opened or closed refits the view to what changed once the tree has re-laid out (R4-8):
-  // the open site's tile and its row, or the closed tile's rail.
-  const pendingFit = useRef<{ key: string; opening: boolean } | null>(null);
+  // A fold opened or closed refits the view once the tree has re-laid out (R5-2): the router plus
+  // the open site's row (or its rail), padded, never below 50 % zoom; a row too wide for that is
+  // framed from its left edge (`canvas/fit.ts`).
+  const pendingFit = useRef<{ key: string } | null>(null);
+  const rfStore = useStoreApi();
   useEffect(() => {
     const want = pendingFit.current;
     if (!want) return;
-    const tile = placement.nodes.find((n) => n.data.kind === "overflow" && n.data.siteKey === want.key && n.data.expanded === want.opening);
-    if (!tile) return;
-    const from = (id: string) => placement.edges.filter((x) => x.source === id && x.type !== "arc").map((x) => x.target);
-    const parent = placement.edges.find((x) => x.target === tile.id && x.type !== "arc")?.source ?? null;
-    const row = from(tile.id);
-    // An open site: the tile and its row. A closed one, or an open carrier (its items rejoined the rail): the rail.
-    const ids = want.opening && row.length ? [tile.id, ...row] : parent ? [parent, ...from(parent)] : [tile.id];
+    const ids = foldFitTargets(placement, want.key);
+    if (!ids) return;
     const t = window.setTimeout(() => {
       pendingFit.current = null;
-      void rf.fitView({ nodes: ids.map((id) => ({ id })), duration: 300, padding: 0.15, maxZoom: FIT_MAX_ZOOM });
+      const b = boundsOf(placement.nodes, ids);
+      const { width, height } = rfStore.getState();
+      if (b && width && height) void rf.setViewport(foldViewport(b, { width, height }, { maxZoom: FIT_MAX_ZOOM }), { duration: 300 });
     }, 60);
     return () => window.clearTimeout(t);
-  }, [placement, rf]);
+  }, [placement, rf, rfStore]);
 
   const onNodeClick = useCallback(
     (e: React.MouseEvent, node: CanvasNode) => {
       if (node.data.kind === "overflow") {
-        pendingFit.current = { key: node.data.siteKey, opening: !node.data.expanded };
+        pendingFit.current = { key: node.data.siteKey };
         onToggleSite(node.data.siteKey);
       }
       // A pill's host fold (`+N`, the per-segment host budget) opens or closes in place.
@@ -1075,6 +1076,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const status = useMemo(() => {
     const parts: string[] = [];
     if (placement.hiddenSegments) parts.push(`${placement.hiddenSegments} segments behind "+N more" tiles`);
+    if (placement.siteSegments) parts.push(`${placement.siteSegments} segments in closed site folds`);
     if (placement.hiddenPairs) parts.push(`${placement.hiddenPairs} observed pairs not drawn (the top ${placement.edges.filter((e) => e.type === "arc").length} by volume are)`);
     return parts;
   }, [placement]);

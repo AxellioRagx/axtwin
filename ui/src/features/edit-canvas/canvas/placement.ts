@@ -195,6 +195,10 @@ export interface Placement {
   /** Why the canvas must NOT draw this twin, or `null`. */
   overBudget: string | null;
   hiddenSegments: number;
+  /** Segments inside closed site folds (each fold names its own count); the tree's only. */
+  siteSegments?: number;
+  /** The tree's rows: a carrier's node id -> its rail, an open site's tile id -> its row (left to right). */
+  rows?: Record<string, string[]>;
   hiddenPairs: number;
   /** Segment NAME -> the anchor it is drawn through (itself, or its group's `+N more` lane when collapsed). */
   anchorByName: Record<string, string>;

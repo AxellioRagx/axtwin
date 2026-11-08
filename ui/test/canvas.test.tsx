@@ -314,10 +314,10 @@ describe("the design canvas (C2, read-only)", () => {
     expect(canvas.dataset["locked"]).toBe("false");
   });
 
-  it("sixty segments in twelve sites fold by site, then by the fan, and open in place, never a denser canvas", async () => {
+  it("sixty segments in twelve sites fold by site; every site stays on the rail and opens a budget at a time, never a denser canvas", async () => {
     // Twelve sites of five segments and no router: on the tree they all hang
-    // under no carrier; each site folds into one site pill, the fan (4) shows
-    // four of them and folds the other eight behind `+N more`.
+    // under no carrier; each site folds into one site pill, and every site
+    // pill stays on the rail (R5-2: the fan budgets loose segments only).
     const segments: TopologyExport["segments"] = [];
     const nodes: TopologyExport["nodes"] = [];
     for (let s = 0; s < 12; s++) {
@@ -333,14 +333,13 @@ describe("the design canvas (C2, read-only)", () => {
     await screen.findAllByTestId("canvas-overflow");
     const folds = () => screen.getAllByTestId("canvas-overflow").map((o) => o.textContent ?? "");
     expect(screen.queryAllByTestId("canvas-segment")).toEqual([]);
-    expect(folds().filter((t) => t.includes("5 segments")).length).toBe(4);
-    expect(folds().some((t) => t.includes("+40 more"))).toBe(true);
+    expect(folds().filter((t) => t.includes("5 segments")).length).toBe(12);
+    expect(folds().some((t) => /\+\d+ more/.test(t))).toBe(false);
     expect(screen.queryByTestId("canvas-fallback")).toBeNull();
-    // The branch's fold opens in place: twelve site pills.
-    fireEvent.click(screen.getAllByTestId("canvas-overflow").find((o) => (o.textContent ?? "").includes("+40 more"))!);
-    await waitFor(() => expect(folds().filter((t) => t.includes("5 segments")).length).toBe(12));
-    // A site pill opens to its five segments.
+    // A site pill opens to the fan's four segments and its own "+1 more"; that opens the fifth.
     fireEvent.click(screen.getAllByTestId("canvas-overflow").find((o) => (o.textContent ?? "").startsWith("10.1 ·"))!);
+    await waitFor(() => expect(screen.getAllByTestId("canvas-segment").length).toBe(4));
+    fireEvent.click(screen.getAllByTestId("canvas-overflow").find((o) => (o.textContent ?? "").includes("+1 more"))!);
     await waitFor(() => expect(screen.getAllByTestId("canvas-segment").length).toBe(5));
   });
 

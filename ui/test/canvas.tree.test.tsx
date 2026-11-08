@@ -383,26 +383,41 @@ describe("a router's rail (R4-2b) and an open site's row (R4-8)", () => {
     if (!n) throw new Error(`no node ${id}`);
     return { ...p.abs(n), w: n.width ?? 0, h: n.height ?? 0 };
   };
-  it("every site and segment the router serves, or a bridging host carries, sits on its rail in one row, site then CIDR, the +N more last and no parent", () => {
+  it("every site and segment the router serves, or a bridging host carries, sits on its rail in one row, site then CIDR, and no parent", () => {
     const p = placed("rail", RAIL_TE);
     expect(p.overBudget).toBeNull();
     // Nothing is "not carried": the bridged segments joined the router's rail with their sites.
     expect(p.nodes.some((n) => n.data.kind === "uncarried")).toBe(false);
-    const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), ID.segment("s192"), TREE_ID.carrierOverflow("hq")];
+    const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), ID.segment("s192"), TREE_ID.siteFold("hq", "10.199")];
+    expect(p.rows?.[ID.router("hq")]).toEqual(rail);
     const boxes = rail.map((id) => box(p, id));
     expect(new Set(boxes.map((b) => Math.round(b.y + b.h / 2))).size).toBe(1);
     const xs = boxes.map((b) => b.x);
     expect([...xs].sort((a, b) => a - b)).toEqual(xs);
-    expect(p.anchorByName["s199a"]).toBe(TREE_ID.carrierOverflow("hq"));
+    // Two loose pills are within the budget: nothing overflows.
+    expect(p.byId.has(TREE_ID.carrierOverflow("hq"))).toBe(false);
+    expect(p.anchorByName["s199a"]).toBe(TREE_ID.siteFold("hq", "10.199"));
+  });
+  it("past the budget, only loose segments fold behind +N more, last on the rail and a leaf; every site stays", () => {
+    const p = placed("rail", RAIL_TE, { fan: 1 });
+    const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), TREE_ID.siteFold("hq", "10.199"), TREE_ID.carrierOverflow("hq")];
+    expect(p.rows?.[ID.router("hq")]).toEqual(rail);
+    const xs = rail.map((id) => box(p, id).x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+    expect(p.anchorByName["s192"]).toBe(TREE_ID.carrierOverflow("hq"));
+    expect(p.byId.get(TREE_ID.carrierOverflow("hq"))?.data).toMatchObject({ hidden: 1 });
+    expect(p.hiddenSegments).toBe(1);
     // The overflow is a leaf: nothing hangs below it.
     const over = box(p, TREE_ID.carrierOverflow("hq"));
     expect(p.nodes.filter((n) => !n.parentId && p.abs(n).y > over.y + over.h)).toEqual([]);
     expect(p.edges.filter((e) => e.source === TREE_ID.carrierOverflow("hq"))).toEqual([]);
   });
-  it("opened, the carrier's items stay one row with the collapse tile last; a fold of bridged segments hangs from the router, dashed, naming the bridge", () => {
-    const p = placed("rail", RAIL_TE, { expanded: ["carrier:hq"] });
+  it("opened, the carrier's items stay one row with the collapse tile last, folding back what +N more held; a fold of bridged segments hangs from the router, dashed, naming the bridge", () => {
+    const p = placed("rail", RAIL_TE, { fan: 1, expanded: ["carrier:hq"] });
     const tile = p.nodes.find((n) => n.data.kind === "overflow" && n.data.siteKey === "carrier:hq")!;
+    expect(tile.data).toMatchObject({ expanded: true, hidden: 1 });
     const rail = [ID.segment("s100"), TREE_ID.siteFold("hq", "10.120"), TREE_ID.siteFold("hq", "10.180"), ID.segment("s192"), TREE_ID.siteFold("hq", "10.199"), tile.id];
+    expect(p.rows?.[ID.router("hq")]).toEqual(rail);
     const xs = rail.map((id) => box(p, id).x);
     expect([...xs].sort((a, b) => a - b)).toEqual(xs);
     expect(new Set(rail.map((id) => Math.round(box(p, id).y + box(p, id).h / 2))).size).toBe(1);

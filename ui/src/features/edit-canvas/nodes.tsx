@@ -585,7 +585,7 @@ export function OverflowNode(p: P) {
   if (d.kind !== "overflow") return null;
   return (
     <div className={`cv-overflow${d.label && !d.expanded ? " cv-site-fold" : ""}`} data-testid="canvas-overflow" data-fold={d.siteKey} data-expanded={d.expanded || undefined} style={{ width: p.width, height: p.height }} title={d.expanded ? "fold these back" : d.label ? `site ${d.label}: click to show its segments` : "show the rest of this branch"}>
-      <span>{d.expanded ? (d.label ? `${d.label} · fold` : `fold ${d.total} back`) : d.label ? d.label : `+${d.hidden} more`}</span>
+      <span>{d.expanded ? (d.label ? `${d.label} · fold` : `fold ${d.hidden} back`) : d.label ? d.label : `+${d.hidden} more`}</span>
       <span className="muted">{d.expanded ? "click to collapse" : `${d.label ? "" : `of ${d.total} segments · `}${d.hosts ?? 0} host${d.hosts === 1 ? "" : "s"}`}</span>
       <Handles />
     </div>
