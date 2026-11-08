@@ -49,7 +49,9 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
-import { subtreeOrNull } from "./edit/subtree";
+import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
+import { DEVICE_H, DEVICE_W } from "./layout/geometry";
+import { twoOctetPrefix } from "./model/keys";
 import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
@@ -78,8 +80,10 @@ export interface CanvasEditProps {
   onMoveTap?(index: number, segment: string): void;
   /** A member chip was dropped on another group (§5): that one member moves there (a topology change). */
   onMoveMember?(from: string, index: number, into: string): void;
-  /** Ctrl+D / the menu: copy the subtree under `root`, parked (§6.2); the page selects the copy. */
-  onDuplicateSubtree?(root: string): void;
+  /** Copy the subtree under `root` (§6.2, §6.3): attached by a trunk to `attachTo`, else parked; a
+   *  parked copy dropped on the canvas stands at `at` (its root's top-left); `prefix` re-allocates
+   *  every copied segment under another site. The page selects the copy. */
+  onDuplicateSubtree?(root: string, drop?: { attachTo?: string | null; at?: { x: number; y: number } | null; prefix?: string | null }): void;
   /** The attach tool between two devices or a device and a host, or a parked device dropped on another (§6.3, §6.4): one `links[]` entry. */
   onLink?(from: string, to: string): void;
   annotations: Annotation[];
@@ -188,6 +192,32 @@ export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position
     if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
   }
   return null;
+}
+
+/** The two-octet site prefix of the pill or site fold nearest ABOVE `at` whose span covers its x
+ *  (where a drop "under a site" lands), or null. Pure. */
+export function siteAbove(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
+  let best: { y: number; prefix: string } | null = null;
+  for (const n of nodes) {
+    if (n.parentId) continue;
+    const d = n.data;
+    const prefix = d.kind === "segment" ? twoOctetPrefix(d.cidr) : d.kind === "overflow" && d.siteKey.startsWith("site:") ? d.siteKey.slice(d.siteKey.indexOf("|") + 1) : null;
+    if (!prefix) continue;
+    const w = n.measured?.width ?? n.width ?? 0;
+    if (at.x < n.position.x || at.x > n.position.x + w || n.position.y > at.y) continue;
+    if (!best || n.position.y > best.y) best = { y: n.position.y, prefix };
+  }
+  return best?.prefix ?? null;
+}
+
+/** Where a carried subtree copy would land at `at` (§6.3): onto a device not in the subtree (a
+ *  trunk), else parked there -- re-allocated under the site above when that site's prefix is not
+ *  one the subtree's segments already sit in. Pure. */
+export function carryTarget(nodes: Parameters<typeof deviceAt>[0], at: { x: number; y: number }, inSubtree: readonly string[], prefixes: readonly string[]): { attachTo: string } | { prefix: string | null } {
+  const device = deviceAt(nodes, at);
+  if (device && !inSubtree.includes(device)) return { attachTo: device };
+  const site = siteAbove(nodes, at);
+  return { prefix: site && !prefixes.includes(site) ? site : null };
 }
 
 /** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
@@ -468,6 +498,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const down = (e: KeyboardEvent) => {
       if (e.key === "Alt") setAlt(true);
       if (e.key === "Escape") {
+        setCarry(null);
         setAttachArmed(false);
         setAttachFrom(null);
         edit.onPlacing(null);
@@ -540,6 +571,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const hoveredLeg = useRef<string | null>(null);
   const onShellMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      const box = shellRef.current?.getBoundingClientRect();
+      pointer.current = { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) };
       const id = legUnder(e.target, e.clientX, e.clientY);
       if (id === hoveredLeg.current) return;
       const shell = shellRef.current;
@@ -558,9 +591,72 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // React Flow (no marquee, no pan) by stopping the native mousedown in the capture phase.
   const [legDrag, setLegDrag] = useState<{ node: string; segment: string; hue: string; from: { x: number; y: number }; to: { x: number; y: number }; over: string | null } | null>(null);
   const legDragRef = useRef<typeof legDrag>(null);
+  // ---- §6.2 / §6.3: Ctrl+D (or the menu) carries a floating copy of the subtree under the cursor;
+  // a press drops it -- onto a switch or router (a trunk), or on the canvas (parked where it lands,
+  // re-allocated under the site it lands under); Enter parks it in place, Esc or the right button cancels.
+  const [carry, setCarry] = useState<{ root: string; label: string; devices: string[]; prefixes: string[]; x: number; y: number; target: ReturnType<typeof carryTarget> | null } | null>(null);
+  const carryRef = useRef<typeof carry>(null);
+  carryRef.current = carry;
+  const pointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const startCarry = useCallback(
+    (root: string) => {
+      if (!edit || !edit.onDuplicateSubtree || edit.locked) return;
+      const t = subtreeOrNull(edit.model, root);
+      if (!t) return;
+      const label = `copy of ${root} · ${subtreeCount(edit.model, t)}`;
+      setCarry({ root, label, devices: t.devices, prefixes: subtreePrefixes(edit.model, root), x: pointer.current.x, y: pointer.current.y, target: null });
+    },
+    [edit],
+  );
+  const dropCarry = useCallback(
+    (clientX: number | null, clientY: number | null) => {
+      const c = carryRef.current;
+      if (!c || !edit?.onDuplicateSubtree) return;
+      setCarry(null);
+      if (clientX === null || clientY === null) {
+        edit.onDuplicateSubtree(c.root);
+        return;
+      }
+      const at = rf.screenToFlowPosition({ x: clientX, y: clientY }, { snapToGrid: false });
+      const t = carryTarget(rf.getNodes(), at, c.devices, c.prefixes);
+      if ("attachTo" in t) edit.onDuplicateSubtree(c.root, { attachTo: t.attachTo });
+      else edit.onDuplicateSubtree(c.root, { at: { x: at.x - DEVICE_W / 2, y: at.y - DEVICE_H / 2 }, prefix: t.prefix });
+    },
+    [edit, rf],
+  );
+  useEffect(() => {
+    if (!carry) return;
+    const move = (e: PointerEvent | MouseEvent) => {
+      const shell = shellRef.current?.getBoundingClientRect();
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }, { snapToGrid: false });
+      const c = carryRef.current;
+      const target = c ? carryTarget(rf.getNodes(), at, c.devices, c.prefixes) : null;
+      setCarry((d) => (d ? { ...d, x: e.clientX - (shell?.left ?? 0), y: e.clientY - (shell?.top ?? 0), target } : d));
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        dropCarry(null, null);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("keydown", key);
+    };
+  }, [carry !== null, rf, dropCarry]); // eslint-disable-line react-hooks/exhaustive-deps
   legDragRef.current = legDrag;
   const onShellPointerDownCapture = useCallback(
     (e: React.PointerEvent) => {
+      if (carryRef.current) {
+        // The press drops (or, with any other button, cancels) the carried copy, and nothing under it reacts.
+        e.stopPropagation();
+        e.preventDefault();
+        if (e.button === 0) dropCarry(e.clientX, e.clientY);
+        else setCarry(null);
+        return;
+      }
       if (!editing || !edit || e.button !== 0) return;
       const id = legUnder(e.target, e.clientX, e.clientY);
       const parts = id ? legParts(id) : null;
@@ -574,10 +670,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       setLegDrag({ node: parts.node, segment: parts.segment, hue, from, to, over: null });
       e.preventDefault();
     },
-    [editing, edit, legUnder, rf],
+    [editing, edit, legUnder, rf, dropCarry],
   );
   const onShellMouseDownCapture = useCallback((e: React.MouseEvent) => {
-    if (legDragRef.current) {
+    if (legDragRef.current || carryRef.current) {
       e.stopPropagation();
       e.preventDefault();
     }
@@ -725,6 +821,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     },
     [edit],
   );
+
+  // A marquee that took a switch and only devices below it is that switch's subtree (§6.1).
+  const onSelectionEnd = useCallback(() => {
+    if (!edit) return;
+    const picked = rf.getNodes().filter((n) => n.selected).flatMap((n) => (n.data.kind === "device" || n.data.kind === "router" ? [n.data.name] : []));
+    const root = marqueeSubtree(edit.model, picked);
+    if (root) selectSubtree(root);
+  }, [edit, rf, selectSubtree]);
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -953,7 +1057,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         const root = sel.kind === "subtree" ? sel.root : sel.kind === "node" && sel.names.length === 1 ? sel.names[0]! : null;
         if (root) {
           e.preventDefault();
-          edit.onDuplicateSubtree(root);
+          startCarry(root);
         }
         return;
       }
@@ -976,7 +1080,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, [rf, edit, locked, togglePopover, provenanceOverlay]);
+  }, [rf, edit, locked, togglePopover, provenanceOverlay, startCarry]);
 
   const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
 
@@ -1060,7 +1164,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (t.kind === "host" || t.kind === "router") {
       const group = edit.model.te.nodes.find((n) => n.name === t.name);
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
-      if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => edit.onDuplicateSubtree!(t.name) });
+      if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });
       items.push({
         label: "Attach to a segment… (then click one)",
         run: () => {
@@ -1079,7 +1183,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
     return items;
-  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation]);
+  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry]);
 
   return (
     <GlowContext.Provider value={glow}>
@@ -1093,7 +1197,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           onMouseMove={onShellMouseMove}
           onPointerDownCapture={onShellPointerDownCapture}
           onMouseDownCapture={onShellMouseDownCapture}
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${overlay ? " overlay" : ""}`}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${carry ? " carrying" : ""}${overlay ? " overlay" : ""}`}
           data-testid="canvas"
           data-overlay={overlay ? "on" : "off"}
           data-zoom-target={zoomTarget ?? undefined}
@@ -1128,6 +1232,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onSelectionChange={onSelectionChange}
+            onSelectionEnd={onSelectionEnd}
             onConnect={onConnect}
             onConnectStart={() => setConnecting(true)}
             onConnectEnd={() => setConnecting(false)}
@@ -1254,6 +1359,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             </svg>
           ) : null}
           {legDrag ? <div className="cv-rehome-hint muted" role="status">{legDrag.over && legDrag.over !== legDrag.segment ? `drop: ${legDrag.node} ${legDrag.segment} → ${legDrag.over}` : `drag ${legDrag.node}'s ${legDrag.segment} port onto another bus · Esc cancels`}</div> : null}
+          {carry ? (
+            <div className="cv-carry-ghost" role="status" data-testid="carry-ghost" data-target={carry.target ? ("attachTo" in carry.target ? `device:${carry.target.attachTo}` : `park:${carry.target.prefix ?? ""}`) : undefined} style={{ left: carry.x + 14, top: carry.y + 14 }}>
+              <strong>{carry.label}</strong>
+              <span>{carry.target && "attachTo" in carry.target ? `drop: trunk it from ${carry.target.attachTo}` : carry.target && carry.target.prefix ? `drop: park it here, re-allocated under ${carry.target.prefix}` : "drop: park it here (not attached) · or on a switch or router"}</span>
+              <span className="muted">Enter parks it in place · Esc cancels</span>
+            </div>
+          ) : null}
           {menu && menuItems.length ? (
             <ul className="cv-menu" role="menu" style={{ left: menu.x, top: menu.y }} data-testid="context-menu">
               {menuItems.map((m) => (

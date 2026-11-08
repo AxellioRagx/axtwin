@@ -8,7 +8,8 @@
 import { describe, expect, it } from "vitest";
 
 import { readDoc } from "../src/features/edit-canvas/edit/document";
-import { attachDevices, carriedBy, deviceDepths, duplicateSubtree, freePort, subtreeOf } from "../src/features/edit-canvas/edit/subtree";
+import { attachDevices, carriedBy, deviceDepths, duplicateSubtree, freePort, marqueeSubtree, subtreeOf, subtreePrefixes } from "../src/features/edit-canvas/edit/subtree";
+import { carryTarget, siteAbove } from "../src/features/edit-canvas/Canvas";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { readTfc } from "../src/features/edit-canvas/edit/tfc";
 
@@ -193,7 +194,12 @@ describe("on the page", () => {
     expect(hostIcon("srv").classList.contains("selected")).toBe(false);
     const validatesBefore = state.writes.filter((w) => w.op === "validate").length;
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
+    // §6.2: Ctrl+D carries a floating copy; nothing is written until it is dropped (Enter parks it in place).
+    expect((await screen.findByTestId("carry-ghost")).textContent).toContain("copy of access · 1 switch · 2 segments · 4 hosts");
+    expect(screen.getByTestId("canvas").classList.contains("carrying")).toBe(true);
+    fireEvent.keyDown(window, { key: "Enter" });
     await settle();
+    expect(screen.queryByTestId("carry-ghost")).toBeNull();
     // R3-2: the copy is held locally, parked: drawn and selected, never sent to the API to be refused.
     await waitFor(() => expect(screen.getByTestId("subtree-panel").textContent).toContain("access-2"));
     expect(screen.getByTestId("subtree-panel").textContent).toContain("none (parked)");
@@ -216,6 +222,7 @@ describe("on the page", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(device("access"), { altKey: true });
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "Enter" });
     await screen.findByTestId("parked-reason");
     fireEvent.click(screen.getByTestId("rail-attach"));
     fireEvent.click(screen.getAllByTestId("canvas-router")[0]!);
@@ -253,6 +260,7 @@ describe("on the page", () => {
     // A parked switch copy, then the tool from hq to it: a trunk carrying what the copy carries.
     fireEvent.click(device("access"), { altKey: true });
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
+    fireEvent.keyDown(window, { key: "Enter" });
     await settle();
     // The tool stays armed after a link: the next two clicks wire the next pair.
     fireEvent.click(screen.getAllByTestId("canvas-router")[0]!);
@@ -260,6 +268,56 @@ describe("on the page", () => {
     await settle();
     te = readTe(lastFiles(state)["te.yaml"]!);
     expect(te.links.at(-1)).toMatchObject({ a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", vlans: ["a1-2", "a2-2"] });
+  });
+});
+
+describe("the carried copy (§6.2, §6.3) and the marquee (§6.1)", () => {
+  it("Esc drops nothing; a press on a switch trunks the copy from it; a press on the canvas parks it there", async () => {
+    const { api, state } = withTwin("sub", { "te.yaml": TE });
+    renderAt(api, "/twins/sub/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const writes = () => state.writes.filter((w) => w.op !== "validate").length;
+    fireEvent.click(device("access"), { altKey: true });
+    fireEvent.keyDown(window, { key: "d", ctrlKey: true });
+    await screen.findByTestId("carry-ghost");
+    const before = writes();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("carry-ghost")).toBeNull());
+    await settle();
+    expect(writes()).toBe(before);
+    expect(screen.getAllByTestId("canvas-device").map((d) => d.dataset["nodeId"]).sort()).toEqual(["access", "core"]);
+  });
+  it("a re-allocated copy: every copied segment takes the next free /24 under the prefix it was dropped under", () => {
+    const m = model();
+    expect(subtreePrefixes(m, "access")).toEqual(["10.70"]);
+    const out = duplicateSubtree(doc(), m, "access", null, { prefix: "10.80" });
+    const te = readTe(out.files["te.yaml"]!);
+    expect(te.segments.filter((s) => s.name.endsWith("-2")).map((s) => [s.name, s.cidr])).toEqual([["a1-2", "10.80.2.0/24"], ["a2-2", "10.80.3.0/24"]]);
+    expect(te.nodes.find((n) => n.name === "printer-2")!.nets[0]).toMatchObject({ segment: "a2-2", ip: "10.80.3.10" });
+    expect(() => duplicateSubtree(doc(), m, "access", null, { prefix: "10.x" })).toThrow(/not a two-octet site prefix/);
+  });
+  it("carryTarget: a device outside the subtree takes it; inside it does not; the site above re-allocates only when it is another prefix", () => {
+    const node = (id: string, data: Record<string, unknown>, x: number, y: number, w = 100, h = 40) => ({ id, position: { x, y }, width: w, height: h, data }) as unknown as Parameters<typeof carryTarget>[0][number];
+    const nodes = [
+      node("device:core", { kind: "device", name: "core" }, 0, 0),
+      node("device:access", { kind: "device", name: "access" }, 200, 0),
+      node("seg:b1", { kind: "segment", name: "b1", cidr: "10.80.1.0/24" }, 400, 100, 200),
+      node("seg:a1", { kind: "segment", name: "a1", cidr: "10.70.1.0/24" }, 0, 100, 200),
+      node("overflow:site:hq|10.90", { kind: "overflow", siteKey: "site:hq|10.90" }, 700, 100, 200),
+    ];
+    expect(carryTarget(nodes, { x: 50, y: 20 }, ["access"], ["10.70"])).toEqual({ attachTo: "core" });
+    expect(carryTarget(nodes, { x: 250, y: 20 }, ["access"], ["10.70"])).toEqual({ prefix: null });
+    expect(carryTarget(nodes, { x: 450, y: 300 }, ["access"], ["10.70"])).toEqual({ prefix: "10.80" });
+    expect(carryTarget(nodes, { x: 50, y: 300 }, ["access"], ["10.70"])).toEqual({ prefix: null });
+    expect(siteAbove(nodes, { x: 800, y: 400 })).toBe("10.90");
+    expect(siteAbove(nodes, { x: 450, y: 50 })).toBeNull();
+  });
+  it("marqueeSubtree: a switch and devices below it is that switch's subtree; a router at the top or no device is not", () => {
+    const m = model();
+    expect(marqueeSubtree(m, ["core", "access", "ws"])).toBe("core");
+    expect(marqueeSubtree(m, ["access", "printer"])).toBe("access");
+    expect(marqueeSubtree(m, ["hq", "core"])).toBeNull();
+    expect(marqueeSubtree(m, ["ws", "printer"])).toBeNull();
   });
 });
 

@@ -117,6 +117,30 @@ export function subtreeOf(model: DocModel, root: string): Subtree {
   return { root, devices, segments, hosts, links, uplink };
 }
 
+/** What a subtree holds, as the panel and the carried copy say it: `1 switch · 2 segments · 4 hosts`. */
+export function subtreeCount(model: DocModel, t: Subtree): string {
+  const te = model.te;
+  const switches = t.devices.filter((d) => te.nodes.find((n) => n.name === d)?.kind === "switch").length;
+  const routers = t.devices.length - switches;
+  const instances = t.hosts.reduce((sum, h) => sum + (te.nodes.find((n) => n.name === h)?.countValue ?? 1), 0);
+  return [routers ? `${routers} router${routers === 1 ? "" : "s"}` : "", switches ? `${switches} switch${switches === 1 ? "" : "es"}` : "", `${t.segments.length} segment${t.segments.length === 1 ? "" : "s"}`, `${instances} host${instances === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+}
+
+/** The subtree a marquee picked (§6.1, "marquee works too"): when the picked devices are a switch
+ *  and devices below it, that switch's subtree; otherwise (no device, a router at the top, devices
+ *  from two branches) null and the marquee stays a plain selection. */
+export function marqueeSubtree(model: DocModel, picked: readonly string[]): string | null {
+  const te = model.te;
+  const devices = picked.filter((name) => te.nodes.some((n) => n.name === name && isDevice(n)));
+  if (!devices.length) return null;
+  const depth = deviceDepths(te);
+  const at = (d: string) => depth.get(d) ?? Number.POSITIVE_INFINITY;
+  const root = [...devices].sort((a, b) => at(a) - at(b) || (a < b ? -1 : 1))[0]!;
+  if (te.nodes.find((n) => n.name === root)?.kind !== "switch") return null;
+  const t = subtreeOf(model, root);
+  return devices.every((d) => t.devices.includes(d)) ? root : null;
+}
+
 /** The next free port name on a device (`P<n>` on a switch, `eth<n>` otherwise). */
 export function freePort(te: TeModel, device: string): string {
   const n = te.nodes.find((x) => x.name === device);
@@ -148,8 +172,25 @@ function prefixOf(cidr: string): string | null {
   return m ? m[1]! : null;
 }
 
+export interface DuplicateOptions {
+  /** Re-allocate every copied segment under this two-octet prefix (`10.180`): the copy was dropped
+   *  under another site (§6.3). Absent: each copy stays in its original's prefix. */
+  prefix?: string | null;
+}
+
+/** The two-octet prefixes the subtree's segments sit in. */
+export function subtreePrefixes(model: DocModel, root: string): string[] {
+  const t = subtreeOf(model, root);
+  const out: string[] = [];
+  for (const s of t.segments) {
+    const p = prefixOf(model.te.segments.find((x) => x.name === s)?.cidr ?? "");
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /** Copy `root`'s subtree, attached by a trunk to `attachTo` (a device) or parked when null. */
-export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string, attachTo: string | null): DuplicateResult {
+export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string, attachTo: string | null, options: DuplicateOptions = {}): DuplicateResult {
   const te = model.te;
   const tree = subtreeOf(model, root);
   if (attachTo !== null) {
@@ -172,7 +213,8 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     const nn = copyName(s, takenSegs);
     names[s] = nn;
     takenSegs.add(nn);
-    const prefix = prefixOf(seg.cidr);
+    if (options.prefix && !/^\d{1,3}\.\d{1,3}$/.test(options.prefix)) throw new Error(`'${options.prefix}' is not a two-octet site prefix`);
+    const prefix = options.prefix || prefixOf(seg.cidr);
     const cidr = prefix ? nextFreeSlash24(prefix, inPlay, { after: true }) : null;
     if (!cidr) throw new Error(`no free /24 left under ${prefix ?? seg.cidr} for a copy of ${s}`);
     cidrs[nn] = cidr;

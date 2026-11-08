@@ -406,3 +406,7 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-overflow[data-expanded] { border-style: dotted; opacity: 0.85; font-size: 11.5px; }
 .cv-seglink .react-flow__edge-path { stroke-width: 2; stroke-dasharray: 1 0; }
 .cv-parked-badge { position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%); white-space: nowrap; font-size: 10px; padding: 0 5px; border-radius: 8px; border: 1px dashed var(--warn, #b7791f); color: var(--warn, #b7791f); background: var(--bg); }
+
+/* §6.2: the floating copy of a subtree under the cursor while Ctrl+D carries it. */
+.canvas-shell.carrying, .canvas-shell.carrying .react-flow__pane, .canvas-shell.carrying .react-flow__node { cursor: copy; }
+.cv-carry-ghost { position: absolute; z-index: 20; pointer-events: none; display: flex; flex-direction: column; gap: 2px; max-width: 320px; padding: 6px 10px; border: 1.5px dashed var(--accent); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 12px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); opacity: 0.95; }

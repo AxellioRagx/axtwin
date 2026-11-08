@@ -41,7 +41,7 @@ import {
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
-import { duplicateSubtree, subtreeOf } from "./edit/subtree";
+import { duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
 import { tapsOn } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
@@ -505,10 +505,7 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
   const t = subtreeOf(p.model, p.root);
   const ro = p.locked;
   const devices = p.model.te.nodes.filter((n) => (n.kind === "switch" || n.kind === "router") && !t.devices.includes(n.name));
-  const switches = t.devices.filter((d) => p.model.te.nodes.find((n) => n.name === d)?.kind === "switch").length;
-  const routers = t.devices.length - switches;
-  const instances = t.hosts.reduce((sum, h) => sum + (p.model.te.nodes.find((n) => n.name === h)?.countValue ?? 1), 0);
-  const count = [routers ? `${routers} router${routers === 1 ? "" : "s"}` : "", switches ? `${switches} switch${switches === 1 ? "" : "es"}` : "", `${t.segments.length} segment${t.segments.length === 1 ? "" : "s"}`, `${instances} host${instances === 1 ? "" : "s"}`].filter(Boolean).join(" · ");
+  const count = subtreeCount(p.model, t);
   const dup = (attachTo: string | null) => {
     const r = { root: "" };
     if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });

@@ -976,9 +976,15 @@ export function CanvasPage() {
       onAddSegment,
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
-      onDuplicateSubtree: (root) => {
+      onDuplicateSubtree: (root, drop) => {
         const r = { root: "" };
-        if (edit(`duplicate ${root}'s subtree`, (d, m) => { const out = duplicateSubtree(d, m, root, null); r.root = out.root; return out.files; }) === null) setSelection({ kind: "subtree", root: r.root });
+        const attachTo = drop?.attachTo ?? null;
+        const prefix = drop?.prefix ?? null;
+        const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}${prefix ? ` under ${prefix}` : ""}`;
+        if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r.root = out.root; return out.files; }) !== null) return;
+        // Dropped on empty canvas: the parked copy's root stands where it was dropped (a side-car position).
+        if (!attachTo && drop?.at) onPin(`host:${r.root}`, { x: Math.round(drop.at.x), y: Math.round(drop.at.y) });
+        setSelection({ kind: "subtree", root: r.root });
       },
       onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,
