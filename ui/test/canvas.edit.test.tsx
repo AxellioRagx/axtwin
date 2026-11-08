@@ -237,7 +237,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(await enabled("Save"));
     await waitFor(() => expect(state.writes.some((w) => w.op === "put-twin-config")).toBe(true));
     const files = (state.writes.find((w) => w.op === "put-twin-config")!.body as { files: Record<string, string> }).files;
-    expect(files["te.yaml"]).toBe(teText("corp-auth").replace("    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n", "    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n    - { name: segment-3, cidr: 10.1.2.0/24, zone_type: vlan }\n"));
+    expect(files["te.yaml"]).toBe(teText("corp-auth").replace("    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n", "    - { name: net-dmz, cidr: 10.1.1.0/24, zone_type: vlan }\n    - { name: segment-3, cidr: 10.1.2.0/24, zone_type: vlan, source: authored }\n"));
     expect(files["twin.yaml"]).toBe(twinYaml("corp-auth"));
   });
 

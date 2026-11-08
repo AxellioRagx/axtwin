@@ -2,14 +2,21 @@
  * The editor's state in React: the working files, the command stack and
  * the models read from them. `apply` runs a pure mutation, blocks it when
  * the canvas's own validator finds an error (the reason is returned, the
- * document untouched), and otherwise records it so Ctrl+Z restores the
+ * document untouched), stamps what it created or changed `source: authored`
+ * (`provenance.ts`), and otherwise records it so Ctrl+Z restores the
  * pre-edit text byte-for-byte.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { EMPTY_STACK, record, redo as redoCmd, sameFiles, undo as undoCmd, type Files, type Stack } from "./commands";
 import { readDoc, type DocModel, type WorkingDoc } from "./document";
+import { stampAuthored } from "./provenance";
 import { firstReason } from "./validate";
+
+export interface ApplyOptions {
+  /** false: the edit writes text that is not the canvas's (a discard back to the baseline), so nothing is stamped authored. */
+  stamp?: boolean;
+}
 
 export interface EditorState {
   files: Files;
@@ -28,7 +35,7 @@ export interface Editor {
   canRedo: boolean;
   lastLabel: string | null;
   /** Run a mutation; returns the reason it was blocked, or null when applied. */
-  apply(label: string, fn: (doc: WorkingDoc, model: DocModel) => Files): string | null;
+  apply(label: string, fn: (doc: WorkingDoc, model: DocModel) => Files, options?: ApplyOptions): string | null;
   undo(): void;
   redo(): void;
   /** Undo until the working files equal `files` (a refused sync reverts to what the server holds), or the stack is empty. */
@@ -53,13 +60,15 @@ export function useEditor(): Editor {
   const model = useMemo(() => (doc ? readDoc(doc) : null), [doc]);
 
   const apply = useCallback<Editor["apply"]>(
-    (label, fn) => {
+    (label, fn, options) => {
       if (!ident) return "no document is open";
       const cur = stateRef.current;
       const curDoc: WorkingDoc = { id: ident.id, teFile: ident.teFile, files: cur.files };
       let next: Files;
       try {
-        next = fn(curDoc, readDoc(curDoc));
+        // What the canvas creates or changes is authored (topology-layers §3.1): stamped here, once.
+        const out = fn(curDoc, readDoc(curDoc));
+        next = options?.stamp === false ? out : stampAuthored(cur.files, out, ident.teFile);
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
       }

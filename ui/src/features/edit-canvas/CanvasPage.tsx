@@ -44,7 +44,8 @@ import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
-import { useEditor } from "./edit/useEditor";
+import { useEditor, type ApplyOptions } from "./edit/useEditor";
+import { adoptBaselineProvenance } from "./edit/provenance";
 import { layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
@@ -405,12 +406,12 @@ export function CanvasPage() {
 
   // One mutation: the editor validates and records it; the reason it was blocked is shown in place.
   const edit = useCallback(
-    (label: string, fn: (d: WorkingDoc, m: DocModel) => Files): string | null => {
+    (label: string, fn: (d: WorkingDoc, m: DocModel) => Files, options?: ApplyOptions): string | null => {
       if (locked) {
         setBlocked("view mode: the deploy is running");
         return "view mode";
       }
-      const reason = editor.apply(label, fn);
+      const reason = editor.apply(label, fn, options);
       setBlocked(reason);
       if (!reason) setServerReason(null);
       return reason;
@@ -774,7 +775,9 @@ export function CanvasPage() {
         await api.castImprint(pit, { twin_id: id, replace: true });
         // Re-open the working copy over the re-cast baseline: the edit is now the baseline's.
         // The files as they are NOW (a split-and-assert edits and promotes in one click; this runs after its re-render).
-        const latest = filesRef.current;
+        // What the promote asserted now reads `asserted` in the re-cast baseline; the working copy takes that mark.
+        const base = await api.getTwinConfig(id).catch(() => null);
+        const latest = filesRef.current && base?.document ? adoptBaselineProvenance(filesRef.current, base.document.files, base.document.te_file) : filesRef.current;
         if (deployId && latest) await api.putDeployConfig(deployId, latest).catch(() => null);
         reload();
         return `promoted: ${what}; the twin was re-cast and the working copy re-opened`;
@@ -936,13 +939,18 @@ export function CanvasPage() {
   const onDiscardChange = useCallback(
     (path: string) => {
       if (!baselineFiles) return;
-      edit(`discard changes to ${path}`, (d) => {
-        const files = { ...d.files };
-        const base = baselineFiles[path];
-        if (base === undefined) delete files[path];
-        else files[path] = base;
-        return files;
-      });
+      edit(
+        `discard changes to ${path}`,
+        (d) => {
+          const files = { ...d.files };
+          const base = baselineFiles[path];
+          if (base === undefined) delete files[path];
+          else files[path] = base;
+          return files;
+        },
+        // The baseline's own text, provenance and all: nothing to stamp.
+        { stamp: false },
+      );
     },
     [edit, baselineFiles],
   );
