@@ -24,6 +24,14 @@ stay role-shaped: the **learner**, the **belief store**, the **synthesizer**,
 a **PIT** (a materialized point-in-time network IR), a **cast** (a compiled twin
 bundle), an **imprint id** (the stable catalog name of an installed cast).
 
+The lifecycle verbs (2026-11-08), the same in the console, the API's prose and
+the docs: **Deploy** stands a twin up; **Destroy** brings the standing deploy
+down (the engine's own verb, `axrange te destroy`, `DELETE /api/deploys/{id}`,
+which cascades to the tfc and tap children); **Redeploy**, **Apply** and
+**Persist** change a standing deploy; **Delete** removes a twin config from the
+catalog; **Remove** takes an element out of the design. Never "undeploy", and
+never Delete for a deploy.
+
 ## 2. Resource tier tags
 
 Every platform resource the engine creates carries a tier tag in its

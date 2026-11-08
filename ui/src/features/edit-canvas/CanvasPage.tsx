@@ -29,6 +29,7 @@ import { useWhoami } from "../../api/whoami";
 import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
+import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -313,6 +314,18 @@ export function CanvasPage() {
   const [exitError, setExitError] = useState<unknown>(null);
   const [exitNote, setExitNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Destroy (2026-11-08): the standing deploy comes down from the bar; the canvas then returns to
+  // the undeployed edit mode (the working copy is gone with the deploy) without a page reload.
+  const [destroyOpen, setDestroyOpen] = useState(false);
+  const destroyer = useDestroy(api, (r) => {
+    setDestroyOpen(false);
+    destroyer.clear();
+    const came = (r.tiers ?? []).filter((t) => t.destroyed).map((t) => t.tier);
+    setExitNote(`destroyed ${r.deploy_id}${came.length ? ` · ${came.join(" · ")} down` : ""}`);
+    reload();
+  });
+  const destroyRun = destroyer.run;
+  const destroying = destroyRun?.phase === "running";
   const [deployRows, setDeployRows] = useState<DeploySummary[]>([]);
   const [saveAsId, setSaveAsId] = useState("");
   const [validation, setValidation] = useState<DocValidation | null>(null);
@@ -1013,7 +1026,7 @@ export function CanvasPage() {
   const anyFailed = data?.deploy?.status === "failed" || tierFailed.length > 0;
   const state = docState(config, editor.dirty, unsynced);
   const exit = config?.exit ?? null;
-  const exitWord = exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
+  const exitWord = destroying ? destroyWord(destroyRun) : exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
   // The layout group floats on the canvas, not in the twin bar (SPEC.md "Shell and chrome"): the bar holds the document's exits only.
   const layoutBar = layout.data ? (
     <span className="row cv-layout cv-float" role="group" aria-label="Layout" data-testid="layout-bar">
@@ -1073,9 +1086,9 @@ export function CanvasPage() {
                   <>
                     {" · "}
                     <span className="mono cv-pill-id" title={data.deploy.deploy_id}>{data.deploy.deploy_id}</span>
-                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}`} data-testid="tier-te" data-status={data.deploy.status} title={`te ${data.deploy.status}`}> · te {tierWord(data.deploy.status)}</span>
+                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}${destroyRun?.down.includes("te") ? " down" : ""}`} data-testid="tier-te" data-status={data.deploy.status} data-down={destroyRun?.down.includes("te") || undefined} title={`te ${data.deploy.status}`}> · te {destroyRun?.down.includes("te") ? "✓ down" : tierWord(data.deploy.status)}</span>
                     {Object.entries(tiers).map(([t, st]) => (
-                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}`} data-testid={`tier-${t}`} data-status={st} title={`${t} ${st}`}> · {t} {tierWord(st)}</span>
+                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}${destroyRun?.down.includes(t) ? " down" : ""}`} data-testid={`tier-${t}`} data-status={st} data-down={destroyRun?.down.includes(t) || undefined} title={`${t} ${st}`}> · {t} {destroyRun?.down.includes(t) ? "✓ down" : tierWord(st)}</span>
                     ))}
                   </>
                 ) : (
@@ -1124,13 +1137,13 @@ export function CanvasPage() {
               </span>
             ) : (
               <span className="cv-exit-group" role="group" aria-label="Working copy">
-                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)} title={parkedReason ?? (topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin")}>
+                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title={parkedReason ?? (topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin")}>
                   Apply
                 </button>
-                <button type="button" onClick={() => void resetExit()} disabled={!config?.dirty || busy !== null || Boolean(locked) || Boolean(exit)} title="discard the working copy; what it applied is replayed from the baseline">
+                <button type="button" onClick={() => void resetExit()} disabled={!config?.dirty || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title="discard the working copy; what it applied is replayed from the baseline">
                   Reset
                 </button>
-                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit)}>
+                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying}>
                   Persist
                 </button>
                 <button type="button" onClick={() => void refresh()} disabled={busy !== null}>
@@ -1141,6 +1154,9 @@ export function CanvasPage() {
                     Re-apply {tierFailed.join(", ")} from baseline
                   </button>
                 ) : null}
+                <button type="button" className="danger" onClick={() => setDestroyOpen(true)} disabled={busy !== null || Boolean(exit) || destroying} data-testid="destroy-open" title="bring the standing deploy down: te, with its tfc and tap (the tap's sensor binding is released)">
+                  Destroy…
+                </button>
                 {topologyPending ? (
                   <Link to={`/twins/${encodeURIComponent(id)}`} data-testid="redeploy-link" title="a topology change needs a new plan: persist it, then deploy the baseline again">
                     Redeploy from baseline
@@ -1175,6 +1191,21 @@ export function CanvasPage() {
           </div>
         ) : null}
       </TopbarPortal>
+      {destroyOpen && data?.deploy ? (
+        <DestroyDialog
+          twinId={id}
+          deploy={data.deploy}
+          tiers={destroyRun?.tiers ?? standingTiers(deployRows, data.deploy.deploy_id)}
+          run={destroyRun}
+          dirty={dirty}
+          onPersistFirst={() => void persist()}
+          onConfirm={() => destroyer.start(data.deploy!.deploy_id, standingTiers(deployRows, data.deploy!.deploy_id))}
+          onClose={() => {
+            setDestroyOpen(false);
+            destroyer.clear();
+          }}
+        />
+      ) : null}
       <div className="cv-strip" data-testid="canvas-strip">
         <ErrorLine error={error} prefix="could not load the twin" />
         <ErrorLine error={draft.error} prefix="could not save the layout" />

@@ -3,18 +3,21 @@ import { Link, useNavigate } from "react-router";
 import { useApi } from "../../api/context";
 import type { DeploySummary } from "../../api/types";
 import { formatCount } from "../../model/sources";
-import { tierWord, twinTiers } from "../shell/deployState";
+import { standingDeploy, tierWord, twinTiers } from "../shell/deployState";
+import { DestroyControl } from "../shell/destroy";
 import { EntityName, ErrorLine, LinkRow, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
 /** The twin catalog: every deployable twin definition, cast from an imprint or authored.
- *  Deleting lives on the twin's page; the row's "Delete…" goes there. */
+ *  Deleting lives on the twin's page; the row's "Delete…" goes there (a deployed twin's
+ *  page says to destroy the deploy first). A row offers Deploy, or Destroy… once one stands. */
 export function TwinsPage() {
   const api = useApi();
   const navigate = useNavigate();
   const twins = useLoad((signal) => api.listTwins(signal), []);
   // The deploy state is a second, optional read: a refusal there leaves the column "—".
   const deploys = useLoad<DeploySummary[] | null>((signal) => api.listDeploys(signal).then((d) => d.deploys).catch(() => null), []);
+  const reloadDeploys = deploys.reload;
   const rows = twins.data?.imprints ?? [];
   const skipped = twins.data?.skipped ?? [];
   return (
@@ -40,6 +43,7 @@ export function TwinsPage() {
             {rows.map((t) => {
               const enc = encodeURIComponent(t.id);
               const tiers = deploys.data ? twinTiers(deploys.data, t.id) : null;
+              const standing = deploys.data ? standingDeploy(deploys.data, t.id) : null;
               return (
                 <LinkRow key={t.id} to={`/twins/${enc}`} data-testid="twin-row">
                   <td>
@@ -83,9 +87,14 @@ export function TwinsPage() {
                       <Link className="linkbutton" to={`/canvas/${enc}`}>
                         Canvas
                       </Link>
-                      <Link className="linkbutton" to={`/twins/${enc}#deploy`} title="Plan and deploy the twin, on its page">
-                        Deploy
-                      </Link>
+                      {/* State-aware: Deploy while nothing stands, Destroy… once a deploy does (never both). */}
+                      {standing && deploys.data ? (
+                        <DestroyControl twinId={t.id} deploy={standing} rows={deploys.data} onDestroyed={reloadDeploys} />
+                      ) : (
+                        <Link className="linkbutton" to={`/twins/${enc}#deploy`} title="Plan and deploy the twin, on its page">
+                          Deploy
+                        </Link>
+                      )}
                       <button className="quiet" type="button" onClick={() => navigate(`/twins/${enc}#delete`)} aria-label={`Delete twin ${t.id}…`}>
                         Delete…
                       </button>

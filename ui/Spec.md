@@ -62,6 +62,32 @@ config has no working copy and offers Save and Save-As only. A discovered imprin
 is cast first and then edited as a twin-config; the imprint assertions path stays
 behind the provenance view and is not a second editor.
 
+**Vocabulary** (2026-11-08; also `docs/CONVENTIONS.md` §1), one verb per act,
+the same on every page:
+
+| Verb | What it does |
+|---|---|
+| **Deploy** | stands a twin up on a target (`POST /api/twins/{id}/plan`, then `/deploy`) |
+| **Destroy** | brings the standing deploy down: the te with its tfc and tap children, the tap's sensor binding released (`DELETE /api/deploys/{id}`; the engine's own verb, `axrange te destroy`) |
+| **Redeploy** / **Apply** / **Persist** | change a standing deploy (a new plan from the baseline; the working copy pushed onto the running twin; the working copy written as the baseline) |
+| **Delete** | removes a twin config from the catalog (`DELETE /api/twins/{id}`) |
+| **Remove** | takes an element out of the design, on the canvas |
+
+Never "undeploy", and never Delete for a deploy. The Deploy control is
+state-aware: **Deploy** while nothing stands on the twin, **Destroy…** once a
+deploy does (Deploy is not shown, not merely disabled), on the Twins list, the
+twin's page and the canvas bar (exits group). The three share one confirm that
+names the twin, the target, the deploy id, the tiers coming down (te · tfc ·
+tap) and that the tap's sensor binding is released; on the canvas a dirty working
+copy must be acknowledged with a checkbox ("unapplied changes will be
+discarded"), or persisted first. Progress reads as Apply's (`destroying… te ·
+12 s`), the tiers tick off as they come down, and the canvas returns to the
+undeployed edit mode without a reload. Delete… on a deployed twin says "destroy
+the deploy first" and offers Destroy… instead of surfacing the 409. Per-tier
+Stop / Restart for tfc and tap is **not** offered: `/api/tfc` and `/api/taps`
+have apply and destroy only (no stop or restart verb), so there is nothing for
+the twin page to call. *(`ui/test/destroy.test.tsx`.)*
+
 The console must **not** embed, hold or ask for credentials — neither adapter
 config nor its own write credential. Authentication is the reverse proxy's or
 the host application's; the API chooses whom to trust per deployment (A8,
@@ -226,6 +252,12 @@ Canvas area -- the top-menu entry with its drop-down of designs, `/canvas`,
   credential.
 - C4.2 (auto) A saved/discovered config can be selected and deployed to a chosen
   target.
+- C4.3 (auto) A standing deploy is destroyed from the Twins list, the twin page or
+  the canvas bar through one confirm; the row and the canvas read undeployed after,
+  Deploy offered again. *(`destroy.test.tsx`. Live on dev45 2026-11-08: canvas-test
+  deployed from the Twins list (4 VMs, ~270 s), destroyed from the canvas bar in ~27 s
+  (te only: the console's Deploy stands no tfc or tap, so the cascade is proven by
+  `engine/tests/test_api.py`, not live); `/api/deploys` then lists no canvas-test row.)*
 
 **C5 — tweak + promote:**
 - C5.1 (auto) Apply on a traffic/tap change reaches the running twin without a

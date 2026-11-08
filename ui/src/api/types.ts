@@ -727,6 +727,30 @@ export interface DeploySummary {
   store?: string | null;
 }
 
+/** One tier of `DELETE /api/deploys/{id}`'s answer: what came down, children first, the te last. */
+export interface DestroyTier {
+  tier: string;
+  /** null: nothing of that tier was standing. */
+  deploy_id: string | null;
+  destroyed: boolean;
+  removed: number;
+  errors: number;
+  error?: string | null;
+  /** The tap tier's gretaps / mirrors to its sensors, released. */
+  released?: string[];
+}
+
+/** `DELETE /api/deploys/{id}` (Destroy): the te sweep, its children cascaded first. */
+export interface DestroyResult {
+  deploy_id: string;
+  destroyed: boolean;
+  removed: number;
+  errors: number;
+  actions: Array<{ kind: string; target: string; status: string; detail?: string | null }>;
+  cascade_errors: string[];
+  tiers?: DestroyTier[];
+}
+
 export interface DeployList {
   deploys: DeploySummary[];
   warnings: string[];

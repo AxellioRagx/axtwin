@@ -5,6 +5,7 @@ import { useApi } from "../../api/context";
 import type { CreateDeployResponse, DeploySummary, PlanSummary, Target } from "../../api/types";
 import { useWhoami } from "../../api/whoami";
 import { formatCount } from "../../model/sources";
+import { DestroyControl } from "../shell/destroy";
 import { ErrorLine } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
 
@@ -12,9 +13,9 @@ import { useLoad } from "../shell/useLoad";
  *  page that only printed the CLI commands). Two steps, the same ones the CLI takes: plan
  *  (pure, nothing written), then deploy pinned to that plan's id, so a twin edited in
  *  between is refused (409) rather than deployed unseen. The deploy runs detached; its row
- *  shows in the page's deploy state. A twin with a standing deploy offers none: that one is
- *  edited on the canvas or destroyed first. */
-export function DeployPanel({ id, standing, focus, onDeployed }: { id: string; standing: DeploySummary | null; focus: boolean; onDeployed: () => void }) {
+ *  shows in the page's deploy state. A twin with a standing deploy offers no Deploy: the panel
+ *  offers Destroy… instead (state-aware, never both); the deploy is changed on the canvas. */
+export function DeployPanel({ id, standing, rows = [], focus, onDeployed, destroyOpen = false, onDestroyOpenChange }: { id: string; standing: DeploySummary | null; rows?: readonly DeploySummary[]; focus: boolean; onDeployed: () => void; destroyOpen?: boolean; onDestroyOpenChange?: (open: boolean) => void }) {
   const api = useApi();
   const whoami = useWhoami();
   const targets = useLoad<Target[]>((signal) => api.listTargets(signal).then((t) => t.targets), []);
@@ -73,7 +74,7 @@ export function DeployPanel({ id, standing, focus, onDeployed }: { id: string; s
   const where = target ? `${target.name ?? target.node}${chosen && chosen !== (target.name ?? target.node) ? ` / ${chosen}` : ""}` : null;
   return (
     <div className="panel" ref={ref} aria-label="Deploy the twin" data-testid="deploy-panel">
-      <h2 style={{ marginTop: 0 }}>Deploy</h2>
+      <h2 style={{ marginTop: 0 }}>{standing ? "Standing deploy" : "Deploy"}</h2>
       {started ? (
         <p role="status" data-testid="deploy-started">
           Deploy <span className="mono">{started.deploy_id}</span> started ({started.status}
@@ -81,9 +82,16 @@ export function DeployPanel({ id, standing, focus, onDeployed }: { id: string; s
         </p>
       ) : null}
       {standing ? (
-        <p className="muted" data-testid="deploy-blocked">
-          A deploy stands on this twin (<span className="mono">{standing.deploy_id}</span>, {standing.status}). Change it on the <Link to={`/canvas/${encodeURIComponent(id)}`}>design canvas</Link>, or destroy it before deploying again.
-        </p>
+        <>
+          <p className="muted" data-testid="deploy-blocked">
+            A deploy stands on this twin (<span className="mono">{standing.deploy_id}</span>, {standing.status}). Change it on the <Link to={`/canvas/${encodeURIComponent(id)}`}>design canvas</Link> (Apply, Persist, Redeploy), or Destroy it to deploy again.
+          </p>
+          {whoami.can_write ? (
+            <div className="row-actions">
+              <DestroyControl twinId={id} deploy={standing} rows={rows} onDestroyed={onDeployed} open={destroyOpen} onOpenChange={onDestroyOpenChange} />
+            </div>
+          ) : null}
+        </>
       ) : !whoami.can_write ? (
         <p className="muted" data-testid="deploy-blocked">
           Deploying needs an account that may write; sign in to deploy.

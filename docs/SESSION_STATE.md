@@ -4,56 +4,58 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 (evening, R5) · **Branch:** `wip/design-platforms-canvas`. Pushed to origin
-through the R5 items below, and fast-forwarded into `wip/api-discovery-runs` and `master`
-(all three at the same commit, 2026-11-08; push only when the user asks). Rule: commit each piece as it lands, staged by path; never `git add -A`.
+**Last updated:** 2026-11-08 (night, Destroy) · **Branch:** `wip/design-platforms-canvas`. Origin
+(and `wip/api-discovery-runs`, `master`) is at `32de0dd`; the Destroy commit below is **local
+only** (push only when the user asks). Rule: commit each piece as it lands, staged by path;
+never `git add -A`.
 
 ## What this session did
 
-The user's re-test of 08:00 verified R4 and left two items plus a count mismatch (R5):
+Earlier today: R5-1 (cast provenance on the twin-config read, conduits sourced), R5-2 (every
+site on the rail, an open site pages by the budget, one count), pushed and fast-forwarded into
+`wip/api-discovery-runs` and `master` (`32de0dd`).
 
-- **`f370f95`** R5-1: the cast's provenance was in the YAML all along (111 `source:` lines in a
-  fresh cast); the re-test read it through `GET /api/twin-configs/{id}`, whose segment and node
-  summary rows had no fields for it. They carry `source`/`confidence`/`vantage` now. What the
-  cast really left bare: **conduits**. Each now gets `discovered` + the PIT's vantage, or
-  `asserted` (also when observed). No confidence, because nothing scores a pair. Schema +
-  expander accept/check the three fields on a conduit.
-- **`482f3dd`** R5-2: every site pill a router serves is always on its rail; Fan-out (default 4)
-  budgets loose pills only; `+N more` holds only loose segments. An open site pages its row by
-  the budget with its own `+N more` (`site:<c>|<p>#2`, ...; closing the site closes its pages).
-  The fold refit (`canvas/fit.ts`) frames router + row, never below 50 %, left edge when too
-  wide. `+N more`, `fold N back` and the strip are one count (was 54 vs 43); closed sites get
-  their own strip line. `Placement.rows` publishes each rail / row.
-- **`968f587`** SPEC checklist "Review round 5" with what the eye saw; topology-layers §7.6.
+Then the gap "the console can deploy a twin but not bring one down", one commit:
+
+- **Vocabulary** in `ui/Spec.md` and `docs/CONVENTIONS.md` §1: Deploy / Destroy / Redeploy ·
+  Apply · Persist / Delete (a twin config) / Remove (a design element); never "undeploy".
+- **Engine:** `DELETE /api/deploys/{id}` ALREADY cascaded to the exr/tfc/tap children and the
+  tap teardown removes its gretaps and mirrors (the sensor binding). New: the response lists
+  `tiers` (per tier, children first, te last, `released` = the tap's gretap/mirror actions).
+  Test: a te with a standing tfc AND tap → all three destroyed, the attach-gre ops destroyed.
+- **UI:** `areas/shell/destroy.tsx` (one confirm, `useDestroy` with a poll that ticks tiers
+  off, `DestroyControl`), wired into the Twins row (Deploy ↔ Destroy…, state-aware), the twin
+  page (Deploy panel → Destroy…; Delete twin on a deployed twin says "destroy the deploy first"
+  with Destroy…), and the canvas bar (Destroy… in the exits, dirty-copy checkbox + Persist
+  first, progress `destroying… te · N s`, pill ticks, back to undeployed edit mode via the
+  page's data reload, no page reload). Per-tier Stop/Restart left out: `/api/tfc` and
+  `/api/taps` have apply and destroy only (noted in `ui/Spec.md`).
 
 ## Current state
 
-- **Tests:** ui typecheck clean, 30 files / 462 (new `canvas.foldbudget.test.tsx`, over the real
-  corp-twin bundle). Discovery full suite 2474 passed. Engine full suite 4249 passed, 3 failed:
-  `test_twin_bundle_layout` / `test_twinconfig_registry` x2 scan the real catalog and trip on
-  the **untracked** folders (`canvas-test-exp1`, `mylab`, `corp-apcn-reader-20261028` with no
-  `twin.yaml`), not on this change.
-- **Serve:** :8080 restarted twice this round (engine change, then the rebuilt `ui/dist`): now
-  pid 1587831, `none` mode, env from the live `/proc/<pid>/environ` minus the token. Script:
-  scratchpad `restart.sh <envfile>` (env in `serve-r5.env`).
-- **Eye checks** (headless, scratchpad `R5-*`, `r5fold.cjs`): corp-twin collapsed (4 sites, 4
-  loose, `+7 more`, 73 %), 10.180 once (4 + `+20 more`, 65 %), twice (8 + `+16 more`, 50 %, left
-  edge), closed, carrier open (`fold 7 back`); fresh cast `r5-probe` through the API: no row
-  without a source, conduits and taps all `discovered`, overlay on; **deleted**. switch-test has
-  no working copy; dev45 untouched.
-- Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/` (the
-  previous build, safe to delete).
+- **Tests:** ui typecheck clean, 31 files / 484 (new `destroy.test.tsx`). Engine `test_api`,
+  `test_o2_cascade`, `test_o2_taps`, `test_traffic_tier` 415 passed (full suite not re-run this
+  round; it had 3 failures from the untracked catalog folders, unrelated).
+- **Serve:** :8080 restarted for the engine change (pid 1594970, `none` mode, env from the live
+  `/proc/<pid>/environ` minus the token, scratchpad `restart.sh serve-r6.env`), on the rebuilt
+  `ui/dist`.
+- **Live (dev45):** canvas-test deployed from the Twins list (plan `canvas-test-0bf75c29`, 4
+  VMs, `canvas-test-9d2ad59b`, completed in ~270 s), destroyed from the canvas bar in ~27 s;
+  the canvas came back `twin config · edit · undeployed` with Save / Save as; the Twins row
+  reads undeployed with Deploy; `/api/deploys` lists no canvas-test row. Only the te stood (the
+  console's Deploy stands no tfc/tap), so the cascade is proven by the engine test, not live.
+  switch-test untouched: te/tfc/tap completed, no working copy. Shots `R6-*` in the scratchpad.
+- Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/`.
 
 ## Not done / honest gaps
 
-- A second page of corp-twin's 10.180 lands at the 50 % floor framed from the left; the newest
-  segments are a pan away (as the brief specified). The rail's right end can sit off-screen
-  after a site opens, because the refit frames the router + row, not the whole rail.
-- Conduit `confidence` is absent by design (no per-pair score exists); say so if asked.
-- The Deploy panel has still never run a real deploy (plan only). *Split and assert* proven
-  in jsdom only.
+- A live destroy with tfc and tap standing has not been run (the console has no tfc/tap
+  deploy action; switch-test has them but is to stay deployed).
+- `DELETE /api/deploys/{id}` is synchronous: the progress ticks from a poll of `/api/deploys`,
+  so on a te-only destroy it shows `te` until the answer arrives.
+- The Deploy panel's own deploy is te only; tfc and tap still follow from the CLI.
 - corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): the user's call.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0).
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); push.
 
 ## Gotchas
 

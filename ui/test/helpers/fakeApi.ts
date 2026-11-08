@@ -147,11 +147,13 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError; plan?: ApiError; deploy?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError; plan?: ApiError; deploy?: ApiError; destroy?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
   /** What `GET /api/targets` lists. */
   targets: Target[];
+  /** When set, `destroyDeploy` waits on it before answering (a destroy in flight). */
+  destroyHold?: Promise<void>;
 }
 
 export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeState } {
@@ -585,6 +587,25 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const now = Date.now() / 1000;
       state.deploys.push({ deploy_id, scenario_id: id, status: "running", started_at: now, updated_at: now, tier: "te", plan_id: body.expect_plan_id ?? null, target: "dev45" });
       return { deploy_id, status: "running", detached: true, plan_id: body.expect_plan_id ?? null, config_warnings: [] };
+    },
+    async destroyDeploy(deployId) {
+      state.writes.push({ op: "destroy", id: deployId });
+      if (state.destroyHold) await state.destroyHold;
+      if (state.refuse.destroy) throw state.refuse.destroy;
+      const te = state.deploys.find((x) => x.deploy_id === deployId);
+      if (!te) throw notFound(`deploy ${deployId}`);
+      const tiers = [];
+      const gone = new Set<string>([deployId]);
+      for (const tier of ["exr", "tfc", "tap"]) {
+        const child = state.deploys.find((x) => x.scenario_id === `${tier}-${deployId}` && x.status !== "destroyed");
+        if (child) gone.add(child.deploy_id);
+        tiers.push({ tier, deploy_id: child?.deploy_id ?? null, destroyed: Boolean(child), removed: child ? 1 : 0, errors: 0, released: child && tier === "tap" ? ["gretap gre-corp"] : [] });
+      }
+      // New rows, never a mutation: the seeds share their row objects between tests.
+      state.deploys = state.deploys.map((x) => (gone.has(x.deploy_id) ? { ...x, status: "destroyed" } : x));
+      delete state.workingCopies[deployId];
+      tiers.push({ tier: "te", deploy_id: deployId, destroyed: true, removed: 3, errors: 0, released: [] });
+      return { deploy_id: deployId, destroyed: true, removed: 3, errors: 0, actions: [], cascade_errors: [], tiers };
     },
     async validateDocument(document) {
       state.writes.push({ op: "validate", id: document.id, body: document });

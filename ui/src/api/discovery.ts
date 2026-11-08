@@ -7,6 +7,7 @@ import type {
   ConfigExitCancel,
   CreateDeployResponse,
   DeployConfig,
+  DestroyResult,
   DeployConfigApply,
   DeployConfigReset,
   DeployList,
@@ -117,6 +118,8 @@ export interface Api {
   planTwin(id: string, body?: { target_node?: string }, signal?: AbortSignal): Promise<PlanSummary>;
   /** Start the twin's te deploy on the cluster (write-gated, lease-guarded, detached). */
   deployTwin(id: string, body: TwinDeployRequest): Promise<CreateDeployResponse>;
+  /** Destroy: bring the standing deploy down, its tfc / tap / exr children first (`axrange te destroy`). */
+  destroyDeploy(deployId: string): Promise<DestroyResult>;
 }
 
 const enc = encodeURIComponent;
@@ -170,5 +173,7 @@ export function makeApi(request: Requester): Api {
     listTargets: (signal) => request("GET", "/api/targets", { signal }),
     planTwin: (id, body, signal) => request("POST", `/api/twins/${enc(id)}/plan`, { body: body ?? {}, signal }),
     deployTwin: (id, body) => request("POST", `/api/twins/${enc(id)}/deploy`, { body }),
+    // The confirmation rides the query: some proxies drop a DELETE's body (the route takes either).
+    destroyDeploy: (deployId) => request("DELETE", `/api/deploys/${enc(deployId)}?allow_destroy=true`, {}),
   };
 }

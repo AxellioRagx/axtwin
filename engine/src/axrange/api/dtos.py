@@ -471,6 +471,21 @@ class DestroyActionDTO(BaseModel):
     detail: Optional[str] = None
 
 
+class DestroyTierDTO(BaseModel):
+    """What one tier's teardown did on a twin's destroy, in the order they came
+    down (`tap`, `tfc`, `exr` children first, the `te` itself last). A child
+    tier with nothing standing is listed with `deploy_id: null`."""
+    tier: str                        # te | tfc | tap | exr
+    deploy_id: Optional[str] = None  # null: nothing of that tier was standing
+    destroyed: bool = False
+    removed: int = 0
+    errors: int = 0
+    # An unexpected failure of that tier's cascade (also on `cascade_errors`).
+    error: Optional[str] = None
+    # The tap tier's gretaps / mirrors to its sensors, released by the teardown.
+    released: list[str] = []
+
+
 class DestroyResponse(BaseModel):
     deploy_id: str
     # True iff a clean sweep transitioned the deploy to `destroyed`.
@@ -487,6 +502,9 @@ class DestroyResponse(BaseModel):
     # "no silent failures": a programmatic caller must see this, not just an
     # operator watching CLI stdout).
     cascade_errors: list[str] = []
+    # Per tier, in the order they came down: the children (`exr`, `tfc`,
+    # `tap`) then the `te` (2026-11-08, the console's Destroy).
+    tiers: list[DestroyTierDTO] = []
 
 
 class RunResponse(BaseModel):

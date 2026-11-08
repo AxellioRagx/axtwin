@@ -35,6 +35,15 @@ that is **not** listed under a seam below already exists:
 `DELETE /api/deploys/{id}`, `GET|POST|DELETE /api/tfc`, `GET|POST|DELETE /api/taps`,
 `GET|POST|DELETE /api/exr`, `GET /openapi.json`.
 
+`DELETE /api/deploys/{id}` on a te deploy is the console's **Destroy**: it already
+cascaded to the bound `exr`, `tfc` and `tap` deploys before the twin's own sweep
+(`o2control/cascade.py`), the tap's teardown removing its gretaps and mirrors to
+the sensors. Since 2026-11-08 the response also lists what came down per tier,
+`tiers: [{tier, deploy_id, destroyed, removed, errors, error, released}]`, the
+children first and the te last (`released`: the tap's gretap / mirror actions);
+a tier with nothing standing is a row with `deploy_id: null`. Tests:
+`engine/tests/test_api.py` (a te with a standing tfc and tap).
+
 `POST /api/validate` also takes `{document: {id, files}}` -- a twin-config
 bundle in the shape `POST /api/twin-configs` writes -- and validates it
 through the same path Save-As / Persist / the working-copy PUT use (the twin

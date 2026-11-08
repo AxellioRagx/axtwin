@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
@@ -29,6 +30,8 @@ export function TwinPage() {
   const te = data ? standingDeploy(data.deploys, id) : null;
   const tiers = data && te ? tierStatus(data.deploys, te.deploy_id) : {};
   const mine = data ? data.deploys.filter((d) => d.scenario_id === id && (d.tier ?? "te") === "te") : [];
+  const [destroyOpen, setDestroyOpen] = useState(false);
+  const [deleteAsked, setDeleteAsked] = useState(false);
   return (
     <>
       <div className="row">
@@ -38,10 +41,23 @@ export function TwinPage() {
             Open the design canvas
           </Link>
         ) : null}
-        {twin ? (
+        {twin && te ? (
+          <button className="danger" type="button" onClick={() => setDeleteAsked(true)}>
+            Delete twin
+          </button>
+        ) : twin ? (
           <ConfirmDelete label="Delete twin" target={id} startConfirming={hash === "#delete"} confirmText="Confirm: remove the twin from the catalog" onDelete={() => api.deleteTwin(id)} onDeleted={() => navigate("/twins")} />
         ) : null}
       </div>
+      {/* Delete removes the twin config; a standing deploy would refuse it (409). Say so, and offer Destroy. */}
+      {twin && te && (deleteAsked || hash === "#delete") ? (
+        <p className="warn-line" role="status" data-testid="delete-blocked">
+          Destroy the deploy first: Delete removes the twin config from the catalog, and deploy <span className="mono">{te.deploy_id}</span> stands on it.{" "}
+          <button type="button" className="linkbutton" onClick={() => setDestroyOpen(true)} data-testid="delete-blocked-destroy">
+            Destroy…
+          </button>
+        </p>
+      ) : null}
       <ErrorLine error={error} prefix="could not load the twin" />
       {loading && !data ? <p className="muted">Loading…</p> : null}
       {twin ? (
@@ -120,7 +136,7 @@ export function TwinPage() {
               ))}
             </ul>
           ) : null}
-          <DeployPanel id={id} standing={te} focus={hash === "#deploy"} onDeployed={reload} />
+          <DeployPanel id={id} standing={te} rows={data?.deploys ?? []} focus={hash === "#deploy"} onDeployed={reload} destroyOpen={destroyOpen} onDestroyOpenChange={setDestroyOpen} />
           <h2>Segments</h2>
           <TwinTree id={id} />
           <p className="muted">

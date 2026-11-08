@@ -2038,6 +2038,72 @@ def test_destroy_deploy_cascades_to_standalone_traffic_profile(tmp_path):
     assert tfc_dep.status.value == "destroyed"
 
 
+def test_destroying_a_twin_brings_down_its_standing_tfc_and_tap_and_releases_the_sensor_binding(tmp_path):
+    """The console's Destroy (2026-11-08): `DELETE /api/deploys/{te}` on a twin
+    with a traffic profile AND a tap plan standing removes all three, the tap's
+    gretaps to its sensor among what comes down, and the response says so per
+    tier, children first, the twin last."""
+    from tests.test_o2_taps import DEFAULT_SENSORS, TE_DEPLOY, _FakeMirAdapter, _op_row, _seed_o2_surface
+    from tests.test_traffic_tier import _FakePersonaBackend, _seed_twin
+
+    settings = _settings(tmp_path)
+    store = StateStore(settings.db_path)
+    try:
+        _seed_twin(store, deploy_id=TE_DEPLOY, hosts=[
+            {"host_id": "dc01", "role": "domain-controller", "vmid": 100003, "ip": "10.0.0.5", "net_id": "corp"},
+            {"host_id": "ws01", "role": "corp-workstation", "vmid": 100001, "ip": "10.0.0.21", "net_id": "corp"},
+        ])
+        store.insert_ops(TE_DEPLOY, [_op_row(TE_DEPLOY, "op-br-corp", "create-ovs-bridge", "OP-NET-020",
+                                             {"net": "corp"}, outputs={"bridge_name": "br-corp"})])
+        _seed_o2_surface(store, sensors=DEFAULT_SENSORS)
+    finally:
+        store.close()
+
+    tfc_c, _ = _tfc_client(settings)
+    tfc = tfc_c.post("/api/tfc", json={
+        "twin": TE_DEPLOY, "assignments": [{"node": "dc01", "persona": "domain-controller"}],
+        "target_node": "pxtest1",
+    }).json()
+    assert tfc.get("status") == "completed", tfc
+    tap_c, _ = _tap_client(settings)
+    tap = tap_c.post("/api/taps", json={
+        "target": TE_DEPLOY, "bindings": [{"tap": "corp", "sensors": ["pktxpress-1"]}],
+        "target_node": "pxtest1",
+    }).json()
+    assert tap.get("status") == "completed", tap
+
+    store = StateStore(settings.db_path)
+    try:
+        gre_before = [o for o in store.ops_for_deploy(tap["deploy_id"]) if o.op_name.startswith("attach-gre")]
+    finally:
+        store.close()
+    assert gre_before, "the tap plan bound the sensor with a gretap"
+
+    app2 = create_app(settings)
+    app2.state.teardown_factory = lambda _s: _NoopTeTeardown()
+    app2.state.tap_adapter = _FakeMirAdapter()
+    app2.state.tfc_persona_backend = _FakePersonaBackend()
+    r = TestClient(app2).request("DELETE", f"/api/deploys/{TE_DEPLOY}", params={"allow_destroy": "true"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["cascade_errors"] == []
+
+    store = StateStore(settings.db_path)
+    try:
+        for did in (TE_DEPLOY, tfc["deploy_id"], tap["deploy_id"]):
+            assert store.get_deploy(did).status.value == "destroyed", did
+        gre_after = [o for o in store.ops_for_deploy(tap["deploy_id"]) if o.op_name.startswith("attach-gre")]
+    finally:
+        store.close()
+    assert gre_after and all(o.status.value == "destroyed" for o in gre_after), "the sensor binding is released"
+
+    tiers = [(t["tier"], t["deploy_id"], t["destroyed"]) for t in body["tiers"]]
+    assert tiers == [("exr", None, False), ("tfc", tfc["deploy_id"], True),
+                     ("tap", tap["deploy_id"], True), ("te", TE_DEPLOY, True)]
+    tap_row = next(t for t in body["tiers"] if t["tier"] == "tap")
+    assert any(x.startswith("gretap ") for x in tap_row["released"]), tap_row
+
+
 # ---------------------------------------------------------------------------
 # exr (the Exercise tier, docs/WORK_ORDER_exercise_tier.md) -- POST/GET/DELETE
 # /api/exr, a thin DTO wrapper over axrange.o2control.exercise. Reuses the

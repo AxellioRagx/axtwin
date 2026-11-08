@@ -2550,16 +2550,15 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
             # just an operator watching CLI stdout ("no silent failures").
             from axrange.o2control.cascade import cascade_destroy_siblings_for_te
 
+            cascades = cascade_destroy_siblings_for_te(
+                db_path=settings.db_path, te_deploy_id=deploy_id,
+                adapter_config=settings.adapter_config,
+                teardown_backend=backend,
+                adapter=cascade_adapter,
+                persona_backend=cascade_persona_backend,
+            )
             cascade_errors = [
-                f"{c.label} cascade: {c.error}"
-                for c in cascade_destroy_siblings_for_te(
-                    db_path=settings.db_path, te_deploy_id=deploy_id,
-                    adapter_config=settings.adapter_config,
-                    teardown_backend=backend,
-                    adapter=cascade_adapter,
-                    persona_backend=cascade_persona_backend,
-                )
-                if c.error is not None
+                f"{c.label} cascade: {c.error}" for c in cascades if c.error is not None
             ]
 
             result = run_teardown(
@@ -2593,9 +2592,38 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
                 for a in result.actions
             ],
             cascade_errors=cascade_errors,
+            tiers=[*_cascade_tiers(cascades), _tier_of_result("te", result)],
         )
     finally:
         store.close()
+
+
+#: The teardown action kinds that bind a tap to its sensors.
+_TAP_BINDING_KINDS = ("gretap", "mirror")
+
+
+def _tier_of_result(tier: str, r: Any, *, error: Optional[str] = None) -> dtos.DestroyTierDTO:
+    released = (
+        [f"{a.kind} {a.target}" for a in r.actions
+         if a.kind in _TAP_BINDING_KINDS and a.status in ("removed", "absent")]
+        if tier == "tap" else []
+    )
+    return dtos.DestroyTierDTO(
+        tier=tier, deploy_id=r.deploy_id, destroyed=r.destroyed, removed=r.removed,
+        errors=len(r.errors), error=error, released=released,
+    )
+
+
+def _cascade_tiers(cascades: list[Any]) -> list[dtos.DestroyTierDTO]:
+    """One row per child tier's teardown (several for `exr`, whose runs are
+    many); a tier with nothing standing is one row with no deploy id."""
+    out: list[dtos.DestroyTierDTO] = []
+    for c in cascades:
+        if not c.results:
+            out.append(dtos.DestroyTierDTO(tier=c.tier, error=c.error))
+            continue
+        out.extend(_tier_of_result(c.tier, r, error=c.error) for r in c.results)
+    return out
 
 
 # ---------------------------------------------------------------------------
