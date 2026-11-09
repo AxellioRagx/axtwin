@@ -420,15 +420,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         edit.onAnnotations(edit.annotations.map((x) => (x.id === a.id ? { ...x, x: Math.round(node.position.x), y: Math.round(node.position.y) } : x)));
         return;
       }
-      const key = pinKeyOf(node);
-      if (!key) return;
-      const current = rf.getNodes();
-      const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
-      const at = absolutePosition(moved, node.id);
-      if (!at) return;
-      // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
-      void onPinMany;
-      // A tap's chip moves the tap (§8, 2026-11-09): dropped on a router joining two segments, the boundary
+      // A tap's chip moves the tap (§8, 2026-11-09; before the pin-key check: a tap has no pin, and that
+      // early return was why a dragged tap never moved): dropped on a router joining two segments, the boundary
       // between them; on a segment, that segment; on a link, a port on its VM end. Elsewhere it springs back.
       if (node.data.kind === "tap") {
         const current = rf.getNodes();
@@ -459,6 +452,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         }
         return;
       }
+      const key = pinKeyOf(node);
+      if (!key) return;
+      const current = rf.getNodes();
+      const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
+      const at = absolutePosition(moved, node.id);
+      if (!at) return;
+      // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
+      void onPinMany;
       // A parked device (no link names it) dropped on another device attaches there (§6.3).
       if (editing && edit?.onLink && (node.data.kind === "device" || node.data.kind === "router")) {
         const name = node.data.name;
