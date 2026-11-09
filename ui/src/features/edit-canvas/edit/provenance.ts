@@ -128,9 +128,12 @@ export function stampTe(before: string | undefined, after: string): string {
   return text;
 }
 
-/** The tap plan's text with every binding the edit created or changed stamped authored. */
+/** The tap plan's text with every binding the edit created or changed stamped authored. A
+ *  binding's SENSORS are not its provenance (2026-11-09): they are the lab fact the cast cannot
+ *  observe and its installer fills in, so a discovered tap given a sensor stays discovered; where
+ *  it sits (its selector, the identity) and its mode are. */
 export function stampTap(before: string | undefined, after: string): string {
-  const shape = (text: string | undefined) => new Map((text === undefined ? [] : readTap(text).bindings).map((b) => [bindingKey(b), { sensors: b.sensors, mode: b.mode }]));
+  const shape = (text: string | undefined) => new Map((text === undefined ? [] : readTap(text).bindings).map((b) => [bindingKey(b), { mode: b.mode }]));
   const next = readTap(after);
   let text = after;
   for (const k of changed(shape(before), shape(after))) {

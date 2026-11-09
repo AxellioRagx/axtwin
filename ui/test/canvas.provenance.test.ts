@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { readDoc, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { stampAuthored } from "../src/features/edit-canvas/edit/provenance";
 import { attachDevices, duplicateSubtree } from "../src/features/edit-canvas/edit/subtree";
-import { addTapBinding, readTap } from "../src/features/edit-canvas/edit/tap";
+import { addTapBinding, readTap, setTapSelector, setTapSensors } from "../src/features/edit-canvas/edit/tap";
 import { readTe, setMemberRole, setNodeField } from "../src/features/edit-canvas/edit/te";
 
 const TE = `twin_config:
@@ -96,5 +96,11 @@ describe("the canvas stamps what it writes authored", () => {
   it("a new tap binding is authored; an untouched one keeps its mark", () => {
     const doc = apply(start, (d) => ({ ...d.files, "tap/default.yaml": addTapBinding(d.files["tap/default.yaml"]!, { scope: "segment", target: "servers", sensors: ["x"] }) }));
     expect(readTap(doc.files["tap/default.yaml"]!).bindings.map((b) => [b.targets[0], b.source])).toEqual([["office", "discovered"], ["servers", "authored"]]);
+  });
+  it("a sensor set on a discovered tap keeps it discovered (a lab fact, not a re-placement); a move makes it authored", () => {
+    let doc = apply(start, (d) => ({ ...d.files, "tap/default.yaml": setTapSensors(d.files["tap/default.yaml"]!, 0, ["XPress-SW-A"]) }));
+    expect(readTap(doc.files["tap/default.yaml"]!).bindings[0]).toMatchObject({ sensors: ["XPress-SW-A"], source: "discovered" });
+    doc = apply(doc, (d) => ({ ...d.files, "tap/default.yaml": setTapSelector(d.files["tap/default.yaml"]!, 0, { scope: "segment", target: "servers" }) }));
+    expect(readTap(doc.files["tap/default.yaml"]!).bindings[0]).toMatchObject({ targets: ["servers"], source: "authored" });
   });
 });
