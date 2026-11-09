@@ -15,6 +15,7 @@ import type {
   Target,
   TargetHealth,
   TapStatus,
+  Preflight,
   Imprint,
   LayoutDoc,
   PendingChange,
@@ -36,6 +37,7 @@ import type {
   Whoami,
 } from "../../src/api/types";
 import { mergeSegments, readDoc } from "../../src/features/edit-canvas/edit/document";
+import { readTap } from "../../src/features/edit-canvas/edit/tap";
 import { readTe, setNodeField } from "../../src/features/edit-canvas/edit/te";
 import { validateTe } from "../../src/features/edit-canvas/edit/validate";
 import { parseYaml, toPlain, type Plain } from "../../src/features/edit-canvas/edit/yaml";
@@ -160,6 +162,10 @@ export interface FakeState {
   healthReads: Record<string, number>;
   /** `GET /api/taps?target=<te deploy id>` by te deploy id; absent answers 404. */
   taps: Record<string, TapStatus>;
+  /** Per target name: the images the plan's preflight reports bound / total and the unbound ones (`TARGET-IMAGE`).
+   *  Absent: every image bound (1 / 1). The `TARGET-SENSOR` rows are computed from the twin's document's tap plan
+   *  against the target's lab sensors (else its `sensors`). */
+  preflightImages: Record<string, { bound: number; total: number; unbound?: Array<{ image: string; location: string }> }>;
   /** When set, `destroyDeploy` waits on it before answering (a destroy in flight). */
   destroyHold?: Promise<void>;
 }
@@ -195,6 +201,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     health: {},
     healthReads: {},
     taps: {},
+    preflightImages: {},
     ...seed,
   };
   let nextId = 100;
@@ -206,6 +213,26 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     imprint_id: pit, path: `/store/pits/${pit}/${pit}.assertions.yaml`, exists: false, etag: null,
     schema: "axr-assertions/1", imprint: pit, as_of: null, source: null, add: [], override: [], suppress: [],
   });
+  // The plan's preflight against one target, as the API computes it: the tap plan's sensors against the target's
+  // lab (else its sensor list), the images as seeded per target.
+  const preflightOf = (twinId: string, targetName: string): Preflight => {
+    const t = state.targets.find((x) => (x.name ?? x.node) === targetName);
+    if (!t) throw notFound(`target '${targetName}'`);
+    const sensors = [...new Set([...(t.lab?.components ?? []).filter((c) => c.role === "sensor").map((c) => c.id), ...(t.sensors ?? [])])].sort();
+    const findings: ValidationFinding[] = [];
+    const doc = state.documents[twinId];
+    const tapText = doc?.files["tap/default.yaml"];
+    if (tapText) {
+      for (const b of readTap(tapText).bindings) {
+        b.sensors.forEach((s, j) => {
+          if (!sensors.includes(s)) findings.push({ rule_id: "TARGET-SENSOR", severity: "error", message: `sensor ${s} not in lab of target ${targetName}`, location: `tap/default.yaml: tap-plan.bindings[${b.index}].sensors[${j}]` });
+        });
+      }
+    }
+    const img = state.preflightImages[targetName] ?? { bound: 1, total: 1 };
+    for (const u of img.unbound ?? []) findings.push({ rule_id: "TARGET-IMAGE", severity: "error", message: `image ${u.image} has no binding for platform ${t.platform ?? "proxmox"}`, location: u.location });
+    return { target: targetName, platform: t.platform ?? "proxmox", clean: findings.length === 0, images_bound: img.bound, images_total: img.total, sensors, findings };
+  };
   const api: Api = {
     async whoami() {
       return state.whoami;
@@ -598,16 +625,17 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       if (!t) throw notFound(`tap playout on '${twinDeployId}'`);
       return t;
     },
-    async planTwin(id, body) {
-      state.writes.push({ op: "plan", id, body });
+    async planTwin(id, body, _signal, target) {
+      state.writes.push({ op: "plan", id, body, ...(target ? { target } : {}) });
       if (state.refuse.plan) throw state.refuse.plan;
       const t = state.twins[id];
       if (!t) throw notFound(`twin '${id}'`);
-      return { plan_id: `${id}-plan${nextId++}`, scenario_id: id, scenario_version: 1, ir_hash: "h", ops: t.hosts * 8, barriers: 4, edges: 10, tree: "", config_warnings: ["deploy gate: 1 node spec(s) removed"], vm_count: t.hosts, params: {} };
+      return { plan_id: `${id}-plan${nextId++}`, scenario_id: id, scenario_version: 1, ir_hash: "h", ops: t.hosts * 8, barriers: 4, edges: 10, tree: "", config_warnings: ["deploy gate: 1 node spec(s) removed"], vm_count: t.hosts, params: {}, preflight: target ? preflightOf(id, target) : null };
     },
-    async deployTwin(id, body) {
-      state.writes.push({ op: "deploy", id, body });
+    async deployTwin(id, body, target) {
+      state.writes.push({ op: "deploy", id, body, ...(target ? { target } : {}) });
       if (state.refuse.deploy) throw state.refuse.deploy;
+      if (target && !preflightOf(id, target).clean) throw new ApiError({ kind: "conflict", status: 409, message: `the preflight for target '${target}' is not clean`, detail: { code: "preflight" }, url: "" });
       const deploy_id = `dep-${nextId++}`;
       const now = Date.now() / 1000;
       const follow_on = Object.fromEntries((body.follow_on ?? []).map((t) => [t, { status: "pending", reason: null, deploy_id: null, at: now }]));

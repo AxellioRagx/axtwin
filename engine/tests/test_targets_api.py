@@ -117,7 +117,7 @@ def _setup(tmp_path: Path, *, grafana_url: str | None = None, image2: str = "deb
         "          reach: {vmid: 260, transport_ip: 127.0.0.3}\n"
     )
     app = create_app(ApiSettings(
-        targets_file=str(tf), twin_configs_dir=str(twins),
+        targets_file=str(tf), twin_configs_dir=str(twins), imprints_dir=str(twins),
         images_root=str(FIXT_ROOT.resolve()),
     ))
     return TestClient(app)
@@ -310,3 +310,42 @@ def test_plan_without_target_has_no_preflight(tmp_path):
     r = c.post("/api/plan", json={"config": "lab-twin"})
     assert r.status_code == 200, r.text
     assert r.json()["preflight"] is None
+
+
+# ---- the Twins page's plan / deploy (/api/twins/{id}/plan|deploy ?target=) ------------
+
+def test_twin_plan_carries_the_preflight(tmp_path):
+    c = _setup(tmp_path)
+    r = c.post("/api/twins/lab-twin/plan", params={"target": "kvm1"}, json={})
+    assert r.status_code == 200, r.text
+    pf = r.json()["preflight"]
+    assert pf["target"] == "kvm1" and pf["platform"] == "libvirt" and pf["clean"] is False
+    assert [(f["rule_id"], f["location"]) for f in pf["findings"]] == [
+        ("TARGET-SENSOR", "tap/default.yaml: tap-plan.bindings[0].sensors[0]"),
+    ]
+    r = c.post("/api/twins/lab-twin/plan", params={"target": "dev45"}, json={})
+    assert r.json()["preflight"]["clean"] is True
+    assert c.post("/api/twins/lab-twin/plan", json={}).json()["preflight"] is None
+
+
+def test_twin_deploy_refuses_an_unclean_preflight_before_any_write(tmp_path):
+    c = _setup(tmp_path)
+    started = []
+    c.app.state.deploy_runner = lambda *a: started.append(a)
+    c.app.state.deploy_background = lambda job: job()
+    r = c.post("/api/twins/lab-twin/deploy", params={"target": "kvm1"}, json={})
+    assert r.status_code == 409, r.text
+    body = r.json()
+    assert body["detail"]["code"] == "preflight"
+    assert "sensor XPress-SW-A not in lab of target kvm1" in body["error"]
+    assert started == [] and not (tmp_path / "kv.db").exists()
+
+
+def test_twin_deploy_on_a_clean_target_lands_in_its_store(tmp_path):
+    c = _setup(tmp_path, sensor="Tcpdump-SW-A")
+    started = []
+    c.app.state.deploy_runner = lambda settings, plan, cfg, ctx, did: started.append((settings.db_path, did))
+    c.app.state.deploy_background = lambda job: job()
+    r = c.post("/api/twins/lab-twin/deploy", params={"target": "kvm1"}, json={})
+    assert r.status_code == 200, r.text
+    assert started and started[0][0] == str((tmp_path / "kv.db").resolve())

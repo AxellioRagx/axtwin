@@ -41,7 +41,7 @@ describe("deploying a twin from the console", () => {
     const started = await within(panel).findByTestId("deploy-started");
     expect(started.textContent).toMatch(/Deploy dep-\d+ started/);
     // The whole twin: te, then the tap plan, then the traffic profile (2026-11-09).
-    expect(state.writes.at(-1)).toEqual({ op: "deploy", id: "lab", body: { expect_plan_id: planId, follow_on: ["tap", "tfc"], target_node: "dev45" } });
+    expect(state.writes.at(-1)).toEqual({ op: "deploy", id: "lab", body: { expect_plan_id: planId, follow_on: ["tap", "tfc"], target_node: "dev45" }, target: "dev45" });
 
     // The page re-reads: the deploy stands, its tiers queued behind te, and the panel offers no second one.
     await waitFor(() => expect(screen.getByTestId("deploy-state").textContent).toContain("te running"));
@@ -74,7 +74,7 @@ describe("deploying a twin from the console", () => {
     expect(within(panel).getByTestId("deploy-plan")).toBeTruthy();
   });
 
-  it("a refused plan says so; a multi-node target offers its nodes and a node change drops the plan", async () => {
+  it("a refused plan says so; a multi-node target offers its nodes and a node change re-plans", async () => {
     const { api, state } = fakeApi({
       twins: { lab: twin("lab", { hosts: 2 }) },
       targets: [{ node: "pve1", name: "lab-cluster", default: true, nodes: ["pve1", "pve2"], platform: "proxmox", error: null }],
@@ -89,9 +89,10 @@ describe("deploying a twin from the console", () => {
     fireEvent.change(select, { target: { value: "pve2" } });
     fireEvent.click(within(panel).getByRole("button", { name: "Plan the deploy" }));
     await within(panel).findByTestId("deploy-plan");
-    expect(state.writes.at(-1)).toEqual({ op: "plan", id: "lab", body: { target_node: "pve2" } });
+    expect(state.writes.at(-1)).toEqual({ op: "plan", id: "lab", body: { target_node: "pve2" }, target: "lab-cluster" });
+    // A plan answers for one node: another node re-runs it (and its preflight).
     fireEvent.change(select, { target: { value: "pve1" } });
-    expect(within(panel).queryByTestId("deploy-plan")).toBeNull();
+    await waitFor(() => expect(state.writes.at(-1)).toEqual({ op: "plan", id: "lab", body: { target_node: "pve1" }, target: "lab-cluster" }));
   });
 
   it("a read-only caller is told to sign in; nothing is offered", async () => {

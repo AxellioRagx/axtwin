@@ -30,6 +30,8 @@ import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
+import { DeployFlow } from "../../areas/shell/DeployFlow";
+import { remapFiles } from "../../model/preflight";
 import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
@@ -306,6 +308,10 @@ export function CanvasPage() {
   // Destroy (2026-11-08): the standing deploy comes down from the bar; the canvas then returns to
   // the undeployed edit mode (the working copy is gone with the deploy) without a page reload.
   const [destroyOpen, setDestroyOpen] = useState(false);
+  // The bar's Deploy (an undeployed design): the deploy dialog (docs/design/targets-and-lab.md §2.3).
+  const [deployOpen, setDeployOpen] = useState(false);
+  // The targets, for the deployed bar's target chip ("dev45 · proxmox"); a refusal leaves the chip platform-less.
+  const targetList = useLoad((signal) => api.listTargets(signal).then((t) => t.targets).catch(() => []), []);
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
     destroyer.clear();
@@ -1106,6 +1112,15 @@ export function CanvasPage() {
             ) : null}
           </span>
         ) : null}
+        {data?.deploy?.target ? (
+          <span className="badge cv-target-chip" data-testid="target-chip" title={`deployed on target ${data.deploy.target}`}>
+            {data.deploy.target}
+            {(() => {
+              const t = (targetList.data ?? []).find((x) => (x.name ?? x.node) === data.deploy!.target);
+              return t?.platform ? ` · ${t.platform}` : "";
+            })()}
+          </span>
+        ) : null}
         {data?.exportData && designAvailable ? (
           <span className="row cv-view" role="group" aria-label="View">
             <button type="button" aria-pressed={view === "design"} onClick={() => setView("design")}>
@@ -1142,6 +1157,11 @@ export function CanvasPage() {
                 <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null} title={parkedReason ?? undefined}>
                   Save
                 </button>
+                {whoami.can_write ? (
+                  <button type="button" onClick={() => setDeployOpen(true)} disabled={busy !== null} data-testid="deploy-open" title="plan and deploy the saved twin on a target">
+                    Deploy…
+                  </button>
+                ) : null}
               </span>
             ) : (
               <span className="cv-exit-group" role="group" aria-label="Working copy">
@@ -1204,6 +1224,31 @@ export function CanvasPage() {
           </div>
         ) : null}
       </TopbarPortal>
+      {deployOpen && !data?.deploy ? (
+        <div className="modal-backdrop" data-testid="deploy-backdrop" onClick={(e) => e.stopPropagation()}>
+          <div className="modal panel" role="dialog" aria-modal="true" aria-label={`Deploy ${id}`} data-testid="deploy-dialog">
+            <h2 style={{ marginTop: 0 }}>Deploy {id}</h2>
+            <DeployFlow
+              twinId={id}
+              hold={dirty ? { reason: "The design has unsaved changes; the deploy runs the saved twin.", action: { label: "Save", run: save } } : null}
+              remap={async (location, to) => {
+                const reason = edit(`remap sensor at ${location} to ${to}`, (d) => remapFiles(d.files, location, to));
+                if (reason) throw new Error(reason);
+              }}
+              remapNote="Remap edits the design's tap plan; Save it, then plan again."
+              onDeployed={() => {
+                setDeployOpen(false);
+                reload();
+              }}
+            />
+            <div className="row-actions">
+              <button type="button" onClick={() => setDeployOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {destroyOpen && data?.deploy ? (
         <DestroyDialog
           twinId={id}
@@ -1211,6 +1256,7 @@ export function CanvasPage() {
           tiers={destroyRun?.tiers ?? standingTiers(deployRows, data.deploy.deploy_id)}
           run={destroyRun}
           dirty={dirty}
+          dirtyKind={state === "applied" ? "applied" : "unapplied"}
           onPersistFirst={() => void persist()}
           onConfirm={() => destroyer.start(data.deploy!.deploy_id, standingTiers(deployRows, data.deploy!.deploy_id))}
           onClose={() => {

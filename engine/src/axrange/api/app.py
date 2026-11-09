@@ -742,10 +742,12 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @_ro
     def imprint_plan(
         imprint_id: str, req: Optional[dtos.ImprintPlanRequest] = Body(default=None),
+        target: Optional[str] = _TARGET_QUERY,
     ) -> dtos.PlanSummaryDTO:
         body = req or dtos.ImprintPlanRequest()
         return service.imprint_plan(
             settings, imprint_id, target_node=body.target_node, params=body.params,
+            target=target,
         )
 
     @app.post(
@@ -756,6 +758,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     def imprint_deploy(
         imprint_id: str, req: Optional[dtos.ImprintDeployRequest] = Body(default=None),
         override_protection: Optional[str] = Query(default=None),
+        target: Optional[str] = _TARGET_QUERY,
     ) -> dtos.CreateDeployResponse:
         body = req or dtos.ImprintDeployRequest()
         return service.imprint_deploy(
@@ -766,6 +769,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             tap_adapter=app.state.tap_adapter,
             tap_config_backend=app.state.tap_config_backend,
             persona_backend=app.state.tfc_persona_backend,
+            target=target,
         )
 
     # ---- validate / plan (pure) ----

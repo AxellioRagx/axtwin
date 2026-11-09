@@ -47,6 +47,7 @@ import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/anno
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
 import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
+import type { TeModel } from "./edit/te";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
@@ -186,6 +187,30 @@ export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position"
     const h = n.measured?.height ?? n.height ?? 0;
     if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
   }
+  return null;
+}
+
+/** The data of the edge a tap chip was dropped on (a device link, or a segment's link). */
+export type TapDropEdge = { kind?: string; index?: number; segment?: string };
+
+/** Where a dropped tap chip lands (topology-layers §8), or null (it springs back). Pure: on a router joining two
+ *  segments, the boundary between them; on a segment (its body, below the pill), `{scope: segment, target}`; on a
+ *  device link, a port on its VM end; on a segment's link, that segment. `edgeAt` is read only when nothing
+ *  under the chip's centre decided it. */
+export function tapDropSelector(
+  others: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>,
+  centre: { x: number; y: number },
+  te: TeModel,
+  edgeAt: () => TapDropEdge | undefined,
+): TapSelector | null {
+  const dev = deviceAt(others, centre);
+  const atDevice = dev ? boundaryAt(te, dev) : null;
+  if (atDevice) return atDevice;
+  const seg = segmentAt(others, { x: centre.x, y: centre.y + 20 });
+  if (seg) return { scope: "segment", target: seg };
+  const data = edgeAt();
+  if (data?.kind === "link" && typeof data.index === "number") return portOnLink(te, data.index);
+  if (data?.kind === "seglink" && data.segment) return { scope: "segment", target: data.segment };
   return null;
 }
 
@@ -433,16 +458,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         const binding = edit?.model.tap?.bindings.find((b) => b.index === index) ?? null;
         let sel: TapSelector | null = null;
         if (editing && edit && centre) {
-          const dev = deviceAt(others, centre);
-          if (dev) sel = boundaryAt(edit.model.te, dev);
-          const seg = sel ? null : segmentAt(others, { x: centre.x, y: centre.y + 20 });
-          if (seg) sel = { scope: "segment", target: seg };
-          if (!sel) {
+          sel = tapDropSelector(others, centre, edit.model.te, () => {
             const edgeId = edgeUnder(_e as unknown as { clientX?: number; clientY?: number });
-            const data = (edgeId ? rf.getEdge(edgeId)?.data : undefined) as { kind?: string; index?: number; segment?: string } | undefined;
-            if (data?.kind === "link" && typeof data.index === "number") sel = portOnLink(edit.model.te, data.index);
-            else if (data?.kind === "seglink" && data.segment) sel = { scope: "segment", target: data.segment };
-          }
+            return (edgeId ? rf.getEdge(edgeId)?.data : undefined) as TapDropEdge | undefined;
+          });
         }
         // The chip goes back to its spot either way; a move redraws it where the tap now sits.
         setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));

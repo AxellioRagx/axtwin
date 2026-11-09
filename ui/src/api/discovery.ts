@@ -124,10 +124,11 @@ export interface Api {
   listTargetDeploys(target: string, signal?: AbortSignal): Promise<DeployList>;
   /** The tap playout standing on a twin (a te deploy id): which sensors its bindings deliver to. */
   getTaps(twinDeployId: string, signal?: AbortSignal): Promise<TapStatus>;
-  /** Plan a twin's deploy without running anything. */
-  planTwin(id: string, body?: { target_node?: string }, signal?: AbortSignal): Promise<PlanSummary>;
-  /** Start the twin's te deploy on the cluster (write-gated, lease-guarded, detached). */
-  deployTwin(id: string, body: TwinDeployRequest): Promise<CreateDeployResponse>;
+  /** Plan a twin's deploy without running anything; with `target`, against that target, carrying its preflight. */
+  planTwin(id: string, body?: { target_node?: string }, signal?: AbortSignal, target?: string): Promise<PlanSummary>;
+  /** Start the twin's te deploy (write-gated, lease-guarded, detached); with `target`, on that target, refused
+   *  (409, `code: preflight`) while its preflight is not clean. */
+  deployTwin(id: string, body: TwinDeployRequest, target?: string): Promise<CreateDeployResponse>;
   /** Destroy: bring the standing deploy down, its tfc / tap / exr children first (`axrange te destroy`). */
   destroyDeploy(deployId: string): Promise<DestroyResult>;
 }
@@ -185,8 +186,8 @@ export function makeApi(request: Requester): Api {
     getTargetHealth: (name, signal) => request("GET", `/api/targets/${enc(name)}/health`, { signal }),
     listTargetDeploys: (target, signal) => request("GET", `/api/deploys?target=${enc(target)}`, { signal }),
     getTaps: (twinDeployId, signal) => request("GET", `/api/taps?target=${enc(twinDeployId)}`, { signal }),
-    planTwin: (id, body, signal) => request("POST", `/api/twins/${enc(id)}/plan`, { body: body ?? {}, signal }),
-    deployTwin: (id, body) => request("POST", `/api/twins/${enc(id)}/deploy`, { body }),
+    planTwin: (id, body, signal, target) => request("POST", `/api/twins/${enc(id)}/plan${target ? `?target=${enc(target)}` : ""}`, { body: body ?? {}, signal }),
+    deployTwin: (id, body, target) => request("POST", `/api/twins/${enc(id)}/deploy${target ? `?target=${enc(target)}` : ""}`, { body }),
     // The confirmation rides the query: some proxies drop a DELETE's body (the route takes either).
     destroyDeploy: (deployId) => request("DELETE", `/api/deploys/${enc(deployId)}?allow_destroy=true`, {}),
   };

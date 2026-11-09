@@ -207,8 +207,13 @@ def _preflight_for(settings: ApiSettings, target: str, kind: str, sp: Path,
     from axrange.api.preflight import Sources, config_sources, run_preflight
     from axrange.api.targets import UnknownTargetError
 
-    if kind == "config" and config:
-        sources = config_sources(settings, config)
+    if kind in ("config", "imprint") and config:
+        catalog = None
+        if kind == "imprint":
+            from axrange.api.imprints import default_fixtures_dir
+
+            catalog = settings.imprints_dir or str(default_fixtures_dir())
+        sources = config_sources(settings, config, catalog_dir=catalog)
         if sources.te_path is None:
             sources = Sources(te_path=sp, te_label=config)
     else:
@@ -4454,7 +4459,8 @@ def imprint_provenance(settings: ApiSettings, imprint_id: str) -> dtos.ImprintPr
 # ---------------------------------------------------------------------------
 def imprint_plan(settings: ApiSettings, imprint_id: str, *,
                  target_node: Optional[str] = None,
-                 params: Optional[dict[str, str]] = None) -> dtos.PlanSummaryDTO:
+                 params: Optional[dict[str, str]] = None,
+                 target: Optional[str] = None) -> dtos.PlanSummaryDTO:
     """Validate + plan an imprint's drafted twin_config -- PURE (no state.db
     write, no lease, no execution): the Console's "preview before you
     commit" step, and what makes PART A unit-testable with no cluster.
@@ -4471,6 +4477,10 @@ def imprint_plan(settings: ApiSettings, imprint_id: str, *,
     # silent-skip this project refuses (LES-089). The ordinary `plan()` above
     # is scenario-sourced and has no expansion step, so it leaves the field
     # at its `[]` default.
+    # `target` (`docs/design/targets-and-lab.md` §2.2, the deploy dialog's
+    # Target select): plan against that target and attach its preflight.
+    if target:
+        settings = _settings_for_named_target(settings, target)
     config_warnings: list[str] = []
     sp, images_root, source_dir = _resolve_imprint_scenario_path(
         settings, imprint_id, params, warnings=config_warnings,
@@ -4478,17 +4488,33 @@ def imprint_plan(settings: ApiSettings, imprint_id: str, *,
     # Relative scripts resolve against the twin config's own directory, and
     # the materialized tempfile is deleted on the way out (GAP-082 review,
     # M2 and S3) -- a preview leaves nothing behind.
-    p, _cfg, _ctx, _ir, _raw, _sp, _manifests = _plan_materialized(
+    p, _cfg, _ctx, _ir, _raw, _sp, manifests = _plan_materialized(
         settings, sp, images_root, source_dir, target_node=target_node,
     )
     from axrange.api.imprints import default_fixtures_dir
 
-    return _plan_summary_dto(
+    out = _plan_summary_dto(
         p, config_warnings=config_warnings,
         params=_resolved_params(
             settings.imprints_dir or str(default_fixtures_dir()), imprint_id, params,
         ),
     )
+    if target:
+        from axrange.api.preflight import to_dto
+
+        out.preflight = to_dto(
+            _preflight_for(settings, target, "imprint", Path(sp), imprint_id, manifests),
+        )
+    return out
+
+
+def _settings_for_named_target(settings: ApiSettings, target: str) -> ApiSettings:
+    from axrange.api.targets import UnknownTargetError, settings_for_target
+
+    try:
+        return settings_for_target(settings, target)
+    except UnknownTargetError as e:
+        raise ApiError(404, f"unknown target {e.name!r}", detail={"targets": e.known}) from e
 
 
 def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDeployRequest, *,
@@ -4497,6 +4523,7 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
                    override_protection: Optional[str] = None,
                    tap_adapter: Any = None, tap_config_backend: Any = None,
                    persona_backend: Any = None,
+                   target: Optional[str] = None,
                    ) -> dtos.CreateDeployResponse:
     """"Deploy as twin": hand the imprint's drafted twin_config to the
     EXISTING async lease-guarded deploy path -- exactly as an ordinary
@@ -4516,6 +4543,22 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
     if unknown:
         raise ApiError(400, f"follow_on names {unknown}; the tiers that follow te are tap, tfc")
     tiers = [t for t in FOLLOW_ON_TIERS if t in req.follow_on]
+    if target:
+        # `docs/design/targets-and-lab.md` §2.3: nothing is deployed on a
+        # target until the preflight is clean -- re-checked here, not trusted
+        # from the dialog. The deploy then lands on that target's cluster.
+        pf = imprint_plan(
+            settings, imprint_id, target_node=req.target_node, params=req.params, target=target,
+        ).preflight
+        if pf is not None and not pf.clean:
+            errs = [f for f in pf.findings if f.severity == "error"]
+            raise ApiError(
+                409,
+                f"the preflight for target {pf.target!r} is not clean: "
+                + "; ".join(f"{f.location}: {f.message}" for f in errs),
+                detail={"code": "preflight", "findings": [f.model_dump() for f in errs]},
+            )
+        settings = _settings_for_named_target(settings, target)
     then = None
     if tiers:
         def then(te_deploy_id: str) -> None:

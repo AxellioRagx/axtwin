@@ -158,6 +158,27 @@ describe("the canvas bar", () => {
     await waitFor(() => expect(state.writes.some((w) => w.op === "destroy" && w.id === "dep-1")).toBe(true));
   });
 
+  it("applied but never persisted: the dialog says the running twin's changes are lost, not 'unapplied'", async () => {
+    const { api } = seeded();
+    renderAt(api, "/twins/corp-live/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(host("web01"));
+    fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
+    const apply = screen.getByRole("button", { name: "Apply" });
+    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(apply);
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("applied · unpersisted"));
+    fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
+    const gate = dialog().getByTestId("destroy-dirty");
+    expect(gate.dataset["kind"]).toBe("applied");
+    expect(gate.textContent).toContain("applied changes that were never persisted");
+    expect(gate.textContent).not.toContain("Unapplied");
+    expect(within(gate).getByRole("checkbox").parentElement!.textContent).toContain("Lose the applied, unpersisted changes");
+    expect(dialog().getByTestId("destroy-confirm").hasAttribute("disabled")).toBe(true);
+    expect(dialog().getByTestId("destroy-persist-first")).toBeTruthy();
+  });
+
   it("Persist first writes the baseline and leaves the confirm open, now clean", async () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-live/canvas");

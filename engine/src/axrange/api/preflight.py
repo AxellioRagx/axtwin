@@ -174,16 +174,20 @@ def run_preflight(
     return pf
 
 
-def config_sources(settings: ApiSettings, config_id: str) -> Sources:
+def config_sources(settings: ApiSettings, config_id: str, *,
+                   catalog_dir: Optional[str] = None) -> Sources:
     """The twin config's te file and its default tap plan (when the twin
-    declares a tap tier), labelled relative to the twin folder."""
+    declares a tap tier), labelled relative to the twin folder. `catalog_dir`
+    overrides the twin-configs catalog (the imprints catalog for a twin
+    deployed from the Twins page)."""
     from axrange.twinconfig import TwinConfigError
     from axrange.twinconfig.manifest import load_twin_manifest, twin_dir_for_file
     from axrange.twinconfig.registry import resolve_twin_config_path
 
     try:
-        te = resolve_twin_config_path(config_id, catalog_dir=settings.twin_configs_dir or None,
-                                      warnings=[])
+        te = resolve_twin_config_path(
+            config_id, catalog_dir=catalog_dir or settings.twin_configs_dir or None, warnings=[],
+        )
     except TwinConfigError:
         return Sources(te_path=None)
     twin_dir = twin_dir_for_file(te)

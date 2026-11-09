@@ -781,6 +781,22 @@ export interface PlanSummary {
   config_warnings: string[];
   vm_count: number;
   params: Record<string, unknown>;
+  /** Set when the plan was asked for a target (`?target=`): the deploy dialog's preflight rows. */
+  preflight?: Preflight | null;
+}
+
+/** A twin checked against one target (docs/design/targets-and-lab.md §2.2): every sensor a tap binding names is in
+ *  the target's lab, every node image is bound for its platform. Nothing deploys until `clean`. */
+export interface Preflight {
+  target: string;
+  platform: string;
+  clean: boolean;
+  images_total: number;
+  images_bound: number;
+  /** The sensor ids the target offers: what a Remap may pick. */
+  sensors: string[];
+  /** `TARGET-SENSOR` / `TARGET-IMAGE` errors, `location` the offending path (`tap/default.yaml: tap-plan.bindings[0].sensors[0]`). */
+  findings: ValidationFinding[];
 }
 
 /** `POST /api/twins/{id}/deploy`'s body: `expect_plan_id` refuses (409) a deploy that re-plans to anything else. */

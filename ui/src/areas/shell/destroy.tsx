@@ -149,6 +149,7 @@ export function DestroyDialog({
   tiers,
   run,
   dirty = false,
+  dirtyKind = "unapplied",
   onPersistFirst,
   onConfirm,
   onClose,
@@ -158,6 +159,9 @@ export function DestroyDialog({
   tiers: string[];
   run: DestroyRun | null;
   dirty?: boolean;
+  /** What the pending changes are: `unapplied` (in the working copy only) or `applied` (running on the twin, never
+   *  persisted to the baseline). Destroy loses both; the words say which. */
+  dirtyKind?: "applied" | "unapplied";
   onPersistFirst?: () => void;
   onConfirm: () => void;
   onClose: () => void;
@@ -192,10 +196,14 @@ export function DestroyDialog({
         <p data-testid="destroy-binding">{tap ? "The tap's sensor binding is released: its gretaps and mirrors to the sensors are removed." : "No tap plan stands, so no sensor binding is held."}</p>
         <p className="muted">Every VM of the twin is removed. The twin config stays in the catalog; Deploy stands it up again.</p>
         {dirty ? (
-          <div className="warn" data-testid="destroy-dirty">
-            <p style={{ margin: 0 }}>Unapplied changes will be discarded.</p>
+          <div className="warn" data-testid="destroy-dirty" data-kind={dirtyKind}>
+            {dirtyKind === "applied" ? (
+              <p style={{ margin: 0 }}>The running twin carries applied changes that were never persisted. Destroying it loses them: the baseline does not have them. Persist first to keep them in the twin.</p>
+            ) : (
+              <p style={{ margin: 0 }}>Unapplied changes will be discarded.</p>
+            )}
             <label>
-              <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} disabled={busy} /> Discard the unapplied changes
+              <input type="checkbox" checked={discard} onChange={(e) => setDiscard(e.target.checked)} disabled={busy} /> {dirtyKind === "applied" ? "Lose the applied, unpersisted changes" : "Discard the unapplied changes"}
             </label>
           </div>
         ) : null}

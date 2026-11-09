@@ -223,3 +223,14 @@ button.quiet:hover { color: var(--bad); }
 .dot.up { background: var(--ok); }
 .dot.down { background: var(--bad); }
 .dot.unknown { background: transparent; border: 1.5px solid var(--muted); }
+
+/* The deploy dialog's target line and preflight (areas/shell/DeployFlow.tsx, targets-and-lab §2.3). */
+.deploy-target { margin-bottom: 6px; }
+.preflight { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.preflight-head { margin: 0 0 6px; }
+.preflight ul { list-style: none; margin: 0; padding: 0; }
+.preflight-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 4px 0; border-top: 1px solid var(--line); }
+.preflight-row:first-child { border-top: none; }
+.preflight-msg { color: var(--bad); }
+.preflight-loc { font-size: 12px; }
+.preflight-remap select { padding: 2px 6px; }
