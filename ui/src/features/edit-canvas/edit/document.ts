@@ -15,7 +15,7 @@ import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { MANIFEST, readManifest, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
-import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSensors, type TapModel } from "./tap";
+import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector } from "./tap";
 import {
   addLink as teAddLink,
   addNode,
@@ -419,6 +419,24 @@ export function removeTap(doc: WorkingDoc, model: DocModel, index: number): File
 export function moveTap(doc: WorkingDoc, model: DocModel, index: number, segment: string): Files {
   if (!model.tapPath) return doc.files;
   return { ...doc.files, [model.tapPath]: moveTapBinding(doc.files[model.tapPath]!, index, segment) };
+}
+
+/** Move a tap to a segment, a boundary or a link's port (topology-layers §8):
+ *  one `taps` change. Refused (thrown, the editor shows why) when the target
+ *  names no segment or device of the document. */
+export function retargetTap(doc: WorkingDoc, model: DocModel, index: number, sel: TapSelector): Files {
+  if (!model.tapPath) return doc.files;
+  const segs = new Set(model.te.segments.map((x) => x.name));
+  const names = sel.scope === "boundary" ? sel.target : sel.scope === "segment" ? [sel.target] : [sel.segment];
+  const unknown = names.filter((x) => !segs.has(x));
+  if (unknown.length) throw new Error(`no segment ${unknown.map((x) => `'${x}'`).join(", ")} in the twin`);
+  if (sel.scope === "boundary" && sel.target[0] === sel.target[1]) throw new Error("a boundary joins two different segments");
+  if (sel.scope === "port") {
+    const n = model.te.nodes.find((x) => x.name === sel.target);
+    if (!n) throw new Error(`no device '${sel.target}' in the twin`);
+    if (!n.nets.some((x) => x.segment === sel.segment)) throw new Error(`${sel.target} has no leg on ${sel.segment}`);
+  }
+  return { ...doc.files, [model.tapPath]: setTapSelector(doc.files[model.tapPath]!, index, sel) };
 }
 
 export function setTapSensorsOf(doc: WorkingDoc, model: DocModel, index: number, sensors: string[]): Files {

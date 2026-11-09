@@ -46,6 +46,7 @@ import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
 import { EditContext, type EditState, type PaletteItem } from "./edit/EditContext";
 import type { DocModel } from "./edit/document";
+import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
@@ -80,6 +81,9 @@ export interface CanvasEditProps {
   onAddSegment(near?: string): void;
   /** A segment tap's chip was dropped on another pill (topology-layers §8): a `taps` change. */
   onMoveTap?(index: number, segment: string): void;
+  /** A tap's chip was dropped on a segment, a router joining two segments (the boundary
+   *  between them) or a link (a port on its VM end): one `taps` change (2026-11-09). */
+  onRetargetTap?(index: number, sel: TapSelector): void;
   /** A member chip was dropped on another group (§5): that one member moves there (a topology change). */
   onMoveMember?(from: string, index: number, into: string): void;
   /** Copy the subtree under `root` (§6.2, §6.3): attached by a trunk to `attachTo`, else parked; a
@@ -181,6 +185,17 @@ export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position"
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
     if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
+  }
+  return null;
+}
+
+/** The React Flow edge under a pointer event (its id), skipping the dragged node on top. jsdom has no
+ *  `elementsFromPoint`: null there. */
+function edgeUnder(e: { clientX?: number; clientY?: number } | null | undefined): string | null {
+  if (!e || typeof e.clientX !== "number" || typeof e.clientY !== "number" || typeof document.elementsFromPoint !== "function") return null;
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const g = el.closest('[data-testid^="rf__edge-"]');
+    if (g) return g.getAttribute("data-testid")!.slice("rf__edge-".length);
   }
   return null;
 }
@@ -413,14 +428,35 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       if (!at) return;
       // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
       void onPinMany;
-      // A segment tap's chip dropped on another pill moves the tap there (§8); dropped elsewhere it springs back.
+      // A tap's chip moves the tap (§8, 2026-11-09): dropped on a router joining two segments, the boundary
+      // between them; on a segment, that segment; on a link, a port on its VM end. Elsewhere it springs back.
       if (node.data.kind === "tap") {
         const current = rf.getNodes();
         const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
         const at = absolutePosition(moved, node.id);
-        const under = at ? segmentAt(moved.filter((n) => n.id !== node.id), { x: at.x + (node.measured?.width ?? node.width ?? 0) / 2, y: at.y + (node.measured?.height ?? node.height ?? 0) / 2 + 20 }) : null;
-        if (editing && edit?.onMoveTap && node.data.scope === "segment" && under && under !== node.data.target) edit.onMoveTap(Number(node.data.id), under);
-        else setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
+        const others = moved.filter((n) => n.id !== node.id);
+        const centre = at ? { x: at.x + (node.measured?.width ?? node.width ?? 0) / 2, y: at.y + (node.measured?.height ?? node.height ?? 0) / 2 } : null;
+        const index = Number(node.data.id);
+        const binding = edit?.model.tap?.bindings.find((b) => b.index === index) ?? null;
+        let sel: TapSelector | null = null;
+        if (editing && edit && centre) {
+          const dev = deviceAt(others, centre);
+          if (dev) sel = boundaryAt(edit.model.te, dev);
+          const seg = sel ? null : segmentAt(others, { x: centre.x, y: centre.y + 20 });
+          if (seg) sel = { scope: "segment", target: seg };
+          if (!sel) {
+            const edgeId = edgeUnder(_e as unknown as { clientX?: number; clientY?: number });
+            const data = (edgeId ? rf.getEdge(edgeId)?.data : undefined) as { kind?: string; index?: number; segment?: string } | undefined;
+            if (data?.kind === "link" && typeof data.index === "number") sel = portOnLink(edit.model.te, data.index);
+            else if (data?.kind === "seglink" && data.segment) sel = { scope: "segment", target: data.segment };
+          }
+        }
+        // The chip goes back to its spot either way; a move redraws it where the tap now sits.
+        setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, position: current.find((c) => c.id === node.id)?.position ?? n.position } : n)));
+        if (sel && binding && !sameSelector(sel, selectorOf(binding))) {
+          if (edit?.onRetargetTap) edit.onRetargetTap(index, sel);
+          else if (edit?.onMoveTap && sel.scope === "segment" && node.data.scope === "segment") edit.onMoveTap(index, sel.target);
+        }
         return;
       }
       // A parked device (no link names it) dropped on another device attaches there (§6.3).

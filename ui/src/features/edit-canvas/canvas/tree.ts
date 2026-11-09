@@ -732,7 +732,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       const parent = nodes.find((n) => n.id === parentId);
       if (!parent) continue;
       const w = parent.width ?? DEVICE_W;
-      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: tap.scope === "segment", selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? fallbackSource } });
+      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: true, selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? fallbackSource } });
     }
   }
   const hostsIn = (segs: readonly GraphSegment[]) => segs.reduce((n, s) => n + s.hostCount, 0);

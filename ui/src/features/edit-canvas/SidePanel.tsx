@@ -27,6 +27,7 @@ import {
   removeSegment,
   removeTap,
   renameNode,
+  retargetTap,
   renameSegment,
   setAttachmentAddress,
   setLinkField,
@@ -44,7 +45,7 @@ import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
-import { tapsOn } from "./edit/tap";
+import { selectorOf, tapsOn, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
 export type Selection =
@@ -1099,6 +1100,7 @@ function TapPanel(p: SidePanelProps & { index: number }) {
         Tap <span className="mono">{b.scope} {b.targets.join(" ↔ ")}{b.segment ? ` (${b.segment})` : ""}</span>
       </h3>
       <h4>Taps <span className="muted">· tap, live</span></h4>
+      <TapWhere {...p} b={b} />
       <Field label="Sensors" hint="comma-separated sensor names the tap delivers to (the tap plan's sensors[])">
         <Text ariaLabel="Sensors" value={b.sensors.join(", ")} disabled={ro} mono list="cv-sensors-tap" placeholder={b.sensors.length ? undefined : "no sensor named: the tap tier refuses this tap"} onCommit={(v) => p.apply(`sensors of tap ${b.index}`, (d, m) => setTapSensorsOf(d, m, b.index, splitSensors(v)))} />
         <SensorList id="cv-sensors-tap" sensors={knownSensors(p.model, p.sensors)} />
@@ -1113,6 +1115,84 @@ function TapPanel(p: SidePanelProps & { index: number }) {
         Remove tap
       </button>
     </section>
+  );
+}
+
+/** Where a tap sits, editable (§8, 2026-11-09): the Scope (a segment, the boundary between two
+ *  segments, or a port: one device's leg) and its Target, the same choices a drag of the chip
+ *  offers. Each change is one move: one `taps` change, one undo step. */
+function TapWhere(p: SidePanelProps & { b: TapBinding }) {
+  const { b } = p;
+  const ro = p.locked;
+  const segs = p.model.te.segments.map((x) => x.name);
+  const vms = p.model.te.nodes.filter((n) => n.image && n.kind !== "switch" && n.nets.length > 0);
+  const cur = selectorOf(b);
+  const label = (sel: TapSelector) => (sel.scope === "boundary" ? `boundary ${sel.target.join(" ↔ ")}` : sel.scope === "port" ? `port ${sel.target} (${sel.segment})` : `segment ${sel.target}`);
+  const move = (sel: TapSelector) => p.apply(`move tap ${b.index} to ${label(sel)}`, (d, m) => retargetTap(d, m, b.index, sel));
+  const known = b.targets.filter((t) => segs.includes(t));
+  const firstOther = (not: string) => segs.find((x) => x !== not) ?? not;
+  const portOn = (device: string, seg?: string): TapSelector | null => {
+    const n = vms.find((x) => x.name === device);
+    const leg = n ? (n.nets.find((x) => x.segment === seg) ?? n.nets[0]) : undefined;
+    return n && leg ? { scope: "port", target: n.name, segment: leg.segment } : null;
+  };
+  const toScope = (scope: string) => {
+    const seed = known[0] ?? b.segment ?? segs[0] ?? "";
+    if (scope === "segment") move({ scope: "segment", target: seed });
+    else if (scope === "boundary") move({ scope: "boundary", target: [seed, known[1] && known[1] !== seed ? known[1] : firstOther(seed)] });
+    else if (scope === "port") {
+      const host = vms.find((n) => n.nets.some((x) => x.segment === seed)) ?? vms[0];
+      const sel = host ? portOn(host.name, seed) : null;
+      if (sel) move(sel);
+    }
+  };
+  if (!cur) return <p className="muted" data-testid="tap-where">a {b.scope} tap: re-create it to move it (the inspector moves segment, boundary and port taps)</p>;
+  return (
+    <div data-testid="tap-where">
+      <Field label="Scope" hint="a segment, the boundary between two segments, or one device's port (a link's end)">
+        <select aria-label="Tap scope" value={cur.scope} disabled={ro} onChange={(e) => toScope(e.target.value)}>
+          <option value="segment">segment</option>
+          <option value="boundary" disabled={segs.length < 2}>boundary</option>
+          <option value="port" disabled={vms.length === 0}>port</option>
+        </select>
+      </Field>
+      {cur.scope === "segment" ? (
+        <Field label="Target">
+          <select aria-label="Tap segment" value={cur.target} disabled={ro} onChange={(e) => move({ scope: "segment", target: e.target.value })}>
+            {segs.map((x) => (
+              <option key={x} value={x}>{x}</option>
+            ))}
+          </select>
+        </Field>
+      ) : cur.scope === "boundary" ? (
+        <Field label="Target" hint="the two segments the boundary joins">
+          <span className="row cv-inline">
+            {[0, 1].map((i) => (
+              <select key={i} aria-label={`Boundary segment ${i + 1}`} value={cur.target[i]} disabled={ro} onChange={(e) => move({ scope: "boundary", target: i === 0 ? [e.target.value, cur.target[1]] : [cur.target[0], e.target.value] })}>
+                {segs.map((x) => (
+                  <option key={x} value={x} disabled={x === cur.target[1 - i]}>{x}</option>
+                ))}
+              </select>
+            ))}
+          </span>
+        </Field>
+      ) : (
+        <Field label="Target" hint="the device whose port is mirrored, and the leg (segment) that port is on">
+          <span className="row cv-inline">
+            <select aria-label="Tap device" value={cur.target} disabled={ro} onChange={(e) => { const sel = portOn(e.target.value, cur.segment); if (sel) move(sel); }}>
+              {vms.map((n) => (
+                <option key={n.name} value={n.name}>{n.name}</option>
+              ))}
+            </select>
+            <select aria-label="Tap port segment" value={cur.segment} disabled={ro} onChange={(e) => move({ scope: "port", target: cur.target, segment: e.target.value })}>
+              {(vms.find((n) => n.name === cur.target)?.nets ?? []).map((l) => (
+                <option key={l.segment} value={l.segment}>{l.segment}</option>
+              ))}
+            </select>
+          </span>
+        </Field>
+      )}
+    </div>
   );
 }
 

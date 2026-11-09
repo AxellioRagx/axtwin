@@ -9,7 +9,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { addTapBinding, moveTapBinding, readTap, removeTapBinding, setTapSensors, tapsOn } from "../src/features/edit-canvas/edit/tap";
+import { addTapBinding, boundaryAt, moveTapBinding, portOnLink, readTap, removeTapBinding, selectorOf, setTapSelector, setTapSensors, tapsOn } from "../src/features/edit-canvas/edit/tap";
 import { unwireTierDefault, wireTapDefault } from "../src/features/edit-canvas/edit/manifest";
 import { addLink, readTe, removeLink, setLinkField, setMemberRole } from "../src/features/edit-canvas/edit/te";
 import { commit, seeded, segment, settle, tab, twinYaml } from "./helpers/canvasFixtures";
@@ -308,6 +308,52 @@ describe("the inspector by tier", () => {
     expect(screen.getAllByTestId("canvas-tap").map((c) => c.getAttribute("data-target"))).toEqual(["servers"]);
     tab("Notes");
     expect((await screen.findByTestId("canvas-notes")).textContent).toContain("legacy cast layout: read through insp.yaml, tap-cast.yaml");
+  });
+  it("moves a tap: the selector is one splice (flow or block), the link and router drops resolve, bad targets refuse", () => {
+    // Block selector (a cast's style) -> a boundary: the nested lines go, the rest stays byte-for-byte.
+    const moved = setTapSelector(TAP, 1, { scope: "boundary", target: ["office", "servers"] });
+    expect(readTap(moved).bindings[1]).toMatchObject({ scope: "boundary", targets: ["office", "servers"], sensors: ["xpress-sw-a"] });
+    expect(moved.split("\n").filter((l) => !TAP.split("\n").includes(l))).toEqual(["    - selector: { scope: boundary, target: [office, servers] }"]);
+    // Flow selector -> a port.
+    const port = setTapSelector(TAP, 0, { scope: "port", target: "gw", segment: "office" });
+    expect(readTap(port).bindings[0]).toMatchObject({ scope: "port", targets: ["gw"], segment: "office" });
+    expect(selectorOf(readTap(port).bindings[0]!)).toEqual({ scope: "port", target: "gw", segment: "office" });
+    const te = readTe(TE);
+    // Link 0 is gw:eth1 <-> access-sw:SFP1 (an imageless switch): the port is gw's, on the native segment.
+    expect(portOnLink(te, 0)).toEqual({ scope: "port", target: "gw", segment: "office" });
+    // Link 1 is access-sw:P24 <-> file-server:eth0 carrying servers.
+    expect(portOnLink(te, 1)).toEqual({ scope: "port", target: "file-server", segment: "servers" });
+    expect(boundaryAt(te, "gw")).toEqual({ scope: "boundary", target: ["office", "servers"] });
+    expect(boundaryAt(te, "file-server")).toBeNull();
+  });
+  it("the tap inspector's Scope and Target move the tap; each move is one undo step; a drag's target refuses cleanly", async () => {
+    const one = `tap-plan:\n  target: insp\n  bindings:\n    - selector: { scope: boundary, target: [office, servers] }\n      sensors: [XPress-SW-A]\n      mode: exclusive\n`;
+    const { api, state } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": one });
+    state.documents.insp!.files["twin.yaml"] = wireTapDefault(state.documents.insp!.files["twin.yaml"]!, "tap/default.yaml");
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(screen.getAllByTestId("canvas-tap")[0]!);
+    let panel = await screen.findByTestId("tap-panel");
+    expect((within(panel).getByLabelText("Tap scope") as HTMLSelectElement).value).toBe("boundary");
+    // The boundary → servers only: Scope segment, then Target servers. Two moves, two undo steps.
+    fireEvent.change(within(panel).getByLabelText("Tap scope"), { target: { value: "segment" } });
+    await settle();
+    panel = await screen.findByTestId("tap-panel");
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[0]).toMatchObject({ scope: "segment", targets: ["office"], sensors: ["XPress-SW-A"] });
+    fireEvent.change(within(panel).getByLabelText("Tap segment"), { target: { value: "servers" } });
+    await settle();
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[0]).toMatchObject({ scope: "segment", targets: ["servers"] });
+    expect(screen.getAllByTestId("canvas-tap").map((c) => c.getAttribute("data-target"))).toEqual(["servers"]);
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await settle();
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[0]).toMatchObject({ scope: "segment", targets: ["office"] });
+    // A port: the device picker offers the VMs (not the imageless switch), the leg picker that device's legs.
+    panel = await screen.findByTestId("tap-panel");
+    fireEvent.change(within(panel).getByLabelText("Tap scope"), { target: { value: "port" } });
+    await settle();
+    panel = await screen.findByTestId("tap-panel");
+    expect([...(within(panel).getByLabelText("Tap device") as HTMLSelectElement).options].map((o) => o.value)).toEqual(["corp-workstation", "file-server", "gw"]);
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[0]).toMatchObject({ scope: "port", targets: ["corp-workstation"], segment: "office" });
   });
   it("Checks lists the taps with no sensor, filters the canvas to them, and sets one sensor on all", async () => {
     const bare = `tap-plan:\n  target: insp\n  bindings:\n    - selector: { scope: segment, target: office }\n      mode: exclusive\n    - selector: { scope: segment, target: servers }\n      mode: exclusive\n`;

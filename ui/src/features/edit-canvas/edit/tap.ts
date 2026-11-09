@@ -7,6 +7,7 @@
  * (`tfc.ts`), so every untouched line stays byte-for-byte. A tap change is
  * the `taps` kind: live, the tap playout replays.
  */
+import type { TeModel } from "./te";
 import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, removeSpan, rewriteFlowMap, scalarText, toPlain, type YMap, type YSeq } from "./yaml";
 
 export interface TapBinding {
@@ -158,4 +159,71 @@ export function setTapSensors(text: string, index: number, sensors: string[]): s
     if (e.end > e.line + 1) removeSpan(lines, e.line + 1, e.end, m.indent);
   } else insertLines(lines, contentEnd(lines, it.end), [`${" ".repeat(m.indent)}sensors: ${raw}`]);
   return joinLines(lines, trailingNewline);
+}
+
+// ---------------------------------------------------------------------------
+// Moving a tap (topology-layers §8, 2026-11-09): any binding re-pointed at a
+// segment, a boundary of two segments, or one end of a link (a port selector)
+// -- by a drag of its chip or the inspector's Scope / Target -- as ONE splice
+// of its selector, so a move is one taps change and one undo step.
+// ---------------------------------------------------------------------------
+export type TapSelector =
+  | { scope: "segment"; target: string }
+  | { scope: "boundary"; target: [string, string] }
+  | { scope: "port"; target: string; segment: string };
+
+export function selectorText(sel: TapSelector): string {
+  if (sel.scope === "boundary") return `{ scope: boundary, target: [${sel.target.map((t) => encodeScalar(t)).join(", ")}] }`;
+  if (sel.scope === "port") return `{ scope: port, target: ${encodeScalar(sel.target)}, segment: ${encodeScalar(sel.segment)} }`;
+  return `{ scope: segment, target: ${encodeScalar(sel.target)} }`;
+}
+
+/** The binding's selector as a `TapSelector`, or null when it is not one the canvas moves. */
+export function selectorOf(b: TapBinding): TapSelector | null {
+  if (b.scope === "segment" && b.targets[0]) return { scope: "segment", target: b.targets[0] };
+  if (b.scope === "boundary" && b.targets.length === 2) return { scope: "boundary", target: [b.targets[0]!, b.targets[1]!] };
+  if (b.scope === "port" && b.targets[0] && b.segment) return { scope: "port", target: b.targets[0], segment: b.segment };
+  return null;
+}
+
+export function sameSelector(a: TapSelector | null, b: TapSelector | null): boolean {
+  return a !== null && b !== null && selectorText(a) === selectorText(b);
+}
+
+/** Replace binding `index`'s selector with `sel`, written as one flow map on the
+ *  `selector:` line (a block selector's nested lines go); every other line stays. */
+export function setTapSelector(text: string, index: number, sel: TapSelector): string {
+  const { lines, seq, trailingNewline } = bindingsSeq(text);
+  const it = seq?.items[index];
+  if (!it || it.value.kind !== "map") throw new Error(`no tap binding ${index}`);
+  const e = entry(it.value, "selector");
+  if (!e) throw new Error(`tap binding ${index} addresses its point by \`tap:\`/\`tap_point:\`, not a selector: re-create it to move it`);
+  const line = lines[e.line]!;
+  lines[e.line] = `${line.slice(0, line.indexOf("selector") + "selector:".length)} ${selectorText(sel)}`;
+  if (e.end > e.line + 1) lines.splice(e.line + 1, contentEnd(lines, e.end) - (e.line + 1));
+  return joinLines(lines, trailingNewline);
+}
+
+/** A tap dropped on a link: a port selector on the end that is a VM (a switch
+ *  with no image deploys nothing to mirror), on the segment the link carries
+ *  (its native, else its first VLAN). Null when neither end can carry it. */
+export function portOnLink(te: TeModel, linkIndex: number): TapSelector | null {
+  const l = te.links.find((x) => x.index === linkIndex);
+  if (!l) return null;
+  const carried = l.native ?? l.vlans[0] ?? null;
+  for (const end of [l.a, l.b]) {
+    const n = te.nodes.find((x) => x.name === end.device);
+    if (!n || !n.image || n.kind === "switch") continue;
+    const seg = carried && n.nets.some((x) => x.segment === carried) ? carried : (n.nets.find((x) => l.vlans.includes(x.segment))?.segment ?? n.nets[0]?.segment ?? null);
+    if (seg) return { scope: "port", target: n.name, segment: seg };
+  }
+  return null;
+}
+
+/** A tap dropped on a router that joins exactly two segments: the boundary
+ *  between them (the point between the two segments' drops). */
+export function boundaryAt(te: TeModel, router: string): TapSelector | null {
+  const n = te.nodes.find((x) => x.name === router);
+  const segs = [...new Set(n?.nets.map((x) => x.segment) ?? [])];
+  return n && n.kind === "router" && segs.length === 2 ? { scope: "boundary", target: [segs[0]!, segs[1]!] } : null;
 }
