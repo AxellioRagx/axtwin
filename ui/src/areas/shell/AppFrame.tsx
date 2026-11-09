@@ -8,7 +8,7 @@ import { TopbarSlotContext } from "./topbar";
 import { useLoad } from "./useLoad";
 
 /** The header: the areas (Discovery with its Sources and Runs beneath it, Imprints,
- *  Twins, Canvas with its designs listed in a drop-down and Designs / New design
+ *  Twins, Targets, Canvas with its designs listed in a drop-down and Designs / New design
  *  beneath it), and who the operator is under the API's write policy (A8). The
  *  console holds no credential: `GET /api/whoami` on load names the caller and
  *  whether writes will be accepted; a write that is refused anyway says so.
@@ -43,6 +43,7 @@ export function AppFrame() {
             </NavLink>
             <NavLink to="/imprints">Imprints</NavLink>
             <NavLink to="/twins">Twins</NavLink>
+            <NavLink to="/targets">Targets</NavLink>
             <CanvasMenu active={inCanvas} />
           </nav>
           <div className="topbar-slot" ref={setSlot} />

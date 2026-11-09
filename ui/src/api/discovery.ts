@@ -26,6 +26,8 @@ import type {
   SourceRunRequest,
   SourceUpdate,
   SourceWrite,
+  TapStatus,
+  TargetHealth,
   TargetList,
   Topology,
   TopologyExport,
@@ -116,6 +118,12 @@ export interface Api {
   validateDocument(document: { id: string; files: Record<string, string> }, signal?: AbortSignal): Promise<ValidateResult>;
   // Deploy a twin from the console (2026-11-08): the pure plan, then the deploy pinned to it.
   listTargets(signal?: AbortSignal): Promise<TargetList>;
+  /** One status per lab component of a target (`docs/design/targets-and-lab.md` §2.2). */
+  getTargetHealth(name: string, signal?: AbortSignal): Promise<TargetHealth>;
+  /** The live deploys recorded on one target (`GET /api/deploys?target=`). */
+  listTargetDeploys(target: string, signal?: AbortSignal): Promise<DeployList>;
+  /** The tap playout standing on a twin (a te deploy id): which sensors its bindings deliver to. */
+  getTaps(twinDeployId: string, signal?: AbortSignal): Promise<TapStatus>;
   /** Plan a twin's deploy without running anything. */
   planTwin(id: string, body?: { target_node?: string }, signal?: AbortSignal): Promise<PlanSummary>;
   /** Start the twin's te deploy on the cluster (write-gated, lease-guarded, detached). */
@@ -174,6 +182,9 @@ export function makeApi(request: Requester): Api {
     cancelDeployConfigExit: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/cancel`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
     listTargets: (signal) => request("GET", "/api/targets", { signal }),
+    getTargetHealth: (name, signal) => request("GET", `/api/targets/${enc(name)}/health`, { signal }),
+    listTargetDeploys: (target, signal) => request("GET", `/api/deploys?target=${enc(target)}`, { signal }),
+    getTaps: (twinDeployId, signal) => request("GET", `/api/taps?target=${enc(twinDeployId)}`, { signal }),
     planTwin: (id, body, signal) => request("POST", `/api/twins/${enc(id)}/plan`, { body: body ?? {}, signal }),
     deployTwin: (id, body) => request("POST", `/api/twins/${enc(id)}/deploy`, { body }),
     // The confirmation rides the query: some proxies drop a DELETE's body (the route takes either).

@@ -13,6 +13,8 @@ import type {
   DeployConfig,
   DeploySummary,
   Target,
+  TargetHealth,
+  TapStatus,
   Imprint,
   LayoutDoc,
   PendingChange,
@@ -152,6 +154,12 @@ export interface FakeState {
   runSteps: Array<Partial<DiscoveryRun>>;
   /** What `GET /api/targets` lists. */
   targets: Target[];
+  /** `GET /api/targets/{name}/health` by target name; a target without an entry answers every component unknown. */
+  health: Record<string, TargetHealth>;
+  /** How many health reads the console made, per target (the 15 s poll tests count them). */
+  healthReads: Record<string, number>;
+  /** `GET /api/taps?target=<te deploy id>` by te deploy id; absent answers 404. */
+  taps: Record<string, TapStatus>;
   /** When set, `destroyDeploy` waits on it before answering (a destroy in flight). */
   destroyHold?: Promise<void>;
 }
@@ -184,6 +192,9 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     refuse: {},
     runSteps: [],
     targets: [{ node: "dev45", name: "dev45", default: true, nodes: ["dev45"], platform: "proxmox", error: null, sensors: ["XPress-SW-A"] }],
+    health: {},
+    healthReads: {},
+    taps: {},
     ...seed,
   };
   let nextId = 100;
@@ -572,6 +583,20 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async listTargets() {
       return { targets: [...state.targets] };
+    },
+    async getTargetHealth(name) {
+      state.healthReads[name] = (state.healthReads[name] ?? 0) + 1;
+      const t = state.targets.find((x) => (x.name ?? x.node) === name);
+      if (!t) throw notFound(`target '${name}'`);
+      return state.health[name] ?? { target: name, components: (t.lab?.components ?? []).map((c) => ({ id: c.id, role: c.role, status: "unknown" })) };
+    },
+    async listTargetDeploys(target) {
+      return { deploys: state.deploys.filter((d) => (d.target ?? "dev45") === target), warnings: [] };
+    },
+    async getTaps(twinDeployId) {
+      const t = state.taps[twinDeployId];
+      if (!t) throw notFound(`tap playout on '${twinDeployId}'`);
+      return t;
     },
     async planTwin(id, body) {
       state.writes.push({ op: "plan", id, body });

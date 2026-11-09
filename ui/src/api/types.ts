@@ -808,8 +808,55 @@ export interface Target {
   nodes?: string[];
   platform?: string | null;
   error?: string | null;
-  /** The adapter.conf `EXTERNAL_SENSORS` ids: what a tap binding's `sensors:` may name. */
+  /** The target's external sensor ids (its lab's sensors, plus adapter.conf `EXTERNAL_SENSORS` for one
+   *  release): what a tap binding's `sensors:` may name. */
   sensors?: string[];
+  /** Every state store of the target; `primary` is where new deploys go. */
+  stores?: Array<{ label: string; path: string; primary: boolean }>;
+  /** The O2 components standing beside every twin on this target (docs/design/targets-and-lab.md). */
+  lab?: Lab | null;
+}
+
+/** The closed role set, in the deck's order. */
+export type LabRole = "sensor" | "telemetry" | "attack" | "defence";
+
+export interface LabComponent {
+  id: string;
+  role: LabRole | string;
+  /** The product: zeek | suricata | tcpdump | packetxpress | grafana | prometheus | loki | caldera | wazuh. */
+  type: string;
+  /** As declared: a sensor's `{vmid, transport_ip, capture_iface}`, the rest's `{url}`. Never a credential. */
+  reach: Record<string, unknown>;
+  health_http?: string | null;
+  managed?: string;
+  protected?: boolean;
+}
+
+export interface Lab {
+  components: LabComponent[];
+}
+
+/** `GET /api/targets/{name}/health`: one status per lab component (cached 15 s server-side). */
+export interface ComponentHealth {
+  id: string;
+  role: string;
+  status: "up" | "down" | "unknown" | string;
+  checked_at?: string | null;
+  detail?: string | null;
+}
+
+export interface TargetHealth {
+  target: string;
+  components: ComponentHealth[];
+}
+
+/** `GET /api/taps?target=<twin>`: the twin's tap playout and its bindings (sensor ids per binding). */
+export interface TapStatus {
+  deploy_id?: string | null;
+  target?: string | null;
+  status?: string | null;
+  bindings: Array<{ tap?: string | null; sensors: string[]; mode?: string }>;
+  warnings?: string[];
 }
 
 export interface TargetList {

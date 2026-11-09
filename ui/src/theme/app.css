@@ -203,3 +203,23 @@ button.quiet:hover { color: var(--bad); }
 .destroy-tier.now { font-weight: 600; }
 .destroy-tier.down { color: var(--muted); text-decoration: line-through; }
 .warn-line { color: var(--warn); }
+
+/* Targets page (areas/targets/TargetsPage.tsx, docs/design/targets-and-lab.md §2.3). */
+.target-card h2 { margin: 0; }
+.target-card h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 6px; }
+.target-card h4 { font-size: 12.5px; font-weight: 600; margin: 8px 0 4px; }
+.target-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.target-head .spacer { flex: 1; }
+.target-hint { font-size: 12px; margin: 2px 0 6px; text-align: right; }
+.badge.platform { color: var(--accent); border-color: var(--accent); font-family: var(--mono); }
+.target-twins { list-style: none; margin: 0; padding: 0; }
+.target-twins li { padding: 4px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.lab-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.lab-chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.lab-chip .lab-type { color: var(--muted); font-size: 12px; }
+.lab-chip .lab-delivery { font-size: 12px; }
+.lab-chip .lab-open { font-size: 12.5px; text-decoration: none; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.up { background: var(--ok); }
+.dot.down { background: var(--bad); }
+.dot.unknown { background: transparent; border: 1.5px solid var(--muted); }

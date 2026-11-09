@@ -23,11 +23,11 @@ function run(id: string, name: string, status: DiscoveryRun["status"], created_a
 }
 
 describe("the top menu", () => {
-  it("has Discovery with Sources and Runs beneath it, Imprints, Twins and Canvas", async () => {
+  it("has Discovery with Sources and Runs beneath it, Imprints, Twins, Targets and Canvas", async () => {
     const { api } = fakeApi();
     renderAt(api, "/discovery/runs");
     const areas = screen.getByRole("navigation", { name: "Areas" });
-    expect(areas.textContent).toBe("DiscoveryImprintsTwinsCanvas▾");
+    expect(areas.textContent).toBe("DiscoveryImprintsTwinsTargetsCanvas▾");
     const sub = screen.getByRole("navigation", { name: "Discovery" });
     expect(sub.textContent).toBe("SourcesRuns");
     expect(screen.getByRole("link", { name: "Runs" }).className).toContain("active");

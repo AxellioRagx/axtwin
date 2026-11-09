@@ -11,6 +11,7 @@ import { ImprintPage } from "./areas/imprints/ImprintPage";
 import { ImprintsPage } from "./areas/imprints/ImprintsPage";
 import { TwinPage } from "./areas/twins/TwinPage";
 import { TwinsPage } from "./areas/twins/TwinsPage";
+import { TargetsPage } from "./areas/targets/TargetsPage";
 import { DesignsPage } from "./areas/canvas/DesignsPage";
 import { NewDesignPage } from "./areas/canvas/NewDesignPage";
 import { AppFrame } from "./areas/shell/AppFrame";
@@ -35,6 +36,7 @@ export function App({ api }: { api: Api }) {
           <Route path="/twins" element={<TwinsPage />} />
           <Route path="/twins/:id" element={<TwinPage />} />
           <Route path="/twins/:id/canvas" element={<CanvasPage />} />
+          <Route path="/targets" element={<TargetsPage />} />
           <Route path="/canvas" element={<DesignsPage />} />
           <Route path="/canvas/new" element={<NewDesignPage />} />
           <Route path="/canvas/:id" element={<CanvasPage />} />
