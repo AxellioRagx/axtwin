@@ -809,3 +809,44 @@ scratchpad).
       Closed sites have their own line (`43 segments in closed site folds`). Eye on the fresh
       cast too: `10.20 · 11`, `10.80 · 20`, `192.168 · 2`, `+7 more`; 10.80 pages 4 at a time.
 - [x] switch-test left reset (no working copy); dev45 not touched.
+
+### Full-cycle test checklist (2026-11-09: cast → edit → plan/deploy → live tap apply → destroy)
+
+Five defects from the full-cycle run on switch-test, fixed and re-run by eye on the rebuilt build
+at :8080 (headless, 1622 × 980; shots `C*`, `D*`, `M*`, `X*` in the session scratchpad).
+
+- [x] 1 — no taps is a valid plan: the last Remove tap drops `tap/default.yaml` and the manifest's
+      `tiers.tap` (one undo puts both back); the loader reads `bindings: []` as no taps; Apply of
+      a copy with no taps left tears the tap tier down. `canvas.inspector.test.tsx`,
+      `test_api_edit_model.py` (`..._no_taps_left_tears_the_tap_tier_down`), `test_o2_taps.py`.
+      A deploy of a twin with no taps stands te and tfc up and shows tap `—`
+      (`test_deploy_follow_on.py`).
+- [x] 2 — a cast lands as a twin folder (`twin.yaml`, `te.yaml`, `tfc/default.yaml`,
+      `tap/default.yaml`, `generated/`); a legacy bundle still renders, with a Notes line.
+      Eye: pit-094b299eb4-1791313200 cast into `cycle-scratch-1109` through the API in ~4 s —
+      the three current files, 43 bindings `source: discovered`; the canvas draws the chips on
+      the opening fold's pills (4 of 43: the rest sit on folded sites), all `discovered`.
+- [x] 4 — Add tap waits for a sensor; the field offers the target's EXTERNAL_SENSORS
+      (`Tcpdump-SW-A`, `XPress-SW-A`, `o2-suricata` on dev45). Eye on the scratch cast: Checks
+      "43 taps need a sensor" (a TIER-LOAD warning, Save open); the row dims every host and leaves
+      the taps bright; "Set on all 43" with XPress-SW-A clears it; Save wrote 43
+      `sensors: [XPress-SW-A]`. Found and fixed on the way: the set re-stamped all 43 taps
+      `authored` — a sensor is a lab fact, not a re-placement; now they stay `discovered`
+      (`canvas.provenance.test.ts`). Scratch twin deleted (204).
+- [x] 3 — Deploy from the Twins page stands te → tap → tfc. Eye on switch-test: plan
+      `switch-test-aac3bb66` (4 VMs), deploy `switch-test-3743f618`; the twin page, never
+      reloaded, read `te running · tap queued · tfc queued` → 225 s `te completed · tap running`
+      → 231 s `tap completed · tfc running` → 240 s `tfc completed`. Canvas pill `te ✓ · tap ✓ ·
+      tfc ✓`; `/api/taps` mirrors office and servers (the boundary). Start tap / Start tfc:
+      `canvas.exits.test.tsx`, `test_deploy_follow_on.py` (not clicked live: both tiers stood).
+- [x] 5 — the office⇄servers boundary chip dragged onto the servers pill: one `taps` change
+      (`live · taps`), the chip redrawn on servers as `segment`; Apply in 12 s; `/api/taps` then
+      lists the servers mirror only. Found and fixed on the way: the drag-stop returned at the
+      pin-key check before the tap branch (a tap has no pin), which was the snap-back. Inspector
+      Scope / Target: `canvas.inspector.test.tsx`. Drop on a router = its two segments'
+      boundary; on a link = a port on its VM end (unit-tested; not dragged live).
+- [x] Destroy from the canvas bar with the applied-unpersisted copy acknowledged: `tfc · tap · te`
+      down in ~31 s (the first live destroy with all three tiers standing), the canvas back to
+      `twin config · edit · undeployed`, the Twins row Deploy again; `/api/deploys` empty, the
+      follow-on record gone. The catalog's switch-test is unchanged (the move lived in the copy).
+      Nothing deployed on dev45.

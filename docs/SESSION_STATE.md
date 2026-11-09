@@ -4,82 +4,83 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-09 (Destroy pushed) · **Branch:** `wip/design-platforms-canvas`,
-pushed to origin with the Destroy commit `9cc56e4`. `wip/api-discovery-runs` and `master` stay
-at `32de0dd` (not merged forward this time). Rule: commit each piece as it lands, staged by
-path; never `git add -A`; push only when the user asks.
+**Last updated:** 2026-11-09 (full-cycle fixes) · **Branch:** `wip/design-platforms-canvas`,
+local commits `e79bc09..` on top of the pushed Destroy handoff `82fff9e`; **not pushed**.
+`wip/api-discovery-runs` and `master` stay at `32de0dd`. Rule: commit each piece as it lands,
+staged by path; never `git add -A`; push only when the user asks.
 
 ## What this session did
 
-Earlier today: R5-1 (cast provenance on the twin-config read, conduits sourced), R5-2 (every
-site on the rail, an open site pages by the budget, one count), pushed and fast-forwarded into
-`wip/api-discovery-runs` and `master` (`32de0dd`).
+The five defects from the 2026-11-09 full-cycle test (cast → edit → deploy → live tap apply →
+destroy on switch-test), one commit each, plus two found re-running the cycle by eye:
 
-Then the gap "the console can deploy a twin but not bring one down", one commit:
-
-- **Vocabulary** in `ui/Spec.md` and `docs/CONVENTIONS.md` §1: Deploy / Destroy / Redeploy ·
-  Apply · Persist / Delete (a twin config) / Remove (a design element); never "undeploy".
-- **Engine:** `DELETE /api/deploys/{id}` ALREADY cascaded to the exr/tfc/tap children and the
-  tap teardown removes its gretaps and mirrors (the sensor binding). New: the response lists
-  `tiers` (per tier, children first, te last, `released` = the tap's gretap/mirror actions).
-  Test: a te with a standing tfc AND tap → all three destroyed, the attach-gre ops destroyed.
-- **UI:** `areas/shell/destroy.tsx` (one confirm, `useDestroy` with a poll that ticks tiers
-  off, `DestroyControl`), wired into the Twins row (Deploy ↔ Destroy…, state-aware), the twin
-  page (Deploy panel → Destroy…; Delete twin on a deployed twin says "destroy the deploy first"
-  with Destroy…), and the canvas bar (Destroy… in the exits, dirty-copy checkbox + Persist
-  first, progress `destroying… te · N s`, pill ticks, back to undeployed edit mode via the
-  page's data reload, no page reload). Per-tier Stop/Restart left out: `/api/tfc` and
-  `/api/taps` have apply and destroy only (noted in `ui/Spec.md`).
+- `e79bc09` 1+4: an empty tap plan is "no taps" (loader), Apply of a copy with no taps tears the
+  tap tier down; the canvas drops `tap/default.yaml` + `tiers.tap` with the last tap. Add tap
+  needs a sensor; `GET /api/targets` lists `sensors` (EXTERNAL_SENSORS ids); Checks "N taps need
+  a sensor" filters the canvas and sets one sensor on all.
+- `049082d` 2: `aximprint install-cast` writes the twin folder (`twin.yaml`, `te.yaml`,
+  `tfc/default.yaml`, `tap/default.yaml`, `generated/`), filing a legacy bundle in. The imprint
+  Apply no longer refuses a twins/ folder. Legacy names read when there is no manifest
+  (`edits.LEGACY_TIER_FILES`, the canvas's copy), with a Notes line. A sensor-less binding is a
+  TIER-LOAD **warning** in validate (Save open); every apply still refuses it.
+- `0aac4fd` 3: `POST /api/twins/{id}/deploy {follow_on: [tap, tfc]}` → `run_follow_on` after te;
+  per-tier record in `~/.axrange/state.db.follow-on.json` (`api/follow_on.py`), served as the te
+  row's `follow_on`; `POST /api/deploys/{id}/tiers/{tap|tfc}` (Start tap / Start tfc on the
+  canvas bar). Twin page and pill poll until terminal.
+- `d6a2ea1` 5: drag a tap chip onto a segment / router (boundary) / link (port); inspector
+  Scope + Target; one splice, one undo.
+- `f5edf4a` a sensor set keeps a discovered tap discovered (it re-stamped `authored`).
+- `291f619` the tap drag-stop returned at the pin-key check (the real snap-back cause).
+- `d0585ee` a twin-tree test updated for "empty = no taps".
 
 ## Current state
 
-- **Tests:** ui typecheck clean, 31 files / 484 (new `destroy.test.tsx`). Engine `test_api`,
-  `test_o2_cascade`, `test_o2_taps`, `test_traffic_tier` 415 passed (full suite not re-run this
-  round; it had 3 failures from the untracked catalog folders, unrelated).
-- **Serve:** :8080 restarted for the engine change (pid 1594970, `none` mode, env from the live
-  `/proc/<pid>/environ` minus the token, scratchpad `restart.sh serve-r6.env`), on the rebuilt
-  `ui/dist`.
-- **Live (dev45):** canvas-test deployed from the Twins list (plan `canvas-test-0bf75c29`, 4
-  VMs, `canvas-test-9d2ad59b`, completed in ~270 s), destroyed from the canvas bar in ~27 s;
-  the canvas came back `twin config · edit · undeployed` with Save / Save as; the Twins row
-  reads undeployed with Deploy; `/api/deploys` lists no canvas-test row. Only the te stood (the
-  console's Deploy stands no tfc/tap), so the cascade is proven by the engine test, not live.
-  switch-test untouched: te/tfc/tap completed, no working copy. Shots `R6-*` in the scratchpad.
+- **Tests:** ui typecheck clean, 31 files / 495. Engine full suite: 4255 passed, 3 failing =
+  the known untracked-catalog scans (`test_twinconfig_registry` ×2,
+  `test_every_migrated_twin_folder_has_a_valid_manifest`; corp-apcn-reader-20261028 has no
+  twin.yaml). Discovery `test_install_cast_as_twin.py` 28 passed.
+- **Serve:** :8080 restarted after each engine commit (now pid from `restart.sh`, `none` mode,
+  env `serve.env` in this session's scratchpad, token dropped); `ui/dist` rebuilt last at
+  `291f619`.
+- **Live (dev45):** the cycle re-run by eye passed end to end — recorded in the edit-canvas
+  SPEC "Full-cycle test checklist (2026-11-09)". switch-test deployed from the Twins page
+  (te 225 s, tap, tfc by 240 s), tap moved by drag and Applied (mirror servers only), destroyed
+  from the canvas bar (~31 s, all three tiers). `/api/deploys` empty; nothing deployed.
+  switch-test catalog unchanged. Scratch cast `cycle-scratch-1109` deleted.
 - Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/`.
 
 ## Not done / honest gaps
 
-- A live destroy with tfc and tap standing has not been run (the console has no tfc/tap
-  deploy action; switch-test has them but is to stay deployed).
-- `DELETE /api/deploys/{id}` is synchronous: the progress ticks from a poll of `/api/deploys`,
-  so on a te-only destroy it shows `te` until the answer arrives.
-- The Deploy panel's own deploy is te only; tfc and tap still follow from the CLI.
-- corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): the user's call.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); whether to fast-forward
-  `wip/api-discovery-runs` and `master` to the Destroy commit.
+- Start tap / Start tfc not clicked live (both tiers stood); link and router drops unit-tested
+  only (the live drag was segment). No jsdom test drives an RF node drag (the pin-key bug hid
+  there): eyes or Playwright only.
+- A cast's chips render only on drawn pills (4 of 43 on the opening fold of the 44-segment cast).
+- The follow-on chain runs in the serve's thread: a serve restart mid-chain leaves a tier
+  `pending`/`running` in the record (Start tap/tfc refuses it as in progress; delete the entry
+  from `state.db.follow-on.json` by hand if it ever happens).
+- corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012) and folder-less: the user's call.
+- Yours to decide: push; fast-forward `wip/api-discovery-runs` / `master`; the serve's auth
+  mode (`none` on 0.0.0.0).
 
 ## Gotchas
 
-- `cd` does not persist between Bash calls, and a failed `cd` leaves you in the checkout: never
-  chain a destructive git command after a `cd` without `&&`.
+- `cd` does not persist between Bash calls; never chain a destructive git command after a `cd`
+  without `&&`.
 - A subagent worktree is created from an old base here (39fa362): make one by hand.
-- corp-twin has segments that SHARE a CIDR (10.180.34.0/25 ×4, 10.180.93.0/24 ×2): never map
-  a host to its pill by CIDR; `ExtraLeg.home` carries the segment name.
-- `test/helpers/canvasFixtures.tsx` imports `imprints.page.test`, so every file using it re-runs
-  those tests under its own name (not a new failure).
+- corp-twin has segments that SHARE a CIDR: never map a host to its pill by CIDR.
 - The engine's catalog-scanning tests fail while untracked twin folders sit in `catalog/twins`.
-- A UI-only change goes live by swapping `ui/dist` (the serve reads it per request); an engine
-  change needs the restart. `restart.sh` stops the serve FIRST: pass the env file.
-- React Flow drops an edge whose `sourceHandle` names a handle of the wrong type; its
-  `onSelectionChange` echoes a programmatic selection. `rf.screenToFlowPosition` snaps unless
-  `{ snapToGrid: false }`. `ugrep` reads `model/graph.ts` as binary: `grep -a`.
+- A UI-only change goes live by swapping `ui/dist` (build `dist.new`, swap); an engine change
+  needs the restart. `restart.sh` stops the serve FIRST: pass the env file.
+- `onNodeDragStop` in `Canvas.tsx`: any node kind without a pin key must be handled BEFORE the
+  `pinKeyOf` early return.
+- The canvas provenance pass (`edit/provenance.ts`) stamps `authored` on anything whose shape
+  changed: decide per field whether it is placement or a lab fact.
 - Playwright: off-viewport tree nodes refuse `.click()`; use `el.evaluate((e) => e.click())`.
-- `ui/`: `npm ci` only; never build into the served `ui/dist` (build `dist.new`, swap). The
-  contract files change only with the user's confirmation and a version bump.
+- `ui/`: `npm ci` only. Contract files change only with the user's confirmation.
 
 ## Environment
 
-One venv at `.venv/`, node 22 for `ui/`, live state in `~/.axrange/`. Playwright 1.61 at
-`/home/rocky/fx-cap/mgmtui/node_modules/playwright` + `~/.cache/ms-playwright/chromium-1228`
-(scripts in this session's scratchpad: `shot.cjs`, `r5fold.cjs`, `stress.cjs`, `restart.sh`).
-dev45 API 10.80.76.108:8006, SSH root.
+One venv at `.venv/` (engine + discovery editable), node 22 for `ui/`, live state in
+`~/.axrange/`. Playwright 1.61 at `/home/rocky/fx-cap/mgmtui/node_modules/playwright` +
+`~/.cache/ms-playwright/chromium-1228` (this session's scratchpad: `scratch.cjs`, `deploy.cjs`,
+`move.cjs`, `destroy.cjs`, `dist.sh`, `restart.sh`, `serve.env`). dev45 API 10.80.76.108:8006.
