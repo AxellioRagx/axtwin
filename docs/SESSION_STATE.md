@@ -4,10 +4,10 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-08 (night, Destroy) · **Branch:** `wip/design-platforms-canvas`. Origin
-(and `wip/api-discovery-runs`, `master`) is at `32de0dd`; the Destroy commit below is **local
-only** (push only when the user asks). Rule: commit each piece as it lands, staged by path;
-never `git add -A`.
+**Last updated:** 2026-11-09 (Destroy pushed) · **Branch:** `wip/design-platforms-canvas`,
+pushed to origin with the Destroy commit `9cc56e4`. `wip/api-discovery-runs` and `master` stay
+at `32de0dd` (not merged forward this time). Rule: commit each piece as it lands, staged by
+path; never `git add -A`; push only when the user asks.
 
 ## What this session did
 
@@ -55,7 +55,8 @@ Then the gap "the console can deploy a twin but not bring one down", one commit:
   so on a te-only destroy it shows `te` until the answer arrives.
 - The Deploy panel's own deploy is te only; tfc and tap still follow from the CLI.
 - corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012): the user's call.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); push.
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0); whether to fast-forward
+  `wip/api-discovery-runs` and `master` to the Destroy commit.
 
 ## Gotchas
 
