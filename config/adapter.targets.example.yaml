@@ -21,6 +21,22 @@
 #     EVERY target's adapter.conf);
 #   - two targets resolve to the same Proxmox API URL (list one cluster ONCE and
 #     give it `extra_dbs`), or share a store.
+#   - a `lab:` component has an unknown `role` (closed: sensor | telemetry |
+#     attack | defence) or a `type` outside its role's closed set, or any other
+#     malformed key (named by path, e.g. `targets[0] (dev45).lab.components[2]
+#     (grafana).type`);
+#   - a sensor id is declared both in the lab and in that target's adapter.conf
+#     `EXTERNAL_SENSORS` (adapter.conf's list is still read and merged for one
+#     release; move each entry into the lab and delete it there).
+#
+# lab: the O2 components standing beside every twin on this target
+# (docs/design/targets-and-lab.md). Every component is `managed: external`:
+# axRange never provisions, reconfigures or destroys one. Sensors are what tap
+# bindings name in `sensors: [...]`; they merge into the engine's external
+# sensors (every lab sensor's vmid is teardown-protected; `protected: true`
+# also guards it by name, what PROTECTED_EXTERNAL_NAMES did). GET /api/targets
+# publishes the lab as declared, so it holds no credentials (a URL with
+# user:pass@ is refused). The CLI reads the labs when AXRANGE_TARGETS is set.
 #
 # protected_deploys: twin deploy ids the API refuses to write to (destroy,
 # per-host persona edits, tap/tfc/exr applies and destroys) with 423 unless the
@@ -42,6 +58,44 @@ targets:
     # deployed with `--db <other file>`). Reads search every store; new deploys
     # go to `db`. A store belongs to one target, once.
     extra_dbs: [/home/rocky/axr-svcengines.state.db]
+    lab:
+      components:
+        # sensors -- reach: vmid, transport_ip, capture_iface (default gre-cap)
+        - id: XPress-SW-A
+          role: sensor
+          type: packetxpress           # zeek | suricata | tcpdump | packetxpress
+          reach: {vmid: 104, transport_ip: 10.255.251.21, capture_iface: gre-cap}
+          managed: external
+          protected: true
+        # telemetry / attack / defence -- reach: url; health: the HTTP path the
+        # probe GETs (default by type when absent)
+        - id: grafana
+          role: telemetry
+          type: grafana                # grafana | prometheus | loki
+          reach: {url: "http://10.80.72.52:3000"}
+          health: {http: /api/health}
+          managed: external
+        - id: prometheus
+          role: telemetry
+          type: prometheus
+          reach: {url: "http://10.80.72.52:9091"}
+          health: {http: /-/ready}
+          managed: external
+        - id: loki
+          role: telemetry
+          type: loki
+          reach: {url: "http://10.80.72.52:3100"}
+          managed: external
+        - id: caldera
+          role: attack
+          type: caldera                # caldera
+          reach: {url: "http://10.80.72.52:8888"}
+          managed: external
+        - id: wazuh
+          role: defence
+          type: wazuh                  # wazuh
+          reach: {url: "https://10.80.72.52:55000"}
+          managed: external
 
   - name: pxtwin1
     adapter_config: /etc/axrange/adapter-pxtwin1.conf

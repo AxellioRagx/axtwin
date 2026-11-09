@@ -34,7 +34,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from axrange.api.settings import ApiSettings, ApiSettingsError
-from axrange.platform import UnknownPlatformError, check_platform
+from axrange.platform import ConfigError, UnknownPlatformError, check_platform
+from axrange.platform.lab import Lab, parse_lab
 
 #: Name used for the implicit target when its adapter.conf names no node.
 IMPLICIT_FALLBACK_NAME = "default"
@@ -78,6 +79,10 @@ class Target:
     # the config loads. None: not declared -- the conf decides. An unknown
     # value is refused by name at load (serve start), on write, and here.
     platform: Optional[str] = None
+    # `docs/design/targets-and-lab.md` §2.1: the O2 components standing
+    # beside every twin on this target. Its sensors are registered against
+    # `adapter_config` (`axrange.platform.lab.register_lab`) at serve start.
+    lab: Lab = field(default_factory=Lab)
 
     def __post_init__(self) -> None:
         if self.platform is not None:
@@ -168,7 +173,7 @@ def load_targets_file(path: str | Path) -> list[Target]:
             raise ApiSettingsError(f"{where} must be a mapping")
         unknown = sorted(set(e) - {
             "name", "adapter_config", "db", "extra_dbs", "nodes", "protected_deploys",
-            "platform",
+            "platform", "lab",
         })
         if unknown:
             raise ApiSettingsError(f"{where}: unknown key(s) {unknown}")
@@ -231,6 +236,10 @@ def load_targets_file(path: str | Path) -> list[Target]:
                 platform = check_platform(platform)
             except UnknownPlatformError as ex:
                 raise ApiSettingsError(f"{where} ({name}): {ex}") from None
+        try:
+            lab = parse_lab(e.get("lab"), where=f"{where} ({name})")
+        except ConfigError as ex:
+            raise ApiSettingsError(str(ex)) from None
         names.add(name)
         dbs[db_path] = name
         for xp in extra:
@@ -239,9 +248,20 @@ def load_targets_file(path: str | Path) -> list[Target]:
             name=name, adapter_config=str(Path(ac).expanduser()) if ac else None,
             db_path=db_path, nodes=tuple(nodes), default=(i == 0),
             protected_deploys=tuple(protected), extra_dbs=tuple(extra),
-            platform=platform,
+            platform=platform, lab=lab,
         ))
     return out
+
+
+def register_labs(targets: list[Target]) -> None:
+    """Register every target's lab sensors against its adapter config, so
+    `load_config` merges them (serve start, before `validate_targets` loads
+    each config -- a sensor id in both the lab and `EXTERNAL_SENSORS` then
+    fails start by name)."""
+    from axrange.platform.lab import register_lab
+
+    for t in targets:
+        register_lab(t.adapter_config, t.lab)
 
 
 def validate_stores(targets: list[Target]) -> None:

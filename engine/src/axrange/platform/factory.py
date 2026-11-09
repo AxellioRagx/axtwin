@@ -376,7 +376,12 @@ def load_config(
             f"{chosen} adapter config loader returned a config for platform "
             f"{stamped!r}"
         )
-    return cfg
+    # The target's lab sensors (`docs/design/targets-and-lab.md` §2.1),
+    # registered per adapter config at serve/CLI start: one merged
+    # `external_sensors` list for every consumer.
+    from axrange.platform.lab import merge_lab_sensors
+
+    return merge_lab_sensors(cfg, config_path)
 
 
 def platform_of(cfg: Any) -> str:

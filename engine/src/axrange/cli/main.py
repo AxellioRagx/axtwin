@@ -4739,6 +4739,25 @@ def _tier_file_declares_target(path: str, tier: str) -> bool:
     return not isinstance(block, dict) or bool(block.get("target"))
 
 
+def _register_labs_from_env(args: argparse.Namespace) -> None:
+    """The targets file's lab sensors (`docs/design/targets-and-lab.md`
+    §2.1) for a CLI run: when `AXRANGE_TARGETS` names a targets file, each
+    entry's lab is registered against its adapter_config so `load_config`
+    merges it, exactly as `axrange serve` does. `serve` registers its own
+    (from `--targets` or the same env) in `create_app`."""
+    import os
+
+    if getattr(args, "command", None) == "serve":
+        return
+    path = os.environ.get("AXRANGE_TARGETS", "").strip()
+    if not path:
+        return
+    from axrange.platform.lab import load_labs_from_targets_file, register_lab
+
+    for adapter_config, lab in load_labs_from_targets_file(path):
+        register_lab(adapter_config, lab)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     # Top-level `ConfigError` handler (code review, follow-on to the
     # config-external-sensor feature): `load_config` now raises `ConfigError`
@@ -4762,6 +4781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        _register_labs_from_env(args)
         tier = getattr(args, "tier", None)
         verb = getattr(args, "verb", None)
         if tier is not None and verb is not None:

@@ -23,6 +23,17 @@ def _discovery_db_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("AXRANGE_DISCOVERY_DB", str(tmp_path / "axrange-home" / "discovery.db"))
 
 
+@pytest.fixture(autouse=True)
+def _lab_registry_clean():
+    """The lab-sensor registry (`axrange.platform.lab`) is process-global,
+    filled by `create_app`; never let one test's labs reach the next."""
+    from axrange.platform.lab import clear_registry
+
+    clear_registry()
+    yield
+    clear_registry()
+
+
 @pytest.fixture
 def fixtures_dir() -> Path:
     return Path(__file__).parent / "fixtures"

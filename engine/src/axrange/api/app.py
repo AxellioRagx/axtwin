@@ -107,9 +107,12 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         # this process's own, so a route that takes no `?target=` (tiers,
         # imprints, validate/plan) reads the same cluster the Range shows
         # first.
-        from axrange.api.targets import load_targets_file, validate_stores, validate_targets
+        from axrange.api.targets import (
+            load_targets_file, register_labs, validate_stores, validate_targets,
+        )
 
         targets = load_targets_file(settings.targets_file)
+        register_labs(targets)     # lab sensors merge into each config (targets-and-lab §2.1)
         validate_targets(targets)  # identity env vars, duplicate API URLs (M1)
         validate_stores(targets)   # every store readable, extras exist (S1/S2)
         settings.targets = targets
@@ -122,6 +125,12 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
 
         settings.targets = [implicit_target(settings)]
         validate_stores(settings.targets)  # S1/S2
+    else:
+        # Targets handed in already parsed (an embedding caller, the tests):
+        # their labs still have to reach `load_config`.
+        from axrange.api.targets import register_labs
+
+        register_labs(list(settings.targets))
     app = FastAPI(
         title="axRange control-plane API",
         version="1",
