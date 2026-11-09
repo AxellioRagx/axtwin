@@ -4,9 +4,9 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. -->
 
-**Last updated:** 2026-11-09 (full-cycle fixes) · **Branch:** `wip/design-platforms-canvas`,
-local commits `e79bc09..` on top of the pushed Destroy handoff `82fff9e`; **not pushed**.
-`wip/api-discovery-runs` and `master` stay at `32de0dd`. Rule: commit each piece as it lands,
+**Last updated:** 2026-11-09 (full-cycle fixes, pushed) · **Branch:** `wip/design-platforms-canvas`,
+pushed; `wip/api-discovery-runs` and `master` fast-forwarded to the same commit and pushed (the
+docs commit `57e230a`; this note rides on top of it). Rule: commit each piece as it lands,
 staged by path; never `git add -A`; push only when the user asks.
 
 ## What this session did
@@ -59,8 +59,7 @@ destroy on switch-test), one commit each, plus two found re-running the cycle by
   `pending`/`running` in the record (Start tap/tfc refuses it as in progress; delete the entry
   from `state.db.follow-on.json` by hand if it ever happens).
 - corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012) and folder-less: the user's call.
-- Yours to decide: push; fast-forward `wip/api-discovery-runs` / `master`; the serve's auth
-  mode (`none` on 0.0.0.0).
+- Yours to decide: the serve's auth mode (`none` on 0.0.0.0).
 
 ## Gotchas
 
