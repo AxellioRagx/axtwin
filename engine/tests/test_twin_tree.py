@@ -137,7 +137,7 @@ def test_a_bundle_without_profile_or_tap_plan_is_the_config_alone(tmp_path):
 
 
 def test_a_broken_profile_is_a_warning_not_a_refusal(tmp_path):
-    _bundle(tmp_path, tfc="traffic-profile: [not, a, mapping]\n", tap="tap-plan: { target: tree }\n")
+    _bundle(tmp_path, tfc="traffic-profile: [not, a, mapping]\n", tap="tap-plan: { target: tree, bindings: oops }\n")
     t = load_twin_tree("tree", fixtures_dir=tmp_path)
     assert t.hosts == 5
     assert t.traffic_profile == "tfc-cast.yaml" and t.tap_plan == "tap-cast.yaml"
