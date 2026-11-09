@@ -28,6 +28,7 @@ import { ApiError } from "../../api/client";
 import { useWhoami } from "../../api/whoami";
 import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
+import type { Target } from "../../api/types";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
@@ -37,6 +38,7 @@ import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
 import { Canvas, type CanvasEditProps } from "./Canvas";
+import type { LabSource } from "./canvas/LabOverlay";
 import { authoredGraph, EMPTY_TREE, treeStructure, type TreeStructure } from "./canvas/authored";
 import { TREE_FAN_DEFAULT, placeTree, withoutFold } from "./canvas/tree";
 import { castInput } from "./canvas/cast";
@@ -273,9 +275,33 @@ export function CanvasPage() {
   const personas = personaLoad.data?.personas ?? [];
   const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
-  // The targets' declared sensors (adapter.conf EXTERNAL_SENSORS), offered as tap sensors.
-  const targetsLoad = useLoad<string[]>((signal) => api.listTargets(signal).then((t) => [...new Set(t.targets.flatMap((x) => x.sensors ?? []))], () => []), []);
-  const declaredSensors = targetsLoad.data ?? [];
+  // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
+  // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
+  // overlay and the deployed bar's target chip. A refusal leaves them empty.
+  const targetsLoad = useLoad<Target[] | null>((signal) => api.listTargets(signal).then((t) => t.targets, () => null), []);
+  const sensorTarget: Target | null = (() => {
+    const list = targetsLoad.data ?? [];
+    const named = data?.deploy?.target ? list.find((t) => (t.name ?? t.node) === data.deploy!.target) : null;
+    return named ?? list.find((t) => t.default) ?? list[0] ?? null;
+  })();
+  const sensorTargetName = sensorTarget ? (sensorTarget.name ?? sensorTarget.node) : null;
+  const declaredSensors = useMemo(
+    () => (sensorTarget ? [...new Set([...(sensorTarget.lab?.components ?? []).filter((c) => c.role === "sensor").map((c) => c.id), ...(sensorTarget.sensors ?? [])])] : []),
+    [sensorTarget],
+  );
+  const labSource: LabSource | null = useMemo(
+    () =>
+      sensorTarget && sensorTargetName
+        ? {
+            target: sensorTargetName,
+            platform: sensorTarget.platform ?? null,
+            components: sensorTarget.lab?.components ?? [],
+            extraSensors: sensorTarget.sensors ?? [],
+            loadHealth: (signal: AbortSignal) => api.getTargetHealth(sensorTargetName, signal),
+          }
+        : null,
+    [sensorTarget, sensorTargetName, api],
+  );
 
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
   // Moves and annotation changes stay on the canvas; the side-car is written
@@ -310,8 +336,7 @@ export function CanvasPage() {
   const [destroyOpen, setDestroyOpen] = useState(false);
   // The bar's Deploy (an undeployed design): the deploy dialog (docs/design/targets-and-lab.md §2.3).
   const [deployOpen, setDeployOpen] = useState(false);
-  // The targets, for the deployed bar's target chip ("dev45 · proxmox"); a refusal leaves the chip platform-less.
-  const targetList = useLoad((signal) => api.listTargets(signal).then((t) => t.targets).catch(() => []), []);
+
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
     destroyer.clear();
@@ -1116,7 +1141,7 @@ export function CanvasPage() {
           <span className="badge cv-target-chip" data-testid="target-chip" title={`deployed on target ${data.deploy.target}`}>
             {data.deploy.target}
             {(() => {
-              const t = (targetList.data ?? []).find((x) => (x.name ?? x.node) === data.deploy!.target);
+              const t = (targetsLoad.data ?? []).find((x) => (x.name ?? x.node) === data.deploy!.target);
               return t?.platform ? ` · ${t.platform}` : "";
             })()}
           </span>
@@ -1310,6 +1335,7 @@ export function CanvasPage() {
             fan={fan}
             provFilter={provFilter}
             provenanceOverlay={castTwin}
+            lab={labSource}
             onFan={setFan}
             onPin={onPin}
             onPinMany={onPinMany}
@@ -1358,6 +1384,7 @@ export function CanvasPage() {
                         provenanceBlock={provenanceBlock}
                         onSelect={setSelection}
                         sensors={declaredSensors}
+                        sensorTarget={sensorTargetName}
                       />
                     ),
                     checks: (

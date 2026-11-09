@@ -230,10 +230,15 @@ describe("the inspector by tier", () => {
     fireEvent.click(screen.getAllByTestId("canvas-tap").find((c) => c.dataset["target"] === "servers")!);
     const tp = await screen.findByTestId("tap-panel");
     expect(tp.textContent).toContain("segment servers");
-    commit(within(tp).getByLabelText("Sensors"), "xpress-sw-a, probe");
+    // Sensors are the target's lab sensors (no free text): xpress-sw-a is not in dev45's lab, so it shows struck through.
+    expect(within(within(tp).getByTestId("stale-sensor")).getByText("xpress-sw-a").tagName).toBe("S");
+    fireEvent.click(within(tp).getByLabelText("Sensor XPress-SW-A"));
     await settle();
-    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[2]!.sensors).toEqual(["xpress-sw-a", "probe"]);
-    fireEvent.click(within(tp).getByRole("button", { name: "Remove tap" }));
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[2]!.sensors).toEqual(["xpress-sw-a", "XPress-SW-A"]);
+    fireEvent.click(within(await screen.findByTestId("tap-panel")).getByRole("button", { name: "Drop xpress-sw-a" }));
+    await settle();
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings[2]!.sensors).toEqual(["XPress-SW-A"]);
+    fireEvent.click(within(await screen.findByTestId("tap-panel")).getByRole("button", { name: "Remove tap" }));
     await settle();
     expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings.length).toBe(2);
   });

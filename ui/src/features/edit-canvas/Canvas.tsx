@@ -48,6 +48,7 @@ import { EditContext, type EditState, type PaletteItem } from "./edit/EditContex
 import type { DocModel } from "./edit/document";
 import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
 import type { TeModel } from "./edit/te";
+import { LabOverlay, type LabSource } from "./canvas/LabOverlay";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
@@ -131,6 +132,8 @@ export interface CanvasProps {
   /** Edit mode: the inspector's Selection tab (the property panels) and its
    *  Checks tab (validation + pending changes), with the badge the tab wears. */
   inspector?: { selection: ReactNode; checks: ReactNode | null; checksBadge: string | null };
+  /** The deployed (or default) target's lab, for the rail's Lab overlay (targets-and-lab §2.3); absent: no toggle. */
+  lab?: LabSource | null;
 }
 
 const DEFAULT_GLOW_SECONDS = 8;
@@ -276,6 +279,16 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
+/** The Lab overlay's toggle (targets-and-lab §2.3), off by default, kept per user in this browser. */
+const LAB_KEY = "axr-canvas-lab";
+function readLab(): boolean {
+  try {
+    return localStorage.getItem(LAB_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
 /** The provenance overlay's toggle (§3.3), kept per user in this browser. */
 const OVERLAY_KEY = "axr-canvas-overlay";
 function readOverlay(): boolean {
@@ -286,7 +299,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector, lab = null }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -354,6 +367,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   }, [fanN]); // eslint-disable-line react-hooks/exhaustive-deps
   // The provenance overlay (§3.3): off, a dot on asserted and authored items; on, every state.
   const [overlayPref, setOverlay] = useState<boolean>(readOverlay);
+  // The Lab overlay: chrome over the drawing, never a node and never an edit.
+  const [labOn, setLabOn] = useState<boolean>(readLab);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAB_KEY, labOn ? "on" : "off");
+    } catch {
+      // per-viewer convenience only
+    }
+  }, [labOn]);
   const overlay = provenanceOverlay && overlayPref;
   useEffect(() => {
     try {
@@ -1186,6 +1208,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
     ...(provenanceOverlay ? [{ name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" }] : []),
+    ...(lab ? [{ name: labOn ? "Lab overlay: on" : "Lab overlay: off", icon: <Icon.lab />, pressed: labOn, onClick: () => setLabOn((v) => !v), testId: "rail-lab" }] : []),
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
   ];
@@ -1300,6 +1323,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
           onClick={() => setMenu(null)}
         >
+          {lab && labOn ? (
+            <LabOverlay
+              lab={lab}
+              taps={shownNodes.filter((n) => n.data.kind === "tap").map((n) => ({ nodeId: n.id, sensors: (n.data as { sensors?: string[] }).sensors ?? [] }))}
+              version={shownNodes}
+            />
+          ) : null}
           <ReactFlow<CanvasNode>
             nodes={shownNodes}
             edges={edges}

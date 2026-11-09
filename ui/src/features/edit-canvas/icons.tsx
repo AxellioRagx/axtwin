@@ -227,6 +227,13 @@ export const Icon = {
       <path d="M8 1v2M8 13v2M1 8h2M13 8h2" />
     </Svg>
   ),
+  /** The Lab overlay (targets-and-lab §2.3): a flask -- the O2 components beside the twin. */
+  lab: () => (
+    <Svg>
+      <path d="M6 1.5h4M6.5 1.5v4L2.5 13a1 1 0 0 0 .9 1.5h9.2a1 1 0 0 0 .9-1.5L9.5 5.5v-4" />
+      <path d="M4.2 10h7.6" />
+    </Svg>
+  ),
   chevronRight: () => (
     <Svg>
       <path d="M6 3l5 5-5 5" />

@@ -116,6 +116,9 @@ export interface SidePanelProps {
   /** The deploy targets' declared sensors (adapter.conf `EXTERNAL_SENSORS`, `GET /api/targets`),
    *  offered as a tap's sensors beside the ones the tap plan already names. */
   sensors?: string[] | undefined;
+  /** The target `sensors` belong to (the deployed twin's, else the default one): the tap inspector names it. Null
+   *  when the targets could not be read. */
+  sensorTarget?: string | null | undefined;
 }
 
 /** The sensors a tap field offers: the targets' declared ones, then the plan's own. */
@@ -1101,10 +1104,7 @@ function TapPanel(p: SidePanelProps & { index: number }) {
       </h3>
       <h4>Taps <span className="muted">· tap, live</span></h4>
       <TapWhere {...p} b={b} />
-      <Field label="Sensors" hint="comma-separated sensor names the tap delivers to (the tap plan's sensors[])">
-        <Text ariaLabel="Sensors" value={b.sensors.join(", ")} disabled={ro} mono list="cv-sensors-tap" placeholder={b.sensors.length ? undefined : "no sensor named: the tap tier refuses this tap"} onCommit={(v) => p.apply(`sensors of tap ${b.index}`, (d, m) => setTapSensorsOf(d, m, b.index, splitSensors(v)))} />
-        <SensorList id="cv-sensors-tap" sensors={knownSensors(p.model, p.sensors)} />
-      </Field>
+      <TapSensors {...p} b={b} ro={ro} />
       <dl className="facts">
         <dt>Mode</dt>
         <dd>{b.mode ?? "exclusive"}</dd>
@@ -1115,6 +1115,51 @@ function TapPanel(p: SidePanelProps & { index: number }) {
         Remove tap
       </button>
     </section>
+  );
+}
+
+/** The tap's Sensors (docs/design/targets-and-lab.md §2.3): a multi-select of the target's lab sensors (the
+ *  deployed twin's target, else the default one), no free text. A sensor the binding names that the lab does not
+ *  have (a stale config, or a twin brought from another target) is shown struck through with a Remap select; each
+ *  change is one `taps` edit (one undo step). */
+function TapSensors(p: SidePanelProps & { b: TapBinding; ro: boolean }) {
+  const { b, ro } = p;
+  const offered = p.sensors ?? [];
+  const stale = b.sensors.filter((s) => !offered.includes(s));
+  const set = (next: string[], label: string) => p.apply(`${label} (tap ${b.index})`, (d, m) => setTapSensorsOf(d, m, b.index, next.filter((s, i, all) => all.indexOf(s) === i)));
+  const toggle = (s: string, on: boolean) => set(on ? [...b.sensors, s] : b.sensors.filter((x) => x !== s), `${on ? "add" : "drop"} sensor ${s}`);
+  const remap = (from: string, to: string) => set(b.sensors.map((x) => (x === from ? to : x)), `remap sensor ${from} → ${to}`);
+  return (
+    <fieldset className="cv-sensors" data-testid="tap-sensors" aria-label="Sensors">
+      <legend>
+        Sensors{" "}
+        <span className="muted">{p.sensorTarget ? <>· the lab of <span className="mono">{p.sensorTarget}</span></> : "· the targets could not be read"}</span>
+      </legend>
+      {offered.length === 0 && p.sensorTarget ? <p className="muted">The lab of {p.sensorTarget} declares no sensor.</p> : null}
+      {offered.map((s) => (
+        <label key={s} className="cv-sensor-opt">
+          <input type="checkbox" checked={b.sensors.includes(s)} disabled={ro} onChange={(e) => toggle(s, e.target.checked)} aria-label={`Sensor ${s}`} /> <span className="mono">{s}</span>
+        </label>
+      ))}
+      {stale.map((s) => (
+        <div key={s} className="cv-sensor-stale" data-testid="stale-sensor" data-sensor={s}>
+          <s className="mono" title={p.sensorTarget ? `not in the lab of ${p.sensorTarget}` : "not offered by any target read"}>{s}</s>{" "}
+          <span className="muted">not in the lab{p.sensorTarget ? ` of ${p.sensorTarget}` : ""}</span>{" "}
+          <select aria-label={`Remap ${s}`} value="" disabled={ro || offered.length === 0} onChange={(e) => e.target.value && remap(s, e.target.value)}>
+            <option value="">remap to…</option>
+            {offered.filter((o) => !b.sensors.includes(o)).map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>{" "}
+          <button type="button" className="quiet" disabled={ro} onClick={() => toggle(s, false)} aria-label={`Drop ${s}`}>
+            drop
+          </button>
+        </div>
+      ))}
+      {b.sensors.length === 0 ? <p className="warn-line">No sensor named: the tap tier refuses this tap.</p> : null}
+    </fieldset>
   );
 }
 
