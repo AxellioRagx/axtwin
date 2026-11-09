@@ -585,8 +585,16 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       if (state.refuse.deploy) throw state.refuse.deploy;
       const deploy_id = `dep-${nextId++}`;
       const now = Date.now() / 1000;
-      state.deploys.push({ deploy_id, scenario_id: id, status: "running", started_at: now, updated_at: now, tier: "te", plan_id: body.expect_plan_id ?? null, target: "dev45" });
+      const follow_on = Object.fromEntries((body.follow_on ?? []).map((t) => [t, { status: "pending", reason: null, deploy_id: null, at: now }]));
+      state.deploys.push({ deploy_id, scenario_id: id, status: "running", started_at: now, updated_at: now, tier: "te", plan_id: body.expect_plan_id ?? null, target: "dev45", follow_on });
       return { deploy_id, status: "running", detached: true, plan_id: body.expect_plan_id ?? null, config_warnings: [] };
+    },
+    async startTier(deployId, tier) {
+      state.writes.push({ op: "start-tier", id: deployId, body: { tier } });
+      const now = Date.now() / 1000;
+      // As the API records it: queued now; a test moves it on by editing the te row.
+      state.deploys = state.deploys.map((x) => (x.deploy_id === deployId ? { ...x, follow_on: { ...(x.follow_on ?? {}), [tier]: { status: "pending", reason: null, deploy_id: null, at: now } } } : x));
+      return { deploy_id: deployId, tier, status: "pending" };
     },
     async destroyDeploy(deployId) {
       state.writes.push({ op: "destroy", id: deployId });

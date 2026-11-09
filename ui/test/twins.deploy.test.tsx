@@ -40,13 +40,25 @@ describe("deploying a twin from the console", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Confirm: create 12 VMs on dev45" }));
     const started = await within(panel).findByTestId("deploy-started");
     expect(started.textContent).toMatch(/Deploy dep-\d+ started/);
-    expect(state.writes.at(-1)).toEqual({ op: "deploy", id: "lab", body: { expect_plan_id: planId, target_node: "dev45" } });
+    // The whole twin: te, then the tap plan, then the traffic profile (2026-11-09).
+    expect(state.writes.at(-1)).toEqual({ op: "deploy", id: "lab", body: { expect_plan_id: planId, follow_on: ["tap", "tfc"], target_node: "dev45" } });
 
-    // The page re-reads: the deploy stands, and the panel offers no second one.
+    // The page re-reads: the deploy stands, its tiers queued behind te, and the panel offers no second one.
     await waitFor(() => expect(screen.getByTestId("deploy-state").textContent).toContain("te running"));
+    expect(screen.getByTestId("tier-tap").textContent).toContain("tap queued");
+    expect(screen.getByTestId("tier-tfc").textContent).toContain("tfc queued");
     expect(within(panel).getByTestId("deploy-blocked").textContent).toContain("A deploy stands on this twin");
     expect(within(panel).queryByRole("button", { name: "Plan the deploy" })).toBeNull();
-  });
+
+    // The line follows the deploy to its end without a reload (it stayed at "te running"): te completes, tap is
+    // skipped (no taps: "—"), tfc fails with its reason.
+    const did = (state.writes.at(-1) as { id: string }).id && state.deploys.at(-1)!.deploy_id;
+    state.deploys = state.deploys.map((d) => (d.deploy_id === did ? { ...d, status: "completed", follow_on: { tap: { status: "skipped", reason: "the twin has no taps" }, tfc: { status: "failed", reason: "persona web-tier: no such persona" } } } : d));
+    await waitFor(() => expect(screen.getByTestId("tier-te").textContent).toBe("te completed"), { timeout: 5000 });
+    expect(screen.getByTestId("tier-tap").textContent).toContain("tap —");
+    expect(screen.getByTestId("tier-tap").getAttribute("title")).toBe("the twin has no taps");
+    expect(screen.getByTestId("tier-tfc").textContent).toContain("tfc failed (persona web-tier: no such persona)");
+  }, 10000);
 
   it("a refused deploy (the twin changed since the plan) shows the server's reason and keeps the plan", async () => {
     const { api, state } = fakeApi({ twins: { lab: twin("lab", { hosts: 2 }) } });

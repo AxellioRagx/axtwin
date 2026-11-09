@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { DeploySummary, TwinSummary } from "../../api/types";
 import { formatCount } from "../../model/sources";
-import { standingDeploy, tierStatus } from "../shell/deployState";
+import { deployMoving, standingDeploy, tierReason, tierStatus } from "../shell/deployState";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { ErrorLine, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
@@ -15,6 +15,8 @@ import { TwinTree } from "./TwinTree";
  *  on it. A cast twin shows its discovery facts (as of, confidence, days
  *  observed); an authored one has none and shows none (2026-11-05: "As of"
  *  and "Mean confidence 0.00" on a designed twin read as findings). */
+const POLL_MS = 3000;
+
 export function TwinPage() {
   const api = useApi();
   const { id = "" } = useParams();
@@ -32,6 +34,14 @@ export function TwinPage() {
   const mine = data ? data.deploys.filter((d) => d.scenario_id === id && (d.tier ?? "te") === "te") : [];
   const [destroyOpen, setDestroyOpen] = useState(false);
   const [deleteAsked, setDeleteAsked] = useState(false);
+  // The deploy line follows a running te and the tiers behind it until each is terminal
+  // (2026-11-09: it stayed at "te running" after te had completed).
+  const moving = data ? deployMoving(data.deploys, te) || Boolean(data.deploys.find((d) => d.scenario_id === id && (d.tier ?? "te") === "te" && d.status === "running")) : false;
+  useEffect(() => {
+    if (!moving) return;
+    const t = setInterval(reload, POLL_MS);
+    return () => clearInterval(t);
+  }, [moving, reload]);
   return (
     <>
       <div className="row">
@@ -81,9 +91,10 @@ export function TwinPage() {
                   {" · "}
                   <span className={te.status === "failed" ? "error" : ""} data-testid="tier-te">te {te.status}</span>
                   {Object.entries(tiers).map(([t, st]) => (
-                    <span key={t} className={st === "failed" ? "error" : ""} data-testid={`tier-${t}`}>
+                    <span key={t} className={st === "failed" ? "error" : ""} data-testid={`tier-${t}`} data-status={st} title={tierReason(data!.deploys, te.deploy_id, t) ?? `${t} ${st}`}>
                       {" · "}
-                      {t} {st}
+                      {t} {st === "skipped" ? "—" : st === "pending" ? "queued" : st}
+                      {st === "failed" && tierReason(data!.deploys, te.deploy_id, t) ? <span className="muted"> ({tierReason(data!.deploys, te.deploy_id, t)})</span> : null}
                     </span>
                   ))}
                   {te.target ? <span className="muted"> · on {te.target}</span> : null}

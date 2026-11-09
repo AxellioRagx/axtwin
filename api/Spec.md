@@ -187,6 +187,18 @@ document is the bundle's text files keyed by bundle-relative path.
   running twin without a redeploy. v0 scope is exactly what `tfc` and `taps`
   can change ephemerally; a delta they cannot apply (topology, addressing,
   images) is refused with the offending paths named, and nothing is applied.
+  A copy with no taps left (the tap file gone, or `bindings: []`) applies as
+  the tap tier's teardown (2026-11-09).
+- `POST /api/twins/{id}/deploy {follow_on: [tap, tfc]}` (2026-11-09) — after
+  the te deploy completes, stand up the twin's tap plan, then its traffic
+  profile, from its manifest defaults; each tier's outcome (`pending |
+  running | completed | failed | skipped`, a reason) is on the te row's
+  `follow_on` in `GET /api/deploys[/{id}]`. A tier the twin has no plan for
+  is skipped; a failed tier does not stop the next. `POST
+  /api/deploys/{id}/tiers/{tap|tfc}` (202) stands one such tier up on a
+  completed te that has none standing (409 `tier-standing` otherwise).
+  `GET /api/targets` lists each target's `sensors` (its adapter.conf
+  `EXTERNAL_SENSORS` ids, names only).
 - `POST /api/deploys/{id}/config/reset` — discard the working copy FIRST,
   then revert anything applied from it by replaying the baseline's tiers,
   best effort: a replay that fails is not an error (200) -- the tier lands

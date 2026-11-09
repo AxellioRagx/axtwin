@@ -108,6 +108,8 @@ export interface Api {
   applyDeployConfig(deployId: string): Promise<DeployConfigApply>;
   /** Discard the working copy and revert what Apply pushed (best effort; `tiers` replays named baseline tiers with or without a copy). */
   resetDeployConfig(deployId: string, body?: { tiers?: string[] }): Promise<DeployConfigReset>;
+  /** `POST /api/deploys/{id}/tiers/{tier}`: stand one follow-on tier up from the twin's default (detached). */
+  startTier(deployId: string, tier: string, body?: { target_node?: string }): Promise<{ deploy_id: string; tier: string; status: string }>;
   /** Stop the Apply or Reset in flight at its next op boundary; 409 when none is. */
   cancelDeployConfigExit(deployId: string): Promise<ConfigExitCancel>;
   /** Validate a document (`{id, files}`) through the Save / Persist path without writing; a FAIL is a 200 with the findings. */
@@ -168,6 +170,7 @@ export function makeApi(request: Requester): Api {
     putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files } }),
     applyDeployConfig: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/apply`, { body: {} }),
     resetDeployConfig: (deployId, body) => request("POST", `/api/deploys/${enc(deployId)}/config/reset`, { body: body ?? {} }),
+    startTier: (deployId, tier, body) => request("POST", `/api/deploys/${enc(deployId)}/tiers/${enc(tier)}`, { body: body ?? {} }),
     cancelDeployConfigExit: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/cancel`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
     listTargets: (signal) => request("GET", "/api/targets", { signal }),

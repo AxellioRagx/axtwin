@@ -754,6 +754,9 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             runner=app.state.deploy_runner,
             background=app.state.deploy_background,
             override_protection=override_protection,
+            tap_adapter=app.state.tap_adapter,
+            tap_config_backend=app.state.tap_config_backend,
+            persona_backend=app.state.tfc_persona_backend,
         )
 
     # ---- validate / plan (pure) ----
@@ -1390,6 +1393,30 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             tap_config_backend=app.state.tap_config_backend,
             tap_teardown_backend=app.state.tap_teardown_backend,
             exits=app.state.config_exits,
+        )
+
+    @app.post(
+        "/api/deploys/{deploy_id}/tiers/{tier}",
+        response_model=dtos.TierStartDTO,
+        status_code=202,
+        dependencies=[Depends(write_token)],
+    )
+    def deploy_tier_start(
+        deploy_id: str, tier: str,
+        req: Optional[dtos.TierStartRequest] = Body(default=None),
+        target: Optional[str] = _TARGET_QUERY,
+        override_protection: Optional[str] = _OVERRIDE_QUERY,
+    ) -> dtos.TierStartDTO:
+        """Stand up one follow-on tier (tap | tfc) on a completed te deploy
+        from the twin's own default (the canvas's Start tap / Start tfc)."""
+        in_store = _for_deploy(target, deploy_id)
+        service.guard_protected(in_store, deploy_id=deploy_id, override=override_protection)
+        return service.start_tier(
+            in_store, deploy_id, tier, req or dtos.TierStartRequest(),
+            background=app.state.deploy_background,
+            tap_adapter=app.state.tap_adapter,
+            tap_config_backend=app.state.tap_config_backend,
+            persona_backend=app.state.tfc_persona_backend,
         )
 
     @app.post(

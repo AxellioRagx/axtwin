@@ -30,6 +30,7 @@ import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
+import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -108,24 +109,9 @@ export function standingDeploy(deploys: readonly DeploySummary[], twinId: string
   return mine[0] ?? null;
 }
 
-/** The tier playouts standing on a te deploy, from the deploy list: a tier row's
- *  `scenario_id` is `<tier>-<te deploy id>`; the newest row per tier that is not
- *  destroyed, as `tier -> status`. Pure. */
-export function tierStatus(rows: readonly DeploySummary[], teDeployId: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const tier of ["tfc", "tap"]) {
-    const mine = rows.filter((d) => d.scenario_id === `${tier}-${teDeployId}` && d.status !== "destroyed");
-    mine.sort((a, b) => b.started_at - a.started_at);
-    if (mine[0]) out[tier] = mine[0].status;
-  }
-  return out;
-}
-
-/** A tier's state in the pill: a check for the common case, the word when it
- *  matters (failed, running, anything else), so the bar stays one row. Pure. */
-export function tierWord(status: string): string {
-  return status === "completed" ? "✓" : status === "failed" ? "✗ failed" : status === "running" ? "⟳ running" : status;
-}
+// The tier state per te deploy (rows, then the follow-on record) and its word: one implementation,
+// the shell's, shared with the Twins pages.
+export { tierStatus, tierWord } from "../../areas/shell/deployState";
 
 /** The working copy's state word (`SPEC.md` "Shell and chrome"): `dirty` alone
  *  read as "not applied" to an operator, when it means "differs from the
@@ -484,7 +470,9 @@ export function CanvasPage() {
       setPollError(e);
     }
   }, [api, deployId, editor]);
-  const inFlight = Boolean(busy) || Boolean(config?.exit);
+  // A tier queued or running behind the te (Deploy's follow-on, Start tap / tfc) polls fast too.
+  const tierMoving = deployId ? deployMoving(deployRows, deployRows.find((d) => d.deploy_id === deployId) ?? null) : false;
+  const inFlight = Boolean(busy) || Boolean(config?.exit) || tierMoving;
   useEffect(() => {
     if (!deployId) return;
     const t = setInterval(() => void refresh(), inFlight ? BUSY_POLL_MS : POLL_MS);
@@ -722,6 +710,15 @@ export function CanvasPage() {
       const r = await api.applyDeployConfig(deployId);
       setConfig(r.config);
       return `applied${r.applied.length ? ` via ${r.applied.join(", ")}` : ""}${Object.keys(r.roles).length ? ` · roles ${Object.entries(r.roles).map(([n, ro]) => `${n} → ${ro}`).join(", ")}` : ""}`;
+    });
+  // Start tap / Start tfc (2026-11-09): one follow-on tier from the twin's catalog default, detached;
+  // the pill follows it from the te row's `follow_on` on the poll.
+  const startTierExit = (tier: string) =>
+    run(`start ${tier}`, async () => {
+      if (!deployId) return null;
+      await api.startTier(deployId, tier);
+      await refresh();
+      return `${tier} queued: it stands up from the twin's catalog default`;
     });
   const resetExit = (tiers?: string[]) =>
     run(tiers ? `re-apply ${tiers.join(", ")}` : "reset", async () => {
@@ -1026,9 +1023,14 @@ export function CanvasPage() {
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
   // The per-tier state: the te row from the load, the tier rows from the poll.
-  const tiers = useMemo(() => (data?.deploy ? tierStatus(deployRows, data.deploy.deploy_id) : {}), [deployRows, data?.deploy]);
-  const tierFailed = Object.entries(tiers).filter(([, st]) => st === "failed").map(([t]) => t);
-  const anyFailed = data?.deploy?.status === "failed" || tierFailed.length > 0;
+  // The te row as the poll last read it (the page's load holds the one it opened with).
+  const teRow = useMemo(() => (data?.deploy ? (deployRows.find((d) => d.deploy_id === data.deploy!.deploy_id) ?? data.deploy) : null), [deployRows, data?.deploy]);
+  const tiers = useMemo(() => (teRow ? tierStatus(deployRows, teRow.deploy_id) : {}), [deployRows, teRow]);
+  // A baseline re-apply acts on a tier whose playout row failed; a follow-on that failed with no row is started again instead.
+  const tierFailed = Object.entries(teRow ? tierStatus(deployRows, teRow.deploy_id, { rowsOnly: true }) : {}).filter(([, st]) => st === "failed").map(([t]) => t);
+  const anyFailed = teRow?.status === "failed" || Object.values(tiers).includes("failed");
+  // Start tap / Start tfc: a completed te with no standing deploy of the tier, nothing queued or running for it.
+  const startable = teRow?.status === "completed" && !destroying ? FOLLOW_ON_TIERS.filter((t) => !["completed", "running", "pending"].includes(tiers[t] ?? "")) : [];
   const state = docState(config, editor.dirty, unsynced);
   const exit = config?.exit ?? null;
   const exitWord = destroying ? destroyWord(destroyRun) : exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
@@ -1081,7 +1083,7 @@ export function CanvasPage() {
         {/* One pill: the origin, the mode and the deploy's state PER TIER (te / tfc / tap), red when a tier failed
             -- the te tier alone read "completed" over a failed traffic playout. The bar must not wrap at 1622 px. */}
         {built || data ? (
-          <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={data?.deploy ? `deploy ${data.deploy.deploy_id}: te ${data.deploy.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
+          <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={teRow ? `deploy ${teRow.deploy_id}: te ${teRow.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}${tierReason(deployRows, teRow.deploy_id, t) ? ` (${tierReason(deployRows, teRow.deploy_id, t)})` : ""}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
             {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
             {built && data ? " · " : null}
             {data ? (
@@ -1091,9 +1093,9 @@ export function CanvasPage() {
                   <>
                     {" · "}
                     <span className="mono cv-pill-id" title={data.deploy.deploy_id}>{data.deploy.deploy_id}</span>
-                    <span className={`cv-tier${data.deploy.status === "failed" ? " failed" : ""}${destroyRun?.down.includes("te") ? " down" : ""}`} data-testid="tier-te" data-status={data.deploy.status} data-down={destroyRun?.down.includes("te") || undefined} title={`te ${data.deploy.status}`}> · te {destroyRun?.down.includes("te") ? "✓ down" : tierWord(data.deploy.status)}</span>
+                    <span className={`cv-tier${teRow!.status === "failed" ? " failed" : ""}${destroyRun?.down.includes("te") ? " down" : ""}`} data-testid="tier-te" data-status={teRow!.status} data-down={destroyRun?.down.includes("te") || undefined} title={`te ${teRow!.status}`}> · te {destroyRun?.down.includes("te") ? "✓ down" : tierWord(teRow!.status)}</span>
                     {Object.entries(tiers).map(([t, st]) => (
-                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}${destroyRun?.down.includes(t) ? " down" : ""}`} data-testid={`tier-${t}`} data-status={st} data-down={destroyRun?.down.includes(t) || undefined} title={`${t} ${st}`}> · {t} {destroyRun?.down.includes(t) ? "✓ down" : tierWord(st)}</span>
+                      <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}${destroyRun?.down.includes(t) ? " down" : ""}`} data-testid={`tier-${t}`} data-status={st} data-down={destroyRun?.down.includes(t) || undefined} title={`${t} ${st}${tierReason(deployRows, teRow!.deploy_id, t) ? `: ${tierReason(deployRows, teRow!.deploy_id, t)}` : ""}`}> · {t} {destroyRun?.down.includes(t) ? "✓ down" : tierWord(st)}</span>
                     ))}
                   </>
                 ) : (
@@ -1159,6 +1161,11 @@ export function CanvasPage() {
                     Re-apply {tierFailed.join(", ")} from baseline
                   </button>
                 ) : null}
+                {startable.map((t) => (
+                  <button key={t} type="button" onClick={() => void startTierExit(t)} disabled={busy !== null || Boolean(exit)} data-testid={`start-${t}`} title={`no ${t} deploy stands on this twin: stand it up from the twin's catalog default (${t === "tap" ? "its tap plan" : "its traffic profile"})${tierReason(deployRows, teRow!.deploy_id, t) ? ` · last: ${tierReason(deployRows, teRow!.deploy_id, t)}` : ""}`}>
+                    Start {t}
+                  </button>
+                ))}
                 <button type="button" className="danger" onClick={() => setDestroyOpen(true)} disabled={busy !== null || Boolean(exit) || destroying} data-testid="destroy-open" title="bring the standing deploy down: te, with its tfc and tap (the tap's sensor binding is released)">
                   Destroy…
                 </button>

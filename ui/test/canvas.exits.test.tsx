@@ -52,8 +52,42 @@ describe("the state pill reads every tier", () => {
     const older: DeploySummary = { ...TFC_FAILED, deploy_id: "tfc-dep-1-00", status: "completed", started_at: 1700000100 };
     const gone: DeploySummary = { ...TAP_OK, deploy_id: "tap-dep-1-99", status: "destroyed", started_at: 1700009999 };
     const other: DeploySummary = { ...TFC_FAILED, deploy_id: "tfc-dep-2-aa", scenario_id: "tfc-dep-2", status: "completed" };
-    expect(tierStatus([DEPLOY, older, TFC_FAILED, TAP_OK, gone, other], "dep-1")).toEqual({ tfc: "failed", tap: "completed" });
+    expect(tierStatus([DEPLOY, older, TFC_FAILED, TAP_OK, gone, other], "dep-1")).toEqual({ tap: "completed", tfc: "failed" });
     expect(tierStatus([DEPLOY], "dep-1")).toEqual({});
+  });
+});
+
+describe("the tiers that follow te (2026-11-09: Deploy runs te → tap → tfc)", () => {
+  it("the pill reads the follow-on records where no row stands: queued, skipped as —, failed with its reason", async () => {
+    const te: DeploySummary = { ...DEPLOY, follow_on: { tap: { status: "skipped", reason: "the twin has no taps" }, tfc: { status: "failed", reason: "tfc: persona x unknown", at: 1700000400 } } };
+    const { api } = seeded({ deploys: [te] });
+    renderAt(api, "/twins/corp-live/canvas");
+    await screen.findAllByTestId("canvas-host");
+    expect(screen.getByTestId("tier-tap").textContent).toBe(" · tap —");
+    expect(screen.getByTestId("tier-tap").getAttribute("title")).toBe("tap skipped: the twin has no taps");
+    expect(screen.getByTestId("tier-tfc").dataset["status"]).toBe("failed");
+    expect(screen.getByTestId("state-pill").className).toContain("failed");
+    // No row failed, so no baseline re-apply: the tier is started again instead.
+    expect(screen.queryByTestId("reapply-baseline")).toBeNull();
+    expect(screen.getByTestId("start-tap")).toBeTruthy();
+    expect(screen.getByTestId("start-tfc").getAttribute("title")).toContain("last: tfc: persona x unknown");
+  });
+  it("Start tap posts the tier and the pill shows it queued; a standing tier offers no Start", async () => {
+    const { api, state } = seeded({ deploys: [DEPLOY, TAP_OK] });
+    renderAt(api, "/twins/corp-live/canvas");
+    await screen.findAllByTestId("canvas-host");
+    expect(screen.queryByTestId("start-tap")).toBeNull();
+    fireEvent.click(screen.getByTestId("start-tfc"));
+    await waitFor(() => expect(state.writes.some((w) => w.op === "start-tier")).toBe(true));
+    expect(state.writes.find((w) => w.op === "start-tier")).toEqual({ op: "start-tier", id: "dep-1", body: { tier: "tfc" } });
+    await waitFor(() => expect(screen.getByTestId("tier-tfc").textContent).toBe(" · tfc … queued"));
+    expect(screen.queryByTestId("start-tfc")).toBeNull();
+  });
+  it("tierStatus: a standing row wins; a newer failed record over an old row says the re-run failed", () => {
+    const rec = (status: string, at: number) => ({ ...DEPLOY, follow_on: { tap: { status, at } } });
+    expect(tierStatus([rec("completed", 1), TAP_OK], "dep-1")).toEqual({ tap: "completed" });
+    expect(tierStatus([rec("failed", 1800000000), TAP_OK], "dep-1")).toEqual({ tap: "failed" });
+    expect(tierStatus([rec("failed", 1800000000), TAP_OK], "dep-1", { rowsOnly: true })).toEqual({ tap: "completed" });
   });
 });
 

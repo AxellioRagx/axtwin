@@ -219,6 +219,30 @@ class DeploySummaryDTO(BaseModel):
     # Fix round 2: which of the target's state stores records this deploy
     # (a short label; the path is on `GET /api/targets`).
     store: Optional[str] = None
+    # 2026-11-09, on a te row: the tiers that follow it (the console's Deploy
+    # runs te -> tap -> tfc; "Start tap"/"Start tfc"), each tier's outcome --
+    # including a skip (no plan) or a failure that left no deploy row.
+    follow_on: dict[str, "FollowOnTierDTO"] = {}
+
+
+class FollowOnTierDTO(BaseModel):
+    status: str  # pending | running | completed | failed | skipped
+    reason: Optional[str] = None
+    deploy_id: Optional[str] = None
+    at: Optional[float] = None
+
+
+class TierStartRequest(BaseModel):
+    target_node: Optional[str] = None
+
+
+class TierStartDTO(BaseModel):
+    deploy_id: str
+    tier: str
+    status: str
+
+
+DeploySummaryDTO.model_rebuild()
 
 
 class DeployListDTO(BaseModel):
@@ -1477,6 +1501,9 @@ class ImprintDeployRequest(BaseModel):
     # GAP-098: the `plan_id` from `POST /api/imprints/{id}/plan`; a deploy
     # that re-plans to anything else is refused 409 (see CreateDeployRequest).
     expect_plan_id: Optional[str] = None
+    # 2026-11-09: the tiers to stand up after te completes, from the twin's
+    # own defaults, in the CLI's order (tap, then tfc). Empty: te only.
+    follow_on: list[str] = []
 
 
 

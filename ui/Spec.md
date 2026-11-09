@@ -88,6 +88,18 @@ Stop / Restart for tfc and tap is **not** offered: `/api/tfc` and `/api/taps`
 have apply and destroy only (no stop or restart verb), so there is nothing for
 the twin page to call. *(`ui/test/destroy.test.tsx`.)*
 
+**Deploy stands the whole twin up** (2026-11-09): te, then the twin's tap plan,
+then its traffic profile, as one action (the CLI's `te deploy` → `tap deploy` →
+`tfc deploy`; `POST /api/twins/{id}/deploy {follow_on: [tap, tfc]}`). Each
+tier's outcome rides on the te row (`follow_on`): queued, running, completed,
+failed with its reason, or skipped (`—`: the twin has no taps / no traffic
+profile); a tier fails on its own and the next still runs. The twin page's
+deploy line and the canvas pill poll until every tier is terminal. Where a tier
+has no standing deploy, the canvas bar offers **Start tap** / **Start tfc**
+(`POST /api/deploys/{id}/tiers/{tier}`, from the twin's catalog default).
+*(`ui/test/twins.deploy.test.tsx`, `ui/test/canvas.exits.test.tsx`,
+`engine/tests/test_deploy_follow_on.py`.)*
+
 The console must **not** embed, hold or ask for credentials — neither adapter
 config nor its own write credential. Authentication is the reverse proxy's or
 the host application's; the API chooses whom to trust per deployment (A8,

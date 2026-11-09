@@ -725,6 +725,17 @@ export interface DeploySummary {
   plan_id?: string | null;
   target?: string | null;
   store?: string | null;
+  /** On a te row: the tiers that follow it (Deploy runs te → tap → tfc; Start tap / Start tfc), each
+   *  tier's outcome, including a skip (no plan) or a failure that left no deploy row (2026-11-09). */
+  follow_on?: Record<string, FollowOnTier>;
+}
+
+export interface FollowOnTier {
+  /** `pending` | `running` | `completed` | `failed` | `skipped`. */
+  status: string;
+  reason?: string | null;
+  deploy_id?: string | null;
+  at?: number | null;
 }
 
 /** One tier of `DELETE /api/deploys/{id}`'s answer: what came down, children first, the te last. */
@@ -776,6 +787,8 @@ export interface PlanSummary {
 export interface TwinDeployRequest {
   target_node?: string;
   expect_plan_id?: string;
+  /** The tiers to stand up after te completes, from the twin's own defaults (tap, then tfc). */
+  follow_on?: string[];
 }
 
 /** `POST /api/twins/{id}/deploy`: the deploy runs detached; its row appears in `GET /api/deploys`. */

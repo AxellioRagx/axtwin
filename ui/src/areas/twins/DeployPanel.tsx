@@ -13,7 +13,9 @@ import { useLoad } from "../shell/useLoad";
  *  page that only printed the CLI commands). Two steps, the same ones the CLI takes: plan
  *  (pure, nothing written), then deploy pinned to that plan's id, so a twin edited in
  *  between is refused (409) rather than deployed unseen. The deploy runs detached; its row
- *  shows in the page's deploy state. A twin with a standing deploy offers no Deploy: the panel
+ *  shows in the page's deploy state. Deploy stands the whole twin up (2026-11-09): te, then the
+ *  twin's tap plan, then its traffic profile, each tier's outcome on the te row's `follow_on`.
+ *  A twin with a standing deploy offers no Deploy: the panel
  *  offers Destroy… instead (state-aware, never both); the deploy is changed on the canvas. */
 export function DeployPanel({ id, standing, rows = [], focus, onDeployed, destroyOpen = false, onDestroyOpenChange }: { id: string; standing: DeploySummary | null; rows?: readonly DeploySummary[]; focus: boolean; onDeployed: () => void; destroyOpen?: boolean; onDestroyOpenChange?: (open: boolean) => void }) {
   const api = useApi();
@@ -59,7 +61,8 @@ export function DeployPanel({ id, standing, rows = [], focus, onDeployed, destro
     setBusy("deploy");
     setError(null);
     try {
-      const r = await api.deployTwin(id, { expect_plan_id: plan.plan_id, ...(chosen ? { target_node: chosen } : {}) });
+      // The whole twin, the CLI's sequence: te, then the tap plan, then the traffic profile (2026-11-09).
+      const r = await api.deployTwin(id, { expect_plan_id: plan.plan_id, follow_on: ["tap", "tfc"], ...(chosen ? { target_node: chosen } : {}) });
       setStarted(r);
       setPlan(null);
       setConfirming(false);
@@ -78,7 +81,7 @@ export function DeployPanel({ id, standing, rows = [], focus, onDeployed, destro
       {started ? (
         <p role="status" data-testid="deploy-started">
           Deploy <span className="mono">{started.deploy_id}</span> started ({started.status}
-          {started.detached ? ", running in the background" : ""}). Its progress shows in the deploy state above; the tap and traffic tiers follow on the canvas.
+          {started.detached ? ", running in the background" : ""}). Its progress shows in the deploy state above, tier by tier: te, then tap, then tfc (a tier the twin has no plan for shows —).
         </p>
       ) : null}
       {standing ? (

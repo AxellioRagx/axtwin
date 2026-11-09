@@ -1439,6 +1439,17 @@ def _deploy_summary(d, *, store: Any = None, target: Optional[str] = None,
     )
 
 
+def _follow_on_records(db_path: str | Path) -> dict[str, dict[str, Any]]:
+    from axrange.api.follow_on import FollowOnStore
+
+    return FollowOnStore.beside(db_path).all()
+
+
+def _follow_on_dtos(rec: dict[str, Any]) -> dict[str, dtos.FollowOnTierDTO]:
+    return {t: dtos.FollowOnTierDTO(**{k: v.get(k) for k in ("status", "reason", "deploy_id", "at")})
+            for t, v in rec.items() if isinstance(v, dict) and v.get("status")}
+
+
 def _target_of(settings: ApiSettings) -> Any:
     """The `targets.Target` `settings` points at (matched by db path against
     EVERY store of each target -- fix round 2)."""
@@ -1679,9 +1690,12 @@ def list_deploys(
                 deploys = store.deploys_matching(limit=limit)
             else:
                 deploys = store.deploys_matching(status=status, limit=limit)
+            follow = _follow_on_records(path)
             for d in deploys:
                 dto = _deploy_summary(d, store=store, target=target)
                 dto.store = label
+                if dto.tier == "te" and d.deploy_id in follow:
+                    dto.follow_on = _follow_on_dtos(follow[d.deploy_id])
                 rows.append((d.updated_at or d.started_at or 0.0, dto))
         finally:
             store.close()
@@ -1735,6 +1749,8 @@ def deploy_detail(settings: ApiSettings, deploy_id: str) -> dtos.DeployDetailDTO
             placement = {}
         summary = _deploy_summary(d, store=store, target=_target_name(settings))
         summary.store = _store_label(settings)
+        if summary.tier == "te":
+            summary.follow_on = _follow_on_dtos(_follow_on_records(settings.db_path).get(d.deploy_id, {}))
         host_edits: list[dict[str, Any]] = []
         if (d.tier or "") == "tfc":
             from axrange.o2control.traffic import host_edit_jobs
@@ -1953,6 +1969,8 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
                   runner: Optional[DeployRunner] = None,
                   background: Callable[[Callable[[], None]], None] | None = None,
                   override_protection: Optional[str] = None,
+                  then: Optional[Callable[[str], None]] = None,
+                  on_start: Optional[Callable[[str], None]] = None,
                   ) -> dtos.CreateDeployResponse:
     """Kick a deploy. Builds the plan, acquires the per-scenario lease (409 on
     contention), records the deploy row, then runs the executor in the
@@ -2084,6 +2102,11 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
             # to what --update just resolved" the way it does for the plain
             # resume path.
             store.close()
+            if on_start is not None:
+                on_start(existing.deploy_id)
+            if then is not None:
+                _in_background(background, f"follow-on-{existing.deploy_id}",
+                               lambda: then(existing.deploy_id))
             return dtos.CreateDeployResponse(
                 deploy_id=existing.deploy_id, status="completed", detached=False,
                 config_warnings=config_warnings, plan_id=existing.plan_id,
@@ -2184,17 +2207,26 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
 
     def _job() -> None:
         actual_runner(settings, plan, cfg, ctx, deploy_id)
+        if then is not None:
+            then(deploy_id)
 
-    if background is not None:
-        background(_job)
-    else:
-        t = threading.Thread(target=_job, name=f"deploy-{deploy_id}", daemon=True)
-        t.start()
+    if on_start is not None:
+        on_start(deploy_id)
+    _in_background(background, f"deploy-{deploy_id}", _job)
 
     return dtos.CreateDeployResponse(
         deploy_id=deploy_id, status="running", detached=True,
         config_warnings=config_warnings, plan_id=plan.plan_id,
     )
+
+
+def _in_background(background: Callable[[Callable[[], None]], None] | None, name: str,
+                   job: Callable[[], None]) -> None:
+    """Run `job` through the injected `background` (tests: synchronous), else a daemon thread."""
+    if background is not None:
+        background(job)
+    else:
+        threading.Thread(target=job, name=name, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -2581,6 +2613,10 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
             except Exception:  # noqa: BLE001
                 pass
 
+        if result.destroyed:
+            from axrange.api.follow_on import FollowOnStore
+
+            FollowOnStore.beside(settings.db_path).forget(deploy_id)
         return dtos.DestroyResponse(
             deploy_id=result.deploy_id,
             destroyed=result.destroyed,
@@ -4393,6 +4429,8 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
                    runner: Optional[DeployRunner] = None,
                    background: Callable[[Callable[[], None]], None] | None = None,
                    override_protection: Optional[str] = None,
+                   tap_adapter: Any = None, tap_config_backend: Any = None,
+                   persona_backend: Any = None,
                    ) -> dtos.CreateDeployResponse:
     """"Deploy as twin": hand the imprint's drafted twin_config to the
     EXISTING async lease-guarded deploy path -- exactly as an ordinary
@@ -4400,8 +4438,27 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
     other deploy source (`scenario`/`config`) already goes through (no
     second planner/executor wiring; `docs/WORK_ORDER_aximprint_console.md`
     PART A's hard constraint). `runner`/`background` are threaded straight
-    through for the SAME test-seam reasons `create_deploy` documents them."""
-    return create_deploy(
+    through for the SAME test-seam reasons `create_deploy` documents them.
+
+    `req.follow_on` (2026-11-09, the console's Deploy): the tiers to stand up
+    AFTER the te deploy completes, in the CLI's order (tap, then tfc), each
+    from the twin's own default (`run_follow_on`); recorded per te deploy
+    and shown on its row's `follow_on`."""
+    from axrange.api.follow_on import FOLLOW_ON_TIERS
+
+    unknown = sorted(set(req.follow_on) - set(FOLLOW_ON_TIERS))
+    if unknown:
+        raise ApiError(400, f"follow_on names {unknown}; the tiers that follow te are tap, tfc")
+    tiers = [t for t in FOLLOW_ON_TIERS if t in req.follow_on]
+    then = None
+    if tiers:
+        def then(te_deploy_id: str) -> None:
+            run_follow_on(
+                settings, te_deploy_id, tiers, target_node=req.target_node,
+                tap_adapter=tap_adapter, tap_config_backend=tap_config_backend,
+                persona_backend=persona_backend,
+            )
+    resp = create_deploy(
         settings,
         dtos.CreateDeployRequest(
             imprint=imprint_id,
@@ -4415,7 +4472,133 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
         runner=runner,
         background=background,
         override_protection=override_protection,
+        then=then,
+        on_start=(lambda did: _mark_pending(settings, did, tiers)) if tiers else None,
     )
+    return resp
+
+
+def _mark_pending(settings: ApiSettings, te_deploy_id: str, tiers: list[str]) -> None:
+    """The follow-on tiers, queued behind the te deploy, before it starts (a
+    redeploy under the same id drops the previous run's record first)."""
+    from axrange.api.follow_on import FollowOnStore
+
+    rec = FollowOnStore.beside(settings.db_path)
+    rec.forget(te_deploy_id)
+    for t in tiers:
+        rec.mark(te_deploy_id, t, "pending")
+
+
+def run_follow_on(
+    settings: ApiSettings, te_deploy_id: str, tiers: list[str], *,
+    target_node: Optional[str] = None, tap_adapter: Any = None,
+    tap_config_backend: Any = None, persona_backend: Any = None,
+) -> dict[str, dict[str, Any]]:
+    """Stand up `tiers` (a subset of tap, tfc; run in that order) on a te
+    deploy from the twin's own defaults, recording each tier's outcome in
+    the follow-on store. A tier the twin has no plan for is `skipped`; one
+    that fails is `failed` with the reason, and the next tier still runs.
+    Never raises for a tier: the record is the answer (this runs detached)."""
+    from axrange.api import edits
+    from axrange.api.follow_on import FOLLOW_ON_TIERS, FollowOnStore
+    from axrange.planner.state import DeployStatus
+
+    rec = FollowOnStore.beside(settings.db_path)
+    order = [t for t in FOLLOW_ON_TIERS if t in tiers]
+    try:
+        te = _te_for_config(settings, te_deploy_id)
+    except ApiError as e:
+        for t in order:
+            rec.mark(te_deploy_id, t, "failed", reason=e.message)
+        return rec.get(te_deploy_id)
+    if te.status != DeployStatus.COMPLETED:
+        for t in order:
+            rec.mark(te.deploy_id, t, "skipped", reason=f"te ended {te.status.value}")
+        return rec.get(te.deploy_id)
+    try:
+        doc = _read_twin_document(settings, te.scenario_id)
+        folder, _flat = _bundle_location(settings, te.scenario_id)
+    except ApiError as e:
+        for t in order:
+            rec.mark(te.deploy_id, t, "failed", reason=f"the twin's document: {e.message}")
+        return rec.get(te.deploy_id)
+    for tier in order:
+        rel = edits.tier_file_of(doc.files, tier)
+        if tier == "tap" and not _tap_bindings_in(doc.files, rel):
+            rec.mark(te.deploy_id, tier, "skipped", reason="the twin has no taps")
+            continue
+        if tier == "tfc" and rel is None:
+            rec.mark(te.deploy_id, tier, "skipped", reason="the twin has no traffic profile")
+            continue
+        rec.mark(te.deploy_id, tier, "running")
+        warnings: list[str] = []
+        try:
+            with _hold_te_lease(settings, te):
+                if tier == "tap":
+                    dto = _replay_tap(
+                        settings, te, folder / str(rel), target_node=target_node,
+                        adapter=tap_adapter, config_backend=tap_config_backend,
+                    )
+                else:
+                    dto = _replay_tfc(
+                        settings, te, folder / str(rel), roots=folder.parent, roles={},
+                        target_node=target_node, allow_revert_host_edits=False,
+                        persona_backend=persona_backend, warnings=warnings,
+                    )
+        except ApiError as e:
+            logger.warning("follow-on %s on %s failed: %s", tier, te.deploy_id, e.message)
+            rec.mark(te.deploy_id, tier, "failed", reason=e.message)
+            continue
+        except Exception as e:  # noqa: BLE001 -- detached: the record is the only report
+            logger.exception("follow-on %s on %s crashed", tier, te.deploy_id)
+            rec.mark(te.deploy_id, tier, "failed", reason=f"{type(e).__name__}: {e}")
+            continue
+        rec.mark(te.deploy_id, tier, "completed", deploy_id=getattr(dto, "deploy_id", None),
+                 reason="; ".join(warnings) or None)
+    return rec.get(te.deploy_id)
+
+
+def start_tier(
+    settings: ApiSettings, deploy_id: str, tier: str, req: dtos.TierStartRequest, *,
+    background: Callable[[Callable[[], None]], None] | None = None,
+    tap_adapter: Any = None, tap_config_backend: Any = None, persona_backend: Any = None,
+) -> dtos.TierStartDTO:
+    """`POST /api/deploys/{id}/tiers/{tier}`: stand up one follow-on tier (tap
+    or tfc) on a completed te deploy that has no standing deploy of it, from
+    the twin's own default -- the canvas's "Start tap" / "Start tfc". Runs
+    detached; the outcome lands on the te row's `follow_on`. A tier that
+    already stands is changed by Apply, not started again (409)."""
+    from axrange.api.follow_on import FOLLOW_ON_TIERS, FollowOnStore
+    from axrange.o2control.cascade import siblings_for_te
+    from axrange.planner.state import DeployStatus
+
+    if tier not in FOLLOW_ON_TIERS:
+        raise ApiError(400, f"tier {tier!r}: the tiers that start on a twin are tap, tfc")
+    te = _te_for_config(settings, deploy_id)
+    if te.status != DeployStatus.COMPLETED:
+        raise ApiError(409, f"deploy {te.deploy_id} is {te.status.value}; a tier starts on a completed te")
+    store = _open_existing_store(settings.db_path)
+    try:
+        standing = [r for r in siblings_for_te(store, te.deploy_id).get(tier, [])
+                    if r.status != DeployStatus.DESTROYED]
+    finally:
+        store.close()
+    if standing:
+        raise ApiError(
+            409, f"a {tier} deploy already stands on {te.deploy_id} "
+                 f"({standing[0].deploy_id}, {standing[0].status.value}); Apply changes it",
+            detail={"code": "tier-standing", "deploy_id": standing[0].deploy_id},
+        )
+    cur = FollowOnStore.beside(settings.db_path).get(te.deploy_id).get(tier) or {}
+    if cur.get("status") in ("pending", "running"):
+        raise ApiError(409, f"{tier} is already {cur['status']} on {te.deploy_id}")
+    FollowOnStore.beside(settings.db_path).mark(te.deploy_id, tier, "pending")
+    _in_background(background, f"start-{tier}-{te.deploy_id}", lambda: run_follow_on(
+        settings, te.deploy_id, [tier], target_node=req.target_node,
+        tap_adapter=tap_adapter, tap_config_backend=tap_config_backend,
+        persona_backend=persona_backend,
+    ))
+    return dtos.TierStartDTO(deploy_id=te.deploy_id, tier=tier, status="pending")
 
 
 # ---------------------------------------------------------------------------
