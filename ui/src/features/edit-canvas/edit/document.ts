@@ -65,18 +65,36 @@ export interface DocModel {
 export const DEFAULT_TFC_PATH = "tfc/default.yaml";
 export const DEFAULT_TAP_PATH = "tap/default.yaml";
 
+/** The names a cast's installer wrote before it filed casts as twin folders
+ *  (2026-11-09): a bundle with no manifest still reads them (the engine's
+ *  `edits.LEGACY_TIER_FILES`, the same list). */
+export const LEGACY_TIER_FILES = { tfc: ["tfc-cast.yaml", "tfc.yaml"], tap: ["tap-cast.yaml", "tap.yaml"] } as const;
+
+function tierPathOf(doc: WorkingDoc, manifest: Manifest | null, tier: "tfc" | "tap"): string | null {
+  const declared = manifest?.[tier];
+  if (declared && doc.files[declared] !== undefined) return declared;
+  const dflt = tier === "tfc" ? DEFAULT_TFC_PATH : DEFAULT_TAP_PATH;
+  if (doc.files[dflt] !== undefined) return dflt;
+  const any = Object.keys(doc.files).find((p) => p.startsWith(`${tier}/`) && p.endsWith(".yaml"));
+  if (any) return any;
+  if (doc.files[MANIFEST] !== undefined) return null;
+  return LEGACY_TIER_FILES[tier].find((p) => doc.files[p] !== undefined) ?? null;
+}
+
 export function tapPathOf(doc: WorkingDoc, manifest: Manifest | null): string | null {
-  if (manifest?.tap && doc.files[manifest.tap] !== undefined) return manifest.tap;
-  if (doc.files[DEFAULT_TAP_PATH] !== undefined) return DEFAULT_TAP_PATH;
-  const any = Object.keys(doc.files).find((p) => p.startsWith("tap/") && p.endsWith(".yaml"));
-  return any ?? null;
+  return tierPathOf(doc, manifest, "tap");
 }
 
 export function tfcPathOf(doc: WorkingDoc, manifest: Manifest | null): string | null {
-  if (manifest?.tfc && doc.files[manifest.tfc] !== undefined) return manifest.tfc;
-  if (doc.files[DEFAULT_TFC_PATH] !== undefined) return DEFAULT_TFC_PATH;
-  const any = Object.keys(doc.files).find((p) => p.startsWith("tfc/") && p.endsWith(".yaml"));
-  return any ?? null;
+  return tierPathOf(doc, manifest, "tfc");
+}
+
+/** The legacy cast names the document is read through, for the canvas Notes. */
+export function legacyLayout(doc: WorkingDoc, model: DocModel): string[] {
+  const legacy: readonly string[] = [...LEGACY_TIER_FILES.tfc, ...LEGACY_TIER_FILES.tap];
+  const out = [model.tfcPath, model.tapPath].filter((p): p is string => p !== null && legacy.includes(p));
+  if (doc.files[MANIFEST] === undefined && doc.teFile !== "te.yaml") out.unshift(doc.teFile);
+  return out;
 }
 
 export function readDoc(doc: WorkingDoc): DocModel {

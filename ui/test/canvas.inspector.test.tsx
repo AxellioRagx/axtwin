@@ -84,6 +84,9 @@ function withTwin(id: string, files: Record<string, string>, over: Parameters<ty
   });
 }
 
+/** A cast roster with nothing keyed: enough for a cast twin's page to load. */
+const ROSTER_LITE = { id: "insp", pit_id: "pit-1", node_roster: [], segment_roster: [] };
+
 /** The page validates every edit: the newest validate call carries the working document. */
 const lastFiles = (state: ReturnType<typeof seeded>["state"]) => (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
 
@@ -273,6 +276,38 @@ describe("the inspector by tier", () => {
     await settle();
     expect(lastFiles(state)["tap/default.yaml"]).toBe(one);
     expect(lastFiles(state)["twin.yaml"]).toContain("    tap:\n      default: tap/default.yaml");
+  });
+  it("a cast twin's tap plan (the twin-folder layout install-cast writes) draws its taps as discovered chips", async () => {
+    // As `aximprint install-cast` files a cast since 2026-11-09: twin.yaml, te.yaml, tap/default.yaml, no sensors.
+    const cast = `tap-plan:\n  target: insp\n  bindings:\n  - selector:\n      scope: segment\n      target: office\n    mode: exclusive\n    source: discovered\n  - selector:\n      scope: boundary\n      target: [office, servers]\n    mode: exclusive\n    source: discovered\n`;
+    const { api, state } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": cast }, { casts: { insp: ROSTER_LITE } }, true);
+    state.documents.insp!.files["twin.yaml"] = wireTapDefault(state.documents.insp!.files["twin.yaml"]!, "tap/default.yaml");
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const chips = screen.getAllByTestId("canvas-tap");
+    expect(chips.map((c) => [c.getAttribute("data-tap"), c.getAttribute("data-source"), c.getAttribute("data-sensors")])).toEqual([
+      ["0", "discovered", "0"],
+      ["1", "discovered", "0"],
+      ["1", "discovered", "0"],
+    ]);
+    tab("Checks");
+    expect((await screen.findByTestId("taps-need-sensor-row")).textContent).toContain("2 taps need a sensor");
+  });
+  it("a legacy cast bundle (<id>.yaml, tap-cast.yaml, no manifest) still renders its taps, with a note", async () => {
+    const legacyTap = `tap-plan:\n  target: insp\n  bindings:\n  - selector: { scope: segment, target: servers }\n    sensors: [XPress-SW-A]\n    mode: exclusive\n`;
+    const base = seeded();
+    const template = base.state.twins["corp-cast"]!;
+    const { api } = seeded({
+      twins: { ...base.state.twins, insp: { ...template, id: "insp" } },
+      documents: { ...base.state.documents, insp: { id: "insp", te_file: "insp.yaml", files: { "insp.yaml": TE, "tap-cast.yaml": legacyTap }, skipped: [] } },
+      twinConfigs: [...base.state.twinConfigs, { id: "insp", description: null, cluster: null, parameterized: false, param_names: [], error: null }],
+      casts: { insp: ROSTER_LITE },
+    });
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    expect(screen.getAllByTestId("canvas-tap").map((c) => c.getAttribute("data-target"))).toEqual(["servers"]);
+    tab("Notes");
+    expect((await screen.findByTestId("canvas-notes")).textContent).toContain("legacy cast layout: read through insp.yaml, tap-cast.yaml");
   });
   it("Checks lists the taps with no sensor, filters the canvas to them, and sets one sensor on all", async () => {
     const bare = `tap-plan:\n  target: insp\n  bindings:\n    - selector: { scope: segment, target: office }\n      mode: exclusive\n    - selector: { scope: segment, target: servers }\n      mode: exclusive\n`;

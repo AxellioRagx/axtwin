@@ -98,7 +98,7 @@ def test_the_tap_plan_follows_the_stable_id_like_the_traffic_profile(tmp_path):
     somebody deploys untapped."""
     root = tmp_path / "twin-configs"
     assert _install(_cast(tmp_path), root).returncode == 0
-    tap = yaml.safe_load((root / "corpapcn-twin" / "tap-cast.yaml").read_text())
+    tap = yaml.safe_load((root / "corpapcn-twin" / "tap" / "default.yaml").read_text())
     assert tap["tap-plan"]["target"] == "corpapcn-twin"
     # The binding's own selector target is a SEGMENT name and must not be rewritten with it.
     assert tap["tap-plan"]["bindings"][0]["selector"]["target"] == "seg-a"
@@ -109,7 +109,7 @@ def test_the_pit_id_is_moved_into_the_description_never_lost(tmp_path):
     re-cast; provenance is relocated, not discarded."""
     root = tmp_path / "twin-configs"
     assert _install(_cast(tmp_path), root).returncode == 0
-    tc = yaml.safe_load((root / "corpapcn-twin" / "corpapcn-twin.yaml").read_text())
+    tc = yaml.safe_load((root / "corpapcn-twin" / "te.yaml").read_text())
     assert tc["twin_config"]["id"] == "corpapcn-twin"
     assert "pit-deadbeef-123" in tc["twin_config"]["description"]
 
@@ -124,7 +124,7 @@ def test_sensors_are_filled_at_install_time_not_invented_at_cast_time(tmp_path):
     root = tmp_path / "twin-configs"
     assert _install(_cast(tmp_path), root, "corpapcn-twin", "--sensors", "XPress-SW-A"
                     ).returncode == 0
-    tap = yaml.safe_load((root / "corpapcn-twin" / "tap-cast.yaml").read_text())["tap-plan"]
+    tap = yaml.safe_load((root / "corpapcn-twin" / "tap" / "default.yaml").read_text())["tap-plan"]
     assert tap["bindings"], "a plan with no bindings would fill nothing and look successful"
     assert all(b["sensors"] == ["XPress-SW-A"] for b in tap["bindings"])
 
@@ -135,7 +135,7 @@ def test_without_the_flag_sensors_stay_absent_rather_than_guessed(tmp_path):
     root = tmp_path / "twin-configs"
     r = _install(_cast(tmp_path), root)
     assert r.returncode == 0
-    tap = yaml.safe_load((root / "corpapcn-twin" / "tap-cast.yaml").read_text())["tap-plan"]
+    tap = yaml.safe_load((root / "corpapcn-twin" / "tap" / "default.yaml").read_text())["tap-plan"]
     assert all("sensors" not in b for b in tap["bindings"])
     assert "UNFILLED" in r.stdout, "an unappliable plan must say so on the way out"
 
@@ -164,7 +164,7 @@ def _profile(tmp_path, root, assignments, nodes=_GROUPS):
     if r.returncode != 0:
         return r, None
     return r, yaml.safe_load(
-        (root / "corpapcn-twin" / "tfc-cast.yaml").read_text())["traffic-profile"]
+        (root / "corpapcn-twin" / "tfc" / "default.yaml").read_text())["traffic-profile"]
 
 
 def test_a_counted_group_becomes_one_assignment_per_instance(tmp_path):
@@ -238,7 +238,7 @@ def test_a_band_with_no_persona_file_falls_back_to_its_roles_base(tmp_path):
                  personas=["cast-web-tier", "cast-corp-workstation"])
     root = tmp_path / "t"
     assert _install(cast, root).returncode == 0
-    prof = yaml.safe_load((root / "corpapcn-twin" / "tfc-cast.yaml").read_text())
+    prof = yaml.safe_load((root / "corpapcn-twin" / "tfc" / "default.yaml").read_text())
     personas = {a["persona"] for a in prof["traffic-profile"]["assignments"]}
     assert personas == {"cast-corp-workstation"}, personas
 
@@ -255,7 +255,7 @@ def test_the_provenance_sidecar_is_installed_beside_the_twin_config(tmp_path):
     root = tmp_path / "twin-configs"
     r = _install(_cast(tmp_path), root)
     assert r.returncode == 0, r.stderr
-    landed = root / "corpapcn-twin" / "corpapcn-twin.provenance.json"
+    landed = root / "corpapcn-twin" / "generated" / "corpapcn-twin.provenance.json"
     assert landed.is_file(), "the sidecar must travel with the twin config"
     assert json.loads(landed.read_text())["schema"] == "axr-cast-provenance/1"
     assert "corpapcn-twin.provenance.json" in r.stdout
@@ -271,7 +271,7 @@ def test_the_sidecar_is_copied_verbatim_so_its_pit_id_survives(tmp_path):
     root = tmp_path / "twin-configs"
     assert _install(cast, root).returncode == 0
     landed = json.loads(
-        (root / "corpapcn-twin" / "corpapcn-twin.provenance.json").read_text())
+        (root / "corpapcn-twin" / "generated" / "corpapcn-twin.provenance.json").read_text())
     assert landed["pit_id"] == "pit-deadbeef-123"
     assert landed == json.loads((cast / "provenance.json").read_text())
 
@@ -286,7 +286,7 @@ def test_a_cast_with_no_sidecar_installs_but_says_so(tmp_path):
     root = tmp_path / "twin-configs"
     r = _install(cast, root)
     assert r.returncode == 0, r.stderr
-    assert not (root / "corpapcn-twin" / "corpapcn-twin.provenance.json").exists()
+    assert not (root / "corpapcn-twin" / "generated" / "corpapcn-twin.provenance.json").exists()
     assert "no provenance.json" in r.stderr
 
 
@@ -337,10 +337,11 @@ def test_the_subcommand_installs_the_whole_folder(tmp_path):
     r = _cli(_cast(tmp_path), root)
     assert r.returncode == 0, r.stderr
     out = root / "corpapcn-twin"
-    assert (out / "corpapcn-twin.yaml").is_file()
-    assert (out / "tfc-cast.yaml").is_file() and (out / "tap-cast.yaml").is_file()
-    assert (out / "corpapcn-twin.topology.json").is_file()
-    assert (out / "corpapcn-twin.provenance.json").is_file()
+    assert (out / "te.yaml").is_file() and (out / "twin.yaml").is_file()
+    assert (out / "tfc" / "default.yaml").is_file() and (out / "tap" / "default.yaml").is_file()
+    assert (out / "generated" / "corpapcn-twin.topology.json").is_file()
+    assert (out / "generated" / "corpapcn-twin.provenance.json").is_file()
+    assert not (out / "corpapcn-twin.yaml").exists() and not (out / "tap-cast.yaml").exists()
     assert (out / "scripts" / "responder-web-tier.sh").is_file()
     assert (out / "personas" / "cast-web-tier.yaml").is_file()
 
@@ -354,7 +355,7 @@ def test_the_subcommand_takes_sensors_as_repeated_words_or_as_one_comma_list(tmp
         root = tmp_path / ("r" + str(len(extra)) + extra[1][-1])
         assert _cli(cast, root, "corpapcn-twin", *extra).returncode == 0, extra
         tap = yaml.safe_load(
-            (root / "corpapcn-twin" / "tap-cast.yaml").read_text())["tap-plan"]
+            (root / "corpapcn-twin" / "tap" / "default.yaml").read_text())["tap-plan"]
         assert all(b["sensors"] == ["XPress-SW-A", "XPress-SW-B"] for b in tap["bindings"]), extra
 
 
@@ -403,3 +404,43 @@ def test_install_cast_is_in_the_top_level_help(tmp_path):
     r = subprocess.run([sys.executable, "-m", "aximprint.cli", "--help"],
                        capture_output=True, text=True, cwd=str(_ROOT))
     assert "install-cast" in r.stdout
+
+
+def test_the_cast_lands_as_an_axrange_twin_folder(tmp_path):
+    """2026-11-09: the console's canvas and tier loaders read te.yaml, tfc/default.yaml and
+    tap/default.yaml through twin.yaml; a cast that wrote the legacy names drew no tap chips
+    and left its own caveat ("fill in the sensors") with nothing to act on."""
+    root = tmp_path / "twin-configs"
+    assert _install(_cast(tmp_path), root).returncode == 0
+    out = root / "corpapcn-twin"
+    m = yaml.safe_load((out / "twin.yaml").read_text())["twin"]
+    assert m["id"] == "corpapcn-twin" and m["containment"] == "uncontained"
+    assert m["tiers"] == {"te": {"default": "te.yaml"}, "tfc": {"default": "tfc/default.yaml"},
+                          "tap": {"default": "tap/default.yaml"}}
+    assert "pit-deadbeef-123" in m["description"]
+    tap = yaml.safe_load((out / "tap" / "default.yaml").read_text())["tap-plan"]
+    assert [b["source"] for b in tap["bindings"]] == ["discovered"]
+    # axRange's own manifest loader accepts it when it is importable here (one venv).
+    try:
+        from axrange.twinconfig.manifest import load_twin_manifest
+    except ImportError:  # pragma: no cover - the discovery package alone
+        return
+    assert load_twin_manifest(out).te_path == out / "te.yaml"
+
+
+def test_reinstalling_over_a_legacy_bundle_files_it_in(tmp_path):
+    root = tmp_path / "twin-configs"
+    out = root / "corpapcn-twin"
+    out.mkdir(parents=True)
+    for name in ("corpapcn-twin.yaml", "tap-cast.yaml", "tfc-cast.yaml",
+                 "corpapcn-twin.topology.json", "corpapcn-twin.provenance.json"):
+        (out / name).write_text("old\n")
+    (out / "layout.json").write_text('{"pins": {}}')
+    (out / "corpapcn-twin.scorecard.d1.json").write_text("{}")
+    r = _install(_cast(tmp_path), root)
+    assert r.returncode == 0, r.stderr
+    left = sorted(p.name for p in out.iterdir())
+    assert left == ["generated", "personas", "scripts", "tap", "te.yaml", "tfc", "twin.yaml"]
+    assert (out / "generated" / "layout.json").read_text() == '{"pins": {}}'
+    assert (out / "generated" / "corpapcn-twin.scorecard.d1.json").is_file()
+    assert "filed in a legacy bundle" in r.stdout

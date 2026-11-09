@@ -505,15 +505,17 @@ def test_a_real_discovery_run_lands_an_imprint_and_a_cast_lands_a_twin(tmp_path)
     assert c.get("/api/imprints/office-a").json()["twins"] == [{"id": "office-twin"}]
 
     bundle = Path(settings.imprints_dir) / "office-twin"
-    assert (bundle / "office-twin.yaml").is_file()
-    assert (bundle / "office-twin.provenance.json").is_file()
-    assert (bundle / "office-twin.topology.json").is_file()
-    assert "XPress-SW-A" in (bundle / "tap-cast.yaml").read_text()
+    # The twin-folder layout (2026-11-09): what the canvas and the tier loaders read.
+    assert (bundle / "twin.yaml").is_file() and (bundle / "te.yaml").is_file()
+    assert (bundle / "generated" / "office-twin.provenance.json").is_file()
+    assert (bundle / "generated" / "office-twin.topology.json").is_file()
+    assert "XPress-SW-A" in (bundle / "tap" / "default.yaml").read_text()
+    assert not (bundle / "office-twin.yaml").exists() and not (bundle / "tap-cast.yaml").exists()
 
     # The same twin id again is refused without `replace`; with it, the twin is re-cast.
-    before = (bundle / "office-twin.yaml").read_bytes()
+    before = (bundle / "te.yaml").read_bytes()
     r = c.post("/api/imprints/office-a/cast", json={"twin_id": "office-twin"})
-    assert r.status_code == 409 and (bundle / "office-twin.yaml").read_bytes() == before
+    assert r.status_code == 409 and (bundle / "te.yaml").read_bytes() == before
     r = c.post("/api/imprints/office-a/cast", json={"twin_id": "office-twin", "replace": True})
     assert r.status_code == 201 and r.json()["replaced"] is True
 

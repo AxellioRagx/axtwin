@@ -42,7 +42,7 @@ import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
-import { addSegment, attach, detach, documentGraph, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor, type ApplyOptions } from "./edit/useEditor";
@@ -981,8 +981,10 @@ export function CanvasPage() {
     if (data && !designAvailable) out.push(whoami.can_write ? "read-only: the catalog serves no document for this twin" : "read-only: the API serves this twin's document only to a caller that may write; sign in to edit it");
     if (placement?.unplaced) out.push(`${placement.unplaced} local entit${placement.unplaced === 1 ? "y" : "ies"} in no segment: observed on this network but bound to no subnet the cast could place`);
     if (annotations.length) out.push(`${annotations.length} annotation${annotations.length === 1 ? "" : "s"} in the layout side-car`);
+    const legacy = editor.doc && model ? legacyLayout(editor.doc, model) : [];
+    if (legacy.length) out.push(`legacy cast layout: read through ${legacy.join(", ")} (a re-cast files it as te.yaml, tfc/default.yaml, tap/default.yaml)`);
     return out;
-  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length, whoami.can_write, placement?.unplaced]);
+  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length, whoami.can_write, placement?.unplaced, editor.doc, model]);
 
   const editProps = useMemo<CanvasEditProps | undefined>(() => {
     if (!model || built?.kind !== "design") return undefined;

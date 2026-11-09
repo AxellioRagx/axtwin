@@ -4437,16 +4437,14 @@ def _apply_capability(settings: ApiSettings, imprint_id: str) -> dict[str, Any]:
     the Console can say why Apply is unavailable instead of guessing (fix
     round 1). The cheap settings checks run before the one file read."""
     from axrange.api import recompile as rc
-    from axrange.twinconfig.bundle import is_twin_folder
 
     try:
         d = _imprint_bundle_dir(settings, imprint_id)
     except ApiError as e:
         return {"can_apply": False, "apply_blocked_reason": e.message}
-    if is_twin_folder(d):
-        why = ("a twins/ folder: apply re-runs aximprint's install-cast, which writes "
-               "the legacy cast-bundle layout, not te.yaml + generated/")
-    elif not settings.aximprint_bin:
+    # A twins/ folder recompiles in place since 2026-11-09: aximprint's install-cast
+    # writes the twin-folder layout (te.yaml, tfc/ and tap/ defaults, generated/).
+    if not settings.aximprint_bin:
         why = f"recompile is not configured: {rc.SETTING_BIN} is unset"
     elif not settings.aximprint_store:
         why = f"recompile is not configured: {rc.SETTING_STORE} is unset"
@@ -4790,23 +4788,9 @@ def imprint_apply(
     )
 
     d = _imprint_bundle_dir(settings, imprint_id)
-    from axrange.twinconfig.bundle import is_twin_folder
-
-    if is_twin_folder(d):
-        # Refused BEFORE the save: `aximprint install-cast` writes the legacy
-        # layout (`<id>.yaml` + id-stemmed sidecars at the root), so an apply
-        # into a `twins/<id>/` folder would land its output beside `te.yaml`
-        # where no reader looks -- a "success" that changed nothing
-        # (`docs/WORK_ORDER_twin_consolidation.md` §7 D4). The plain save
-        # route still writes the assertions document.
-        raise ApiError(
-            422,
-            f"imprint {imprint_id!r} is a twins/ folder; apply re-runs aximprint's "
-            "install-cast, which writes the legacy cast-bundle layout, not te.yaml + "
-            "generated/ -- recompile into a legacy bundle directory and file it in, "
-            "until the installer (or an axRange import step) learns the twin layout "
-            "(docs/WORK_ORDER_twin_consolidation.md §7 D4)",
-        )
+    # A twins/ folder is recompiled in place like a legacy bundle (2026-11-09): aximprint's
+    # install-cast writes te.yaml + tfc/ + tap/ + generated/ through twin.yaml, and files a
+    # legacy bundle in on the way (`docs/WORK_ORDER_twin_consolidation.md` §7 D4, closed).
     document = req.document if isinstance(req.document, dict) else None
     if document is None:
         raise ApiError(
@@ -6229,22 +6213,30 @@ def _validate_twin_document(
                 },
             )
         try:
-            _check_tier_files(td / twin_id, files)
+            tier_warnings = _check_tier_files(td / twin_id, files)
         except ApiError as e:
             if raise_on_fail:
                 raise
             result = _with_tier_finding(result, e.message)
+        else:
+            for w in tier_warnings:
+                result = _with_tier_finding(result, w, severity="warning")
     finally:
         shutil.rmtree(td, ignore_errors=True)
     return result
 
 
-def _with_tier_finding(result: dtos.ValidateResultDTO, message: str) -> dtos.ValidateResultDTO:
-    """A tier-loader refusal folded into the validate answer as an error."""
+def _with_tier_finding(
+    result: dtos.ValidateResultDTO, message: str, *, severity: str = "error",
+) -> dtos.ValidateResultDTO:
+    """A tier-loader refusal folded into the validate answer as an error (or a
+    tier file's soft problem -- taps naming no sensor -- as a warning)."""
     findings = list(result.findings) + [
-        dtos.FindingDTO(rule_id="TIER-LOAD", severity="error", message=message,
+        dtos.FindingDTO(rule_id="TIER-LOAD", severity=severity, message=message,
                         location=message.split(":", 1)[0]),
     ]
+    if severity != "error":
+        return result.model_copy(update={"warnings": result.warnings + 1, "findings": findings})
     return dtos.ValidateResultDTO(
         disposition="FAIL", exit_code=1, passes_run=list(result.passes_run),
         errors=result.errors + 1, warnings=result.warnings, findings=findings,
@@ -6264,18 +6256,27 @@ def validate_document(
     return _validate_twin_document(settings, twin_id, files, raise_on_fail=False)
 
 
-def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> None:
+def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
     """Every `tfc/*.yaml`, `tap/*.yaml` and `personas/*.yaml` of the
-    document must parse as what its playout will load (one validation
-    implementation, LES-037)."""
+    document (and a legacy cast's root-level `tap-cast.yaml` / `tfc-cast.yaml`
+    when it has no manifest) must parse as what its playout will load (one
+    validation implementation, LES-037). A tap binding naming no sensor is
+    the one soft problem (a fresh cast's every binding): returned as a
+    warning, since the document is sound and the tap tier refuses it until
+    a sensor is set."""
     from axrange.api import edits
     from axrange.o2control.taps import TapPlanError, load_tap_plan
     from axrange.o2control.traffic import TrafficPlanError, load_traffic_profile
     from axrange.personas.registry import PersonaRegistryError, twin_overlay
 
+    warnings: list[str] = []
+    legacy = {
+        rel: tier for tier, names in edits.LEGACY_TIER_FILES.items() for rel in names
+    } if edits.MANIFEST not in files else {}
     for rel in sorted(files):
-        top = rel.split("/", 1)[0]
-        if not rel.endswith((".yaml", ".yml")) or top not in ("tfc", "tap"):
+        top = legacy.get(rel) or rel.split("/", 1)[0]
+        if not rel.endswith((".yaml", ".yml")) or top not in ("tfc", "tap") or (
+                "/" not in rel and rel not in legacy):
             continue
         try:
             if top == "tfc":
@@ -6284,7 +6285,13 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> None:
                     continue  # a `roles_from:` fragment (tfc/roles.yaml), not a profile
                 load_traffic_profile(bundle_dir / rel)
             else:
-                load_tap_plan(bundle_dir / rel)
+                plan = load_tap_plan(bundle_dir / rel, require_sensors=False)
+                bare = sum(1 for b in plan.bindings if not b.sensors)
+                if bare:
+                    warnings.append(
+                        f"{rel}: {bare} tap binding(s) name no sensor -- the tap tier "
+                        "refuses them until one is set"
+                    )
         except (TrafficPlanError, TapPlanError) as e:
             raise ApiError(400, f"{rel}: {e.message}") from e
     if (bundle_dir / "personas").is_dir():
@@ -6292,6 +6299,7 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> None:
             twin_overlay(bundle_dir / "personas")
         except PersonaRegistryError as e:
             raise ApiError(400, f"personas/: {e}") from e
+    return warnings
 
 
 def _write_root(settings: ApiSettings) -> Path:

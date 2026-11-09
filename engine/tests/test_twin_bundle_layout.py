@@ -145,15 +145,15 @@ def test_every_read_route_answers_the_same_for_both_layouts(tmp_path):
     _twin_folder(b)
     got_a = _scrub(_read_all(_client(a, tmp_path / "ca")), a)
     got_b = _scrub(_read_all(_client(b, tmp_path / "cb")), b)
-    # Apply capability is the ONE legitimate difference (fix round 1): a
-    # twins/ folder cannot be recompiled in place, and the read says why.
+    # Apply capability no longer differs (2026-11-09: install-cast writes the twin
+    # folder, so a twins/ folder recompiles in place); here neither is configured.
     why_a, why_b = _pop_apply_capability(got_a), _pop_apply_capability(got_b)
     # So is `modified_at` (review round 3): each layout's files were written at their own moment.
     for got in (got_a, got_b):
         for e in got["list"]["imprints"]:
             assert e.pop("modified_at") is not None
     assert all(not ok for ok, _w in why_a + why_b)
-    assert all("twins/ folder" in w for _ok, w in why_b)
+    assert why_a == why_b and all("not configured" in w for _ok, w in why_b)
     assert got_a == got_b
     assert got_b["/provenance"]["provenance"] == "canonical"  # the file WAS found
     assert got_b["/cast"]["has_topology_export"] is True
@@ -242,18 +242,17 @@ def test_the_assertions_document_stays_at_the_twin_root(tmp_path):
     assert (d / f"{ID}.assertions.yaml").is_file()
 
 
-def test_apply_refuses_a_twin_folder_before_it_saves_anything(tmp_path):
-    """`aximprint install-cast` writes the legacy layout; an apply into a twin
-    folder would report success and change nothing a reader sees (D4)."""
+def test_apply_no_longer_refuses_a_twin_folder(tmp_path):
+    """2026-11-09: `aximprint install-cast` writes the twin-folder layout, so an
+    apply into a twin folder lands where its readers look (D4 closed); here it
+    gets as far as the recompile configuration, like a legacy bundle."""
     root = tmp_path / "twins"
-    d = _twin_folder(root)
-    before = sorted(str(p.relative_to(d)) for p in d.rglob("*"))
+    _twin_folder(root)
     doc = {"schema": "axr-assertions/1", "imprint": ID, "as_of": "2026-09-26T00:00:00Z",
            "source": "operator: tester", "add": [], "override": [], "suppress": []}
     r = _client(root, tmp_path).post(f"/api/twins/{ID}/apply", json={"document": doc})
-    assert r.status_code == 422, r.text[:300]
-    assert "D4" in r.json()["error"]
-    assert sorted(str(p.relative_to(d)) for p in d.rglob("*")) == before
+    assert r.status_code == 503, r.text[:300]
+    assert "D4" not in r.json()["error"] and "not configured" in r.json()["error"]
 
 
 def test_the_bundle_fingerprint_does_not_depend_on_the_layout(tmp_path):

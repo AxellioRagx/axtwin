@@ -464,9 +464,14 @@ def _selector_from_dict(raw: dict[str, Any]) -> TapPointSelector:
     return TapPointSelector(id=raw.get("id"), scope=scope, target=target)
 
 
-def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
+def parse_tap_plan(raw: dict[str, Any], *, require_sensors: bool = True) -> TapPlanSpec:
     """Sanity-check an already-loaded tap-plan dict (used directly by tests;
-    `load_tap_plan` is the file-reading entry point)."""
+    `load_tap_plan` is the file-reading entry point).
+
+    `require_sensors=False` is the document validate's reading (2026-11-09): a
+    binding with no `sensors:` (a fresh cast's every binding) loads with
+    `sensors=[]` so the caller can report it as a warning; every apply path
+    keeps the default and refuses it."""
     if not isinstance(raw, dict):
         raise TapPlanError("tap-plan file root must be a mapping", status=400)
     body = raw.get("tap-plan")
@@ -570,7 +575,9 @@ def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
             )
 
         sensors = b.get("sensors")
-        if (
+        if not require_sensors and not sensors:
+            sensors = []
+        elif (
             not isinstance(sensors, list)
             or not sensors
             or not all(isinstance(s, str) and s for s in sensors)
@@ -580,7 +587,7 @@ def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
                 f"bindings[{i}] ({label!r}): 'sensors' must be a non-empty "
                 "list of sensor-id strings", status=400,
             )
-        if mode == "exclusive" and len(sensors) != 1:
+        if mode == "exclusive" and len(sensors) != 1 and (require_sensors or sensors):
             raise TapPlanError(
                 f"bindings[{i}]: mode=exclusive requires exactly 1 sensor, "
                 f"got {len(sensors)}", status=400,
@@ -602,7 +609,7 @@ def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
     return TapPlanSpec(target=target, bindings=bindings)
 
 
-def load_tap_plan(path: str | Path) -> TapPlanSpec:
+def load_tap_plan(path: str | Path, *, require_sensors: bool = True) -> TapPlanSpec:
     """Load + sanity-check a tap-plan YAML file. Raises `TapPlanError` on a
     structural problem (missing/malformed file, a malformed target or binding).
     An empty `bindings` list loads as a plan with no taps."""
@@ -615,7 +622,7 @@ def load_tap_plan(path: str | Path) -> TapPlanSpec:
         raise TapPlanError(f"{p}: {e}", status=400) from e
     if raw is None:
         raw = {}
-    return parse_tap_plan(raw)
+    return parse_tap_plan(raw, require_sensors=require_sensors)
 
 
 def resolve_tap_plan(

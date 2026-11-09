@@ -382,13 +382,23 @@ def check_document_identity(twin_id: str, files: dict[str, str]) -> str:
 def tier_file_of(files: dict[str, str], tier: str) -> str | None:
     """The document's DEFAULT file for `tier` (`tfc`|`tap`|`exr`): the
     manifest's `tiers.<tier>.default`, else `<tier>/default.yaml` when the
-    document has it and there is no manifest. None when the tier has no
-    default."""
+    document has it and there is no manifest, else a legacy cast name
+    (`LEGACY_TIER_FILES`). None when the tier has no default."""
     default = _manifest_tier_default(files, tier)
     if default is not None:
         return default if default and default in files else None
-    cand = f"{tier}/default.yaml"
-    return cand if cand in files else None
+    for cand in (f"{tier}/default.yaml", *LEGACY_TIER_FILES.get(tier, ())):
+        if cand in files:
+            return cand
+    return None
+
+
+#: The names a cast's installer wrote before it filed casts as twin folders
+#: (2026-11-09): read as the tier's default by a bundle with no manifest.
+LEGACY_TIER_FILES: dict[str, tuple[str, ...]] = {
+    "tfc": ("tfc-cast.yaml", "tfc.yaml"),
+    "tap": ("tap-cast.yaml", "tap.yaml"),
+}
 
 
 def profile_reach(files: dict[str, str], profile_rel: str | None) -> set[str]:
@@ -862,6 +872,12 @@ def classify_file(
 ) -> PendingChange:
     """An added / removed / modified file other than te and manifest."""
     top = PurePosixPath(path).parts[0]
+    # A legacy cast bundle's root-level tier files (`tap-cast.yaml`, `tfc-cast.yaml`)
+    # classify by their tier like `tap/` and `tfc/` do.
+    if path in (reach_after.tap, reach_before.tap):
+        top = "tap"
+    elif path in reach_after.tfc or path in reach_before.tfc:
+        top = "tfc"
     if top == "tfc":
         if path in reach_after.tfc or path in reach_before.tfc:
             return PendingChange(path=path, op=op, kind=KIND_TRAFFIC, via=["tfc"], paths=[path],

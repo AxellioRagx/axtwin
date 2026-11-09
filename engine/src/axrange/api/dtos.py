@@ -1312,7 +1312,7 @@ class ImprintListItemDTO(BaseModel):
     # excluded; None when the folder cannot be read. Additive; the Twins list's column.
     modified_at: Optional[str] = None
     # Fix round 1: whether `POST /api/imprints/{id}/apply` can run here, and
-    # why not -- a twins/ folder, aximprint bin/store unset, or no
+    # why not -- aximprint bin/store unset, or no
     # `cast_invocation` block -- so the UI states it instead of guessing.
     can_apply: bool = False
     apply_blocked_reason: Optional[str] = None

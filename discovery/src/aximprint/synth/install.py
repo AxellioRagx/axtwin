@@ -34,6 +34,21 @@ coincidence.
 
 A caller that only checks "nonzero" loses that distinction, which is the point of writing it
 down: `2` means nothing was attempted, `1` means the cast is internally inconsistent.
+
+**The layout it writes is axRange's twin folder** (2026-11-09; it wrote the legacy
+cast-bundle names until then, and the console's canvas and tier loaders read none of them):
+
+    <stable>/twin.yaml                       the manifest: which file is each tier's default
+    <stable>/te.yaml                         the twin config
+    <stable>/tfc/default.yaml                the traffic profile (when the cast has one)
+    <stable>/tap/default.yaml                the tap plan (when the cast has one)
+    <stable>/personas/, <stable>/scripts/    as before
+    <stable>/generated/<stable>.topology.json, <stable>.provenance.json
+
+Re-installing over a legacy bundle files it in: the legacy names this module used to write
+(`<stable>.yaml`, `tfc-cast.yaml`, `tap-cast.yaml`, the id-stemmed sidecars at the root) are
+removed, and the machine-written files axRange keeps beside them (`layout.json`, `.history/`,
+`<stable>.scorecard.*.json`) move under `generated/`, where a twin folder's readers look.
 """
 from __future__ import annotations
 
@@ -49,6 +64,55 @@ import yaml
 # instance set it derives — so two copies of the rule drifting apart would fail a cast at install
 # time with "is not a host in target twin", after the previous twin is already destroyed.
 from aximprint.synth.personas import node_instances as _instances
+
+
+#: The twin-folder names (axRange `twinconfig/manifest.py`, `twinconfig/bundle.py`).
+MANIFEST = "twin.yaml"
+TE_FILE = "te.yaml"
+TFC_FILE = "tfc/default.yaml"
+TAP_FILE = "tap/default.yaml"
+GENERATED = "generated"
+
+
+def _legacy_names(stable: str) -> list[str]:
+    """What this installer wrote before it learnt the twin folder."""
+    return [f"{stable}.yaml", "tfc-cast.yaml", "tap-cast.yaml",
+            f"{stable}.topology.json", f"{stable}.provenance.json"]
+
+
+def _file_in_legacy(out_dir: Path, stable: str) -> list[str]:
+    """Turn a legacy bundle at `out_dir` into a twin folder's leftovers: drop the legacy
+    names (rewritten below under their new ones) and move axRange's own machine-written
+    files under `generated/`. Returns what moved, for the report."""
+    moved: list[str] = []
+    for name in _legacy_names(stable):
+        (out_dir / name).unlink(missing_ok=True)
+    gen = out_dir / GENERATED
+    for f in sorted(out_dir.iterdir()):
+        if f.name == "layout.json" or f.name == ".history" or (
+                f.name.startswith(f"{stable}.scorecard.") and f.name.endswith(".json")):
+            gen.mkdir(parents=True, exist_ok=True)
+            dst = gen / f.name
+            if dst.exists():
+                continue  # the twin folder's own copy wins
+            f.rename(dst)
+            moved.append(f.name)
+    return moved
+
+
+def _manifest(stable: str, description: str, *, contained: bool, tfc: bool, tap: bool) -> str:
+    tiers = {"te": {"default": TE_FILE}}
+    if tfc:
+        tiers["tfc"] = {"default": TFC_FILE}
+    if tap:
+        tiers["tap"] = {"default": TAP_FILE}
+    body = {"twin": {"id": stable, "description": description,
+                     "containment": "contained" if contained else "uncontained",
+                     "tiers": tiers}}
+    head = (f"# {stable} -- the root manifest, written by `aximprint install-cast`: which file\n"
+            "# is each tier's default. generated/ holds the id-stemmed topology export and\n"
+            "# provenance sidecar the imprint API reads.\n")
+    return head + yaml.safe_dump(body, sort_keys=False, width=100)
 
 
 class _ShapeError(Exception):
@@ -126,7 +190,8 @@ def install_cast(cast: Path, root: Path, stable: str,
 
     out_dir = root / stable
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / f"{stable}.yaml").write_text(
+    filed_in = _file_in_legacy(out_dir, stable)
+    (out_dir / TE_FILE).write_text(
         yaml.safe_dump(doc, sort_keys=False, width=100)
     )
 
@@ -222,7 +287,8 @@ def install_cast(cast: Path, root: Path, stable: str,
                   f"no base-persona fallback: {missing_p}", file=sys.stderr)
             return 1
 
-        (out_dir / "tfc-cast.yaml").write_text(yaml.safe_dump(tfc, sort_keys=False, width=100))
+        (out_dir / TFC_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (out_dir / TFC_FILE).write_text(yaml.safe_dump(tfc, sort_keys=False, width=100))
 
     # Personas ship WITH the twin config, in one folder, so the pair cannot drift apart -- a
     # twin whose personas live elsewhere can be deployed against the wrong ones.
@@ -240,6 +306,7 @@ def install_cast(cast: Path, root: Path, stable: str,
     # twin whose capture plan lives outside its folder is a twin somebody deploys untapped.
     tap_src = cast / "tap.yaml"
     n_bindings = 0
+    n_unsensored = 0
     if tap_src.exists():
         tap = yaml.safe_load(tap_src.read_text())
         plan = tap.get("tap-plan") or {}
@@ -247,10 +314,19 @@ def install_cast(cast: Path, root: Path, stable: str,
             plan["target"] = stable
         bindings = plan.get("bindings") or []
         n_bindings = len(bindings)
-        if sensors:
-            for b in bindings:
+        n_unsensored = 0
+        for b in bindings:
+            if not isinstance(b, dict):
+                continue
+            if sensors:
                 b["sensors"] = list(sensors)
-        (out_dir / "tap-cast.yaml").write_text(yaml.safe_dump(tap, sort_keys=False, width=100))
+            elif not b.get("sensors"):
+                n_unsensored += 1
+            # A tap the capture came from is DISCOVERED (axRange topology-layers §8); the
+            # console's canvas tells it from an operator's authored tap by this key.
+            b.setdefault("source", "discovered")
+        (out_dir / TAP_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (out_dir / TAP_FILE).write_text(yaml.safe_dump(tap, sort_keys=False, width=100))
 
     # INSTALL SCRIPTS. Not optional, and their absence is the worst-shaped failure this whole
     # module can produce.
@@ -298,7 +374,8 @@ def install_cast(cast: Path, root: Path, stable: str,
     # holding only this folder re-run the cast that produced it instead of guessing at the flags.
     topo = cast / "topology.json"
     if topo.exists():
-        (out_dir / f"{stable}.topology.json").write_text(topo.read_text())
+        (out_dir / GENERATED).mkdir(parents=True, exist_ok=True)
+        (out_dir / GENERATED / f"{stable}.topology.json").write_text(topo.read_text())
 
     # THE PROVENANCE SIDECAR, for a stronger version of the same reason -- and it was missing
     # until 2026-09-04 (`docs/WORK_ORDER_reference_ingest.md` D9; found independently by
@@ -324,23 +401,35 @@ def install_cast(cast: Path, root: Path, stable: str,
     # `docs/WORK_ORDER_reference_ingest.md` §8, cross-repo test seam.)
     prov = cast / "provenance.json"
     if prov.exists():
-        (out_dir / f"{stable}.provenance.json").write_text(prov.read_text())
+        (out_dir / GENERATED).mkdir(parents=True, exist_ok=True)
+        (out_dir / GENERATED / f"{stable}.provenance.json").write_text(prov.read_text())
+
+    # The manifest last, once every file it names is on disk: axRange's loader refuses a
+    # default that names no file, and a twin.yaml is what makes the folder a twin folder.
+    (out_dir / MANIFEST).write_text(_manifest(
+        stable, tc["description"], contained=tc.get("egress") is not None,
+        tfc=tfc_src.exists(), tap=tap_src.exists()))
 
     print(f"{origin} -> {stable}")
-    print(f"  {out_dir}/{stable}.yaml")
+    print(f"  {out_dir}/{MANIFEST}  (twin folder: te, tfc, tap defaults)")
+    print(f"  {out_dir}/{TE_FILE}")
+    if filed_in:
+        print(f"  filed in a legacy bundle: moved {', '.join(filed_in)} under {GENERATED}/")
     if tfc_src.exists():
         note = f"{n_assign} assignment(s), node ids expanded to instances"
         if dropped_roles:
             note += f"; dropped {len(dropped_roles)} double-claiming role entr(y/ies) " \
                     f"{sorted(set(dropped_roles))}"
-        print(f"  {out_dir}/tfc-cast.yaml  ({note})")
+        print(f"  {out_dir}/{TFC_FILE}  ({note})")
     if tap_src.exists():
-        filled = f"sensors={sensors}" if sensors else "sensors UNFILLED — `tap deploy` will refuse"
-        print(f"  {out_dir}/tap-cast.yaml  ({n_bindings} binding(s), {filled})")
+        filled = (f"sensors={sensors}" if sensors else
+                  f"{n_unsensored} with sensors UNFILLED — `tap deploy` will refuse them"
+                  if n_unsensored else "sensors as cast")
+        print(f"  {out_dir}/{TAP_FILE}  ({n_bindings} binding(s), {filled})")
     if topo.exists():
-        print(f"  {out_dir}/{stable}.topology.json  (observed census + conversation graph)")
+        print(f"  {out_dir}/{GENERATED}/{stable}.topology.json  (observed census + conversation graph)")
     if prov.exists():
-        print(f"  {out_dir}/{stable}.provenance.json  (per-field evidence + population block)")
+        print(f"  {out_dir}/{GENERATED}/{stable}.provenance.json  (per-field evidence + population block)")
     else:
         # Named, not silent. A cast without a sidecar is a cast whose every evidence class the
         # consumer has to re-derive, and an operator should hear that at install time rather

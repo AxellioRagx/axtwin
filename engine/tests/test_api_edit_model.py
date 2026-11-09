@@ -1269,6 +1269,29 @@ def test_validate_document_reports_a_bad_tap_plan_and_a_bad_persona(env):
     )
 
 
+def test_a_tap_binding_with_no_sensor_is_a_warning_and_legacy_cast_names_are_tier_files(env):
+    """2026-11-09: a fresh cast's tap plan names no sensor on any binding; the
+    document is sound (Save stays open) and Checks says how many taps need
+    one -- a TIER-LOAD warning, not a refusal. A legacy cast bundle (no
+    manifest, `tap-cast.yaml` at the root) reads that file as its tap default."""
+    from axrange.api import edits
+
+    settings, _ = env
+    c, _, _ = _client(settings)
+    bare = "tap-plan:\n  target: edit-twin\n  bindings:\n    - tap: corp\n      mode: exclusive\n"
+    j = _validate(c, _edited(_doc(c), **{"tap/default.yaml": bare})).json()
+    assert j["disposition"] != "FAIL", j
+    (w,) = [f for f in j["findings"] if f["rule_id"] == "TIER-LOAD"]
+    assert w["severity"] == "warning" and "1 tap binding(s) name no sensor" in w["message"]
+    # The legacy names, read only without a manifest.
+    legacy = {"x.yaml": TE, "tap-cast.yaml": bare, "tfc-cast.yaml": TFC}
+    assert edits.tier_file_of(legacy, "tap") == "tap-cast.yaml"
+    assert edits.tier_file_of(legacy, "tfc") == "tfc-cast.yaml"
+    assert edits.tier_file_of({**legacy, "twin.yaml": MANIFEST}, "tap") is None
+    changes = edits.classify(legacy, {**legacy, "tap-cast.yaml": bare.replace("corp", "dmz")}, te_file="x.yaml")
+    assert [(ch.path, ch.kind) for ch in changes] == [("tap-cast.yaml", "taps")]
+
+
 def test_validate_document_is_exclusive_with_the_id_fields_and_checks_its_shape(env):
     settings, _ = env
     c, _, _ = _client(settings)
