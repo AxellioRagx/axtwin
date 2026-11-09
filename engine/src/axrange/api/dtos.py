@@ -542,6 +542,10 @@ class TargetDTO(BaseModel):
     # declaration; None only when the conf failed to load and nothing was
     # declared (`error` says why).
     platform: Optional[str] = None
+    # The tap-plan-facing names of the target's config-declared external
+    # sensors (adapter.conf `EXTERNAL_SENSORS[].id`), what a tap binding's
+    # `sensors:` may name; the canvas offers them (2026-11-09). Names only.
+    sensors: list[str] = []
 
 
 class TargetListDTO(BaseModel):

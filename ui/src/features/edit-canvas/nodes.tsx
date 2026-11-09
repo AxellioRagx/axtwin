@@ -465,9 +465,13 @@ export function DeviceNode(p: P) {
 export function TapNode(p: P) {
   const d = p.data;
   const overlay = useContext(OverlayContext);
+  const filter = useContext(ProvFilterContext);
+  const provDim = useDim(d.kind === "tap" ? d.source : null);
   if (d.kind !== "tap") return null;
+  // The Checks tab's "taps need a sensor" row leaves only the taps with none bright.
+  const dim = filter === "no-sensor" ? (d.sensors.length ? " cv-dim" : "") : provDim;
   return (
-    <div className={`cv-tap${p.selected ? " selected" : ""}${overlay ? " cv-ov-tap" : ""}`} data-testid="canvas-tap" data-tap={d.id} data-target={d.target} data-scope={d.scope} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : " (no sensor named)"}`}>
+    <div className={`cv-tap${p.selected ? " selected" : ""}${overlay ? " cv-ov-tap" : ""}${dim}`} data-sensors={d.sensors.length} data-testid="canvas-tap" data-tap={d.id} data-target={d.target} data-scope={d.scope} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : " (no sensor named)"}`}>
       <span className="cv-tap-chip">tap</span>
       <ProvenanceMark source={d.source} />
       <Handles />

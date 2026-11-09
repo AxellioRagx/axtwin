@@ -183,7 +183,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     writes: [],
     refuse: {},
     runSteps: [],
-    targets: [{ node: "dev45", name: "dev45", default: true, nodes: ["dev45"], platform: "proxmox", error: null }],
+    targets: [{ node: "dev45", name: "dev45", default: true, nodes: ["dev45"], platform: "proxmox", error: null, sensors: ["XPress-SW-A"] }],
     ...seed,
   };
   let nextId = 100;

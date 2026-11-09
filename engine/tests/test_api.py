@@ -1132,6 +1132,23 @@ def test_targets_empty_without_config(tmp_path):
     assert "targets" in r.json()
 
 
+def test_targets_list_the_config_external_sensor_names(tmp_path):
+    """2026-11-09: the canvas offers a target's EXTERNAL_SENSORS ids as tap
+    sensors; the names only, never the access facts."""
+    conf = tmp_path / "adapter.conf"
+    conf.write_text(
+        "PROXMOX_API_URL=https://pve.example:8006/api2/json\nDEFAULT_NODE=pxtest1\n"
+        'EXTERNAL_SENSORS=[{"id":"XPress-SW","vmid":250,"transport_ip":"10.255.250.20",'
+        '"access_password":"pw"}]\n'
+    )
+    c = _client(_settings(tmp_path, adapter_config=str(conf)))
+    r = c.get("/api/targets")
+    assert r.status_code == 200, r.text
+    (t,) = r.json()["targets"]
+    assert t["sensors"] == ["XPress-SW"]
+    assert "pw" not in r.text and "10.255.250.20" not in r.text
+
+
 # ---------------------------------------------------------------------------
 # auth
 # ---------------------------------------------------------------------------

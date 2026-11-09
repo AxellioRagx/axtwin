@@ -234,7 +234,7 @@ def test_a3_save_as_validates_before_writing(env):
     assert not (catalog / "bad-twin").exists()
     # A tap plan the tap playout would refuse is refused here, too.
     files = {rel: text.replace("edit-twin", "bad-tap") for rel, text in _doc(c).items()}
-    files["tap/default.yaml"] = "tap-plan:\n  target: bad-tap\n  bindings: []\n"
+    files["tap/default.yaml"] = "tap-plan:\n  target: bad-tap\n  bindings: { not: a list }\n"
     r = c.post("/api/twin-configs", json={"id": "bad-tap", "files": files}, headers=AUTH)
     assert r.status_code == 400 and "bindings" in r.json()["error"]
     assert not (catalog / "bad-tap").exists()
@@ -827,6 +827,38 @@ def test_reset_tears_down_a_tier_the_baseline_lacks(env):
     assert r.json()["config"]["has_working_copy"] is False
 
 
+def test_apply_of_a_copy_with_no_taps_left_tears_the_tap_tier_down(env):
+    """2026-11-09: the canvas drops the tap plan (and its manifest entry) with
+    the last binding; Apply of that copy is the tap tier's teardown, never a
+    409 for a missing default. `bindings: []` reads the same."""
+    settings, _catalog = env
+    _seed_sensors(settings)
+    from tests.test_o2_taps import _FakeTeardown
+
+    c, _, _adapter = _client(settings)
+    teardown = _FakeTeardown()
+    c.app.state.tap_teardown_backend = teardown
+    did = _deploy(c)
+    # Stand the tap tier up through an Apply of the baseline's own plan.
+    _put(c, did, _edited(_doc(c), **{"tap/default.yaml": TAP + "      mode: exclusive\n"}))
+    r = c.post(f"/api/deploys/{did}/config/apply", json={"target_node": "pxtest1"}, headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert c.get("/api/taps", params={"target": did}).json()["status"] == "completed"
+    # The canvas's "remove the last tap": the file and the manifest's tap tier go.
+    files = _doc(c)
+    files.pop("tap/default.yaml")
+    files["twin.yaml"] = MANIFEST.replace("    tap:\n      default: tap/default.yaml\n", "")
+    assert c.post("/api/validate", json={"document": {"id": TWIN, "files": files}}).json()["disposition"] != "FAIL"
+    j = _put(c, did, files)
+    assert {ch["kind"] for ch in j["changes"]} == {"taps"}
+    r = c.post(f"/api/deploys/{did}/config/apply", json={"target_node": "pxtest1"}, headers=AUTH)
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] == ["tap"]
+    assert any("torn down" in w for w in r.json()["warnings"])
+    assert any(kind == "gretap" for kind, _t in teardown.calls)
+    assert c.get("/api/taps", params={"target": did}).json()["status"] in ("destroyed", "not-applied")
+
+
 def test_apply_refuses_on_baseline_drift_and_get_reports_it(env):
     settings, catalog = env
     c, backend, _ = _client(settings)
@@ -1219,7 +1251,11 @@ def test_validate_document_reports_an_invalid_image_with_the_validators_reason(e
 def test_validate_document_reports_a_bad_tap_plan_and_a_bad_persona(env):
     settings, _ = env
     c, _, _ = _client(settings)
+    # An EMPTY bindings list is a plan with no taps (2026-11-09), not a refusal.
     files = _edited(_doc(c), **{"tap/default.yaml": "tap-plan:\n  target: edit-twin\n  bindings: []\n"})
+    j = _validate(c, files).json()
+    assert not [f for f in j["findings"] if f["rule_id"] == "TIER-LOAD"], j
+    files = _edited(_doc(c), **{"tap/default.yaml": "tap-plan:\n  target: edit-twin\n  bindings: { not: a list }\n"})
     r = _validate(c, files)
     assert r.status_code == 200, r.text
     j = r.json()

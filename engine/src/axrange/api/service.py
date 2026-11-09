@@ -1928,6 +1928,7 @@ def list_targets(settings: ApiSettings) -> dtos.TargetListDTO:
             has_token=f.has_token, has_ssh_key=f.has_ssh_key,
             name=t.name, default=t.default, nodes=list(f.known_nodes),
             db_path=t.db_path, error=f.error, platform=f.platform or None,
+            sensors=[str(x.id) for x in (getattr(f.cfg, "external_sensors", None) or []) if getattr(x, "id", None)],
             stores=[
                 {"label": lbl, "path": p, "primary": p == t.db_path}
                 for p, lbl in store_labels(t).items()
@@ -6804,6 +6805,18 @@ def _replay_tap(
     return _completed("tap", _tap_status_dto(status))
 
 
+def _tap_bindings_in(files: dict[str, str], rel: Optional[str]) -> bool:
+    """Whether the document's tap default (`rel`) carries any binding; a missing
+    file or `bindings: []` is no taps."""
+    from axrange.api import edits
+
+    if not rel or rel not in files:
+        return False
+    raw = edits.parse_yaml(files[rel])
+    body = raw.get("tap-plan") if isinstance(raw, dict) else None
+    return bool(isinstance(body, dict) and body.get("bindings"))
+
+
 def _teardown_tier(
     settings: ApiSettings, te: Any, tier: str, *, tap_adapter: Any, tap_teardown_backend: Any,
     persona_backend: Any, tfc_teardown_backend: Any, warnings: list[str],
@@ -6845,7 +6858,7 @@ def _teardown_tier(
 def deploy_config_apply(
     settings: ApiSettings, deploy_id: str, req: dtos.DeployConfigApplyRequest, *,
     persona_backend: Any = None, tap_adapter: Any = None, tap_config_backend: Any = None,
-    exits: Any = None,
+    tap_teardown_backend: Any = None, exits: Any = None,
 ) -> dtos.DeployConfigApplyDTO:
     """A2 `POST /api/deploys/{id}/config/apply`: the working copy's delta
     onto the running twin, no redeploy. Refused outright (nothing applied)
@@ -6864,13 +6877,14 @@ def deploy_config_apply(
     with _exit_in_flight(exits, te, "apply") as ex:
         return _deploy_config_apply(
             settings, te, req, ex, persona_backend=persona_backend, tap_adapter=tap_adapter,
-            tap_config_backend=tap_config_backend,
+            tap_config_backend=tap_config_backend, tap_teardown_backend=tap_teardown_backend,
         )
 
 
 def _deploy_config_apply(
     settings: ApiSettings, te: Any, req: dtos.DeployConfigApplyRequest, ex: Any, *,
     persona_backend: Any, tap_adapter: Any, tap_config_backend: Any,
+    tap_teardown_backend: Any = None,
 ) -> dtos.DeployConfigApplyDTO:
     import shutil
     import tempfile
@@ -6907,7 +6921,11 @@ def _deploy_config_apply(
     tiers = edits.tiers_to_apply(changes)
     roles_by_group = edits.role_overrides(changes)
     defaults = {t: edits.tier_file_of(wc.files, t) for t in tiers}
-    missing = [t for t, rel in defaults.items() if rel is None]
+    # A tap change that leaves NO taps (the file gone with its manifest entry, or
+    # `bindings: []`) applies as the tap tier's teardown (2026-11-09: the canvas drops
+    # the tap plan with its last binding).
+    tap_gone = "tap" in tiers and not _tap_bindings_in(wc.files, defaults.get("tap"))
+    missing = [t for t, rel in defaults.items() if rel is None and not (t == "tap" and tap_gone)]
     if missing:
         raise ApiError(
             409,
@@ -6969,6 +6987,14 @@ def _deploy_config_apply(
                                 persona_backend=persona_backend, warnings=warnings,
                                 cancel_event=ex.cancel,
                             )
+                        elif tap_gone:
+                            if _teardown_tier(
+                                settings, te, "tap", tap_adapter=tap_adapter,
+                                tap_teardown_backend=tap_teardown_backend,
+                                persona_backend=persona_backend, tfc_teardown_backend=None,
+                                warnings=warnings,
+                            ):
+                                warnings.append("tap: the copy has no taps left; the tap tier was torn down")
                         else:
                             tap_dto = _replay_tap(
                                 settings, te, bundle / str(defaults["tap"]),

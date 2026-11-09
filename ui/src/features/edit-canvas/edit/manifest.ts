@@ -3,7 +3,7 @@
  * canvas reads it to find the traffic profile the side panel edits, rewrites
  * `twin.id` on a Save-As, and wires a profile it had to create. Pure.
  */
-import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, replaceValueOnLine, scalarText } from "./yaml";
+import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, removeSpan, replaceValueOnLine, scalarText } from "./yaml";
 
 export const MANIFEST = "twin.yaml";
 
@@ -65,5 +65,26 @@ function wireTierDefault(text: string, tier: "tfc" | "tap", path: string): strin
   }
   const ind = tiers.value.indent;
   insertLines(lines, contentEnd(lines, tiers.end), [`${" ".repeat(ind)}${tier}:`, `${" ".repeat(ind + 2)}default: ${encodeScalar(path)}`]);
+  return joinLines(lines, doc.trailingNewline);
+}
+
+/** Drop `twin.tiers.<tier>` when its tier file goes with its last entry (the
+ *  canvas's last tap removed, 2026-11-09): the engine's manifest refuses a
+ *  default that names no file. A tier block carrying more than `default`
+ *  (variants) keeps its other keys and loses only `default:`. */
+export function unwireTierDefault(text: string, tier: "tfc" | "tap"): string {
+  const doc = parseYaml(text);
+  const lines = [...doc.lines];
+  const tw = get(doc.root, "twin");
+  if (!tw || tw.kind !== "map") return text;
+  const tiers = entry(tw, "tiers");
+  if (!tiers || tiers.value.kind !== "map") return text;
+  const t = entry(tiers.value, tier);
+  if (!t) return text;
+  if (t.value.kind === "map" && t.value.entries.some((e) => e.key !== "default")) {
+    const d = entry(t.value, "default");
+    if (!d) return text;
+    removeSpan(lines, d.start, d.end, t.value.indent);
+  } else removeSpan(lines, t.start, t.end, tiers.value.indent);
   return joinLines(lines, doc.trailingNewline);
 }

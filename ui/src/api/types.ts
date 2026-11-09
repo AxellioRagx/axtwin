@@ -795,6 +795,8 @@ export interface Target {
   nodes?: string[];
   platform?: string | null;
   error?: string | null;
+  /** The adapter.conf `EXTERNAL_SENSORS` ids: what a tap binding's `sensors:` may name. */
+  sensors?: string[];
 }
 
 export interface TargetList {

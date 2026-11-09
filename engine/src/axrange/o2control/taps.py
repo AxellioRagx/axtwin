@@ -488,9 +488,16 @@ def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
             "tap-plan.target, if given, must be a non-empty string", status=400
         )
 
-    bindings_raw = body.get("bindings") or []
-    if not isinstance(bindings_raw, list) or not bindings_raw:
-        raise TapPlanError("tap-plan.bindings must be a non-empty list", status=400)
+    # An EMPTY list (`bindings: []`, or no key) is a plan with no taps, not an
+    # error (2026-11-09: the canvas's "remove the last tap" left `bindings: []`
+    # and the twin's document stopped validating). Apply refuses an empty plan
+    # (`apply_tap_plan`: there is nothing to mirror; removing standing taps is
+    # the tier's destroy); the deploy sequence skips the tier.
+    bindings_raw = body.get("bindings")
+    if bindings_raw is None:
+        bindings_raw = []
+    if not isinstance(bindings_raw, list):
+        raise TapPlanError("tap-plan.bindings must be a list", status=400)
 
     # `docs/WORK_ORDER_tap_points.md`: a binding addresses its target via
     # EXACTLY one of the three vocabularies below -- the legacy raw
@@ -597,7 +604,8 @@ def parse_tap_plan(raw: dict[str, Any]) -> TapPlanSpec:
 
 def load_tap_plan(path: str | Path) -> TapPlanSpec:
     """Load + sanity-check a tap-plan YAML file. Raises `TapPlanError` on a
-    structural problem (missing/malformed file, no target, no bindings)."""
+    structural problem (missing/malformed file, a malformed target or binding).
+    An empty `bindings` list loads as a plan with no taps."""
     from axrange.ir.parser import IncludeError, StructuralError, load_yaml
 
     p = Path(path)
@@ -2599,6 +2607,11 @@ def apply_tap_plan(
     from axrange.platform import adapter_for_config, load_config
 
     resolved = resolve_tap_plan(spec, spec_path)
+    if not resolved.bindings:
+        raise TapPlanError(
+            "the tap plan has no bindings: nothing to mirror (removing standing taps is "
+            "the tap tier's destroy, DELETE /api/taps)", status=400,
+        )
 
     effective_target = target or resolved.target
     if not effective_target:

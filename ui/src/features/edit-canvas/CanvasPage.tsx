@@ -54,7 +54,7 @@ import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
 import { moveMember } from "./edit/members";
 import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
-import { Checks, SidePanel, checksBadge, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
+import { Checks, SidePanel, checksBadge, knownSensors, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
   twin: TwinSummary;
@@ -285,6 +285,9 @@ export function CanvasPage() {
   const personas = personaLoad.data?.personas ?? [];
   const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
+  // The targets' declared sensors (adapter.conf EXTERNAL_SENSORS), offered as tap sensors.
+  const targetsLoad = useLoad<string[]>((signal) => api.listTargets(signal).then((t) => [...new Set(t.targets.flatMap((x) => x.sensors ?? []))], () => []), []);
+  const declaredSensors = targetsLoad.data ?? [];
 
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
   // Moves and annotation changes stay on the canvas; the side-car is written
@@ -1298,6 +1301,7 @@ export function CanvasPage() {
                         onProvenance={pit !== null ? onProvenance : undefined}
                         provenanceBlock={provenanceBlock}
                         onSelect={setSelection}
+                        sensors={declaredSensors}
                       />
                     ),
                     checks: (
@@ -1309,6 +1313,7 @@ export function CanvasPage() {
                         changes={deployed ? (config?.changes ?? []) : null}
                         onDiscard={deployed && baselineFiles && !locked ? onDiscardChange : undefined}
                         provenance={{ filter: provFilter, onFilter: setProvFilter, fallback: defaultSource }}
+                        taps={{ filter: provFilter, onFilter: setProvFilter, sensors: knownSensors(model, declaredSensors), locked, apply: edit }}
                       />
                     ),
                     checksBadge: checksBadge({

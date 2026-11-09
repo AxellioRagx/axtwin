@@ -34,7 +34,9 @@ import {
   setNodeField,
   setPersona,
   setSegmentField,
+  setSensorsOnTaps,
   setTapSensorsOf,
+  tapsWithoutSensor,
   type DocModel,
   type WorkingDoc,
 } from "./edit/document";
@@ -110,7 +112,27 @@ export interface SidePanelProps {
   provenanceBlock?: ((subject: ProvenanceSubject) => string | null) | undefined;
   /** Select something from a panel (a link row, a tap row). */
   onSelect?: ((sel: Selection) => void) | undefined;
+  /** The deploy targets' declared sensors (adapter.conf `EXTERNAL_SENSORS`, `GET /api/targets`),
+   *  offered as a tap's sensors beside the ones the tap plan already names. */
+  sensors?: string[] | undefined;
 }
+
+/** The sensors a tap field offers: the targets' declared ones, then the plan's own. */
+export function knownSensors(model: DocModel, declared: readonly string[] = []): string[] {
+  return [...new Set([...declared, ...(model.tap?.bindings ?? []).flatMap((b) => b.sensors)])];
+}
+
+function SensorList({ id, sensors }: { id: string; sensors: string[] }) {
+  return (
+    <datalist id={id}>
+      {sensors.map((k) => (
+        <option key={k} value={k} />
+      ))}
+    </datalist>
+  );
+}
+
+const splitSensors = (v: string) => v.split(",").map((x) => x.trim()).filter(Boolean);
 
 export type ProvenanceSubject = { node: string } | { segment: string } | { link: number } | { tap: number };
 export type ProvenanceAction =
@@ -143,13 +165,59 @@ export function SidePanel(p: SidePanelProps) {
 /** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
  *  baseline's text (a pending change is one file's delta), when the page has
  *  the baseline and the canvas is not locked. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined }) {
+export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined; taps?: TapSensorProps | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
       <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
+      {p.taps ? <TapsNeedSensor model={p.model} {...p.taps} /> : null}
       {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
       {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} fallback={p.provenance.fallback ?? "authored"} /> : null}
     </div>
+  );
+}
+
+/** The Checks row for taps that name no sensor (a cast's caveat: "every
+ *  binding omits sensors"): the count, a filter that leaves only those taps
+ *  bright on the canvas, and one sensor set on all of them at once. */
+export interface TapSensorProps {
+  /** The canvas filter in force (`no-sensor` is this row's own). */
+  filter: string | null;
+  onFilter(filter: string | null): void;
+  sensors: string[];
+  locked: boolean;
+  apply: SidePanelProps["apply"];
+}
+
+export const NO_SENSOR_FILTER = "no-sensor";
+
+function TapsNeedSensor(p: TapSensorProps & { model: DocModel }) {
+  const [sensor, setSensor] = useState("");
+  const missing = tapsWithoutSensor(p.model);
+  if (missing.length === 0) return null;
+  const on = p.filter === NO_SENSOR_FILTER;
+  const set = () => {
+    const chosen = splitSensors(sensor);
+    if (!chosen.length) return;
+    if (p.apply(`sensors on ${missing.length} tap(s)`, (d, m) => setSensorsOnTaps(d, m, tapsWithoutSensor(m), chosen)) === null) {
+      setSensor("");
+      if (on) p.onFilter(null);
+    }
+  };
+  return (
+    <section className="cv-side-section" data-testid="taps-need-sensor">
+      <h3>Taps</h3>
+      <button type="button" className={`cv-prov-row${on ? " pressed" : ""}`} aria-pressed={on} data-testid="taps-need-sensor-row" onClick={() => p.onFilter(on ? null : NO_SENSOR_FILTER)}>
+        <span className="cv-prov-badge cv-prov-unconfirmed" aria-hidden="true">!</span> {missing.length} tap{missing.length === 1 ? "" : "s"} need a sensor
+      </button>
+      <p className="muted hint">the tap plan names no sensor for these; the tap tier refuses them until one is set</p>
+      <div className="row cv-inline">
+        <input type="text" aria-label="Sensor for every tap without one" placeholder={p.sensors[0] ? `e.g. ${p.sensors[0]}` : "sensor name"} value={sensor} disabled={p.locked} onChange={(e) => setSensor(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") set(); }} list="cv-sensors-all" />
+        <SensorList id="cv-sensors-all" sensors={p.sensors} />
+        <button type="button" disabled={p.locked || !splitSensors(sensor).length} data-testid="set-sensor-all" onClick={set}>
+          Set on all {missing.length}
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -990,7 +1058,9 @@ function SegmentTaps(p: SidePanelProps & { segment: string }) {
   const [sensors, setSensors] = useState("");
   const ro = p.locked;
   const taps = tapsOn(p.model.tap, p.segment);
-  const known = [...new Set((p.model.tap?.bindings ?? []).flatMap((b) => b.sensors))];
+  const known = knownSensors(p.model, p.sensors);
+  // The tap tier refuses a binding with no sensor: Add tap waits for one (2026-11-09).
+  const chosen = splitSensors(sensors);
   return (
     <>
       <h4>Taps <span className="muted">· tap, live</span></h4>
@@ -1009,12 +1079,8 @@ function SegmentTaps(p: SidePanelProps & { segment: string }) {
       </ul>
       <div className="row cv-inline">
         <input type="text" aria-label="Tap sensors" placeholder={known[0] ? `sensors, e.g. ${known[0]}` : "sensor names, comma-separated"} value={sensors} disabled={ro} onChange={(e) => setSensors(e.target.value)} list="cv-sensors" />
-        <datalist id="cv-sensors">
-          {known.map((k) => (
-            <option key={k} value={k} />
-          ))}
-        </datalist>
-        <button type="button" disabled={ro} data-testid="add-tap" onClick={() => { if (p.apply(`tap on ${p.segment}`, (d, m) => addTap(d, m, { scope: "segment", target: p.segment, sensors: sensors.split(",").map((x) => x.trim()).filter(Boolean), source: "authored" })) === null) setSensors(""); }}>
+        <SensorList id="cv-sensors" sensors={known} />
+        <button type="button" disabled={ro || chosen.length === 0} title={chosen.length ? undefined : "name a sensor first: the tap tier refuses a tap with none"} data-testid="add-tap" onClick={() => { if (p.apply(`tap on ${p.segment}`, (d, m) => addTap(d, m, { scope: "segment", target: p.segment, sensors: chosen, source: "authored" })) === null) setSensors(""); }}>
           Add tap
         </button>
       </div>
@@ -1034,7 +1100,8 @@ function TapPanel(p: SidePanelProps & { index: number }) {
       </h3>
       <h4>Taps <span className="muted">· tap, live</span></h4>
       <Field label="Sensors" hint="comma-separated sensor names the tap delivers to (the tap plan's sensors[])">
-        <Text ariaLabel="Sensors" value={b.sensors.join(", ")} disabled={ro} mono onCommit={(v) => p.apply(`sensors of tap ${b.index}`, (d, m) => setTapSensorsOf(d, m, b.index, v.split(",").map((x) => x.trim()).filter(Boolean)))} />
+        <Text ariaLabel="Sensors" value={b.sensors.join(", ")} disabled={ro} mono list="cv-sensors-tap" placeholder={b.sensors.length ? undefined : "no sensor named: the tap tier refuses this tap"} onCommit={(v) => p.apply(`sensors of tap ${b.index}`, (d, m) => setTapSensorsOf(d, m, b.index, splitSensors(v)))} />
+        <SensorList id="cv-sensors-tap" sensors={knownSensors(p.model, p.sensors)} />
       </Field>
       <dl className="facts">
         <dt>Mode</dt>

@@ -10,6 +10,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { addTapBinding, moveTapBinding, readTap, removeTapBinding, setTapSensors, tapsOn } from "../src/features/edit-canvas/edit/tap";
+import { unwireTierDefault, wireTapDefault } from "../src/features/edit-canvas/edit/manifest";
 import { addLink, readTe, removeLink, setLinkField, setMemberRole } from "../src/features/edit-canvas/edit/te";
 import { commit, seeded, segment, settle, tab, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
@@ -92,6 +93,13 @@ afterEach(() => {
 });
 
 describe("the tap plan reader and editor (tap.ts)", () => {
+  it("unwires a tier from the manifest: the whole block, or only `default:` when variants stay", () => {
+    const m = "twin:\n  id: insp\n  tiers:\n    te:\n      default: te.yaml\n    tap:\n      default: tap/default.yaml\n";
+    expect(unwireTierDefault(m, "tap")).toBe("twin:\n  id: insp\n  tiers:\n    te:\n      default: te.yaml\n");
+    const v = "twin:\n  id: insp\n  tiers:\n    tap:\n      default: tap/default.yaml\n      variants: [tap/wide.yaml]\n";
+    expect(unwireTierDefault(v, "tap")).toBe("twin:\n  id: insp\n  tiers:\n    tap:\n      variants: [tap/wide.yaml]\n");
+    expect(unwireTierDefault(m, "tfc")).toBe(m);
+  });
   it("reads flow and block selectors, sensors and mode", () => {
     const t = readTap(TAP);
     expect(t.problems).toEqual([]);
@@ -233,11 +241,57 @@ describe("the inspector by tier", () => {
     expect(screen.queryAllByTestId("canvas-tap")).toEqual([]);
     fireEvent.click(segment("office"));
     const sp = await screen.findByTestId("segment-panel");
-    fireEvent.click(within(sp).getByTestId("add-tap"));
+    // Add tap waits for a sensor (the tap tier refuses a binding with none); the targets' declared ones are offered.
+    const add = within(sp).getByTestId("add-tap") as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect([...document.querySelectorAll("#cv-sensors option")].map((o) => o.getAttribute("value"))).toEqual(["XPress-SW-A"]);
+    fireEvent.change(within(sp).getByLabelText("Tap sensors"), { target: { value: "XPress-SW-A" } });
+    expect(add.disabled).toBe(false);
+    fireEvent.click(add);
     await settle();
     const files = lastFiles(state);
-    expect(readTap(files["tap/default.yaml"]!).bindings).toMatchObject([{ scope: "segment", targets: ["office"] }]);
+    expect(readTap(files["tap/default.yaml"]!).bindings).toMatchObject([{ scope: "segment", targets: ["office"], sensors: ["XPress-SW-A"] }]);
     expect(files["twin.yaml"]).toContain("    tap:\n      default: tap/default.yaml");
+  });
+  it("removing the last tap drops the tap plan and its manifest entry; Undo puts both back", async () => {
+    const one = `tap-plan:\n  target: insp\n  bindings:\n    - selector: { scope: boundary, target: [office, servers] }\n      sensors: [XPress-SW-A]\n      mode: exclusive\n`;
+    const { api, state } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": one });
+    state.documents.insp!.files["twin.yaml"] = wireTapDefault(state.documents.insp!.files["twin.yaml"]!, "tap/default.yaml");
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    // A boundary binding draws a chip on each of its two segments: one binding.
+    expect(screen.getAllByTestId("canvas-tap").map((t) => t.getAttribute("data-tap"))).toEqual(["0", "0"]);
+    fireEvent.click(screen.getAllByTestId("canvas-tap")[0]!);
+    const panel = await screen.findByTestId("tap-panel");
+    fireEvent.click(within(panel).getByRole("button", { name: "Remove tap" }));
+    await settle();
+    const files = lastFiles(state);
+    expect(files["tap/default.yaml"]).toBeUndefined();
+    expect(files["twin.yaml"]).not.toContain("tap:");
+    expect(screen.queryAllByTestId("canvas-tap")).toEqual([]);
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await settle();
+    expect(lastFiles(state)["tap/default.yaml"]).toBe(one);
+    expect(lastFiles(state)["twin.yaml"]).toContain("    tap:\n      default: tap/default.yaml");
+  });
+  it("Checks lists the taps with no sensor, filters the canvas to them, and sets one sensor on all", async () => {
+    const bare = `tap-plan:\n  target: insp\n  bindings:\n    - selector: { scope: segment, target: office }\n      mode: exclusive\n    - selector: { scope: segment, target: servers }\n      mode: exclusive\n`;
+    const { api, state } = withTwin("insp", { "te.yaml": TE, "tap/default.yaml": bare });
+    renderAt(api, "/twins/insp/canvas");
+    await screen.findAllByTestId("canvas-host");
+    tab("Checks");
+    const row = await screen.findByTestId("taps-need-sensor");
+    expect(within(row).getByTestId("taps-need-sensor-row").textContent).toContain("2 taps need a sensor");
+    fireEvent.click(within(row).getByTestId("taps-need-sensor-row"));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-host").every((h) => h.classList.contains("cv-dim"))).toBe(true));
+    expect(screen.getAllByTestId("canvas-tap").some((t) => t.classList.contains("cv-dim"))).toBe(false);
+    const set = within(row).getByTestId("set-sensor-all") as HTMLButtonElement;
+    expect(set.disabled).toBe(true);
+    fireEvent.change(within(row).getByLabelText("Sensor for every tap without one"), { target: { value: "XPress-SW-A" } });
+    fireEvent.click(set);
+    await settle();
+    expect(readTap(lastFiles(state)["tap/default.yaml"]!).bindings.map((b) => b.sensors)).toEqual([["XPress-SW-A"], ["XPress-SW-A"]]);
+    expect(screen.queryByTestId("taps-need-sensor")).toBeNull();
   });
   it("the Checks tab's Provenance summary counts sources and a row dims the rest of the canvas", async () => {
     const { api } = withTwin("insp", { "te.yaml": TE });

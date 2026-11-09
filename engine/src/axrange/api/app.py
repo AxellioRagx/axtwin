@@ -1388,6 +1388,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             persona_backend=app.state.tfc_persona_backend,
             tap_adapter=app.state.tap_adapter,
             tap_config_backend=app.state.tap_config_backend,
+            tap_teardown_backend=app.state.tap_teardown_backend,
             exits=app.state.config_exits,
         )
 

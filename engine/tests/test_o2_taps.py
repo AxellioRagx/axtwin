@@ -296,9 +296,20 @@ def test_parse_tap_plan_rejects_empty_string_target():
         })
 
 
-def test_parse_tap_plan_requires_nonempty_bindings():
-    with pytest.raises(TapPlanError, match="bindings"):
-        parse_tap_plan({"tap-plan": {"target": "te1", "bindings": []}})
+def test_parse_tap_plan_reads_empty_bindings_as_no_taps_and_apply_refuses_it(tmp_path):
+    # 2026-11-09: an empty list is a plan with no taps (the canvas's last-tap removal),
+    # not a load error; a non-list is still refused; applying an empty plan is refused
+    # before anything is written (removing standing taps is the tier's destroy).
+    assert parse_tap_plan({"tap-plan": {"target": "te1", "bindings": []}}).bindings == []
+    assert parse_tap_plan({"tap-plan": {"target": "te1"}}).bindings == []
+    with pytest.raises(TapPlanError, match="bindings must be a list"):
+        parse_tap_plan({"tap-plan": {"target": "te1", "bindings": {"x": 1}}})
+    from axrange.o2control.taps import apply_tap_plan
+
+    db = tmp_path / "state.db"
+    with pytest.raises(TapPlanError, match="no bindings") as e:
+        apply_tap_plan(spec=parse_tap_plan({"tap-plan": {"target": "te1", "bindings": []}}), db_path=str(db))
+    assert e.value.status == 400 and not db.exists()
 
 
 def test_parse_tap_plan_rejects_duplicate_tap():

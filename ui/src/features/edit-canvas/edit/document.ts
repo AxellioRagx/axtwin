@@ -14,7 +14,7 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestId, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSensors, type TapModel } from "./tap";
 import {
   addLink as teAddLink,
@@ -384,9 +384,18 @@ export function addTap(doc: WorkingDoc, model: DocModel, binding: Parameters<typ
   return files;
 }
 
+/** Remove a tap. The LAST binding takes the tap plan with it -- the file and
+ *  its manifest entry (2026-11-09: `bindings: []` was refused by the tap
+ *  loader); the next Add tap recreates both. One command, so one undo. */
 export function removeTap(doc: WorkingDoc, model: DocModel, index: number): Files {
   if (!model.tapPath) return doc.files;
-  return { ...doc.files, [model.tapPath]: removeTapBinding(doc.files[model.tapPath]!, index) };
+  const path = model.tapPath;
+  const next = removeTapBinding(doc.files[path]!, index);
+  if (readTap(next).bindings.length > 0 || !model.tap?.bindings.some((b) => b.index === index)) return { ...doc.files, [path]: next };
+  const files = { ...doc.files };
+  delete files[path];
+  if (files[MANIFEST] !== undefined && model.manifest?.tap === path) files[MANIFEST] = unwireTierDefault(files[MANIFEST]!, "tap");
+  return files;
 }
 
 export function moveTap(doc: WorkingDoc, model: DocModel, index: number, segment: string): Files {
@@ -397,6 +406,19 @@ export function moveTap(doc: WorkingDoc, model: DocModel, index: number, segment
 export function setTapSensorsOf(doc: WorkingDoc, model: DocModel, index: number, sensors: string[]): Files {
   if (!model.tapPath) return doc.files;
   return { ...doc.files, [model.tapPath]: setTapSensors(doc.files[model.tapPath]!, index, sensors) };
+}
+
+/** The taps that name no sensor (a cast's caveat: "every binding omits sensors"). */
+export function tapsWithoutSensor(model: DocModel): number[] {
+  return (model.tap?.bindings ?? []).filter((b) => b.sensors.length === 0).map((b) => b.index);
+}
+
+/** Set the same sensors on every tap in `indices` (one command, one undo). */
+export function setSensorsOnTaps(doc: WorkingDoc, model: DocModel, indices: number[], sensors: string[]): Files {
+  if (!model.tapPath) return doc.files;
+  let text = doc.files[model.tapPath]!;
+  for (const i of indices) text = setTapSensors(text, i, sensors);
+  return { ...doc.files, [model.tapPath]: text };
 }
 
 /** The files a Save-As writes: the same document under a new id. */
