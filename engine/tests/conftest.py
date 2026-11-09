@@ -27,11 +27,14 @@ def _discovery_db_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 def _lab_registry_clean():
     """The lab-sensor registry (`axrange.platform.lab`) is process-global,
     filled by `create_app`; never let one test's labs reach the next."""
+    from axrange.api.labhealth import clear_cache
     from axrange.platform.lab import clear_registry
 
     clear_registry()
+    clear_cache()
     yield
     clear_registry()
+    clear_cache()
 
 
 @pytest.fixture

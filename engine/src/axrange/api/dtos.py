@@ -145,6 +145,24 @@ class FindingDTO(BaseModel):
     location: Optional[str] = None
 
 
+class PreflightDTO(BaseModel):
+    """A twin checked against one target (`docs/design/targets-and-lab.md`
+    §2.2): every sensor a tap binding names is in the target's lab, every
+    node image has a binding for its platform. `findings` carry the path of
+    the offending binding / host (rule ids `TARGET-SENSOR`, `TARGET-IMAGE`);
+    `clean` is false while any is an error -- nothing deploys until it is."""
+
+    target: str
+    platform: str
+    clean: bool
+    images_total: int = 0
+    images_bound: int = 0
+    # The sensor ids this target offers (lab + adapter.conf fallback +
+    # standing), what a Remap may pick.
+    sensors: list[str] = []
+    findings: list[FindingDTO] = []
+
+
 class ValidateRequest(BaseModel):
     """`POST /api/validate`: exactly one of `scenario` / `config` /
     `imprint` (a catalog id, `params` with the latter two), OR a `document`
@@ -196,6 +214,9 @@ class PlanSummaryDTO(BaseModel):
     # inline `${NAME:default}` defaults). `{}` for a plain scenario.
     vm_count: int = 0
     params: dict[str, Any] = {}
+    # `docs/design/targets-and-lab.md` §2.2: set when the plan was asked
+    # for a target (`?target=`) -- the deploy dialog's preflight rows.
+    preflight: Optional["PreflightDTO"] = None
 
 
 # --------------------------------------------------------------------------
@@ -570,6 +591,40 @@ class TargetDTO(BaseModel):
     # sensors (adapter.conf `EXTERNAL_SENSORS[].id`), what a tap binding's
     # `sensors:` may name; the canvas offers them (2026-11-09). Names only.
     sensors: list[str] = []
+    # `docs/design/targets-and-lab.md` §2.2: the O2 components standing
+    # beside every twin on this target, `reach` as declared. Never a
+    # credential (the lab block holds none; a URL with user:pass@ is refused
+    # at load).
+    lab: Optional["LabDTO"] = None
+
+
+class LabComponentDTO(BaseModel):
+    id: str
+    role: str  # sensor | telemetry | attack | defence
+    type: str
+    reach: dict[str, Any] = {}
+    # The HTTP path the health probe GETs on reach.url (declared or the
+    # type default); None for a sensor.
+    health_http: Optional[str] = None
+    managed: str = "external"
+    protected: bool = False
+
+
+class LabDTO(BaseModel):
+    components: list[LabComponentDTO] = []
+
+
+class ComponentHealthDTO(BaseModel):
+    id: str
+    role: str
+    status: str  # up | down | unknown
+    checked_at: Optional[str] = None
+    detail: Optional[str] = None
+
+
+class TargetHealthDTO(BaseModel):
+    target: str
+    components: list[ComponentHealthDTO] = []
 
 
 class TargetListDTO(BaseModel):
@@ -2547,3 +2602,5 @@ class ConfigExitCancelDTO(BaseModel):
 TwinConfigDetailDTO.model_rebuild()
 
 ValidateRequest.model_rebuild()
+TargetDTO.model_rebuild()
+PlanSummaryDTO.model_rebuild()

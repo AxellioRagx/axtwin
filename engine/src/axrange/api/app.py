@@ -771,7 +771,7 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     # ---- validate / plan (pure) ----
     @app.post("/api/validate", response_model=dtos.ValidateResultDTO)
     @_ro
-    def validate(body: dict) -> dtos.ValidateResultDTO:
+    def validate(body: dict, target: Optional[str] = _TARGET_QUERY) -> dtos.ValidateResultDTO:
         # `dtos.ValidateRequest` is the shape: exactly one of scenario /
         # config / imprint (+ params) -- fix round 2 -- OR a `document`
         # (`api/Spec.md` A3: the editor validates before Save / Apply).
@@ -785,19 +785,21 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
                 doc = dtos.TwinConfigWriteRequest.model_validate(body["document"])
             except ValidationError as e:
                 raise ApiError(400, f"'document' must be {{id, files}}: {e.errors()[0].get('msg')}") from e
-            return service.validate_document(settings, doc)
+            return service.validate_document(settings, doc, target=target)
         return service.validate(
             settings, body.get("scenario"), config=body.get("config"),
-            imprint=body.get("imprint"), params=_params_of(body),
+            imprint=body.get("imprint"), params=_params_of(body), target=target,
         )
 
     @app.post("/api/plan", response_model=dtos.PlanSummaryDTO)
     @_ro
-    def plan(body: dict) -> dtos.PlanSummaryDTO:
+    def plan(body: dict, target: Optional[str] = _TARGET_QUERY) -> dtos.PlanSummaryDTO:
+        # `?target=` (docs/design/targets-and-lab.md §2.2): plan against that
+        # target and attach its preflight.
         return service.plan(
             settings, body.get("scenario"),
             target_node=body.get("target_node"), config=body.get("config"),
-            imprint=body.get("imprint"), params=_params_of(body),
+            imprint=body.get("imprint"), params=_params_of(body), target=target,
         )
 
     def _params_of(body: dict) -> Optional[dict[str, str]]:
@@ -1248,6 +1250,21 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @_ro
     def targets() -> dtos.TargetListDTO:
         return service.list_targets(settings)
+
+    @app.get("/api/targets/{name}/health", response_model=dtos.TargetHealthDTO)
+    def target_health(name: str) -> dtos.TargetHealthDTO:
+        # `docs/design/targets-and-lab.md` §2.2: one status per lab
+        # component, cached 15 s server-side (`axrange.api.labhealth`).
+        from axrange.api import labhealth
+        from axrange.api.targets import UnknownTargetError, get_target, target_facts
+
+        try:
+            t = get_target(settings, name)
+        except UnknownTargetError as e:
+            raise ApiError(
+                404, f"unknown target {e.name!r}", detail={"targets": e.known},
+            ) from e
+        return labhealth.target_health(t, target_facts(t))
 
     # ---- Unified Console run-time surface (ruling §3.1-§3.3; contract:
     # docs/reference/ui-consolidation/04-api-contract.md) ----

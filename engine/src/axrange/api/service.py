@@ -141,9 +141,14 @@ def _one_source(scenario: Optional[str], config: Optional[str], imprint: Optiona
 
 def validate(settings: ApiSettings, scenario: Optional[str] = None, *,
              config: Optional[str] = None, imprint: Optional[str] = None,
-             params: Optional[dict[str, str]] = None) -> dtos.ValidateResultDTO:
+             params: Optional[dict[str, str]] = None,
+             target: Optional[str] = None) -> dtos.ValidateResultDTO:
     """Pure. A `config`/`imprint` is expanded (with `params`) exactly as a
-    deploy would expand it, validated, and its tempfile removed (fix round 2)."""
+    deploy would expand it, validated, and its tempfile removed (fix round 2).
+
+    `target` (`docs/design/targets-and-lab.md` §2.2): also run the target
+    preflight -- tap sensors in the target's lab, node images bound for its
+    platform -- and fold its errors into the answer."""
     from axrange.validator.engine import validate_full
 
     kind = _one_source(scenario, config, imprint, params)
@@ -157,9 +162,12 @@ def validate(settings: ApiSettings, scenario: Optional[str] = None, *,
     else:
         sp, images_root, _src = _resolve_imprint_scenario_path(settings, imprint, params)
         tmp = sp
+    pf = None
     try:
         manifests = _load_manifests(images_root)
         result = validate_full(str(sp), manifests=manifests)
+        if target:
+            pf = _preflight_for(settings, target, kind, sp, config, manifests)
     finally:
         if tmp is not None:
             try:
@@ -175,7 +183,7 @@ def validate(settings: ApiSettings, scenario: Optional[str] = None, *,
         )
         for f in (list(result.errors) + list(result.warnings) + list(result.infos))
     ]
-    return dtos.ValidateResultDTO(
+    out = dtos.ValidateResultDTO(
         disposition=result.disposition.value,
         exit_code=result.exit_code,
         passes_run=list(result.passes_run),
@@ -183,6 +191,32 @@ def validate(settings: ApiSettings, scenario: Optional[str] = None, *,
         warnings=len(result.warnings),
         findings=findings,
     )
+    if pf is not None:
+        from axrange.api.preflight import fold_into
+
+        out = fold_into(out, pf)
+    return out
+
+
+def _preflight_for(settings: ApiSettings, target: str, kind: str, sp: Path,
+                   config: Optional[str], manifests: Any):
+    """The target preflight (`axrange.api.preflight`) for a validate/plan
+    source: a twin config is checked at its own files (te + default tap
+    plan), a scenario or an imprint at its (materialized) IR. An unknown
+    target is a 404 naming the known ones."""
+    from axrange.api.preflight import Sources, config_sources, run_preflight
+    from axrange.api.targets import UnknownTargetError
+
+    if kind == "config" and config:
+        sources = config_sources(settings, config)
+        if sources.te_path is None:
+            sources = Sources(te_path=sp, te_label=config)
+    else:
+        sources = Sources(te_path=sp, te_label=sp.name if kind == "scenario" else str(kind))
+    try:
+        return run_preflight(settings, target, sources, manifests)
+    except UnknownTargetError as e:
+        raise ApiError(404, f"unknown target {e.name!r}", detail={"targets": e.known}) from e
 
 
 # ---------------------------------------------------------------------------
@@ -785,29 +819,53 @@ def _resolve_imprint_scenario_path(
 def plan(settings: ApiSettings, scenario: Optional[str] = None, *,
          target_node: Optional[str] = None, config: Optional[str] = None,
          imprint: Optional[str] = None,
-         params: Optional[dict[str, str]] = None) -> dtos.PlanSummaryDTO:
+         params: Optional[dict[str, str]] = None,
+         target: Optional[str] = None) -> dtos.PlanSummaryDTO:
     """Pure preview (no state write, no lease). Fix round 2: a twin config or
     an imprint is planned exactly as `POST /api/deploys` would plan it, so its
-    `plan_id` can be pinned with `expect_plan_id` (GAP-098)."""
+    `plan_id` can be pinned with `expect_plan_id` (GAP-098).
+
+    `target` (`docs/design/targets-and-lab.md` §2.2): plan against that
+    target's adapter config and attach its preflight (`preflight`, the
+    deploy dialog's rows). A preflight error does not fail the plan -- the
+    plan is still the answer to "what would run" -- but `preflight.clean`
+    is false and the deploy is refused until it is."""
     kind = _one_source(scenario, config, imprint, params)
+    if target:
+        from axrange.api.targets import UnknownTargetError, settings_for_target
+
+        try:
+            settings = settings_for_target(settings, target)
+        except UnknownTargetError as e:
+            raise ApiError(404, f"unknown target {e.name!r}", detail={"targets": e.known}) from e
     if kind == "imprint":
         return imprint_plan(settings, imprint, target_node=target_node, params=params)
     if kind == "scenario":
-        p, _cfg, _ctx, _ir, _raw, _sp, _manifests = _build_plan_and_ctx(
+        p, _cfg, _ctx, _ir, _raw, sp, manifests = _build_plan_and_ctx(
             settings, scenario, target_node=target_node
         )
-        return _plan_summary_dto(p)
+        out = _plan_summary_dto(p)
+        if target:
+            from axrange.api.preflight import to_dto
+
+            out.preflight = to_dto(_preflight_for(settings, target, kind, Path(sp), None, manifests))
+        return out
     warnings: list[str] = []
     sp, images_root, source_dir = _resolve_config_scenario_path(
         settings, config, params, warnings=warnings,
     )
-    p, _cfg, _ctx, _ir, _raw, _sp, _manifests = _plan_materialized(
+    p, _cfg, _ctx, _ir, _raw, _sp, manifests = _plan_materialized(
         settings, sp, images_root, source_dir, target_node=target_node,
     )
-    return _plan_summary_dto(
+    out = _plan_summary_dto(
         p, config_warnings=warnings,
         params=_resolved_params(settings.twin_configs_dir or None, config, params),
     )
+    if target:
+        from axrange.api.preflight import to_dto
+
+        out.preflight = to_dto(_preflight_for(settings, target, kind, Path(sp), config, manifests))
+    return out
 
 
 def _plan_summary_dto(p: Any, *, config_warnings: Optional[list[str]] = None,
@@ -1945,6 +2003,14 @@ def list_targets(settings: ApiSettings) -> dtos.TargetListDTO:
             name=t.name, default=t.default, nodes=list(f.known_nodes),
             db_path=t.db_path, error=f.error, platform=f.platform or None,
             sensors=[str(x.id) for x in (getattr(f.cfg, "external_sensors", None) or []) if getattr(x, "id", None)],
+            lab=dtos.LabDTO(components=[
+                dtos.LabComponentDTO(
+                    id=c.id, role=c.role, type=c.type, reach=dict(c.reach),
+                    health_http=c.health_http if c.role != "sensor" else None,
+                    managed=c.managed, protected=c.protected,
+                )
+                for c in t.lab.components
+            ]),
             stores=[
                 {"label": lbl, "path": p, "primary": p == t.db_path}
                 for p, lbl in store_labels(t).items()
@@ -6352,7 +6418,7 @@ def _normalized_files(files: Any) -> dict[str, str]:
 
 def _validate_twin_document(
     settings: ApiSettings, twin_id: str, files: dict[str, str], *,
-    raise_on_fail: bool = True,
+    raise_on_fail: bool = True, target: Optional[str] = None,
 ) -> dtos.ValidateResultDTO:
     """The document, validated through the SAME path as `POST /api/validate`
     (`validate(config=...)`: expand, then `validate_full` with the real
@@ -6385,7 +6451,7 @@ def _validate_twin_document(
             settings, twin_configs_dir=str(td),
             images_root=str(_effective_images_root(settings)),
         )
-        result = validate(scratch, config=twin_id)
+        result = validate(scratch, config=twin_id, target=target)
         if result.disposition == "FAIL" and raise_on_fail:
             raise ApiError(
                 422, f"twin-config {twin_id!r} fails validation "
@@ -6427,7 +6493,8 @@ def _with_tier_finding(
 
 
 def validate_document(
-    settings: ApiSettings, req: dtos.TwinConfigWriteRequest,
+    settings: ApiSettings, req: dtos.TwinConfigWriteRequest, *,
+    target: Optional[str] = None,
 ) -> dtos.ValidateResultDTO:
     """`POST /api/validate {document: {id, files}}`: the same validation a
     Save-As / Persist / working-copy PUT runs, as a pure read -- the result
@@ -6436,7 +6503,9 @@ def validate_document(
     if not twin_id or not _is_safe_catalog_ref(twin_id):
         raise ApiError(400, f"document 'id' {req.id!r} is not a usable twin-config id")
     files = _normalized_files(req.files)
-    return _validate_twin_document(settings, twin_id, files, raise_on_fail=False)
+    return _validate_twin_document(
+        settings, twin_id, files, raise_on_fail=False, target=target,
+    )
 
 
 def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
