@@ -8,8 +8,11 @@ deployed nothing; it was removed when the canvas began drawing segments as
 switches, §7.1.) The second
 workstation carries a `members[]` role override (`jump-host`). The switch
 deploys as nothing (`docs/design/topology-layers.md` §2.5), so the deploy is
-canvas-test's: 48 ops, four VMs, the `office` ↔ `servers` boundary tapped to
-XPress-SW-A.
+canvas-test's: 48 ops, four VMs, tapped to XPress-SW-A. Since 2026-11-11 the
+tap is a `segment` tap on `office` (its chip rides access-sw on the canvas);
+before that it was the `office` ↔ `servers` boundary, which is what the
+measurement below used. A `port` tap on access-sw would resolve to nothing:
+an imageless switch has no VM interface to mirror.
 
 ```sh
 R=/home/rocky/axr-product/deploy-dev45; D=~/.axrange/state.db
