@@ -2,8 +2,10 @@
 
 canvas-test's shape (`office` 10.71.10.0/24, `servers` 10.71.20.0/24, `gw`,
 `corp-workstation` ×2, `file-server`) plus one **imageless `kind: switch`**,
-`access-sw`, wired by `links[]`: a trunk from `gw` carrying `office`, and a
-`state: down` access link to the file server that deploys nothing. The second
+`access-sw`, wired by `links[]`: a trunk from `gw` carrying `office`. (Until
+2026-11-11 it also had a `state: down` access link to the file server that
+deployed nothing; it was removed when the canvas began drawing segments as
+switches, §7.1.) The second
 workstation carries a `members[]` role override (`jump-host`). The switch
 deploys as nothing (`docs/design/topology-layers.md` §2.5), so the deploy is
 canvas-test's: 48 ops, four VMs, the `office` ↔ `servers` boundary tapped to

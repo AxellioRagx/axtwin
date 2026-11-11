@@ -7,6 +7,11 @@
  * in a row above and drop a vertical leg into each bus they serve, down the
  * site's PORT REGION at the right end of every lane, where no host sits.
  *
+ * 2026-11-11: the device tree draws no bus and no pill (a segment is drawn as
+ * its switch, topology-layers §7.1); of this file it reads only `BUS_ICON` (a
+ * host icon's size) and `OVERFLOW_LANE_H` (a fold's height). The rest stays as
+ * the plane stamp's inputs (`plane.ts`), so its hash is unchanged.
+ *
  * Every constant here is read by the placement and so is part of the plane
  * stamp (`plane.ts`): changing one drops every saved layout. Pure.
  */

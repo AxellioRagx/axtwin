@@ -2,7 +2,10 @@
  * The canvas's node and edge vocabulary -- the data every node and edge
  * carries, the ids, the pin keys -- shared by the device-tree placement
  * (`canvas/tree.ts`, track 5) and the components (`nodes.tsx`). The bus
- * placement of track 4 lived here until 2026-11-07; git has it.
+ * placement of track 4 lived here until 2026-11-07; git has it. Since
+ * 2026-11-11 a segment is drawn as its switch: `ID.segment` names a segment's
+ * IMPLIED switch (`vsw:<name>`), a carried segment has no node, and
+ * `Placement.anchorByName` maps every segment to what stands for it.
  *
  * (The earlier header, kept for the vocabulary it explains:)
  * The canvas's placement: the lifted tiered engine decides WHAT is drawn --
@@ -316,8 +319,8 @@ export function orderByRank<T>(items: readonly T[], rankOf: (item: T) => number 
 }
 
 // ---------------------------------------------------------------------------
-// Icons on a pill: `bands.ts` gives role order, which band collapses and its
-// rung tally; the row is the canvas's own.
+// Icons on a switch's host row: `bands.ts` gives role order, which band
+// collapses and its rung tally; the row is the tree's own (`tree.ts` packHostRows).
 // ---------------------------------------------------------------------------
 export type ChipSpec = { node: GraphNode } | { rungs: RungsData };
 
@@ -360,7 +363,7 @@ export function hostData(n: GraphNode, multi: boolean): HostData {
   };
 }
 
-/** A leg's layer: above a pill (z 1) and its icons (z 2), so a leg that
+/** A leg's layer: above the boxes and icons (z 1 and 2), so a leg that
  *  crosses another box is drawn, not hidden behind it. */
 export const EDGE_Z = 3;
 /** The class on a leg edge: `canvas.css` takes its pointer events away, so a

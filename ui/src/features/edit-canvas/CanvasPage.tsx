@@ -575,7 +575,7 @@ export function CanvasPage() {
   // track 3 wrote none); a hand-authored twin reads it as authored and has no overlay to show.
   const castTwin = Boolean(data && (data.twin.pit_id || data.exportData || data.cast));
   const defaultSource = castTwin ? "discovered" : "authored";
-  // The rail's Fan-out (§7.6): how many pills a carrier shows before folding the rest.
+  // The rail's Fan-out (§7.6): how many implied switches a carrier shows before folding the rest.
   const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 
   // In the design view a site's computed position and a bus's RANK in its site
@@ -1073,7 +1073,7 @@ export function CanvasPage() {
         if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r = { result: out, model: m }; return out.files; }) !== null || !r) return;
         const done: { result: DuplicateResult; model: DocModel } = r;
         // Dropped on empty canvas: the parked copy stands where it was dropped, its root at the
-        // drop point and its devices and pills in the original's shape around it (side-car positions).
+        // drop point and its devices and implied switches in the original's shape around it (side-car positions).
         if (!attachTo && drop?.at) onPinMany(copyPositions(done.model, root, done.result, { ...settled.current, ...pinsRef.current }, drop.at));
         setSelection({ kind: "subtree", root: done.result.root });
       },

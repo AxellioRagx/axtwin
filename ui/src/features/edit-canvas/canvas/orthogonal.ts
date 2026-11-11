@@ -35,7 +35,7 @@ export interface RouteRequest {
   id: string;
   src: Box;
   dst: Box;
-  /** The ranks the two ends sit in (a host chip sits in its pill's rank). */
+  /** The ranks the two ends sit in (a tap chip sits in its switch's rank). */
   srcRank: number;
   dstRank: number;
   /** For each rank strictly between the two, the x of the column the edge descends through. */
@@ -44,7 +44,7 @@ export interface RouteRequest {
   lane: string;
 }
 
-/** How far a lane keeps from the bands either side of its gutter (clear of a tap chip on a pill's edge). */
+/** How far a lane keeps from the bands either side of its gutter (clear of a tap chip at a box's edge). */
 export const GUTTER_MARGIN = 14;
 /** The most two lanes of one gutter are apart. */
 export const LANE_STEP = 8;

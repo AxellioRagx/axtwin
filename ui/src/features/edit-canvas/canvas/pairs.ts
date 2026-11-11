@@ -3,8 +3,8 @@
  * selection half of the lifted `layout/arcs.ts`, whose band geometry the tree
  * never drew). Every asserted conduit is drawn; the observed pairs are drawn
  * busiest first up to `PAIR_TOP_K` (all with `showAllPairs`). Pairs are merged
- * on the ANCHORS they are drawn between -- a pill, or the fold that holds a
- * folded segment -- so a curve's key is the same `arcKey(anchor, anchor)` the
+ * on the ANCHORS they are drawn between -- the switch (real or implied) that
+ * stands for a segment, or the fold that holds a folded segment -- so a curve's key is the same `arcKey(anchor, anchor)` the
  * selection and the overlay compute, and a pair whose two ends fold into one
  * box is counted, not drawn as a loop. Pure.
  */

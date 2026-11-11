@@ -1,5 +1,5 @@
 /**
- * What a pill holds (2026-11-07, replacing the lifted `layout/level1.ts`, whose
+ * What a switch's host row holds (2026-11-07, replacing the lifted `layout/level1.ts`, whose
  * geometry the tree never drew): a segment's hosts in role bands -- live hosts by
  * role bucket in the display order, ghosts last in the `below-threshold` band --
  * each band either its hosts (by address) or, past the per-band chip budget, one

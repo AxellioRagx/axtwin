@@ -188,7 +188,7 @@ type Point = { x: number; y: number };
 
 /** Where a copy dropped on the canvas stands: its root at `at`, and every copied device and
  *  segment the original has a position for at that position shifted by the same offset, so
- *  the copy keeps the original's shape instead of its pills going wherever the tree puts
+ *  the copy keeps the original's shape instead of its implied switches going wherever the tree puts
  *  them (2026-11-08). `positions` is what is on screen, by pin key (`host:<name>`,
  *  `segment:<cidr>`); an item without one (folded away) is left to the tree. */
 export function copyPositions(model: DocModel, root: string, result: Pick<DuplicateResult, "names" | "root" | "cidrs">, positions: Readonly<Record<string, Point>>, at: Point): Record<string, Point> {

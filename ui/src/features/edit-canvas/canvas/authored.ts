@@ -134,7 +134,7 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
   const entities = new Map<string, number>();
   for (const n of topology.nodes) {
     if (n.type === "network") continue;
-    // A switch is a device of the tree (`treeStructure`), not a host on a pill.
+    // A switch is a device of the tree (`treeStructure`), not a host under one.
     if (n.type === "switch") continue;
     const legs = legsOf.get(n.id) ?? [];
     if (n.type === "router") {

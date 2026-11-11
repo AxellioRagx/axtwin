@@ -1,8 +1,17 @@
 # switch-test -- canvas-test's shape with ONE imageless access switch between
 # the router and the office workstations (docs/design/topology-layers.md,
 # track 2's dev45 fixture, 2026-11-07). The switch deploys as nothing: its
-# links say `office` reaches the workstations through `access-sw`, the vnet
-# `office` is what the engine stands up, so the deploy is canvas-test's.
+# trunk from `gw` says `office` reaches the workstations through `access-sw`,
+# the vnet `office` is what the engine stands up, so the deploy is canvas-test's.
+#
+# The canvas draws gw -> access-sw -> the workstations (access-sw carries
+# office, so they hang off it) and gw -> an implied switch for `servers` (no
+# switch carries it) -> file-server; no segment boxes (§7.1, 2026-11-11).
+# The workstations get no access links of their own: `corp-workstation` is a
+# `count: 2` group, and a link names one emitted device, never a group or one
+# of its members (§5; the expander refuses it), so they stay on `net: office`.
+# The `state: down` access link from access-sw to the file server (the dashed
+# line, it carried nothing) is gone.
 twin_config:
   id: switch-test
   description: "canvas-test with an imageless access switch: office workstations behind access-sw, a file server, one router, tapped to XPress-SW-A."
@@ -41,10 +50,4 @@ twin_config:
       mode: trunk
       native: office
       vlans: [office]
-      source: authored
-    - a: { device: access-sw, port: P24 }
-      b: { device: file-server, port: eth0 }
-      mode: access
-      vlans: [servers]
-      state: down
       source: authored

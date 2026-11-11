@@ -1,6 +1,13 @@
 /**
  * The canvas's node and edge components over React Flow primitives (the
- * `RF+` rows of `SPEC.md`), on the BUS plane (track 4, 2026-11-06): a site
+ * `RF+` rows of `SPEC.md`). On the device tree (topology-layers §7, plane
+ * epoch 7, 2026-11-11) a router is a box in its hue, a switch a `DeviceNode`,
+ * a segment no switch carries an `ImpliedSwitchNode` (dashed switch glyph,
+ * "implied" mark), a host an icon of its own under its switch, a switch's
+ * `+N` host fold a `HostFoldNode`; the leg, link and arc edges below. No
+ * segment is drawn as a box. (The earlier header, for the components the
+ * tree no longer places -- the site tint, the bus lane:) On the BUS plane
+ * (track 4, 2026-11-06): a site
  * as a tint, a segment as a bus lane -- one line, name and CIDR at its left
  * end, a host-count badge at its right end, the routers' hue dots -- a host
  * as an icon sitting on the bus, a router as a box in its hue, a leg as a
@@ -459,7 +466,7 @@ export function DeviceNode(p: P) {
 }
 
 /** A tap chip on a segment or a device (§8): amber, the sensor names on
- *  hover; a click opens its row, a segment tap drags to another pill. */
+ *  hover; a click opens its row, a segment tap drags to another switch. */
 export function TapNode(p: P) {
   const d = p.data;
   const overlay = useContext(OverlayContext);
@@ -671,7 +678,7 @@ export function ArcEdge(e: E) {
 export const ROUTER_ICON = 34;
 
 /** The tree's orthogonal route for this edge (`canvas/tree.ts`), while both ends still stand where
- *  it was routed (a dragged end -- or a host chip's pill -- voids it: the edge then draws a
+ *  it was routed (a dragged end voids it: the edge then draws a
  *  smoothstep until Re-layout). */
 function useTreeRoute(e: E): Point[] | null {
   const route = (e.data as { route?: EdgeRoute } | undefined)?.route;
@@ -689,8 +696,9 @@ function useTreeRoute(e: E): Point[] | null {
 /** The radius of the port dot where a drop meets its bus. */
 export const PORT_DOT = 3.5;
 
-/** A router's leg onto a bus (rule 2, in the router's hue, a port dot where
- *  it meets the line), a multi-homed host's stub (rule 4), a fan's trunk
+/** A router's leg onto an implied switch, a host's access edge from its switch
+ *  (a `leg` too: an attachment; a real switch's first one of each segment keeps
+ *  its VLAN label on, `data.vlan`), a multi-homed host's stub (rule 4), a fan's trunk
  *  onto a site, or the rail inside the site: the orthogonal polyline the
  *  tree routed through the gutters (`canvas/orthogonal.ts`), with rounded
  *  corners; until it is wired, a straight line from the one box's border

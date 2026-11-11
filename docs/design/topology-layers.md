@@ -304,14 +304,35 @@ replaces the lifted `o2/console` tiered engine
 **Ranks**, top to bottom: edge (routers with an uplink, read from a segment's
 `egress: true`; else the router with the most segments) → core / distribution
 (switches by link count) → access → ToR / leaf pairs → hosts. Segments are not
-a rank: they are labels on links (a trunk's VLAN set, an access link's VLAN)
-and on host leaves. A config with no switches (canvas-test, datacenter)
-degrades to router → segment pills → hosts, the same tree.
+a rank and never a box: a segment is drawn as the switch that carries it
+(2026-11-11, §9 D15), one uniform tree everywhere, router → switch (real or
+implied) → hosts:
+
+1. **A real carrier.** A `kind: switch` whose access or trunk link (up), or
+   own L2 port, carries the segment (the deepest such switch): the segment's
+   hosts hang directly off that switch as nodes of their own. The segment
+   appears only as the VLAN label (and, on a switch of two or more segments,
+   a per-segment hue) on the access edges, plus in hover and the inspector.
+2. **No switch carries it** (`gw → servers → file-server`): an **implied
+   switch**, node id `vsw:<segment>`, drawn as the switch glyph with a dashed
+   outline and an "implied" mark; its hover and inspector show the segment's
+   name, CIDR and zone type. It is presentation only and never written to the
+   twin config; the inspector's *Insert switch* writes a real one.
+3. **Only routers are on it** (a `/30`, datacenter's `fab-link`): unchanged,
+   one router-to-router line labelled with it.
+4. **A multi-homed host** draws between the switches (real or implied) of its
+   segments: a child of its first segment's switch, with a stub from each
+   other one.
+
+A config with no switches (canvas-test, datacenter) is the same tree: router
+→ implied switches → hosts.
 
 ### 7.2 Icons only
 
-Five glyphs: router, switch, server, host, tap; plus the `×N` badge, the
-provenance mark (overlay on) and a down / blocked dash on a link. No names,
+Five glyphs: router, switch, server, host, tap; the implied switch is the
+switch glyph with a dashed outline and an "implied" mark (§7.1 rule 2); plus
+the `×N` badge, the provenance mark (overlay on) and a down / blocked dash on
+a link. No names,
 ports or addresses on the drawing by default. Routers keep a short name (few,
 landmarks). A discovered device with no name gets a derived one
 (`switch-on-ms120-p14`) shown only on hover and in the inspector. A rail
@@ -344,15 +365,18 @@ preference); selecting the router expands the fan.
 
 ### 7.6 Folding
 
-Every site a router serves is always a pill on its rail; the budget (the
-rail's Fan-out, default 4) counts the loose segments, and a dashed `+N more`
-holds only those beyond it. An open site shows a budget of its segments per
-page on its own row, then its own `+N more` for the next page; the refit
-frames the router and that row, never below 50 % zoom (R5-2, 2026-11-08).
-Each segment shows a budget of host icons and a count; the `×N` badge folds instances by
-role. A click on a fold expands it in place and the tree re-ranks around it.
-Fit-to-window of the fully expanded tree stays available; the folded view is
-the default. Width is bounded by the sum of visible pills.
+Folding is per switch (2026-11-11), real or implied. Each switch shows a
+budget of host icons (8) and a `+N` host fold; the `×N` badge folds instances
+by role and role bands collapse per switch. Every site a router serves is
+always a site fold on its rail; the budget (the rail's Fan-out, default 4)
+counts the loose implied switches, and a dashed `+N more` holds only those
+beyond it. An open site shows a budget of its implied switches per page on its
+own row, then its own `+N more` for the next page; the refit frames the router
+and that row, never below 50 % zoom (R5-2, 2026-11-08). Real switches are
+devices, ranked by their links, and are not folded into site folds. A click on
+a fold expands it in place and the tree re-ranks around it. Fit-to-window of
+the fully expanded tree stays available; the folded view is the default.
+Width is bounded by the sum of visible switches and their host rows.
 
 ### 7.7 Evidence versus structure
 
@@ -365,8 +389,9 @@ inspector's assert action.
 
 Positions in the layout side-car are overrides on top of dagre; *Re-layout*
 resets them; positions survive mutations and a new node lands in free space.
-This is a new plane epoch: pins saved on the bus plane are read but not
-applied, and the page says so.
+This is plane epoch 7 (2026-11-11, segments drawn as switches): pins saved on
+an older plane (the pill plane, epoch 6, and the bus plane before it) are read
+but not applied, and the page says so.
 
 ## 8. Taps on the canvas
 
@@ -382,6 +407,12 @@ duplicate with a subtree.
 A tap on a link is a `port` selector on one end of the link in the tap plan
 (`scope: port`); a tap on a segment is `scope: segment`, as today. No new
 tap-plan scope is needed.
+
+Where the chip sits (2026-11-11, §7.1): a `scope: segment` chip rides the
+segment's switch, real or implied; a `scope: boundary` chip is ONE chip on the
+router that forms the boundary (the router with legs on both segments), not
+one per segment; a `scope: port` chip rides the device, or, for a host's port,
+the host's switch.
 
 ## 9. Deltas: where the brief and the code or contracts disagree
 
@@ -401,6 +432,7 @@ tap-plan scope is needed.
 | D12 | the cast of corp-twin has twelve switch nodes with no attachments | corp-twin has no cast; its switches carry `nets[]` with `l2: true` entries (`te.yaml:385-397`), already recorded in `SPEC.md:349-356`. | Premise correction only; the design is unchanged by it. |
 | D13 | schema version bump in `IR_SCHEMA.md` and `VALIDATOR.md` | `VALIDATOR.md:159` still states STR-020's set as `{1, 2}` while the code recognises `{1, 2, 3}` (`engine/src/axrange/validator/checks/structural.py:59-61`) and `IR_SCHEMA.md:90-105` records `3`. Both specs say a change "adds a CHANGELOG entry" (`IR_SCHEMA.md:5`, `VALIDATOR.md:5`), which root `CLAUDE.md` rule 3 forbids. | The draft diff (§10) bumps to `4`, corrects the STR-020 row, and names this document as the record in place of a changelog entry. |
 | D14 | a `down` or `blocked` link deploys nothing | corp-twin deploys `sfp26` as a segment and lets kernel STP in the bridge VM block it; `P17` is admin-down inside the VM (`te.yaml:367-373`). | Equivalent only for an imageless switch. A switch with an image keeps its script's behaviour; the generated port table marks the port down or blocked. |
+| D15 | (2026-11-11, user) segments were drawn as "pills" holding their hosts | `canvas/tree.ts` placed every segment's hosts in a pill box; on simple twins (switch-test) `access-sw` sat above an "office" box, a "servers" box hung off `gw`, and tap chips sat on both | **Decided 2026-11-11:** segments stay in the model and are drawn as switches (§7.1 rules 1–4): a real carrier stands for its segments, a switch-less segment is an implied switch (`vsw:<segment>`, presentation only), a `/30` stays a router–router line. Folding is per switch (§7.6), taps ride switches and a boundary tap the boundary router (§8), plane epoch 7 (§7.8). UI only: no model, schema, validator, engine, deploy-mapping or contract change. |
 
 Not a delta: the uplink marker is the segment-level `egress: true`
 (`api/Spec.md:32`, `IR_SCHEMA.md:163`), which §7.1 reads; no router-level

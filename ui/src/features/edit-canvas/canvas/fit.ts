@@ -5,7 +5,7 @@
  */
 import type { CanvasNode, Placement } from "./placement";
 
-/** The least zoom a fold's refit lands at: below it a pill's words are unreadable. */
+/** The least zoom a fold's refit lands at: below it a fold's and a switch's words are unreadable. */
 export const FOLD_FIT_MIN_ZOOM = 0.5;
 /** The room around the fitted boxes, as a fraction of the view (React Flow's `padding`). */
 export const FOLD_FIT_PADDING = 0.15;

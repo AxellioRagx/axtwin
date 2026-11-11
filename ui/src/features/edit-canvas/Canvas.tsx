@@ -84,7 +84,7 @@ export interface CanvasEditProps {
   onRemoveSegment(name: string): void;
   /** Add a bus under the site of `near` (a segment name), else of the selection. */
   onAddSegment(near?: string): void;
-  /** A segment tap's chip was dropped on another pill (topology-layers §8): a `taps` change. */
+  /** A segment tap's chip was dropped on another segment's switch (topology-layers §8): a `taps` change. */
   onMoveTap?(index: number, segment: string): void;
   /** A tap's chip was dropped on a segment, a router joining two segments (the boundary
    *  between them) or a link (a port on its VM end): one `taps` change (2026-11-09). */
@@ -110,9 +110,9 @@ export interface CanvasProps {
   onPin: (key: string, at: { x: number; y: number }) => void;
   /** A bus was reordered: every lane of its site, re-ranked, as one change. */
   onPinMany: (pins: Record<string, { x: number; y: number }>) => void;
-  /** A `+N more` pill was clicked (its key: `carrier:<device>`). */
+  /** A `+N more` fold was clicked (its key: `carrier:<device>`), or a switch's `+N` host fold (`hosts:<switch node id>`). */
   onToggleSite: (siteKey: string) => void;
-  /** The rail's Fan-out: how many pills a carrier shows before folding (the page re-places). */
+  /** The rail's Fan-out: how many implied switches a carrier shows before folding (the page re-places). */
   fan?: number;
   onFan?: (n: number) => void;
   /** The Checks tab's provenance filter: the one source left bright, or null. */
@@ -269,7 +269,7 @@ export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position
   return null;
 }
 
-/** The two-octet site prefix of the pill or site fold nearest ABOVE `at` whose span covers its x
+/** The two-octet site prefix of the implied switch or site fold nearest ABOVE `at` whose span covers its x
  *  (where a drop "under a site" lands), or null. Pure. */
 export function siteAbove(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
   let best: { y: number; prefix: string } | null = null;

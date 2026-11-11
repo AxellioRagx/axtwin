@@ -3,7 +3,8 @@
 ## What it is
 
 The network-design surface of the console: a pan/zoom canvas on which a twin
-is drawn as segments and the hosts and routers attached to them, first to
+is drawn as a device tree -- routers, switches (real or implied) and the hosts
+under them, a segment drawn as the switch that carries it -- first to
 **view** a discovered or authored twin (C2) and then to **edit** it (C3) —
 place hosts on segments, add segments, duplicate sections, annotate — writing
 the result back as a twin-config. It serves the **view & customize** step of
@@ -182,6 +183,75 @@ criteria of its own beyond them.
   baseline carries the change.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
+
+### Segments drawn as switches (2026-11-11, topology-layers §9 D15)
+
+A UI-only change: the model, schema, validator, engine and deploy mapping are
+untouched; a segment stays the L2 primitive a host's `net` names. The drawing
+is one uniform tree, router → switch (real | implied) → hosts (Rendering rules
+1–9 below).
+
+**Drop rules** (palette drop, or an armed item clicked; `Canvas.tsx`
+`placeTarget` / `placeOnDevice`, `edit/switches.ts`):
+
+- on an **implied switch**: the host joins that segment (a peer of its hosts);
+- on a **real switch** of one segment: that segment; of several: the native
+  VLAN of its uplink trunk (one to a router first), else its most-populated
+  segment (`switchSegment`); the host's inspector then offers the **VLAN
+  picker** (`hostSwitch`, a `moveTo` re-addressed in the chosen segment);
+  a switch that carries nothing refuses, with the reason;
+- on a **router**: a new segment, the next free /24 in the router's site
+  (`newSegmentOnRouter`, `edit/allocate.ts`), `zone_type: vlan`, the router's
+  leg on it and the host on it -- one command, one undo step; it draws under
+  a new implied switch;
+- a router item lands on the pane as before (it joins segments by legs);
+- a host dragged onto another segment's switch moves there; a tap chip
+  dragged onto a real switch becomes a segment tap on its segment.
+
+**Insert switch** (an implied switch's segment panel, or its context menu;
+`insertSwitch`): a `kind: switch` node `sw-<segment>`, imageless, `role:
+l2-switch`, `source: authored`; a trunk from the router with a leg on the
+segment to it (`native` and only VLAN the segment, free ports at both ends);
+an access link from it to each single-instance host whose first leg is the
+segment. A `count > 1` group cannot be named by a link (§5; the expander
+refuses it), so it stays on its `net:` and draws under the new switch, which
+now carries its segment; the panel says so. The implied switch is gone. One
+command through the stack (Undo restores the text byte for byte), validated
+through `POST /api/validate` like any edit. Refused for a segment a switch
+already carries, and for one with no router leg and no single host.
+
+**Inspector.** An implied switch's panel is the segment's, with the note that
+it is implied and the Insert switch button; a carried segment's panel names
+its switch. A switch's panel lists the segments it carries under *Segments
+(VLANs)*, each a click to the segment's panel (a carried segment has no node
+of its own to click).
+
+- [x] Implied switch for a switch-less segment (canvas-test, datacenter, the
+      tree fixtures), no `segment` node type anywhere, hosts as nodes of their
+      own under real switches (switch-test, corp-shaped) — `canvas.tree.test.tsx`,
+      `canvas.orthogonal.test.ts`.
+- [x] A `/30` stays a router–router line — `canvas.orthogonal.test.ts` (routers).
+- [x] Boundary tap: one chip on the router; segment tap on its switch; a tap
+      dropped on a real switch — `canvas.inspector.test.tsx`, `canvas.tapdrag.test.tsx`,
+      `canvas.tree.test.tsx` (`boundaryRouter`).
+- [x] Each drop rule, the VLAN picker, Insert switch through the command stack
+      (Undo / Redo byte-equal) into a config the canvas's checks accept —
+      `canvas.switches.test.ts`, `canvas.switches.page.test.tsx`. The real
+      engine validator (`POST /api/validate`, :8080, 2026-11-11) returned PASS,
+      0 errors, 0 warnings on canvas-test after Insert switch on `servers`, on
+      `office`, and after a host dropped on `gw`.
+- [x] Pins from epoch 6 are not applied — `canvas.place.test.tsx`,
+      `canvas.tree.test.tsx` (epoch 7 pins).
+- [x] No edge crosses a node and every structural edge is routed, folded and
+      fully open, on canvas-test, datacenter, switch-test, corp-enterprise,
+      corp-twin (also with 10.180 and every host fold open) and
+      `pit-395a61f04e-1780405200` — `canvas.orthogonal.test.ts`.
+- [x] Eyes (headless shots, 2026-11-11): no segment boxes on canvas-test,
+      switch-test, datacenter, corp-twin (folded and 10.180 open), the pit
+      twin and corp-tree; folded widths against the pill plane: canvas-test
+      580 → 408, switch-test 580 → 408, datacenter 1562 → 1158, corp-twin
+      2100 → 1740, pit 1332 → 972 (narrower everywhere; one rank taller, the
+      hosts' own). corp-twin with 10.180 open is 2451 → 2540 (+3.6 %).
 
 ### The device tree checklist (topology-layers, tracks 5a–5d, 2026-11-07)
 
@@ -492,7 +562,10 @@ Decided 2026-11-07 (user, `docs/design/topology-layers.md` §7) and **built
 as track 5a the same day**; the bus plane of track 4 (2026-11-06) is gone
 from the code and lives in git (`42c00de`). The canvas is the **device
 tree**: a layered layout (`@dagrejs/dagre`, `canvas/tree.ts`) under the
-device that carries each segment, read top to bottom.
+device that carries each segment, read top to bottom. **2026-11-11 (user,
+topology-layers §9 D15):** a segment is no longer a box ("pill"); it is drawn
+as the switch that carries it, real or implied. Rules 1, 2, 4, 5, 6, 8 and 9
+below are the current ones.
 
 **The model.** A segment is the L2 primitive (one vnet). A host is on the
 segments its `net` / `nets[]` name. A router has one leg per segment it
@@ -502,39 +575,72 @@ its own L2 ports name. Every segment, node and link carries `source`
 (`discovered` / `asserted` / `authored` / `unconfirmed`) and a discovered
 one its `confidence`.
 
-1. **Ranks.** The Internet (drawn only on evidence of non-local peers or a
-   configured uplink) over the gateway routers; routers at rank 0; switches
-   by depth along their up links from a router (`treeDepths`); each segment
-   a **pill** under its carrier -- the deepest switch whose link or port
-   carries it (`carriersOf`), else the router with a leg on it; the hosts as
-   icons on the pill. No switches (canvas-test, datacenter) degrades to
-   router → pills → hosts. There is no site tint.
+1. **Ranks: router → switch (real | implied) → hosts.** The Internet (drawn
+   only on evidence of non-local peers or a configured uplink) over the
+   gateway routers; routers at rank 0; switches by depth along their up links
+   from a router (`treeDepths`); every host a node of its own one rank under
+   its switch. A segment is drawn as a switch, never a box:
+   (a) a **real carrier** -- the deepest `kind: switch` whose up access or
+   trunk link, or own L2 port, carries it (`carriersOf`) -- stands for it: the
+   segment's hosts hang directly off that switch, the segment shows as the
+   VLAN label on their access edges, on hover and in the inspector, and
+   `anchorByName[segment]` is the switch's node id;
+   (b) no switch carries it: an **implied switch**, node id `vsw:<segment>`
+   (`ID.segment`), type `impliedSwitch`, data the segment's
+   (`kind: "segment"`, `implied: true`), under the router with a leg on it.
+   It is presentation only and never written to the twin config;
+   (c) only routers are on it (a `/30`, `fab-link`): one router-to-router
+   `seglink`, as before;
+   (d) a multi-homed host is a child of its first segment's switch and
+   draws between it and the switch of each further segment (a `stub` from
+   that switch, which also ranks above it).
+   Each host's home segment is its first leg's NAME (`TreeStructure.homes`),
+   so two segments on one CIDR (§9 D3) never share a host. No switches
+   (canvas-test, datacenter) is the same tree: router → implied switches →
+   hosts. There is no site tint.
 2. **Icons only.** Router, switch (`DeviceNode`: the switch glyph with the
-   `L2` / `L3` / `FW` badge), host (the role glyph in the evidence ring, the
-   `×N` badge inside it), the `+N more` fold pill, and the provenance mark.
-   Routers and switches keep a short name above the icon; a pill keeps its
-   name and CIDR at the left and its host-count badge at the right; the
-   rail's **Labels** toggle captions host icons (all / selected / none).
+   `L2` / `L3` / `FW` badge), **implied switch** (`ImpliedSwitchNode`: the
+   switch glyph with a dashed outline, an `implied` mark at its left and the
+   host count at its corner; the segment's name above, its CIDR under the
+   name when labels are on), host (the role glyph in the evidence ring, the
+   `×N` badge inside it), the `+N more` fold, a switch's `+N` host fold, and
+   the provenance mark. Routers and switches keep a short name above the
+   icon; the rail's **Labels** toggle captions host icons (all / selected /
+   none). Compact detail keeps the host icons (they are the leaves) and
+   drops their captions.
 3. **Hover** is the facts: a host's name, address, role, segments,
-   provenance; a device's kind, image, ports, segments, provenance; a
-   link's port pair, mode, VLANs and state while selected.
+   provenance; a device's kind, image, ports, segments, provenance; an
+   implied switch's segment name, CIDR, zone type, hosts, routers and
+   provenance; a link's port pair, mode, VLANs and state while selected.
 4. **One hue per router** (`canvas/hues.ts`, eight then grey) on its ring,
-   on every device its links reach (`hueOfDevice`), on the links and the
-   carry branch below it, on each pill's border and the port dot where a
-   leg lands; a pill carried by no device wears its first router's hue.
+   on every device its links reach (`hueOfDevice`), on the links, the
+   implied switches and the access edges below it. On a real switch of two
+   or more segments each segment's access edges wear their own hue
+   (`hueOf(k)` by the segment's place on that switch).
 5. **Edges.** A `links[]` entry is a `link` edge between two devices (or
-   from a device to a host's icon), orthogonal, in the branch's hue, dashed
-   when `down`, `blocked` or `unconfirmed`, clickable (the inspector's link
-   row). A switch carrying a pill is a `carry` edge labelled with the
-   segment. A router's legs are the config's `nets[]`: one `leg` edge per
-   pill, straight from box to box, re-homed by drag as before; a leg to a
-   folded segment goes to the fold, once. A multi-homed host sits on its
-   first segment's pill with a `stub` to each other one. Observed flows stay
-   evidence: arcs under Light-up or for the selection.
-6. **Folding.** Segments of one site (two-octet prefix) under a carrier
-   fold into a site pill, and **every site pill is always on the carrier's
-   rail**. The **Fan-out** (the rail's button; 2 / 4 / 8 / all, default 4)
-   budgets the loose (site-less) pills: past it a dashed `+N more` pill
+   from a device to a host), orthogonal, in the branch's hue, dashed when
+   `down`, `blocked` or `unconfirmed`, clickable (the inspector's link row).
+   A host's **access edge** is a `leg` from its switch (real or implied),
+   id `leg:<host>><segment>` (an attachment: click and Delete detach it);
+   on a real switch the first access edge of each segment keeps its VLAN
+   label on (`data.vlan`); a host an up link already wires to the switch
+   draws only that link. A router's legs are the config's `nets[]`: one
+   `leg` edge per implied switch it serves (to a carrier outside its own
+   branch, to that switch; none to a segment its own link reaches); a leg to
+   a folded segment goes to the fold, once. Observed flows stay evidence:
+   arcs under Light-up or for the selection.
+6. **Folding, per switch.** A switch (real or implied) shows at most
+   `TREE_HOST_BUDGET` (8) host icons and a `+N` host fold last on its row
+   (`hostfold:<switch node id>`, expand key `hosts:<switch node id>`); its
+   role bands and the `×N` badges are per switch too. Each host row is one
+   block centred under its switch, packed left to right in its rank clear of
+   every other box and of the columns dagre reserved for longer edges
+   (`packHostRows`). The implied switches of one site (two-octet prefix)
+   under a carrier fold into a site fold, and **every site fold is always on
+   the carrier's rail**. Real switches are devices ranked by their links and
+   are not folded. The **Fan-out** (the rail's button; 2 / 4 / 8 / all,
+   default 4) budgets the loose (site-less) implied switches: past it a
+   dashed `+N more`
    (`overflow:carrier:<device>`) holds only the loose segments beyond it; a
    click expands that carrier in place (`expanded` carries
    `carrier:<device>`) and its tile reads `fold N back`, the same N. An open
@@ -543,28 +649,36 @@ one its `confidence`.
    page (`site:<c>|<p>#2`, `#3`, ...); closing the site closes its pages. A
    fold's refit frames the router plus the row that changed, padded, never
    below 50 % zoom; a row too wide for that is framed from its left edge.
-   The status strip counts the segments behind `+N more` pills and, apart,
+   The status strip counts the segments behind `+N more` folds and, apart,
    those in closed site folds (R5-2). Segments no device carries
    fold under `none`. A `×N` group folds its instances; a segment over the
    band budget folds its role bands. The box budget is 120 drawn boxes after
-   folding (`TREE_BUDGET_BOXES`); past it, the list and the matrix.
+   folding (`TREE_BUDGET_BOXES`; a switch's host row counts as one box);
+   past it, the list and the matrix.
 7. **Provenance overlay** (rail button, `O`): off, a dot marks an asserted
    (accent) or authored (green) item; on, every item wears its state's badge
    (`D` discovered with its confidence, `A` asserted, `+` authored, `?`
    unconfirmed) and border (accent / green / dashed amber). Kept per user.
 8. **Positions.** dagre's, then the layout side-car's pins override them:
-   `host:<name>` (a host, a router or a switch) and `segment:<cidr>` are
-   absolute top-lefts on this plane -- **plane epoch 6**; pins saved on the
-   bus plane are read but not applied, and the page says so. A pill drags
-   free; a host icon dropped on another pill moves there; "Add a segment"
-   lands the new pill under the selection's carrier at dagre's next free
+   `host:<name>` (a host, a router or a switch) and `segment:<cidr>` (an
+   implied switch) are absolute top-lefts on this plane -- **plane epoch 7**
+   (2026-11-11); pins saved on the pill plane (epoch 6) are read but not
+   applied, and the page says so. A session's settled position is never
+   kept under a key two nodes share (two segments on one CIDR). An implied
+   switch drags free; a host dropped on another segment's switch (implied,
+   or real by the drop rule below) moves there; "Add a segment" lands the
+   new implied switch under the selection's carrier at dagre's next free
    slot.
-9. **Taps** (topology-layers §8, **built 2026-11-07, track 5b**): every
-   binding of the tap plan is an amber `tap` chip on the top edge of what it
-   names -- a `segment` tap on its pill, a `boundary` tap on both pills, a
-   `port` tap on the device (or, for a host's port, on the pill the port is
-   on, at the left). A click opens the tap's panel; a segment tap drags onto
-   another pill and moves there (`moveTap`, a `taps` change). The tap plan
+9. **Taps** (topology-layers §8, **built 2026-11-07, track 5b**; placement
+   2026-11-11): every binding of the tap plan is an amber `tap` chip beside
+   the icon of what it names -- a `segment` tap on the segment's switch (real
+   or implied), a `boundary` tap ONE chip on the router with a leg on both
+   its segments (`boundaryRouter`; when no one router forms it, a chip on
+   each side's switch), a `port` tap on the device (or, for a host's port,
+   on the host's switch, at its top-left). A click opens the tap's panel; a
+   segment tap drags onto another implied switch, or a real switch (a
+   segment tap on its segment), and moves there (`moveTap` / `retargetTap`,
+   a `taps` change). The tap plan
    is `tap/*.yaml` read and spliced by `edit/tap.ts`; "Add tap" on a segment
    with no plan creates `tap/default.yaml` and wires `twin.yaml`'s tier.
 10. **The inspector by tier** (§7.4, built with 9): a node's panel is
