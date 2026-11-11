@@ -252,6 +252,10 @@ of its own to click).
       580 → 408, switch-test 580 → 408, datacenter 1562 → 1158, corp-twin
       2100 → 1740, pit 1332 → 972 (narrower everywhere; one rank taller, the
       hosts' own). corp-twin with 10.180 open is 2451 → 2540 (+3.6 %).
+- [x] switch-test draws gw → (access-sw, its tap chip → the ×2 workstations)
+      and (implied `servers` → file-server): the down link is gone, the tap a
+      `segment` tap on `office` (a `port` tap on the imageless access-sw would
+      resolve to no tap point); the engine validator PASSes the bundle.
 
 ### The device tree checklist (topology-layers, tracks 5a–5d, 2026-11-07)
 
