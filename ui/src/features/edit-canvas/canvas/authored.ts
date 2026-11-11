@@ -53,6 +53,9 @@ export interface TreeStructure {
   /** `source` by node name and by segment name (absent == authored). */
   sources: Record<string, string>;
   confidences: Record<string, number>;
+  /** The segment NAME each host sits on (its first leg): two segments may share a CIDR (§9 D3),
+   *  so the graph's CIDR does not say which of the two switches a host hangs off. */
+  homes?: Record<string, string>;
 }
 
 export const EMPTY_TREE: TreeStructure = { devices: [], links: [], sources: {}, confidences: {} };
@@ -80,7 +83,14 @@ export function treeStructure(topology: Topology): TreeStructure {
     .filter((n) => n.type === "switch")
     .map((n) => ({ name: n.id, kind: "switch" as const, role: n.role ?? null, image: n.image ?? null, segments: legs.get(n.id) ?? [] }));
   const links: TreeLink[] = (topology.links ?? []).map((l, index) => ({ a: { device: l.a, port: l.a_port }, b: { device: l.b, port: l.b_port }, mode: l.mode, native: l.native ?? null, vlans: l.vlans, state: l.state, source: l.source ?? null, index }));
-  return { devices, links, sources, confidences };
+  const networks = new Set(topology.nodes.filter((n) => n.type === "network").map((n) => n.id));
+  const homes: Record<string, string> = {};
+  for (const n of topology.nodes) {
+    if (n.type !== "host") continue;
+    const first = legs.get(n.id)?.find((t) => networks.has(t));
+    if (first) homes[n.id] = first;
+  }
+  return { devices, links, sources, confidences, homes };
 }
 
 export function authoredGraph(topology: Topology, tree: TwinTree | null): AuthoredGraph {

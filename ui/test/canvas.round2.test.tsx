@@ -117,7 +117,9 @@ describe("a leg runs border to border and takes no pointer events", () => {
   it("every leg edge carries the class that takes its pointer events away", () => {
     const p = placeTree(graphOf(TE));
     const legs = p.edges.filter((e) => e.type === "leg");
-    expect(legs.length).toBe(2);
+    // The router's two legs and each host's access edge from its switch.
+    expect(legs.filter((e) => e.id.startsWith("leg:gw>")).length).toBe(2);
+    expect(legs.length).toBeGreaterThan(2);
     expect(legs.every((e) => e.className === LEG_CLASS)).toBe(true);
   });
 });

@@ -1,36 +1,51 @@
 /**
  * The device tree (brief "Canvas rendering"; `docs/design/topology-layers.md` §7;
- * review round 3, R3-4 / R3-5 / R3-8, 2026-11-07). A layered (Sugiyama) layout
- * from `@dagrejs/dagre` decides WHERE everything sits; what each segment holds
- * (its host icons, the role bands that collapse by occupancy rung) comes from
- * `chipsOf`. The tree reads top to bottom:
+ * review round 3, R3-4 / R3-5 / R3-8, 2026-11-07; segments drawn as switches,
+ * 2026-11-11). A layered (Sugiyama) layout from `@dagrejs/dagre` decides WHERE
+ * everything sits; what a switch holds (its host icons, the role bands that
+ * collapse by occupancy rung) comes from `chipsOf`. The tree reads top to bottom,
+ * one uniform shape everywhere:
  *
  *   edge routers (an uplink, else the router with most segments) → the other
- *   routers by hops → core / distribution switches (by hops, a router-less
- *   component rooted at its most-linked switch) → access → ToR / leaf → hosts.
+ *   routers by hops → switches (real or implied) → hosts.
  *
- * Segments are not a rank. With switches present a segment is a LABEL -- on the
- * trunk that carries it, and on the host leaf (the pill) its hosts sit on, which
- * hangs under its deepest carrier; a router whose branch already reaches a pill
- * through a trunk draws no leg of its own to it. With no switch (canvas-test,
- * datacenter) the tree is router → pills → hosts, the same tree. A segment whose
- * only members are routers (a `/30` such as `fab-link`) is a router-to-router
- * link labelled with it, never a pill.
+ * A segment is never a box. It is drawn as the switch that carries it:
+ *
+ *   1. A real carrier -- a `kind: switch` whose own legs, or an `up` access or
+ *      trunk link, carry the segment (the deepest such switch): the segment's
+ *      hosts hang directly off that switch as nodes of their own; the segment
+ *      shows as the VLAN label (and, on a switch of two or more segments, a
+ *      per-segment hue) on those access edges, on hover and in the inspector.
+ *   2. No switch carries it: an IMPLIED switch, `vsw:<segment>` (`ID.segment`),
+ *      drawn as the switch glyph with a dashed outline and an "implied" mark.
+ *      Its data is the segment's (`kind: "segment"`, `implied: true`), so its
+ *      hover and inspector show the segment's name, CIDR and zone type, and every
+ *      gesture that targets a segment targets it. It is presentation only: it
+ *      is never written to the twin config ("Insert switch" makes a real one).
+ *   3. Only routers are on it (a `/30` such as `fab-link`): one router-to-router
+ *      line labelled with it, as before.
+ *   4. A multi-homed host is a child of its home segment's switch and draws
+ *      between that switch and the switch of each further segment (a stub).
+ *
+ * A router whose branch already reaches a segment's carrier through a link draws
+ * no leg of its own to it.
  *
  * Edges are orthogonal and routed through the gutters between ranks
  * (`orthogonal.ts`), so none crosses a box. One hue per router only when there
  * are two or more; a one-router twin is neutral.
  *
- * Folding, folded by default: segments of one site (two-octet prefix) under
- * one carrier fold into one site pill, and every site pill is always on the
- * carrier's rail; the loose (site-less) pills show up to `fan` and a `+N more`
- * holds the rest. An open site shows `fan` of its segments per page on its own
- * row, then its own `+N more` for the next page (R5-2); a pill shows at most
- * `TREE_HOST_BUDGET` host icons and a `+N`; the `×N` badge folds a group's
- * instances. A click expands in place and the tree re-ranks around it.
+ * Folding, folded by default, per switch: the implied switches of one site
+ * (two-octet prefix) under one carrier fold into one site fold, and every site
+ * fold is always on the carrier's rail; the loose (site-less) implied switches
+ * show up to `fan` and a `+N more` holds the rest. An open site shows `fan` of
+ * its switches per page on its own row, then its own `+N more` for the next
+ * page (R5-2). A switch (real or implied) shows at most `TREE_HOST_BUDGET` host
+ * icons and a `+N` fold; the `×N` badge folds a group's instances. A click
+ * expands in place and the tree re-ranks around it. Real switches are devices
+ * ranked by their links and are not folded (they never were).
  *
  * Positions: dagre's, then the side-car's pins override them (absolute
- * top-lefts, plane epoch 6); Re-layout drops the pins. Pure -- no React, no DOM.
+ * top-lefts, plane epoch 7); Re-layout drops the pins. Pure -- no React, no DOM.
  */
 import * as dagre from "@dagrejs/dagre";
 
@@ -41,11 +56,11 @@ import type { ConsoleGraph, GraphSegment } from "../model/graph";
 import { compareCidr, twoOctetPrefix } from "../model/keys";
 import { switchBadge } from "../model/roles";
 import type { ExtraLeg, TreeLink, TreeStructure } from "./authored";
-import { BUS_ICON, OVERFLOW_LANE_H, iconSlot, laneHeight, laneRows } from "./bus";
+import { BUS_ICON, OVERFLOW_LANE_H } from "./bus";
 import { HUE_GREY, hueOf } from "./hues";
 import { routeOrthogonal, type Box, type RouteRequest } from "./orthogonal";
 import { selectPairs } from "./pairs";
-import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
+import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
 
 export interface TreeOptions {
   /** The expand keys the operator opened (`carrier:`, `site:`, `hosts:`). */
@@ -58,9 +73,9 @@ export interface TreeOptions {
   uplinks?: readonly string[];
   /** The switches, links and provenance the bipartite graph cannot carry. */
   tree?: TreeStructure;
-  /** How many items (pills, site folds) a carrier shows before folding the rest into `+N more` (the rail's Fan-out). */
+  /** How many items (implied switches, site folds) a carrier shows before folding the rest into `+N more` (the rail's Fan-out). */
   fan?: number;
-  /** The tap plan's bindings (topology-layers §8): a chip on each segment or device a tap sits on. */
+  /** The tap plan's bindings (topology-layers §8): a chip on each switch or device a tap sits on. */
   taps?: readonly TreeTap[];
   /** What a missing `source` means (review R3-1): `discovered` on a twin cast from an imprint
    *  (a cast older than track 3 wrote none), `authored` on a hand-authored twin. */
@@ -72,20 +87,18 @@ export interface TreeTap {
   scope: string;
   /** The segments (a `segment` / `boundary` tap) or the device (a `port` tap) it sits on. */
   targets: string[];
-  /** A `port` tap's segment: where the chip goes when the port is a host's (the host sits on a pill). */
+  /** A `port` tap's segment: where the chip goes when the port is a host's (the chip rides the host's switch). */
   segment?: string | null;
   sensors: string[];
   source: string | null;
 }
 
-/** The size of a tap chip on a pill's or a device's top edge. */
+/** The size of a tap chip on a switch's or a router's top edge. */
 export const TAP_CHIP_W = 44;
 export const TAP_CHIP_H = 18;
+/** Half the drawn icon box of a switch or router (`nodes.tsx` `ROUTER_ICON`), where a tap chip sits beside it. */
+const TAP_ICON_HALF = 17;
 
-/** The pill's label column, left of its icons. */
-export const PILL_LABEL_W = 132;
-/** The pill's padding right of its last icon (the count badge sits there). */
-export const PILL_PAD_RIGHT = 44;
 /** The dagre spacing: between siblings, and between ranks (the gutter the edges run in). */
 export const TREE_NODE_SEP = 36;
 export const TREE_RANK_SEP = 72;
@@ -105,12 +118,14 @@ export function sitePages(expanded: ReadonlySet<string>, siteKey: string): numbe
 export function withoutFold(keys: readonly string[], key: string): string[] {
   return keys.filter((x) => x !== key && !x.startsWith(`${key}#`));
 }
-/** The per-segment host budget: a pill draws this many host icons and folds the rest behind `+N`. */
+/** The per-switch host budget: a switch draws this many host icons and folds the rest behind `+N`. */
 export const TREE_HOST_BUDGET = 8;
+/** The `+N` host fold at the end of a switch's host row. */
+export const HOST_FOLD_W = 44;
 /** The hue of every branch on a one-router twin (R3-5: hues only distinguish two or more routers). */
 export const HUE_NEUTRAL = "#5f6b7a";
-/** The tree's box budget: the pills, folds and devices it draws at once
- *  (a pill is one box however many icons it holds). Past it the page falls
+/** The tree's box budget: the switches, folds, devices and host rows it draws at once
+ *  (a switch's host row is one box however many icons it holds). Past it the page falls
  *  back to the list; the folds are what keep a large twin under it. */
 export const TREE_BUDGET_BOXES = 120;
 
@@ -121,12 +136,15 @@ export const TREE_ID = {
   /** An open site's own `+N more`, at the end of its row. */
   rowOverflow: (siteKey: string) => overflowAnchorKey(`more:${siteKey}`),
   link: (index: number) => `link:${index}`,
-  carry: (device: string, segment: string) => `carry:${device}>${segment}`,
   segLink: (segment: string) => `seglink:${segment}`,
+  /** A switch's (real or implied) `+N` host fold, by the switch's node id. */
+  hostFold: (parent: string) => `hostfold:${parent}`,
+  /** A host's access edge from its switch: an attachment, so it is a leg (`leg:<host>><segment>`). */
+  access: (host: string, segment: string) => `leg:${host}>${segment}`,
 };
 
-/** The expand key of a pill's host fold (`+N` on the pill). */
-export const hostsKey = (segment: string) => `hosts:${segment}`;
+/** The expand key of a switch's host fold (`+N`), by the switch's node id (`vsw:<segment>`, `device:<name>`). */
+export const hostsKey = (parent: string) => `hosts:${parent}`;
 
 /** The id of a device node: a switch is `device:<name>`, a router `router:<name>`. */
 export function deviceNodeId(name: string, routers: ReadonlySet<string>): string {
@@ -138,20 +156,6 @@ export function linkSegments(link: Pick<TreeLink, "native" | "vlans">): string[]
   const out: string[] = [];
   for (const s of [...(link.native ? [link.native] : []), ...link.vlans]) if (!out.includes(s)) out.push(s);
   return out;
-}
-
-/** A compact pill's glyph is this wide (`canvas.css` `.cv-glyph`), so a pill
- *  is at least as wide as its role glyphs when the zoom folds its icons. */
-export const PILL_GLYPH_W = 60;
-
-/** The pill's size for `icons` host icons and `badges` role glyphs: the label
- *  column, the wider of the icon row and the glyph row, the badge's room. */
-export function pillSize(icons: number, badges = 0): { w: number; h: number; rows: number } {
-  const rows = laneRows(icons);
-  const perRow = Math.min(Math.max(icons, 1), 10);
-  const iconsW = perRow * (BUS_ICON + 8);
-  const glyphsW = Math.min(badges, 6) * PILL_GLYPH_W;
-  return { w: PILL_LABEL_W + Math.max(iconsW, glyphsW) + PILL_PAD_RIGHT, h: laneHeight(rows), rows };
 }
 
 interface Device {
@@ -230,9 +234,9 @@ export function treeDepths(devices: readonly Device[], links: readonly TreeLink[
   return out;
 }
 
-/** Which device each segment hangs under: the deepest switch whose links or
- *  own ports carry it, else `null` (it then hangs under its routers' legs).
- *  Pure, exported for the tests. */
+/** Which real switch carries each segment (§7.1 rule 1): the deepest switch whose
+ *  `up` links or own ports carry it, else `null` (the segment is then drawn as an
+ *  implied switch, rule 2). Pure, exported for the tests. */
 export function carriersOf(segments: readonly string[], devices: readonly Device[], links: readonly TreeLink[], depths: ReadonlyMap<string, { depth: number }>): Map<string, string | null> {
   const carrying = new Map<string, Set<string>>();
   const add = (seg: string, dev: string) => {
@@ -266,8 +270,13 @@ export function routerPairs(graph: ConsoleGraph, carried: ReadonlySet<string>): 
   return out;
 }
 
+/** The router a `boundary` tap sits on (§8): the one with a leg on every segment it names, or `null`. */
+export function boundaryRouter(routers: ReadonlyArray<{ name: string; segments: readonly string[] }>, segments: readonly string[]): string | null {
+  return routers.find((r) => segments.length > 0 && segments.every((s) => r.segments.includes(s)))?.name ?? null;
+}
+
 export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: TreeOptions = {}): Placement {
-  // What is drawn: every segment (the tree folds per carrier and site below).
+  // What is drawn: every segment, as a switch (the tree folds per carrier and site below).
   const tree = options.tree ?? { devices: [], links: [], sources: {}, confidences: {} };
   const fan = options.fan ?? TREE_FAN_DEFAULT;
   const expanded = new Set(options.expanded ?? []);
@@ -286,6 +295,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     ...tree.devices.filter((d) => !routerNames.has(d.name)).map((d): Device => ({ name: d.name, kind: d.kind, role: d.role, image: d.image, legs: [...d.segments] })),
   ];
   const deviceNames = new Set(devices.map((d) => d.name));
+  const nodeIdOf = (name: string) => deviceNodeId(name, routerNames);
   const links = tree.links.filter((l) => deviceNames.has(l.a.device) || deviceNames.has(l.b.device));
   const uplinks = [...(options.uplinks ?? [])];
   // Carriers first on bare depths (routers at 0), to know which segments a switch carries.
@@ -303,14 +313,14 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const shown = allShown.filter((s) => !pairSegments.has(s.name));
   const carrierOf = carriersOf(shown.map((s) => s.name), devices, links, depths);
 
-  const chipsByCidr = new Map<string, ReturnType<typeof chipsOf>["chips"]>();
+  const chipsByCidr = new Map<string, ChipSpec[]>();
   for (const seg of shown) {
     const { chips, bands } = chipsOf(graph, seg.observedCidr);
     if (bands > BUDGET_LEVEL1_BANDS) return empty(`segment ${seg.observedCidr} holds ${bands} role bands, over the band budget of ${BUDGET_LEVEL1_BANDS}`);
     chipsByCidr.set(seg.observedCidr, chips);
   }
 
-  // ---- a multi-homed host sits on its first segment's pill, with a stub to each other one ----
+  // ---- a multi-homed host hangs off its first segment's switch, with a stub from each other one ----
   const extraByHost = new Map<string, ExtraLeg[]>();
   for (const leg of options.extraLegs ?? []) extraByHost.set(leg.host, [...(extraByHost.get(leg.host) ?? []), leg]);
   const stubs: Array<{ host: string; segment: string; ip: string | null; home?: string }> = [];
@@ -319,7 +329,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     for (const e of extras) stubs.push({ host, segment: e.segment, ip: e.ip, home: e.home });
   }
 
-  // ---- folding: per carrier, by site; a site of several segments folds into one pill; `fan` items, then `+N more` ----
+  // ---- folding: the IMPLIED switches, per carrier, by site; `fan` items, then `+N more` ----
   const NO_CARRIER = "none";
   const baseCarrier = (seg: GraphSegment): string => {
     const c = carrierOf.get(seg.name);
@@ -330,10 +340,18 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   // A segment no device carries but a multi-homed host bridges to a carried one (corp-twin's
   // `l2-switch` hosts) sits on THAT carrier's rail, with its site (R4-2b, 2026-11-08): it used to
   // hang under whichever box held the bridging host, so 10.180, 10.199 and vlan192 chained down
-  // off the "+N more" pill as if they were its children.
+  // off the "+N more" fold as if they were its children.
   const adopted = new Map<string, { carrier: string; via: string[] }>();
+  /** A host's home segment NAME: the tree's record (its first leg), else its CIDR's segment. */
+  const homeName = (host: string): string | undefined => {
+    const h = tree.homes?.[host];
+    if (h) return h;
+    const cidr = graph.nodeById.get(host)?.segment;
+    return cidr ? nameOfCidr.get(cidr) : undefined;
+  };
   const homeOf = (st: { host: string; home?: string }): string | undefined => {
     if (st.home) return st.home;
+    if (tree.homes?.[st.host]) return tree.homes[st.host];
     const cidr = graph.nodeById.get(st.host)?.segment;
     return cidr ? nameOfCidr.get(cidr) : undefined;
   };
@@ -365,17 +383,24 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     }
   }
   const carrierKey = (seg: GraphSegment): string => adopted.get(seg.name)?.carrier ?? baseCarrier(seg);
-  type Item = { kind: "pill"; seg: GraphSegment } | { kind: "site"; site: string; segs: GraphSegment[] } | { kind: "open"; key: string; site: string; segs: GraphSegment[] };
+  type Item = { kind: "switch"; seg: GraphSegment } | { kind: "site"; site: string; segs: GraphSegment[] } | { kind: "open"; key: string; site: string; segs: GraphSegment[] };
   /** Each carrier's rail, left to right: its items (site, then CIDR), the `+N more` last. */
   const rails = new Map<string, string[]>();
-  /** The pills an open site tile holds (its own row, below the rail), by tile id. */
+  /** The implied switches an open site tile holds (its own row, below the rail), by tile id. */
   const tileRows = new Map<string, string[]>();
-  /** Which open site tile a pill hangs under. */
+  /** Which open site tile an implied switch hangs under. */
   const underTile = new Map<string, string>();
   const openFoldId = (key: string) => overflowAnchorKey(`open:${key}`);
   const byCarrier = new Map<string, GraphSegment[]>();
-  for (const seg of shown) byCarrier.set(carrierKey(seg), [...(byCarrier.get(carrierKey(seg)) ?? []), seg]);
+  // Only a segment no real switch carries is an item of a rail: a carried one is its switch.
+  for (const seg of shown) if (!carrierOf.get(seg.name)) byCarrier.set(carrierKey(seg), [...(byCarrier.get(carrierKey(seg)) ?? []), seg]);
+  /** Segment name -> what stands for it: itself (its implied switch is drawn), its carrier's node id, or a fold's id. */
   const anchorByName: Record<string, string> = {};
+  for (const seg of shown) {
+    const c = carrierOf.get(seg.name);
+    if (c) anchorByName[seg.name] = nodeIdOf(c);
+  }
+  /** The implied switches drawn. */
   const drawnSegments: GraphSegment[] = [];
   const siteFolds: Array<{ carrier: string; site: string; segs: GraphSegment[] }> = [];
   const folded = new Map<string, { hidden: GraphSegment[]; total: number; items: number }>();
@@ -393,27 +418,27 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     const items: Item[] = [];
     for (const [site, group] of bySite) {
       const siteKey = `site:${carrier}|${site}`;
-      // One site under the carrier is not worth a fold of its own: its pills stand under the carrier's budget.
-      if (group.length === 1 || bySite.size === 1) for (const seg of group) items.push({ kind: "pill", seg });
-      // An open site is ONE item on the rail (its collapse tile); its pills fan in a row below it (R4-8).
+      // One site under the carrier is not worth a fold of its own: its switches stand under the carrier's budget.
+      if (group.length === 1 || bySite.size === 1) for (const seg of group) items.push({ kind: "switch", seg });
+      // An open site is ONE item on the rail (its collapse tile); its switches fan in a row below it (R4-8).
       else if (expanded.has(siteKey)) items.push({ kind: "open", key: siteKey, site, segs: group });
       else items.push({ kind: "site", site, segs: group });
     }
     // R5-2 (2026-11-08): every site a carrier serves is always on its rail; the budget (the rail's
-    // Fan-out) counts the loose (site-less) pills only, and "+N more" holds only those beyond it.
+    // Fan-out) counts the loose (site-less) switches only, and "+N more" holds only those beyond it.
     const carrierOpen = expanded.has(`carrier:${carrier}`);
-    const loose = items.filter((it): it is Extract<Item, { kind: "pill" }> => it.kind === "pill");
+    const loose = items.filter((it): it is Extract<Item, { kind: "switch" }> => it.kind === "switch");
     const open = carrierOpen || loose.length <= fan;
     const kept = new Set<Item>(loose.slice(0, fan));
-    const visible = open ? items : items.filter((it) => it.kind !== "pill" || kept.has(it));
+    const visible = open ? items : items.filter((it) => it.kind !== "switch" || kept.has(it));
     const rail: string[] = [];
     for (const it of visible) {
-      if (it.kind === "pill") {
+      if (it.kind === "switch") {
         anchorByName[it.seg.name] = it.seg.name;
         drawnSegments.push(it.seg);
         rail.push(ID.segment(it.seg.name));
       } else if (it.kind === "open") {
-        // An open site opens a budget of its segments per page on its own row, then its own "+N more".
+        // An open site opens a budget of its switches per page on its own row, then its own "+N more".
         const tile = openFoldId(it.key);
         const pages = sitePages(expanded, it.key);
         const shownSegs = it.segs.slice(0, fan * pages);
@@ -452,11 +477,42 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     }
     rails.set(carrier, rail);
   }
-  // The segments behind a "+N more" (a carrier's, or an open site's row's): what those pills say.
-  // A closed site's segments are counted apart: its pill names them itself (R5-2).
+  /** The node a segment is drawn through: its implied switch, its carrier, or the fold holding it. */
+  const anchorNode = (seg: string): string | null => {
+    const a = anchorByName[seg];
+    return a ? (a === seg ? ID.segment(seg) : a) : null;
+  };
+  const isFold = (id: string) => siteKeyOfOverflowAnchor(id) !== null;
+
+  // ---- each drawn switch's host row (§7.6: the budget, `+N`, role bands and `×N` are per switch) ----
+  /** A switch's node id -> the segments whose hosts hang off it, in CIDR order. */
+  const rowSegs = new Map<string, GraphSegment[]>();
+  for (const seg of shown) {
+    const a = anchorNode(seg.name);
+    if (!a || isFold(a)) continue;
+    rowSegs.set(a, [...(rowSegs.get(a) ?? []), seg]);
+  }
+  type RowChip = { chip: ChipSpec; seg: GraphSegment; id: string };
+  const chipId = (parent: string, c: ChipSpec, seg: GraphSegment) => ("node" in c ? ID.host(c.node.id) : `${parent}:rungs:${seg.name}:${c.rungs.role}`);
+  const hostRows = new Map<string, { chips: RowChip[]; hidden: number; open: boolean; hosts: number }>();
+  /** A drawn host's switch: its home segment's. */
+  const parentOfHost = new Map<string, string>();
+  const seenChip = new Set<string>();
+  for (const [parent, segs] of rowSegs) {
+    // A host belongs to its home segment's row only: two segments on one CIDR (§9 D3) share chips.
+    const mine = (chip: ChipSpec, seg: GraphSegment) => !("node" in chip) || (homeName(chip.node.id) ?? seg.name) === seg.name;
+    const all = segs.flatMap((seg) => (chipsByCidr.get(seg.observedCidr) ?? []).filter((chip) => mine(chip, seg)).map((chip) => ({ chip, seg, id: chipId(parent, chip, seg) }))).filter((c) => !seenChip.has(c.id) && Boolean(seenChip.add(c.id)));
+    if (!all.length) continue;
+    const open = expanded.has(hostsKey(parent));
+    const vis = open || all.length <= TREE_HOST_BUDGET ? all : all.slice(0, TREE_HOST_BUDGET);
+    hostRows.set(parent, { chips: vis, hidden: all.length - vis.length, open, hosts: segs.reduce((n, s) => n + s.hostCount, 0) });
+    for (const c of vis) if ("node" in c.chip) parentOfHost.set(c.chip.node.id, parent);
+  }
+  // The segments behind a "+N more" (a carrier's, or an open site's row's): what those folds say.
+  // A closed site's segments are counted apart: its fold names them itself (R5-2).
   const hiddenSegments = [...folded.values()].reduce((n, f) => n + f.hidden.length, 0) + rowFolds.reduce((n, f) => n + f.hidden.length, 0);
   const siteSegments = siteFolds.reduce((n, f) => n + f.segs.length, 0);
-  const boxCount = drawnSegments.length + siteFolds.length + folded.size + openFolds.length + rowFolds.length + devices.length + 2;
+  const boxCount = drawnSegments.length + siteFolds.length + folded.size + openFolds.length + rowFolds.length + devices.length + hostRows.size + 2;
   if (boxCount > TREE_BUDGET_BOXES) return empty(`${boxCount} boxes exceed the canvas budget of ${TREE_BUDGET_BOXES} after folding (the tree's cap)`);
 
   // ---- the Internet and the gateways ----
@@ -464,8 +520,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const crossing: Crossing | null = graph.wanEdge && graph.wanEdge.crossingEdges > 0 ? { edges: graph.wanEdge.crossingEdges, bytes: graph.wanEdge.bytes, flows: graph.wanEdge.flows, inferred: graph.wanEdge.inferred } : null;
   const gateways = uplinks.length ? uplinks : crossing || graph.nonLocal.length ? edgeRouters(devices, []) : [];
 
-  // ---- the legs a router draws: not to a pill its own branch reaches by a trunk, not to a router pair ----
-  const nodeIdOf = (name: string) => deviceNodeId(name, routerNames);
+  // ---- the legs a router draws: not to a segment its own branch reaches by a link, not to a router pair ----
   const legsOf = (r: { name: string; segments: readonly string[] }): string[] =>
     r.segments.filter((name) => {
       if (pairSegments.has(name)) return false;
@@ -473,7 +528,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       return !(c && depths.get(c)?.root === r.name);
     });
 
-  // ---- dagre: devices, pills, folds; every structural edge between them ranks them ----
+  // ---- dagre: devices, implied switches, folds, hosts; every structural edge between them ranks them ----
   const g = new dagre.graphlib.Graph({ multigraph: false, compound: false });
   g.setGraph({ rankdir: "TB", nodesep: TREE_NODE_SEP, ranksep: TREE_RANK_SEP, edgesep: 12, marginx: CANVAS_PAD, marginy: CANVAS_PAD });
   g.setDefaultEdgeLabel(() => ({}));
@@ -481,38 +536,33 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const UNCARRIED_ID = "chrome:uncarried";
   if (showInternet) g.setNode(ID.internet, { width: INTERNET_W, height: INTERNET_H });
   for (const d of devices) g.setNode(nodeIdOf(d.name), { width: DEVICE_W, height: DEVICE_H });
-  const sizeOf = new Map<string, ReturnType<typeof pillSize>>();
-  const visibleChips = new Map<string, ReturnType<typeof chipsOf>["chips"]>();
-  const hiddenChipsOf = new Map<string, number>();
-  for (const seg of drawnSegments) {
-    const chips = chipsByCidr.get(seg.observedCidr) ?? [];
-    const open = expanded.has(hostsKey(seg.name));
-    const vis = open || chips.length <= TREE_HOST_BUDGET ? chips : chips.slice(0, TREE_HOST_BUDGET);
-    visibleChips.set(seg.name, vis);
-    hiddenChipsOf.set(seg.name, chips.length - vis.length);
-    const size = pillSize(vis.length + (chips.length > vis.length ? 1 : 0), seg.roleBadges.length + (seg.ghostCount ? 1 : 0));
-    sizeOf.set(seg.name, size);
-  }
   // Boxes go to dagre in rail order (each carrier's items left to right, then each open site's row):
   // siblings under one parent keep their insertion order through its crossing reduction.
   const boxOf = new Map<string, { width: number; height: number }>();
-  for (const seg of drawnSegments) boxOf.set(ID.segment(seg.name), { width: sizeOf.get(seg.name)!.w, height: sizeOf.get(seg.name)!.h });
+  for (const seg of drawnSegments) boxOf.set(ID.segment(seg.name), { width: DEVICE_W, height: DEVICE_H });
   for (const f of siteFolds) boxOf.set(TREE_ID.siteFold(f.carrier, f.site), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const carrier of folded.keys()) boxOf.set(TREE_ID.carrierOverflow(carrier), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const f of openFolds) boxOf.set(openFoldId(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
   for (const f of rowFolds) boxOf.set(TREE_ID.rowOverflow(f.key), { width: TILE_W, height: OVERFLOW_LANE_H });
+  /** Each switch's host row, left to right: its icons and role bands, the `+N` fold last. */
+  const hostRowIds = new Map<string, string[]>();
+  for (const [parent, row] of hostRows) hostRowIds.set(parent, [...row.chips.map((c) => c.id), ...(row.hidden || row.open ? [TREE_ID.hostFold(parent)] : [])]);
+  // A switch's host row goes to dagre right after the switch, so dagre's first order of the host
+  // rank follows the rail's and no access edge has to cross another to reach its host.
+  const setRow = (parent: string) => {
+    for (const id of hostRowIds.get(parent) ?? []) if (!g.hasNode(id)) g.setNode(id, { width: id.startsWith("hostfold:") ? HOST_FOLD_W : BUS_ICON, height: BUS_ICON });
+  };
+  for (const d of devices) setRow(nodeIdOf(d.name));
   for (const id of [...[...rails.values()].flat(), ...[...tileRows.values()].flat(), ...boxOf.keys()]) {
     const b = boxOf.get(id);
     if (b && !g.hasNode(id)) g.setNode(id, b);
+    setRow(id);
   }
-  const rankEdge = (a: string, b: string) => {
-    if (a !== b && g.hasNode(a) && g.hasNode(b) && !g.hasEdge(b, a)) g.setEdge(a, b);
+  /** `weight: 0` reserves the edge's column through the ranks between without pulling either end. */
+  const rankEdge = (a: string, b: string, weight = 1) => {
+    if (a !== b && g.hasNode(a) && g.hasNode(b) && !g.hasEdge(b, a)) g.setEdge(a, b, weight === 1 ? {} : { weight });
   };
   const shallow = (x: string, y: string): [string, string] => ((depths.get(x)?.depth ?? 0) <= (depths.get(y)?.depth ?? 0) ? [x, y] : [y, x]);
-  const pillOrFold = (seg: string): string | null => {
-    const a = anchorByName[seg];
-    return a ? (a === seg ? ID.segment(seg) : a) : null;
-  };
   for (const name of gateways) if (showInternet && deviceNames.has(name)) rankEdge(ID.internet, nodeIdOf(name));
   for (const p of pairs) {
     const [a, b] = shallow(p.a, p.b);
@@ -525,39 +575,46 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     }
   }
   // Each rail under its carrier, each open site's row under its tile (the tile is the row's parent, so
-  // the row is one rank below the rail and never chains through a pill's hosts).
+  // the row is one rank below the rail and never chains through a switch's hosts).
   for (const [tile, row] of tileRows) for (const id of row) rankEdge(tile, id);
   for (const [carrier, rail] of rails) if (deviceNames.has(carrier)) for (const id of rail) rankEdge(nodeIdOf(carrier), id);
   for (const f of siteFolds) if (deviceNames.has(f.carrier)) rankEdge(nodeIdOf(f.carrier), TREE_ID.siteFold(f.carrier, f.site));
   for (const carrier of folded.keys()) if (deviceNames.has(carrier)) rankEdge(nodeIdOf(carrier), TREE_ID.carrierOverflow(carrier));
   for (const f of openFolds) if (deviceNames.has(f.carrier)) rankEdge(nodeIdOf(f.carrier), openFoldId(f.key));
   for (const r of graph.routers) for (const name of legsOf(r)) {
-    const t = pillOrFold(name);
+    const t = anchorNode(name);
     if (t) rankEdge(underTile.get(name) ?? tileOfAnchor.get(t) ?? ID.router(r.name), t);
   }
-  // A link from a device to a host ranks the device above the host's pill.
-  const pillOfHost = (host: string): string | null => {
-    const seg = graph.nodeById.get(host)?.segment;
-    const name = seg ? nameOfCidr.get(seg) : undefined;
-    return name ? pillOrFold(name) : null;
+  // Every switch above its host row.
+  for (const [parent, ids] of hostRowIds) for (const id of ids) rankEdge(parent, id);
+  /** A host's box: its own icon when drawn, else what stands for its home segment (its switch, or a fold). */
+  const homeAnchorOfHost = (host: string): string | null => {
+    const name = homeName(host);
+    return name ? anchorNode(name) : null;
   };
+  // A link from a device to a host ranks the device above the host.
   for (const l of links) {
     for (const [dev, other] of [[l.a.device, l.b.device], [l.b.device, l.a.device]] as const) {
       if (!deviceNames.has(dev) || deviceNames.has(other)) continue;
-      const pill = pillOfHost(other);
-      if (pill) rankEdge(nodeIdOf(dev), pill);
+      const box = g.hasNode(ID.host(other)) ? ID.host(other) : homeAnchorOfHost(other);
+      if (box) rankEdge(nodeIdOf(dev), box);
     }
+  }
+  // A multi-homed host draws between its switches: each further switch (or the fold holding it)
+  // ranks above it too (rule 4), so its stub has a column reserved through the ranks between.
+  for (const st of stubs) {
+    const from = anchorNode(st.segment);
+    if (from && from !== homeAnchorOfHost(st.host) && g.hasNode(ID.host(st.host))) rankEdge(from, ID.host(st.host), isFold(from) ? 0 : 1);
   }
   // Items no device carries (a segment no router has a leg on, no switch carries). A host with a leg
   // on two segments bridges them (corp-twin's bridging hosts, `role: l2-switch` with `l2: true` legs):
-  // an uncarried item a bridge reaches from a ranked one hangs under that one's pill, the stub its
+  // an uncarried item a bridge reaches from a ranked one hangs under that one's switch, the stub its
   // edge. What no bridge reaches hangs under a visible "not carried" box one rank down, labelled,
   // not beside the routers at rank 0 where it would read as a gateway.
-  const itemOf = (seg: GraphSegment): string | null => pillOrFold(seg.name);
   const ranked = new Set<string>();
   const uncarriedItems = new Set<string>();
   for (const seg of shown) {
-    const it = itemOf(seg);
+    const it = anchorNode(seg.name);
     if (!it) continue;
     (carrierKey(seg) === NO_CARRIER ? uncarriedItems : ranked).add(it);
   }
@@ -565,8 +622,8 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   if (folded.has(NO_CARRIER)) uncarriedItems.add(TREE_ID.carrierOverflow(NO_CARRIER));
   const bridges: Array<[string, string, string]> = [];
   for (const st of stubs) {
-    const a = pillOfHost(st.host);
-    const b = pillOrFold(st.segment);
+    const a = homeAnchorOfHost(st.host);
+    const b = anchorNode(st.segment);
     if (a && b && a !== b) bridges.push([a, b, st.host]);
   }
   /** The bridge edges that ranked an item: `from>to` -> the hosts bridging them. */
@@ -587,13 +644,15 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   if (devices.length && notCarried.length) {
     g.setNode(UNCARRIED_ID, { width: INTERNET_W, height: INTERNET_H });
     for (const [a, b, host] of bridges) {
-    const e = bridged.get(`${a}>${b}`) ?? bridged.get(`${b}>${a}`);
-    if (e && !e.hosts.includes(host)) e.hosts.push(host);
-  }
-  for (const id of notCarried) rankEdge(UNCARRIED_ID, id);
+      const e = bridged.get(`${a}>${b}`) ?? bridged.get(`${b}>${a}`);
+      if (e && !e.hosts.includes(host)) e.hosts.push(host);
+    }
+    for (const id of notCarried) rankEdge(UNCARRIED_ID, id);
   }
   dagre.layout(g);
   orderRows(g, [...rails.values(), ...tileRows.values()]);
+  // Each switch's host row as one block centred under its switch, packed left to right in its rank.
+  packHostRows(g, hostRowIds);
 
   const topLeft = (id: string): { x: number; y: number } => {
     const n = g.node(id);
@@ -670,16 +729,19 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     const n = notCarried.length;
     nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title: "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree" } });
   }
-  const multi = new Set(extraByHost.keys());
+  // The implied switches (rule 2): the segment's own data, drawn as a dashed switch.
+  const hueOfSegment = (seg: GraphSegment): string => {
+    const c = carrierOf.get(seg.name) ?? carrierKey(seg);
+    return deviceNames.has(c) ? hueOfDevice(c) : plainHue;
+  };
   for (const seg of drawnSegments) {
     const id = ID.segment(seg.name);
-    const size = sizeOf.get(seg.name)!;
     const abs = pinned(`segment:${seg.observedCidr}`, topLeft(id));
-    const carrier = carrierOf.get(seg.name) ?? null;
     const served = graph.routers.filter((r) => r.segments.includes(seg.name)).map((r) => ({ router: r.name, hue: hueByRouter.get(r.name)! }));
-    const hue = carrier ? hueOfDevice(carrier) : (served[0]?.hue ?? plainHue);
+    const row = hostRows.get(id);
     const data: SegmentData = {
       kind: "segment",
+      implied: true,
       name: seg.name,
       cidr: seg.observedCidr,
       deployedCidr: seg.deployedCidr,
@@ -690,49 +752,70 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       roleBadges: seg.roleBadges,
       hasRouterLeg: seg.hasRouterLeg,
       served: multiRouter ? served : [],
-      rows: size.rows,
-      carrier,
-      hue,
+      carrier: null,
+      hue: hueOfSegment(seg),
       source: source(seg.name),
       confidence: confidence(seg.name),
-      hiddenChips: hiddenChipsOf.get(seg.name) ?? 0,
-      hostsOpen: expanded.has(hostsKey(seg.name)),
+      hiddenChips: row?.hidden ?? 0,
+      hostsOpen: row?.open ?? false,
     };
-    nodes.push({ id, type: "segment", position: abs, width: size.w, height: size.h, zIndex: 1, ...common, data });
-    const chips = visibleChips.get(seg.name) ?? [];
-    chips.forEach((c, i) => {
-      const slot = iconSlot(i, size.rows);
-      // The label column is narrower than a bus's: shift the lifted slot left by the difference.
-      const rel = { x: slot.x - (168 - PILL_LABEL_W), y: slot.y };
-      if ("node" in c) {
-        const chipAbs = pinned(`host:${c.node.id}`, { x: abs.x + rel.x, y: abs.y + rel.y });
-        nodes.push({
-          id: ID.host(c.node.id),
-          type: "host",
-          parentId: id,
-          position: { x: chipAbs.x - abs.x, y: chipAbs.y - abs.y },
-          width: BUS_ICON,
-          height: BUS_ICON,
-          ...common,
-          data: { ...hostData(c.node, multi.has(c.node.id)), source: source(c.node.id), confidence: confidence(c.node.id) },
-        });
-      } else {
-        nodes.push({ id: `${id}:rungs:${c.rungs.role}`, type: "rungs", parentId: id, position: rel, width: BUS_ICON, height: BUS_ICON, draggable: false, ...common, data: c.rungs });
-      }
-    });
+    nodes.push({ id, type: "impliedSwitch", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });
   }
-  // Taps (§8): an amber chip on the top edge of every pill (or device) a binding names.
+  // The host rows: every host a node of its own under its switch, then the role bands, then `+N`.
+  const multi = new Set(extraByHost.keys());
+  for (const [parent, row] of hostRows) {
+    for (const c of row.chips) {
+      if ("node" in c.chip) {
+        const n = c.chip.node;
+        nodes.push({ id: c.id, type: "host", position: pinned(`host:${n.id}`, topLeft(c.id)), width: BUS_ICON, height: BUS_ICON, zIndex: 2, ...common, data: { ...hostData(n, multi.has(n.id)), source: source(n.id), confidence: confidence(n.id) } });
+      } else {
+        nodes.push({ id: c.id, type: "rungs", position: topLeft(c.id), width: BUS_ICON, height: BUS_ICON, draggable: false, zIndex: 2, ...common, data: c.chip.rungs });
+      }
+    }
+    if (row.hidden || row.open) {
+      const id = TREE_ID.hostFold(parent);
+      nodes.push({ id, type: "hostfold", position: topLeft(id), width: HOST_FOLD_W, height: BUS_ICON, draggable: false, zIndex: 2, ...common, data: { kind: "hostfold", key: hostsKey(parent), hidden: row.hidden, open: row.open, total: row.chips.length + row.hidden } });
+    }
+  }
+  // Taps (§8): an amber chip on the top edge of the switch or router a binding names. A segment tap
+  // rides the segment's switch (real or implied); a boundary tap ONE chip on the router with a leg on
+  // both its segments; a port tap the device, or for a host's port the host's switch (at the left).
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const chipsOn = new Map<string, number>();
+  const pushTap = (tap: TreeTap, parentId: string | null, target: string, left: boolean) => {
+    const parent = parentId ? byId.get(parentId) : undefined;
+    if (!parent || nodes.some((n) => n.id === `tap:${tap.index}:${target}`)) return;
+    const k = chipsOn.get(parent.id) ?? 0;
+    chipsOn.set(parent.id, k + 1);
+    // Beside the icon (bottom-centre of the node, `ROUTER_ICON` square), right of its count badge,
+    // clear of the name above; a host port's chip on the node's top-left corner instead.
+    const w = parent.width ?? DEVICE_W;
+    const h = parent.height ?? DEVICE_H;
+    const step = (TAP_CHIP_W + 4) * k;
+    const at = left ? { x: 6 + step, y: -TAP_CHIP_H / 2 } : { x: w / 2 + TAP_ICON_HALF + 18 + step, y: h - TAP_ICON_HALF - TAP_CHIP_H / 2 };
+    nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId: parent.id, position: at, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: true, selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? fallbackSource } });
+  };
+  /** A segment's switch node (real or implied), never a fold. */
+  const switchOf = (seg: string | null | undefined): string | null => {
+    const a = seg ? anchorNode(seg) : null;
+    return a && !isFold(a) ? a : null;
+  };
   for (const tap of options.taps ?? []) {
+    if (tap.scope === "boundary") {
+      const router = boundaryRouter(graph.routers, tap.targets);
+      if (router) {
+        pushTap(tap, nodeIdOf(router), router, false);
+        continue;
+      }
+      // No one router forms the boundary: a chip on each side's switch.
+      for (const t of tap.targets) pushTap(tap, switchOf(t), t, false);
+      continue;
+    }
     for (const target of tap.targets) {
-      // A port tap on a device rides the device; on a host it rides the pill the port is on, at the left.
-      const onHost = tap.scope === "port" && !deviceNames.has(target);
-      const pill = (seg: string | null | undefined) => (seg && anchorByName[seg] === seg ? ID.segment(seg) : null);
-      const parentId = tap.scope === "port" ? (deviceNames.has(target) ? nodeIdOf(target) : pill(tap.segment)) : pill(target);
-      if (!parentId) continue;
-      const parent = nodes.find((n) => n.id === parentId);
-      if (!parent) continue;
-      const w = parent.width ?? DEVICE_W;
-      nodes.push({ id: `tap:${tap.index}:${target}`, type: "tap", parentId, position: { x: onHost ? 6 : w - TAP_CHIP_W - 6, y: -TAP_CHIP_H / 2 }, width: TAP_CHIP_W, height: TAP_CHIP_H, zIndex: 4, draggable: true, selectable: true, connectable: false, data: { kind: "tap", id: String(tap.index), target, scope: tap.scope, sensors: [...tap.sensors], source: (tap.source as Source | null) ?? fallbackSource } });
+      if (tap.scope === "port") {
+        if (deviceNames.has(target)) pushTap(tap, nodeIdOf(target), target, false);
+        else pushTap(tap, parentOfHost.get(target) ?? switchOf(tap.segment) ?? homeAnchorOfHost(target), target, true);
+      } else pushTap(tap, switchOf(target), target, false);
     }
   }
   const hostsIn = (segs: readonly GraphSegment[]) => segs.reduce((n, s) => n + s.hostCount, 0);
@@ -762,13 +845,15 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     const seg = graph.segmentByName.get(p.segment);
     edges.push({ id: TREE_ID.segLink(`${p.segment}:${b}`), type: "link", source: nodeIdOf(a), target: nodeIdOf(b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "seglink", segment: p.segment, cidr: seg?.observedCidr ?? "", a, b, hue: hueOfDevice(a), source: source(p.segment), label: `${p.segment}${seg ? ` · ${seg.observedCidr}` : ""}` } });
   }
-  // The links (§2.3): between two devices, or from a device to a host's icon (its pill's fold when folded).
+  // The links (§2.3): between two devices, or from a device to a host's icon (its switch, or the fold, when not drawn).
   const drawnIds = new Set(nodes.map((n) => n.id));
+  /** `device>host` pairs an `up` link already wires: that link IS the host's access edge. */
+  const wired = new Set<string>();
   for (const l of links) {
     const endId = (dev: string): string | null => {
       if (deviceNames.has(dev)) return nodeIdOf(dev);
       if (!graph.nodeById.has(dev)) return null;
-      return drawnIds.has(ID.host(dev)) ? ID.host(dev) : pillOfHost(dev);
+      return drawnIds.has(ID.host(dev)) ? ID.host(dev) : homeAnchorOfHost(dev);
     };
     const da = depths.get(l.a.device)?.depth ?? 99;
     const db = depths.get(l.b.device)?.depth ?? 99;
@@ -776,6 +861,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     const src = endId(from.device);
     const dst = endId(to.device);
     if (!src || !dst || src === dst) continue;
+    if (l.state === "up") wired.add(`${src}>${dst}`);
     const hueSrc = deviceNames.has(from.device) ? hueOfDevice(from.device) : plainHue;
     const segs = linkSegments(l);
     edges.push({
@@ -789,11 +875,27 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       data: { kind: "link", a: from.device, aPort: from.port, b: to.device, bPort: to.port, mode: l.mode, native: l.native, vlans: l.vlans, state: l.state, hue: hueSrc, source: (l.source as Source | null) ?? fallbackSource, label: `${from.port} — ${to.port} · ${l.mode}${segs.length ? ` · ${segs.join(", ")}` : ""}${l.state !== "up" ? ` · ${l.state}` : ""}`, index: l.index },
     });
   }
-  // A switch carrying a pill (§7.1): the segment is a label on the branch.
-  for (const seg of drawnSegments) {
-    const carrier = carrierOf.get(seg.name);
-    if (!carrier || !deviceNames.has(carrier)) continue;
-    edges.push({ id: TREE_ID.carry(carrier, seg.name), type: "leg", className: LEG_CLASS, source: nodeIdOf(carrier), target: ID.segment(seg.name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: carrier, segment: seg.name, label: seg.name, hue: hueOfDevice(carrier) } });
+  // The access edges (rule 1): a switch to each host on its row, labelled with the host's segment (the
+  // VLAN); on a real switch of two or more segments each segment wears its own hue and its first edge
+  // keeps its VLAN label on. A host an `up` link already wires to the switch draws only the link.
+  for (const [parent, row] of hostRows) {
+    const real = !parent.startsWith(ID.segment(""));
+    const segNames = [...new Set(row.chips.map((c) => c.seg.name))];
+    const several = real && segNames.length > 1;
+    const labelled = new Set<string>();
+    const branchHue = deviceNames.has(parent.slice(parent.indexOf(":") + 1)) ? hueOfDevice(parent.slice(parent.indexOf(":") + 1)) : hueOfSegment(row.chips[0]!.seg);
+    for (const c of row.chips) {
+      const hue = several ? hueOf(segNames.indexOf(c.seg.name)) : branchHue;
+      if ("node" in c.chip) {
+        if (wired.has(`${parent}>${c.id}`)) continue;
+        const vlan = real && !labelled.has(c.seg.name) ? c.seg.name : undefined;
+        if (vlan) labelled.add(vlan);
+        edges.push({ id: TREE_ID.access(c.chip.node.id, c.seg.name), type: "leg", className: LEG_CLASS, source: parent, target: c.id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: c.seg.name, segment: c.seg.name, hue, ...(vlan ? { vlan } : {}) } });
+      } else {
+        edges.push({ id: `rungs:${c.id}`, type: "leg", className: LEG_CLASS, source: parent, target: c.id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: parent, segment: c.seg.name, label: "", hue } });
+      }
+    }
+    if (row.hidden || row.open) edges.push({ id: `fold:${parent}>${TREE_ID.hostFold(parent)}`, type: "leg", className: LEG_CLASS, source: parent, target: TREE_ID.hostFold(parent), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: parent, segment: "", label: "", hue: branchHue, dashed: true } });
   }
   // A switch's folds (a router's ride its legs below) and every open fold's collapse tile.
   const foldEdge = (carrier: string, target: string, label: string) => {
@@ -803,23 +905,24 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const f of siteFolds) if (!routerNames.has(f.carrier)) foldEdge(f.carrier, TREE_ID.siteFold(f.carrier, f.site), `${f.site} · ${f.segs.length} segments`);
   for (const [carrier, f] of folded) if (!routerNames.has(carrier)) foldEdge(carrier, TREE_ID.carrierOverflow(carrier), `${f.hidden.length} more`);
   for (const f of openFolds) foldEdge(f.carrier, openFoldId(f.key), "collapse");
-  // A router's legs are the config's `nets[]`: one per pill it does not reach by a trunk, re-homed by drag; folded ones go to the fold.
+  // A router's legs are the config's `nets[]`: one per segment it does not reach by a link -- to the
+  // segment's implied switch, or its carrier outside the router's branch; folded ones go to the fold.
   for (const r of graph.routers) {
     const hue = hueByRouter.get(r.name)!;
     const foldedTo = new Map<string, number>();
     for (const name of legsOf(r)) {
-      const anchor = anchorByName[name];
-      if (!anchor) continue;
-      if (anchor !== name) {
-        foldedTo.set(anchor, (foldedTo.get(anchor) ?? 0) + 1);
+      const target = anchorNode(name);
+      if (!target) continue;
+      if (isFold(target)) {
+        foldedTo.set(target, (foldedTo.get(target) ?? 0) + 1);
         continue;
       }
       const segOf = graph.segmentByName.get(name);
-      edges.push({ id: `leg:${r.name}>${name}`, type: "leg", className: LEG_CLASS, source: underTile.get(name) ?? ID.router(r.name), target: ID.segment(name), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, site: segOf ? `carrier:${carrierKey(segOf)}` : undefined, hue } });
+      edges.push({ id: `leg:${r.name}>${name}`, type: "leg", className: LEG_CLASS, source: underTile.get(name) ?? ID.router(r.name), target, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: name, segment: name, site: segOf ? `carrier:${carrierKey(segOf)}` : undefined, hue } });
     }
     for (const [anchor, n] of foldedTo) edges.push({ id: `legs:${r.name}>${anchor}`, type: "leg", className: LEG_CLASS, source: tileOfAnchor.get(anchor) ?? ID.router(r.name), target: anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "leg", label: `${n} segment${n === 1 ? "" : "s"} folded`, folded: n, site: siteKeyOfOverflowAnchor(anchor) ?? undefined, hue } });
   }
-  // An item on a rail (or an open site's row) its parent draws no leg or carry to -- a segment a
+  // An item on a rail (or an open site's row) its parent draws no leg to -- an implied switch a
   // bridging host adopted onto the rail, or a fold of only such segments: one dashed edge from the
   // parent naming the hosts that bridge it (R4-2b).
   {
@@ -840,25 +943,25 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   // The "not carried" box's members: dashed, so the box reads as a group, not a device.
   for (const id of notCarried) if (g.hasNode(UNCARRIED_ID)) edges.push({ id: `uncarried>${id}`, type: "leg", className: LEG_CLASS, source: UNCARRIED_ID, target: id, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "carry", device: "", segment: id, label: "", hue: plainHue, dashed: true } });
-  // A multi-homed host's stubs.
+  // A multi-homed host's stubs: from each further segment's switch (or its fold) down to the host.
   const stubFolded = new Map<string, { host: string; anchor: string; n: number }>();
   for (const st of stubs) {
-    const anchor = anchorByName[st.segment];
-    if (!anchor || !drawnIds.has(ID.host(st.host))) continue;
-    if (anchor !== st.segment) {
+    const anchor = anchorNode(st.segment);
+    if (!anchor || !drawnIds.has(ID.host(st.host)) || anchor === parentOfHost.get(st.host)) continue;
+    if (isFold(anchor)) {
       const k = `${st.host}>${anchor}`;
       const cur = stubFolded.get(k) ?? { host: st.host, anchor, n: 0 };
       cur.n += 1;
       stubFolded.set(k, cur);
       continue;
     }
-    edges.push({ id: `stub:${st.host}>${st.segment}`, type: "leg", className: LEG_CLASS, source: ID.host(st.host), target: ID.segment(st.segment), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: st.host, segment: st.segment, label: st.ip ?? st.segment } });
+    if (wired.has(`${anchor}>${ID.host(st.host)}`)) continue;
+    edges.push({ id: `stub:${st.host}>${st.segment}`, type: "leg", className: LEG_CLASS, source: anchor, target: ID.host(st.host), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: st.host, segment: st.segment, label: st.ip ?? st.segment } });
   }
-  for (const f of stubFolded.values()) edges.push({ id: `stubs:${f.host}>${f.anchor}`, type: "leg", className: LEG_CLASS, source: ID.host(f.host), target: f.anchor, sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: f.host, segment: f.anchor, label: `${f.n} segment${f.n === 1 ? "" : "s"} folded`, folded: f.n } });
+  for (const f of stubFolded.values()) edges.push({ id: `stubs:${f.host}>${f.anchor}`, type: "leg", className: LEG_CLASS, source: f.anchor, target: ID.host(f.host), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "stub", host: f.host, segment: f.anchor, label: `${f.n} segment${f.n === 1 ? "" : "s"} folded`, folded: f.n } });
   // A bridge that ranked an item and that no drawn stub shows (its host is folded away): one dashed
   // edge between the two boxes, naming the bridging hosts.
-  const parentOfNode = new Map(nodes.filter((n) => n.parentId).map((n) => [n.id, n.parentId!]));
-  const stubShown = (from: string, to: string) => edges.some((x) => x.data?.kind === "stub" && x.target === to && parentOfNode.get(x.source) === from);
+  const stubShown = (from: string, to: string) => edges.some((x) => x.data?.kind === "stub" && x.source === to && parentOfHost.get(x.target.slice(ID.host("").length)) === from);
   for (const b of bridged.values()) {
     if (stubShown(b.from, b.to) || stubShown(b.to, b.from)) continue;
     const label = `via ${b.hosts.slice(0, 2).join(", ")}${b.hosts.length > 2 ? ` +${b.hosts.length - 2}` : ""}`;
@@ -886,7 +989,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, siteSegments, rows: rowsOut, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
 }
 
-/** Lay each row (a carrier's rail, an open site's pills) left to right in its given order, where
+/** Lay each row (a carrier's rail, an open site's switches) left to right in its given order, where
  *  dagre put its boxes in one rank with nothing else between them: the row keeps its left edge and
  *  dagre's spacing, only the order is ours (R4-2b: site then CIDR, `+N more` last). A row dagre
  *  split across ranks, or interleaved with another box, is left as dagre placed it. Mutates `g`. */
@@ -915,10 +1018,72 @@ function orderRows(g: dagre.graphlib.Graph, rows: readonly (readonly string[])[]
   }
 }
 
-/** The pin key of a top-level node of the tree (`host:` for a device, `segment:` for a pill). */
+/** Between two icons of one host row. */
+export const HOST_GAP = 14;
+
+/** The host rows (§7.6), after the rails are ordered: each switch's row is one block in its given
+ *  order, `HOST_GAP` apart, centred under its switch; the blocks of one rank are packed left to
+ *  right in their switches' order, clear of every other box in that rank (which stays where dagre
+ *  put it). A host row is a leaf, so moving it moves nothing else. Grows the graph's width when a
+ *  block is pushed past it. Mutates `g`. */
+function packHostRows(g: dagre.graphlib.Graph, rows: ReadonlyMap<string, readonly string[]>): void {
+  type N = { x: number; y: number; width: number; height: number };
+  const inRow = new Set([...rows.values()].flat());
+  const blocks: Array<{ ids: string[]; y: number; w: number; cx: number; at: number }> = [];
+  for (const [parent, ids] of rows) {
+    const present = ids.filter((id) => g.hasNode(id));
+    const p = g.node(parent) as N | undefined;
+    if (!present.length || !p) continue;
+    const ns = present.map((id) => g.node(id) as N);
+    // dagre may have put a row on two ranks (a multi-homed host ranked under two switches): its lowest.
+    const y = Math.max(...ns.map((n) => n.y));
+    const w = ns.reduce((sum, n) => sum + n.width, 0) + HOST_GAP * (ns.length - 1);
+    // Where dagre put the row: its fallback when the spot under the switch is taken.
+    const at = Math.min(...ns.map((n) => n.x - n.width / 2));
+    blocks.push({ ids: present, y, w, cx: p.x, at });
+  }
+  const byRank = new Map<number, typeof blocks>();
+  for (const b of blocks) byRank.set(Math.round(b.y), [...(byRank.get(Math.round(b.y)) ?? []), b]);
+  let maxRight = 0;
+  for (const [y, list] of byRank) {
+    const fixed = g.nodes().filter((id) => !inRow.has(id)).map((id) => g.node(id) as N | undefined).filter((n): n is N => n !== undefined && Math.abs(n.y - y) <= BUS_ICON).map((n) => ({ l: n.x - n.width / 2, r: n.x + n.width / 2 }));
+    // The columns dagre reserved through this rank for a longer edge (its dummy nodes' points).
+    for (const e of g.edges()) {
+      const pts = (g.edge(e) as { points?: Array<{ x: number; y: number }> } | undefined)?.points ?? [];
+      for (const q of pts.slice(1, -1)) if (Math.abs(q.y - y) < 1) fixed.push({ l: q.x - 4, r: q.x + 4 });
+    }
+    list.sort((a, b) => a.cx - b.cx);
+    let cursor = -Infinity;
+    const hitAt = (l: number, w: number) => fixed.find((f) => l < f.r + TREE_NODE_SEP / 2 && f.l < l + w + TREE_NODE_SEP / 2);
+    for (const b of list) {
+      // Under the switch if that is free, else where dagre found room, else pushed right of what is in the way.
+      const free = [b.cx - b.w / 2, b.at].map((l) => Math.max(l, cursor)).find((l) => !hitAt(l, b.w));
+      let l = free ?? Math.max(b.cx - b.w / 2, cursor);
+      for (let guard = 0; guard < 100; guard++) {
+        const hit = hitAt(l, b.w);
+        if (!hit) break;
+        l = hit.r + TREE_NODE_SEP / 2;
+      }
+      let x = l;
+      for (const id of b.ids) {
+        const n = g.node(id) as N;
+        n.x = x + n.width / 2;
+        n.y = b.y;
+        x += n.width + HOST_GAP;
+      }
+      cursor = l + b.w + TREE_NODE_SEP;
+      maxRight = Math.max(maxRight, l + b.w);
+    }
+  }
+  const graph = g.graph() as { width?: number };
+  if (graph.width !== undefined && maxRight + CANVAS_PAD > graph.width) graph.width = maxRight + CANVAS_PAD;
+}
+
+/** The pin key of a top-level node of the tree (`host:` for a device or a host, `segment:` for an implied switch). */
 function pinKeyOfNode(n: CanvasNode): string | null {
   const d = n.data;
   if (d.kind === "router" || d.kind === "device") return `host:${d.name}`;
+  if (d.kind === "host") return `host:${d.nodeId}`;
   if (d.kind === "segment") return `segment:${d.cidr}`;
   return null;
 }
@@ -933,14 +1098,17 @@ function freeSpace(nodes: CanvasNode[], pins: Pins): void {
   });
   if (!pinned.length) return;
   const placed: Box[] = pinned.map((n) => ({ x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 }));
-  const overlaps = (a: Box, b: Box) => a.x < b.x + b.w + TREE_NODE_SEP / 2 && b.x < a.x + a.w + TREE_NODE_SEP / 2 && a.y < b.y + b.h && b.y < a.y + a.h;
+  // An icon of a host row (a host, a role band, the `+N` fold) keeps the row's own gap, not a box's.
+  const small = (b: Box) => b.w <= HOST_FOLD_W;
+  const clear = (a: Box, b: Box) => (small(a) && small(b) ? HOST_GAP / 2 : TREE_NODE_SEP / 2);
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.w + clear(a, b) && b.x < a.x + a.w + clear(a, b) && a.y < b.y + b.h && b.y < a.y + a.h;
   for (const n of top) {
     if (pinned.includes(n)) continue;
     const box: Box = { x: n.position.x, y: n.position.y, w: n.width ?? 0, h: n.height ?? 0 };
     for (let guard = 0; guard < 200; guard++) {
       const hit = placed.filter((p) => overlaps(box, p));
       if (!hit.length) break;
-      box.x = Math.max(...hit.map((p) => p.x + p.w)) + TREE_NODE_SEP;
+      box.x = Math.max(...hit.map((p) => p.x + p.w)) + (small(box) && hit.every(small) ? HOST_GAP : TREE_NODE_SEP);
     }
     n.position = { x: box.x, y: box.y };
     placed.push(box);

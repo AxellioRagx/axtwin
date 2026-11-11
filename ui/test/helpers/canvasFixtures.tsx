@@ -105,6 +105,24 @@ export const hosts = () => screen.getAllByTestId("canvas-host").map((h) => h.dat
 export const segments = () => screen.getAllByTestId("canvas-segment").map((s) => s.dataset["name"]).sort();
 export const host = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
 export const segment = (name: string) => screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === name)!;
+/** Open a segment's panel as an operator does (segments drawn as switches, 2026-11-11): a click on its
+ *  implied switch, else on the real switch that carries it and then its row under "Segments (VLANs)". */
+export async function openSegment(name: string): Promise<HTMLElement> {
+  const implied = screen.queryAllByTestId("canvas-segment").find((s) => s.dataset["name"] === name);
+  if (implied) fireEvent.click(implied);
+  else {
+    let row: HTMLElement | undefined;
+    for (const dev of screen.queryAllByTestId("canvas-device")) {
+      fireEvent.click(dev);
+      const np = await screen.findByTestId("node-panel");
+      row = within(np).queryAllByTestId("carried-segment").find((r) => r.dataset["segment"] === name);
+      if (row) break;
+    }
+    if (!row) throw new Error(`no implied switch and no switch carries ${name}`);
+    fireEvent.click(within(row).getByRole("button"));
+  }
+  return screen.findByTestId("segment-panel");
+}
 export const panel = () => within(screen.getByTestId("side-panel"));
 /** The inspector's tabs (one open at a time; a node click opens Selection). */
 export const tab = (name: string) => {

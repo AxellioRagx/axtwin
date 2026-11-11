@@ -54,7 +54,7 @@ describe("a bus is ranked in its site, never dropped free (track 4)", () => {
     expect(orderByRank(["a", "b", "c"], rank({ b: 9 }))).toEqual(["a", "c", "b"]);
   });
 
-  it("placeTree: a segment pin is an absolute top-left; unpinned pills keep CIDR order under their router (epoch 6)", () => {
+  it("placeTree: a segment pin is an absolute top-left for its implied switch; unpinned ones keep CIDR order under their router (epoch 7)", () => {
     const graph = graphOf(TE);
     const abs = (p: ReturnType<typeof placeTree>, id: string) => {
       const n = p.nodes.find((x) => x.id === id)!;
@@ -63,13 +63,13 @@ describe("a bus is ranked in its site, never dropped free (track 4)", () => {
     };
     const plain = placeTree(graph);
     // CIDR order by default, left to right under the router: segment-3 (10.70.0), office (.10), servers (.20).
-    expect(abs(plain, "seg:segment-3").x).toBeLessThan(abs(plain, "seg:office").x);
-    expect(abs(plain, "seg:office").x).toBeLessThan(abs(plain, "seg:servers").x);
+    expect(abs(plain, "vsw:segment-3").x).toBeLessThan(abs(plain, "vsw:office").x);
+    expect(abs(plain, "vsw:office").x).toBeLessThan(abs(plain, "vsw:servers").x);
     const pinned = placeTree(graph, { "segment:10.70.20.0/24": { x: 5, y: 900 } });
-    expect(pinned.nodes.find((n) => n.id === "seg:servers")!.position).toEqual({ x: 5, y: 900 });
-    expect(abs(pinned, "seg:office")).toEqual(abs(plain, "seg:office")); // the others keep their computed slots
-    const o = abs(plain, "seg:office");
-    const s3 = abs(plain, "seg:segment-3");
+    expect(pinned.nodes.find((n) => n.id === "vsw:servers")!.position).toEqual({ x: 5, y: 900 });
+    expect(abs(pinned, "vsw:office")).toEqual(abs(plain, "vsw:office")); // the others keep their computed slots
+    const o = abs(plain, "vsw:office");
+    const s3 = abs(plain, "vsw:segment-3");
     const overlap = (a: typeof o, b: typeof o) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
     expect(overlap(o, s3)).toBe(false);
   });

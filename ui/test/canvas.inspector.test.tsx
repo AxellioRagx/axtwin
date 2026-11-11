@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { addTapBinding, boundaryAt, moveTapBinding, portOnLink, readTap, removeTapBinding, selectorOf, setTapSelector, setTapSensors, tapsOn } from "../src/features/edit-canvas/edit/tap";
 import { unwireTierDefault, wireTapDefault } from "../src/features/edit-canvas/edit/manifest";
 import { addLink, readTe, removeLink, setLinkField, setMemberRole } from "../src/features/edit-canvas/edit/te";
-import { commit, seeded, segment, settle, tab, twinYaml } from "./helpers/canvasFixtures";
+import { commit, openSegment, seeded, segment, settle, tab, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TE = `twin_config:
@@ -247,8 +247,8 @@ describe("the inspector by tier", () => {
     renderAt(api, "/twins/insp/canvas");
     await screen.findAllByTestId("canvas-host");
     expect(screen.queryAllByTestId("canvas-tap")).toEqual([]);
-    fireEvent.click(segment("office"));
-    const sp = await screen.findByTestId("segment-panel");
+    // office is access-sw's (its trunk carries it): its panel opens from the switch's segment row.
+    const sp = await openSegment("office");
     // Add tap waits for a sensor (the tap tier refuses a binding with none); the targets' declared ones are offered.
     const add = within(sp).getByTestId("add-tap") as HTMLButtonElement;
     expect(add.disabled).toBe(true);
@@ -267,8 +267,8 @@ describe("the inspector by tier", () => {
     state.documents.insp!.files["twin.yaml"] = wireTapDefault(state.documents.insp!.files["twin.yaml"]!, "tap/default.yaml");
     renderAt(api, "/twins/insp/canvas");
     await screen.findAllByTestId("canvas-host");
-    // A boundary binding draws a chip on each of its two segments: one binding.
-    expect(screen.getAllByTestId("canvas-tap").map((t) => t.getAttribute("data-tap"))).toEqual(["0", "0"]);
+    // A boundary binding draws ONE chip, on the router that forms the boundary (§8, 2026-11-11).
+    expect(screen.getAllByTestId("canvas-tap").map((t) => [t.getAttribute("data-tap"), t.getAttribute("data-target")])).toEqual([["0", "gw"]]);
     fireEvent.click(screen.getAllByTestId("canvas-tap")[0]!);
     const panel = await screen.findByTestId("tap-panel");
     fireEvent.click(within(panel).getByRole("button", { name: "Remove tap" }));
@@ -292,7 +292,6 @@ describe("the inspector by tier", () => {
     const chips = screen.getAllByTestId("canvas-tap");
     expect(chips.map((c) => [c.getAttribute("data-tap"), c.getAttribute("data-source"), c.getAttribute("data-sensors")])).toEqual([
       ["0", "discovered", "0"],
-      ["1", "discovered", "0"],
       ["1", "discovered", "0"],
     ]);
     tab("Checks");
@@ -391,7 +390,7 @@ describe("the inspector by tier", () => {
     fireEvent.click(within(sum).getByTestId("prov-row-asserted"));
     await waitFor(() => expect(screen.getByTestId("canvas-device").classList.contains("cv-dim")).toBe(false));
     expect(screen.getAllByTestId("canvas-host").every((h) => h.classList.contains("cv-dim"))).toBe(true);
-    expect(segment("office").classList.contains("cv-dim")).toBe(true);
+    expect(segment("servers").classList.contains("cv-dim")).toBe(true);
     fireEvent.click(within(sum).getByTestId("prov-row-asserted"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-host").some((h) => h.classList.contains("cv-dim"))).toBe(false));
   });
@@ -514,8 +513,7 @@ describe("the Provenance block through the seam (a cast twin)", () => {
     const sp = await screen.findByTestId("segment-panel");
     expect((within(sp).getByTestId("prov-confirm") as HTMLButtonElement).disabled).toBe(true);
     expect(sp.textContent).toContain("no observed network");
-    fireEvent.click(segment("office"));
-    expect((within(await screen.findByTestId("segment-panel")).getByTestId("prov-confirm") as HTMLButtonElement).disabled).toBe(false);
+    expect((within(await openSegment("office")).getByTestId("prov-confirm") as HTMLButtonElement).disabled).toBe(false);
   });
   it("a tap asserts as a tap add keyed by its segment's observed network", async () => {
     const { api, state } = castTwin();

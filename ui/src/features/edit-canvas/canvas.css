@@ -243,7 +243,7 @@ g.selected .cv-port { fill: var(--accent) !important; stroke: var(--accent) !imp
 [data-testid="canvas-leg"][data-fan] .react-flow__edge-textbg { fill: var(--panel); }
 [data-testid="canvas-leg"][data-fan] .react-flow__edge-text { font-size: 11px; fill: var(--ink); }
 /* A leg's label draws only while the leg is selected or hovered. */
-[data-testid="canvas-leg"]:not(.selected):not(.hover):not([data-fan]) .react-flow__edge-textwrapper { display: none; }
+[data-testid="canvas-leg"]:not(.selected):not(.hover):not([data-fan]):not([data-vlan]) .react-flow__edge-textwrapper { display: none; }
 /* A leg is drawn above the boxes but takes no pointer events: a drag or a click
    on a box under it reaches the box, and the pane hit-tests the legs itself
    (`Canvas.tsx` legAt) for the click, the hover label and the menu. */
@@ -354,6 +354,21 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-device .cv-icon-box { border-radius: 8px; border-style: solid; }
 .cv-device-badge { position: absolute; right: -8px; bottom: -8px; font-size: 9px; line-height: 1.4; padding: 0 4px; border-radius: 6px; background: var(--panel); border: 1px solid var(--hue, var(--muted)); color: var(--ink); }
 .react-flow__edge-path.cv-leg-carry { stroke-width: 1.75; opacity: 0.9; }
+/* §7.1 rule 2 (2026-11-11): an implied switch -- a segment no real switch carries -- is the switch
+   glyph with a dashed outline and an "implied" mark; its host count sits at its corner. */
+.cv-implied .cv-icon-box { border-style: dashed; border-color: var(--hue, var(--muted)); border-width: 1.75px; position: relative; overflow: visible; }
+.cv-implied .cv-implied-mark { position: absolute; right: calc(100% + 5px); top: 50%; transform: translateY(-50%); font-size: 8.5px; line-height: 1.3; padding: 0 3px; border-radius: 4px; background: var(--panel); border: 1px dashed var(--muted); color: var(--muted); letter-spacing: 0.02em; }
+.cv-implied .cv-segment-count { position: absolute; right: -14px; bottom: -8px; min-width: 16px; padding: 0 5px; border-radius: 999px; line-height: 1.35; font-size: 10.5px; background: var(--panel); color: var(--ink); border-color: var(--muted); text-align: center; }
+.cv-implied .cv-prov-badge, .cv-implied .cv-prov-dot { position: absolute; left: -8px; bottom: -6px; }
+.cv-implied.selected .cv-icon-box { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.cv-implied.cv-target .cv-icon-box { border-color: var(--accent); }
+/* A switch's +N host fold: the circle sits in its own small box at the end of the host row. */
+.cv-host-fold-node { position: relative; display: flex; align-items: center; justify-content: center; }
+.cv-host-fold-node .cv-host-fold { position: static; }
+.cv-host-fold-node .cv-host-fold.open { position: static; }
+/* A real switch's first access edge of each segment keeps its VLAN label on. */
+[data-testid="canvas-leg"][data-vlan] .react-flow__edge-textwrapper { display: block; }
+[data-testid="canvas-leg"][data-vlan] .react-flow__edge-text { font-size: 10.5px; fill: var(--hue, var(--muted)); }
 .react-flow__edge-path.cv-link { stroke: var(--hue, var(--ink)); stroke-width: 2.25; fill: none; }
 .react-flow__edge-path.cv-link-weak { stroke-dasharray: 6 4; opacity: 0.75; }
 .react-flow__edge-path.cv-link.selected, g.cv-link-edge.selected .react-flow__edge-path.cv-link { stroke: var(--accent); stroke-width: 3; }
@@ -436,3 +451,5 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-sensor-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 4px 0; }
 .cv-sensor-stale s { color: var(--bad); }
 .cv-lab-chip .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Compact keeps the host icons (the switches' leaves) but not their captions. */
+.canvas-shell.compact .cv-host-label { display: none; }

@@ -57,19 +57,23 @@ export type SiteData = {
 };
 /** A router with a leg on a bus, with its hue: the dot at the bus's left end (rule 2). */
 export type Served = { router: string; hue: string };
+/** A segment. On the device tree it is drawn as its IMPLIED switch (`implied: true`, §7.1 rule 2):
+ *  a segment no real switch carries; a carried segment has no node of its own. */
 export type SegmentData = {
   kind: "segment";
+  /** Drawn as an implied switch (`vsw:<name>`): presentation only, never written to the config. */
+  implied?: boolean;
   name: string;
   cidr: string;
   source?: Source | null;
   confidence?: number | null;
-  /** The device the segment hangs under in the tree (a switch's name, a router's, or none). */
+  /** The real switch that carries the segment (always `null` on an implied switch). */
   carrier?: string | null;
-  /** The tree's hue for this branch (its carrier's). */
+  /** The tree's hue for this branch (its router's). */
   hue?: string;
-  /** Host icons folded behind the pill's `+N` (the per-segment host budget); 0 when all are drawn. */
+  /** Host icons folded behind the switch's `+N` (the per-switch host budget); 0 when all are drawn. */
   hiddenChips?: number;
-  /** Whether the host budget is lifted for this pill (its `+N` was clicked). */
+  /** Whether the host budget is lifted for this switch (its `+N` was clicked). */
   hostsOpen?: boolean;
   deployedCidr: string | null;
   zoneType: string | null;
@@ -149,7 +153,9 @@ export type DeviceData = {
   /** A switch wired to nothing (a parked duplicate): drawn with a "not attached" badge (R3-2). */
   parked?: boolean;
 };
-/** A tap chip on a segment or a link (topology-layers §8). */
+/** A switch's `+N` host fold (§7.6): `key` is the expand key (`hosts:<switch node id>`). */
+export type HostFoldData = { kind: "hostfold"; key: string; hidden: number; open: boolean; total: number };
+/** A tap chip on a switch (real or implied), a router or a device (topology-layers §8). */
 export type TapData = { kind: "tap"; id: string; target: string; scope: string; sensors: string[]; source?: Source | null };
 /** The Internet pill: short label and sub-line beside the icon (the slot
  *  has room for about twenty glyphs each), the full wording in `title`.
@@ -160,7 +166,7 @@ export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: s
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };
-export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData | AnnotationData | DeviceData | TapData;
+export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData | AnnotationData | DeviceData | TapData | HostFoldData;
 export type CanvasNode = Node<CanvasData, string>;
 
 export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
@@ -168,7 +174,18 @@ export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserte
  *  `folded`: the leg goes to a group's `+N more` lane for `folded` hidden
  *  segments at once (one edge, not one per hidden segment); it names no
  *  single attachment, so it has no label, no detach, no selection. */
-export type LegData = { kind: "leg"; label: string; folded?: number; /** The site group the target lies in (the fan collapse groups by it). */ site?: string; hue: string };
+export type LegData = {
+  kind: "leg";
+  label: string;
+  folded?: number;
+  /** The site group the target lies in (the fan collapse groups by it). */
+  site?: string;
+  hue: string;
+  /** The segment the attachment is on (a router's leg, or a host's access edge from its switch). */
+  segment?: string;
+  /** A real switch's access edge that keeps its VLAN label on (the first of each segment, §7.1 rule 1). */
+  vlan?: string;
+};
 /** Rule 4: a multi-homed host's stub from its icon to each bus it is on but does not sit on. */
 export type StubData = { kind: "stub"; host: string; segment: string; label: string; folded?: number; site?: string };
 /** Rule 2's fan (`canvas/fan.ts`): one trunk from a router to a site for `count` buses... */
@@ -200,7 +217,8 @@ export interface Placement {
   /** The tree's rows: a carrier's node id -> its rail, an open site's tile id -> its row (left to right). */
   rows?: Record<string, string[]>;
   hiddenPairs: number;
-  /** Segment NAME -> the anchor it is drawn through (itself, or its group's `+N more` lane when collapsed). */
+  /** Segment NAME -> what it is drawn through: itself (its implied switch, `ID.segment(name)`), the
+   *  node id of the real switch that carries it, or the id of the fold that holds it. */
   anchorByName: Record<string, string>;
   /** Local entities in no segment (O7): a count for the Notes tab, not a box on the drawing (R3-9). */
   unplaced?: number;
@@ -220,7 +238,8 @@ export function siteKeyOfOverflowAnchor(id: string): string | null {
 
 export const ID = {
   site: (key: string) => key, // a site key is already `site:<prefix>`
-  segment: (name: string) => `seg:${name}`,
+  /** A segment's implied switch (§7.1 rule 2); a segment a real switch carries has no node. */
+  segment: (name: string) => `vsw:${name}`,
   host: (nodeId: string) => `host:${nodeId}`,
   router: (name: string) => `router:${name}`,
   overflow: (siteKey: string) => overflowAnchorKey(siteKey),

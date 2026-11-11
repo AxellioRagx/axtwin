@@ -13,11 +13,9 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
 import { evidenceClassName, saturationFor } from "./model/evidence";
 import type { DetailLevel } from "./model/detail";
-import { roleBadgeLabel, SWITCH_ROLES, switchBadge } from "./model/roles";
+import { SWITCH_ROLES, switchBadge } from "./model/roles";
 import { encodePoints, type Point } from "./canvas/legs";
 import { midOf, roundedPath } from "./canvas/orthogonal";
-import { BUS_BADGE_W, BUS_LABEL_W } from "./canvas/bus";
-import { PILL_LABEL_W, PILL_PAD_RIGHT, TREE_HOST_BUDGET } from "./canvas/tree";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
@@ -129,92 +127,92 @@ export function SiteNode(p: P) {
   );
 }
 
-/** Rule 1: a segment is a bus -- one line along the lane's bottom edge, the
- *  name and CIDR at its left end, the host-count badge at its right end,
- *  one dot per serving router in that router's hue (rule 2) at the left
- *  end of the line. Its hosts are the canvas's child nodes, sitting on the
- *  line. Compact (zoomed out), the icons are hidden and a glyph row sits in
- *  their place. The lane's box is the drop target of every attach gesture. */
-export function SegmentNode(p: P) {
+/** An IMPLIED switch (§7.1 rule 2, 2026-11-11): a segment no real switch carries, drawn as the
+ *  switch glyph with a dashed outline and an "implied" mark, the segment's name above it (a
+ *  landmark, like a switch's name) and its CIDR under it when labels are on. Its data is the
+ *  segment's, so a click selects the segment, a drop lands on it, and its hover card names the
+ *  segment's name, CIDR and zone type. Its hosts are nodes of their own below it. Presentation only:
+ *  nothing writes it to the twin config ("Insert switch" makes a real one). */
+export function ImpliedSwitchNode(p: P) {
   const d = p.data;
   const edit = useEdit();
+  const card = useHoverCard(p.dragging);
   const labels = useContext(LabelsContext);
-  const detail = useContext(DetailContext);
   const overlay = useContext(OverlayContext);
   const dim = useDim(d.kind === "segment" ? d.source : null);
   if (d.kind !== "segment") return null;
-  const dominant = d.evidenceMix[0]?.evidenceClass ?? null;
   const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing || edit.rehomeTarget === d.name));
-  const glyphs = [...d.roleBadges].sort((a, b) => b.count - a.count);
-  // Compact: as many glyphs as the host rows hold between the label and the badge (60 px a glyph), the ghost glyph and a `+N` fold each taking a slot. A pill's label column is the tree's (`PILL_LABEL_W`).
-  const pill = d.carrier !== undefined;
-  const perRow = Math.max(1, Math.floor(((p.width ?? 360) - (pill ? PILL_LABEL_W : BUS_LABEL_W) - (pill ? PILL_PAD_RIGHT : BUS_BADGE_W + 20) + 6) / 60));
-  const capacity = Math.max(1, perRow * Math.max(1, d.rows ?? 1) - (d.ghosts ? 1 : 0));
-  const limit = Math.min(TILE_GLYPH_MAX, glyphs.length <= capacity ? capacity : Math.max(1, capacity - 1));
-  const shown = glyphs.slice(0, limit);
-  const folded = glyphs.slice(limit).reduce((n, g) => n + g.count, 0);
-  const legend = glyphs.map((g) => `${g.role} ${g.count}`).join(" · ");
   const served = d.served ?? [];
+  const legend = [...d.roleBadges].sort((a, b) => b.count - a.count).map((g) => `${g.role} ${g.count}`).join(" · ");
   const hostsWord = `${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`;
   return (
     <div
-      className={`cv-segment cv-bus cv-pill ${evidenceClassName(dominant === "(none)" ? null : dominant)}${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${detail === "compact" ? " compact" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
+      className={`cv-router cv-device cv-implied${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-segment"
+      data-implied="true"
       data-cidr={d.cidr}
       data-name={d.name}
-      data-carrier={d.carrier ?? undefined}
       data-source={d.source ?? undefined}
-      data-detail={detail}
-      data-rank={d.rank}
       {...posAttrs(p, `segment:${d.cidr}`)}
       style={{ width: p.width, height: p.height, ...(d.hue ? ({ "--hue": d.hue } as React.CSSProperties) : {}) }}
-      title={`${d.name} · ${d.cidr}${d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}${d.zoneType ? ` · ${d.zoneType}` : ""}${d.carrier ? `\ncarried by ${d.carrier}` : ""}${served.length ? `\nrouters: ${served.map((s) => s.router).join(", ")}` : ""}${legend ? `\n${legend}` : ""}`}
+      ref={card.el}
+      onMouseEnter={card.enter}
+      onMouseLeave={card.close}
+      onPointerDown={card.close}
       onContextMenu={edit ? (e) => edit.onContextMenu(e, { kind: "segment", name: d.name }) : undefined}
     >
-      <div className="cv-bus-label">
-        <span className="mono cv-segment-name">{d.name}</span>
-        {labels !== "none" ? <span className="mono muted cv-segment-cidr">{d.cidr}</span> : null}
+      <span className="mono cv-icon-name cv-segment-name">{d.name}</span>
+      {labels !== "none" ? <span className="mono muted cv-icon-sub cv-segment-cidr">{d.cidr}</span> : null}
+      <span className="cv-icon-box" aria-hidden="true">
+        <Icon.switch />
+        <span className="cv-implied-mark" data-testid="implied-mark" title="implied: no switch in the config carries this segment">implied</span>
+        <span className="badge cv-segment-count" title={hostsWord} data-testid="segment-count">{d.hosts}</span>
         <ProvenanceMark source={d.source} confidence={d.confidence} />
-      </div>
-      {detail === "compact" ? (
-        <div className="cv-glyphs" data-testid="segment-glyphs" aria-label={legend || "no roles"}>
-          {shown.map((g) => (
-            <span key={g.role} className="cv-glyph" title={`${g.role} · ${g.count}`} data-role={roleBadgeLabel(g.role)}>
-              <RoleIcon label={roleBadgeLabel(g.role)} />
-              <span className="cv-glyph-count">{g.count}</span>
-            </span>
-          ))}
-          {folded ? <span className="cv-glyph cv-glyph-fold" data-testid="glyph-fold" title={glyphs.slice(limit).map((g) => `${g.role} ${g.count}`).join(" · ")}>+{folded}</span> : null}
-          {d.ghosts ? (
-            <span className="cv-glyph ghost" title={`${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}: under the occupancy gate`}>
-              <RoleIcon label="GHOST" />
-              <span className="cv-glyph-count">{d.ghosts}</span>
-            </span>
-          ) : null}
+      </span>
+      {card.open ? (
+        <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
+          <div className="mono">{d.name}</div>
+          <dl className="facts">
+            <dt>Segment</dt>
+            <dd className="mono">{d.cidr}{d.deployedCidr && d.deployedCidr !== d.cidr ? ` → ${d.deployedCidr} deployed` : ""}</dd>
+            <dt>Zone</dt>
+            <dd>{d.zoneType ?? <span className="muted">none</span>}</dd>
+            <dt>Hosts</dt>
+            <dd>{hostsWord}{legend ? <span className="muted"> · {legend}</span> : null}</dd>
+            {served.length ? (
+              <>
+                <dt>Routers</dt>
+                <dd className="mono">{served.map((s) => s.router).join(", ")}</dd>
+              </>
+            ) : null}
+            <dt>Switch</dt>
+            <dd className="muted">implied: no switch in the config carries it</dd>
+            <dt>Provenance</dt>
+            <dd>{d.source ?? "authored"}{typeof d.confidence === "number" ? ` (${d.confidence.toFixed(2)})` : ""}</dd>
+          </dl>
         </div>
       ) : null}
-      {d.hiddenChips || d.hostsOpen ? (
-        <button
-          type="button"
-          className={`cv-host-fold nodrag${d.hostsOpen ? " open" : ""}`}
-          data-host-fold={d.name}
-          data-testid="host-fold"
-          style={d.hostsOpen ? undefined : { left: PILL_LABEL_W + TREE_HOST_BUDGET * 38, top: 10 }}
-          title={d.hostsOpen ? "fold the hosts back to the budget" : `${d.hiddenChips} more host icon${d.hiddenChips === 1 ? "" : "s"}: click to show them`}
-        >
-          {d.hostsOpen ? "fold" : `+${d.hiddenChips}`}
-        </button>
-      ) : null}
-      {pill ? null : <div className="cv-bus-line" aria-hidden="true" />}
-      <span className="cv-bus-dots" data-testid="bus-dots" aria-label={served.length ? `routers: ${served.map((s) => s.router).join(", ")}` : "no router"}>
-        {served.map((s) => (
-          <span key={s.router} className="cv-bus-dot" data-router={s.router} style={{ background: s.hue }} title={`${s.router} has a port here`} />
-        ))}
-      </span>
-      <span className="badge cv-segment-count" title={hostsWord} data-testid="segment-count">
-        {d.hosts}
-      </span>
       <Handles role="segment" />
+    </div>
+  );
+}
+
+/** A switch's `+N` host fold (§7.6), last on its host row: a click shows the rest, open it folds them back. */
+export function HostFoldNode(p: P) {
+  const d = p.data;
+  if (d.kind !== "hostfold") return null;
+  return (
+    <div className="cv-host-fold-node" style={{ width: p.width, height: p.height }}>
+      <button
+        type="button"
+        className={`cv-host-fold nodrag${d.open ? " open" : ""}`}
+        data-host-fold={d.key}
+        data-testid="host-fold"
+        title={d.open ? "fold the hosts back to the budget" : `${d.hidden} more host icon${d.hidden === 1 ? "" : "s"}: click to show them`}
+      >
+        {d.open ? "fold" : `+${d.hidden}`}
+      </button>
+      <Handles />
     </div>
   );
 }
@@ -628,7 +626,9 @@ export function UnplacedNode(p: P) {
 
 export const nodeTypes = {
   site: SiteNode,
-  segment: SegmentNode,
+  // §7.1 rule 2: a segment no real switch carries is drawn as its implied switch.
+  impliedSwitch: ImpliedSwitchNode,
+  hostfold: HostFoldNode,
   host: HostNode,
   rungs: RungsNode,
   router: RouterNode,
@@ -725,9 +725,11 @@ export function LegEdge(e: E) {
   const end = pts[pts.length - 1];
   // A drop ends in a port dot on its bus (a stub in a hollow one); a fan's trunk ends at the site's edge, no dot.
   const dot = end && kind !== "fan" && !(kind === "leg" && folded) && dst?.type === "segment";
+  // A real switch's first access edge of each segment keeps its VLAN label on (§7.1 rule 1).
+  const vlan = kind === "leg" ? (e.data as { vlan?: string }).vlan : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
-      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${cls}`} style={hue ? { ...e.style, stroke: hue } : e.style} label={label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
+    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} data-vlan={vlan} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
+      <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${cls}`} style={hue ? { ...e.style, stroke: hue } : e.style} label={vlan && !e.selected ? vlan : label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
       {dot ? <circle className={`cv-port${kind === "stub" ? " cv-port-stub" : ""}`} cx={end.x} cy={end.y} r={PORT_DOT} style={hue ? { fill: hue, stroke: hue } : undefined} data-testid="port-dot" /> : null}
     </g>
   );

@@ -49,7 +49,12 @@ import { BUS_BADGE_W, BUS_GAP_Y, BUS_HOSTS_PER_ROW, BUS_ICON, BUS_ICON_GAP, BUS_
 // is a compact pill whose `segment:` pin is an absolute top-left (a bus's
 // rank is gone), and a switch is a node of its own; a pin saved on the bus
 // plane would put a pill at a rank number.
-export const CANVAS_PLANE_EPOCH = 6;
+// Epoch 7 (2026-11-11, segments drawn as switches, topology-layers §7.1): a segment is no longer a
+// pill -- a segment no real switch carries is an implied switch the size of a device, a carried one
+// has no box at all, and every host is a node of its own under its switch; a `segment:` or `host:`
+// pin saved on the pill plane would put an implied switch at a pill's top-left and a host at an
+// icon slot inside a pill that is gone.
+export const CANVAS_PLANE_EPOCH = 7;
 
 export const CANVAS_PLANE_CONSTANTS: ReadonlyArray<readonly [string, number]> = [
   ["CANVAS_PAD", CANVAS_PAD],

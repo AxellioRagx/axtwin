@@ -438,9 +438,9 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(tools().getByRole("button", { name: "Attach" })).toBeTruthy();
     // A handle drag from a host to a segment bus is the same gesture.
-    expect(connectionToAttach({ source: "host:ws01", target: "seg:net-dmz" })).toEqual({ node: "ws01", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "router:gw", target: "seg:net-dmz" })).toEqual({ node: "gw", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "seg:net-dmz", target: "host:ws01" })).toBeNull();
+    expect(connectionToAttach({ source: "host:ws01", target: "vsw:net-dmz" })).toEqual({ node: "ws01", segment: "net-dmz" });
+    expect(connectionToAttach({ source: "router:gw", target: "vsw:net-dmz" })).toEqual({ node: "gw", segment: "net-dmz" });
+    expect(connectionToAttach({ source: "vsw:net-dmz", target: "host:ws01" })).toBeNull();
   });
 
   it("view mode while the deploy is running: locked except annotations, which go to the side-car", async () => {
@@ -744,9 +744,9 @@ describe("the basics: Delete, double-click to zoom, the pane menu", () => {
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.doubleClick(segment("net-dmz"));
-    await waitFor(() => expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("seg:net-dmz"));
+    await waitFor(() => expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("vsw:net-dmz"));
     fireEvent.doubleClick(host("ws01")); // a host is not a zoom target
-    expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("seg:net-dmz");
+    expect(screen.getByTestId("canvas").dataset["zoomTarget"]).toBe("vsw:net-dmz");
     const pane = window.document.querySelector(".react-flow__pane")!;
     fireEvent.contextMenu(pane, { clientX: 300, clientY: 200 });
     const menu = await screen.findByTestId("context-menu");

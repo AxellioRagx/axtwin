@@ -2,8 +2,8 @@
  * The device tree's geometry (review round 3, R3-4 / R3-5, brief "Canvas
  * rendering", 2026-11-07): over the layout `placeTree` computes for the real
  * catalog twins and for shaped fixtures, every structural edge is an
- * orthogonal polyline that never crosses a box's interior (a box: a device, a
- * pill, a fold, the Internet, a host chip, a tap chip), the tree reads top to
+ * orthogonal polyline that never crosses a box's interior (a box: a device, an
+ * implied switch, a fold, the Internet, a host, a tap chip), the tree reads top to
  * bottom by rank, a segment only routers are on is a router-to-router link,
  * and hues appear only with two or more routers.
  */
@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { routeOrthogonal, segmentCrossesBox, type Box } from "../src/features/edit-canvas/canvas/orthogonal";
 import { ID } from "../src/features/edit-canvas/canvas/placement";
-import { HUE_NEUTRAL, TREE_ID, absoluteBoxes, placeTree, type TreeOptions } from "../src/features/edit-canvas/canvas/tree";
+import { HUE_NEUTRAL, TREE_HOST_BUDGET, TREE_ID, absoluteBoxes, hostsKey, placeTree, type TreeOptions } from "../src/features/edit-canvas/canvas/tree";
 import { hueOf } from "../src/features/edit-canvas/canvas/hues";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
@@ -54,7 +54,7 @@ function unrouted(p: ReturnType<typeof placed>): string[] {
   return p.edges.filter((e) => e.type !== "arc" && !e.data?.route).map((e) => e.id);
 }
 
-const TWINS = ["canvas-test", "datacenter", "switch-test", "corp-enterprise", "corp-twin"];
+const TWINS = ["canvas-test", "datacenter", "switch-test", "corp-enterprise", "corp-twin", "pit-395a61f04e-1780405200"];
 
 describe("the orthogonal router", () => {
   it("leaves down, runs in the gutter, enters from above; a long edge descends through its column", () => {
@@ -79,6 +79,22 @@ describe("the orthogonal router", () => {
 });
 
 describe("no edge crosses a box, on the catalog's twins", () => {
+  it("corp-twin with 10.180 open and every host fold open: routed, uncrossed, no node id twice (two segments on one CIDR)", () => {
+    const te = readFileSync(resolve(CATALOG, "corp-twin", "te.yaml"), "utf8");
+    const base = placed("corp-twin", te, { expanded: ["site:hq-mx|10.180"] });
+    const folds = base.nodes.filter((n) => n.data.kind === "hostfold").map((n) => (n.data as { key: string }).key);
+    expect(folds.length).toBeGreaterThan(0);
+    const p = placed("corp-twin", te, { expanded: ["site:hq-mx|10.180", ...folds] });
+    expect(p.overBudget).toBeNull();
+    const ids = p.nodes.map((n) => n.id);
+    expect(ids.length).toBe(new Set(ids).size);
+    const edgeIds = p.edges.map((e) => e.id);
+    expect(edgeIds.length).toBe(new Set(edgeIds).size);
+    expect(crossings(base)).toEqual([]);
+    expect(unrouted(base)).toEqual([]);
+    expect(crossings(p)).toEqual([]);
+    expect(unrouted(p)).toEqual([]);
+  });
   for (const id of TWINS) {
     it(`${id}: every structural edge is routed and none crosses a box, folded and fully open`, () => {
       const te = readFileSync(resolve(CATALOG, id, "te.yaml"), "utf8");
@@ -134,7 +150,7 @@ describe("routers", () => {
     const routers = one.nodes.filter((n) => n.type === "router");
     expect(routers.length).toBe(1);
     expect(hue(one, routers[0]!.id)).toBe(HUE_NEUTRAL);
-    expect(one.nodes.filter((n) => n.type === "segment").every((n) => (n.data as { hue: string }).hue === HUE_NEUTRAL)).toBe(true);
+    expect(one.nodes.filter((n) => n.type === "impliedSwitch").every((n) => (n.data as { hue: string }).hue === HUE_NEUTRAL)).toBe(true);
   });
 });
 
@@ -148,21 +164,37 @@ describe("folding", () => {
     }
     return `twin_config:\n  id: many\n  segments:\n${segs.join("\n")}\n  nodes:\n${nodes.join("\n")}\n    - name: gw\n      kind: router\n      image: vyos@v1\n      nets: [${Array.from({ length: n }, (_, i) => `{ segment: s${i} }`).join(", ")}]\n`;
   };
-  it("a pill draws at most eight host icons and a `+N`; its host key opens it", () => {
+  it("a switch draws at most eight host icons, each a node of its own, and a `+N` fold last on its row; its host key opens it", () => {
+    const sw = ID.segment("s0");
+    const hostsOf = (p: ReturnType<typeof placed>) => p.edges.filter((e) => e.source === sw && e.data?.kind === "leg").map((e) => p.nodes.find((n) => n.id === e.target)!);
     const p = placed("many", many(1, 1));
-    const pill = p.nodes.find((n) => n.id === ID.segment("s0"))!;
-    expect(p.nodes.filter((n) => n.parentId === pill.id && n.type === "host").length).toBe(8);
-    expect((pill.data as { hiddenChips: number }).hiddenChips).toBe(4);
-    const open = placed("many", many(1, 1), { expanded: ["hosts:s0"] });
-    expect(open.nodes.filter((n) => n.parentId === ID.segment("s0") && n.type === "host").length).toBe(12);
+    const shown = hostsOf(p);
+    expect(shown.length).toBe(TREE_HOST_BUDGET);
+    expect(shown.every((n) => n.type === "host" && !n.parentId)).toBe(true);
+    expect((p.nodes.find((n) => n.id === sw)!.data as { hiddenChips: number }).hiddenChips).toBe(4);
+    const fold = p.nodes.find((n) => n.id === TREE_ID.hostFold(sw))!;
+    expect(fold.data).toMatchObject({ kind: "hostfold", key: hostsKey(sw), hidden: 4, open: false });
+    // The fold sits right of the last icon, on the icons' rank, and the icons sit under their switch.
+    const xs = shown.map((n) => n.position.x);
+    expect(fold.position.x).toBeGreaterThan(Math.max(...xs));
+    expect(new Set([...shown, fold].map((n) => n.position.y + (n.height ?? 0) / 2)).size).toBe(1);
+    const box = p.nodes.find((n) => n.id === sw)!;
+    expect(box.position.y + (box.height ?? 0)).toBeLessThan(fold.position.y);
+    expect(crossings(p)).toEqual([]);
+    const open = placed("many", many(1, 1), { expanded: [hostsKey(sw)] });
+    expect(hostsOf(open).length).toBe(12);
+    expect(open.nodes.find((n) => n.id === TREE_ID.hostFold(sw))?.data).toMatchObject({ open: true, hidden: 0 });
+    expect(crossings(open)).toEqual([]);
   });
-  it("segments of one site under one carrier fold into one site pill; a click opens it in place", () => {
+  it("implied switches of one site under one carrier fold into one site fold; a click opens it in place", () => {
     const p = placed("many", many(9, 3)); // three sites of three segments under gw
     const folds = p.nodes.filter((n) => n.type === "overflow");
     expect(folds.map((n) => (n.data as { label?: string }).label)).toEqual(["10.10 · 3 segments", "10.11 · 3 segments", "10.12 · 3 segments"]);
-    expect(p.nodes.filter((n) => n.type === "segment")).toEqual([]);
+    expect(p.nodes.filter((n) => n.type === "impliedSwitch")).toEqual([]);
+    expect(p.nodes.filter((n) => n.type === "host")).toEqual([]); // folded with their switches
     const open = placed("many", many(9, 3), { expanded: ["site:gw|10.11"] });
-    expect(open.nodes.filter((n) => n.type === "segment").map((n) => n.id)).toEqual([ID.segment("s3"), ID.segment("s4"), ID.segment("s5")]);
+    expect(open.nodes.filter((n) => n.type === "impliedSwitch").map((n) => n.id)).toEqual([ID.segment("s3"), ID.segment("s4"), ID.segment("s5")]);
+    expect(open.nodes.filter((n) => n.type === "host").length).toBe(3 * TREE_HOST_BUDGET);
     expect(open.nodes.some((n) => n.id === TREE_ID.siteFold("gw", "10.11"))).toBe(false);
     expect(crossings(open)).toEqual([]);
   });
@@ -172,7 +204,7 @@ describe("positions", () => {
   it("a box that would land on a pinned one moves right into free space in its rank", () => {
     const te = readFileSync(resolve(CATALOG, "canvas-test", "te.yaml"), "utf8");
     const free = placed("ct", te);
-    const pills = free.nodes.filter((n) => n.type === "segment");
+    const pills = free.nodes.filter((n) => n.type === "impliedSwitch");
     expect(pills.length).toBe(2);
     const [a, b] = pills as [typeof pills[number], typeof pills[number]];
     const cidrOf = (n: typeof a) => (n.data as { cidr: string }).cidr;

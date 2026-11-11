@@ -598,11 +598,18 @@ export function CanvasPage() {
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
     const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource });
     if (design && !p.overBudget) {
-      // The tree's own positions settle for the session (a pill, a device, a
-      // router): a later mutation places only what has no position yet.
+      // The tree's own positions settle for the session (an implied switch, a
+      // device, a router, a host): a later mutation places only what has no
+      // position yet. A key two nodes share (two segments on one CIDR, §9 D3)
+      // names neither, so it never settles.
+      const keyCount = new Map<string, number>();
+      for (const n of p.nodes) {
+        const key = n.parentId ? null : pinKeyOf(n);
+        if (key) keyCount.set(key, (keyCount.get(key) ?? 0) + 1);
+      }
       for (const n of p.nodes) {
         const key = pinKeyOf(n);
-        if (!key || key in settled.current || n.parentId) continue;
+        if (!key || key in settled.current || n.parentId || (keyCount.get(key) ?? 0) > 1) continue;
         const abs = absolutePosition(p.nodes, n.id);
         if (abs) settled.current[key] = abs;
       }

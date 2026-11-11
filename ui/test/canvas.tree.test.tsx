@@ -1,9 +1,10 @@
 /**
- * The device tree (`docs/design/topology-layers.md` §7, track 5a, 2026-11-07):
- * a layered layout under the carrying device -- the Internet over the
- * gateway routers, switches by depth along their links, each segment a pill
- * under the deepest switch that carries it (else the router with a leg on
- * it), hosts as icons on the pill; a carrier folds past the rail's Fan-out;
+ * The device tree (`docs/design/topology-layers.md` §7, track 5a, 2026-11-07;
+ * segments drawn as switches, 2026-11-11): a layered layout under the carrying
+ * device -- the Internet over the gateway routers, switches by depth along
+ * their links, a segment's hosts as nodes of their own under the deepest
+ * switch that carries it, else under the segment's IMPLIED switch (under the
+ * router with a leg on it); no segment is a box; a carrier folds past the rail's Fan-out;
  * one hue per router on its branch; links drawn between devices, dashed when
  * down or unconfirmed; provenance marks, and the overlay that shows them all.
  * The geometry is checked over the computed placement (jsdom draws no edge).
@@ -13,7 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { HUE_GREY, hueOf } from "../src/features/edit-canvas/canvas/hues";
 import { ID, type CanvasNode } from "../src/features/edit-canvas/canvas/placement";
-import { HUE_NEUTRAL, TREE_ID, carriersOf, linkSegments, placeTree, pillSize, treeDepths } from "../src/features/edit-canvas/canvas/tree";
+import { HUE_NEUTRAL, TREE_ID, boundaryRouter, carriersOf, hostsKey, linkSegments, placeTree, treeDepths } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { validateTe } from "../src/features/edit-canvas/edit/validate";
@@ -184,43 +185,52 @@ describe("the tree's pure rules", () => {
     expect(c.get("y")).toBe("s1");
     expect(c.get("z")).toBe("s2"); // a switch's own port
   });
-  it("pillSize: wide enough for its icon row and for its glyph row when compact", () => {
-    expect(pillSize(2).w).toBeLessThan(pillSize(2, 4).w);
-    expect(pillSize(12).rows).toBe(2);
+  it("boundaryRouter: the router with a leg on every segment a boundary tap names; hostsKey: by the switch's node id", () => {
+    const routers = [{ name: "a", segments: ["x"] }, { name: "b", segments: ["x", "y"] }];
+    expect(boundaryRouter(routers, ["x", "y"])).toBe("b");
+    expect(boundaryRouter(routers, ["x", "z"])).toBeNull();
+    expect(boundaryRouter(routers, [])).toBeNull();
+    expect(hostsKey(ID.segment("office"))).toBe("hosts:vsw:office");
+    expect(hostsKey(TREE_ID.device("access-sw"))).toBe("hosts:device:access-sw");
   });
 });
 
 describe("placeTree on the switch-test shape", () => {
-  it("draws the router, the switch as a device, the pills under their carriers, the hosts on the pills", () => {
+  it("draws the router, the real switch with its hosts, an implied switch for the switch-less segment, no segment box", () => {
     const p = placed("tree-test", TREE_TE);
     expect(p.overBudget).toBeNull();
     const types = new Map<string, number>();
     for (const n of p.nodes) types.set(n.type!, (types.get(n.type!) ?? 0) + 1);
     expect(types.get("router")).toBe(1);
     expect(types.get("switch")).toBe(1); // R3-7: its own node type
-    expect(types.get("segment")).toBe(2);
+    expect(types.get("impliedSwitch")).toBe(1); // servers: no switch carries it (the access link is down)
+    expect(types.get("segment")).toBeUndefined(); // no pill, ever
     expect(types.get("host")).toBe(2);
     expect(types.get("site")).toBeUndefined();
-    const office = p.byId.get(ID.segment("office"))!;
+    // office: the trunk carries it, so access-sw stands for it and has no node of its own.
+    expect(p.byId.has(ID.segment("office"))).toBe(false);
+    expect(p.anchorByName["office"]).toBe(TREE_ID.device("access-sw"));
     const servers = p.byId.get(ID.segment("servers"))!;
-    expect(office.data.kind === "segment" && office.data.carrier).toBe("access-sw"); // the trunk carries it
-    expect(servers.data.kind === "segment" && servers.data.carrier).toBeNull(); // the down access link carries nothing
-    // Ranks read top to bottom: router over the switch over its pill; the servers pill under the router.
+    expect(servers.id).toBe("vsw:servers");
+    expect(servers.data).toMatchObject({ kind: "segment", implied: true, name: "servers", cidr: "10.71.20.0/24", carrier: null });
+    expect(p.anchorByName["servers"]).toBe("servers");
+    // Ranks read top to bottom: router over the switch over its hosts; the implied switch under the router over its host.
     const gw = p.abs(p.byId.get(ID.router("gw"))!);
     const sw = p.abs(p.byId.get(TREE_ID.device("access-sw"))!);
-    expect(gw.y).toBeLessThan(sw.y);
-    expect(sw.y).toBeLessThan(p.abs(office).y);
-    expect(gw.y).toBeLessThan(p.abs(servers).y);
-    // A host chip sits inside its pill; the switch's badge is L2; provenance rides on the data.
     const ws = p.byId.get(ID.host("corp-workstation"))!;
-    expect(ws.parentId).toBe(ID.segment("office"));
+    const fs = p.byId.get(ID.host("file-server"))!;
+    expect(gw.y).toBeLessThan(sw.y);
+    expect(sw.y).toBeLessThan(p.abs(ws).y);
+    expect(gw.y).toBeLessThan(p.abs(servers).y);
+    expect(p.abs(servers).y).toBeLessThan(p.abs(fs).y);
+    // A host is a node of its own (no parent box); the switch's badge is L2; provenance rides on the data.
+    expect(ws.parentId).toBeUndefined();
+    expect(fs.parentId).toBeUndefined();
     const dev = p.byId.get(TREE_ID.device("access-sw"))!.data;
     expect(dev.kind === "device" && dev.badge).toBe("L2");
     expect(dev.kind === "device" && dev.source).toBe("asserted");
     expect(dev.kind === "device" && dev.ports).toEqual(["SFP1", "P24"]);
     expect(dev.kind === "device" && dev.segments).toEqual(["office"]);
-    expect(office.data.kind === "segment" && office.data.source).toBe("discovered");
-    expect(office.data.kind === "segment" && office.data.confidence).toBe(0.9);
   });
   it("draws the links between devices (and to a host), the router's legs and the carry branch; one router is neutral (R3-5)", () => {
     const p = placed("tree-test", TREE_TE);
@@ -236,17 +246,24 @@ describe("placeTree on the switch-test shape", () => {
     expect(down.data?.kind === "link" && down.data.source).toBe("unconfirmed");
     const legs = p.edges.filter((e) => e.type === "leg" && e.data?.kind === "leg").map((e) => e.id).sort();
     // office is reached through gw's own trunk to access-sw: no leg of gw's own to it (R3-4, it crossed the trunk).
-    expect(legs).toEqual(["leg:gw>servers"]);
-    const carry = p.edges.find((e) => e.id === TREE_ID.carry("access-sw", "office"))!;
-    expect(carry.data?.kind === "carry" && carry.data.hue).toBe(HUE_NEUTRAL);
+    expect(legs).toEqual(["leg:corp-workstation>office", "leg:file-server>servers", "leg:gw>servers"]);
+    expect(p.edges.find((e) => e.id === "leg:gw>servers")).toMatchObject({ source: ID.router("gw"), target: ID.segment("servers") });
+    // The access edges (rule 1): the real switch to its host, labelled with the VLAN; the implied switch to its host.
+    const access = p.edges.find((e) => e.id === TREE_ID.access("corp-workstation", "office"))!;
+    expect([access.source, access.target]).toEqual([TREE_ID.device("access-sw"), ID.host("corp-workstation")]);
+    expect(access.data).toMatchObject({ kind: "leg", segment: "office", vlan: "office", hue: HUE_NEUTRAL });
+    const fsLeg = p.edges.find((e) => e.id === TREE_ID.access("file-server", "servers"))!;
+    expect([fsLeg.source, fsLeg.target]).toEqual([ID.segment("servers"), ID.host("file-server")]);
+    expect(fsLeg.data && "vlan" in fsLeg.data).toBe(false); // the implied switch IS the segment: no label needed
     expect(p.edges.filter((e) => e.type === "arc")).toEqual([]);
   });
-  it("a pin is an absolute top-left for a pill, a device and a host (epoch 6)", () => {
+  it("a pin is an absolute top-left for an implied switch, a device and a host (epoch 7)", () => {
     const g = documentGraph(readDoc({ id: "t", teFile: "te.yaml", files: { "te.yaml": TREE_TE } }), "t");
     const graph = buildGraph(g.exportData, g.cast);
-    const pinned = placeTree(graph, { "segment:10.71.10.0/24": { x: 900, y: 40 }, "host:access-sw": { x: 10, y: 20 } }, { tree: g.tree, extraLegs: g.extraLegs, uplinks: g.uplinks });
-    expect(pinned.nodes.find((n) => n.id === ID.segment("office"))!.position).toEqual({ x: 900, y: 40 });
+    const pinned = placeTree(graph, { "segment:10.71.20.0/24": { x: 900, y: 40 }, "host:access-sw": { x: 10, y: 20 }, "host:file-server": { x: 600, y: 500 } }, { tree: g.tree, extraLegs: g.extraLegs, uplinks: g.uplinks });
+    expect(pinned.nodes.find((n) => n.id === ID.segment("servers"))!.position).toEqual({ x: 900, y: 40 });
     expect(pinned.nodes.find((n) => n.id === TREE_ID.device("access-sw"))!.position).toEqual({ x: 10, y: 20 });
+    expect(pinned.nodes.find((n) => n.id === ID.host("file-server"))!.position).toEqual({ x: 600, y: 500 });
   });
 });
 
@@ -261,37 +278,41 @@ describe("the tree's box budget", () => {
 });
 
 describe("placeTree on a corp-shaped design", () => {
-  it("chains the switches by depth, hangs each pill under the deepest carrier, folds past the fan, and colours the branch", () => {
+  it("chains the switches by depth, hangs each segment's hosts off the deepest carrier, folds the implied switches past the fan, and colours the branch", () => {
     const p = placed("corp-tree", BIG_TE);
     const hq = p.abs(p.byId.get(ID.router("hq"))!);
     const core = p.abs(p.byId.get(TREE_ID.device("core"))!);
     const access = p.abs(p.byId.get(TREE_ID.device("access"))!);
     expect(hq.y).toBeLessThan(core.y);
     expect(core.y).toBeLessThan(access.y);
-    // a1 and a2 are carried by `access` (deeper), a3..a6 by `core`, b1..b3 by the router alone.
-    const carrier = (name: string) => {
-      const d = p.byId.get(ID.segment(name))?.data;
-      return d?.kind === "segment" ? d.carrier : "hidden";
-    };
-    expect(carrier("a1")).toBe("access");
-    expect(carrier("a3")).toBe("core");
-    expect(carrier("b1")).toBeNull();
-    // The fold: `core` carries four (within the fan of 4), the router alone carries three: nothing folds at 4...
+    // a1 and a2 are carried by `access` (deeper), a3..a6 by `core`: no node of their own. b1..b3 by the
+    // router alone: each an implied switch.
+    expect(p.anchorByName["a1"]).toBe(TREE_ID.device("access"));
+    expect(p.anchorByName["a3"]).toBe(TREE_ID.device("core"));
+    expect(p.byId.has(ID.segment("a1"))).toBe(false);
+    expect(p.byId.get(ID.segment("b1"))?.type).toBe("impliedSwitch");
+    // The ×3 group on a1 hangs off `access`, the deepest carrier.
+    const ws = p.edges.find((e) => e.id === TREE_ID.access("ws", "a1"))!;
+    expect([ws.source, ws.target]).toEqual([TREE_ID.device("access"), ID.host("ws")]);
+    expect(access.y).toBeLessThan(p.abs(p.byId.get(ID.host("ws"))!).y);
+    // The fold: the router's rail holds three implied switches (within the fan of 4): nothing folds at 4...
     expect(p.hiddenSegments).toBe(0);
-    // ...and at a fan of 2 each carrier keeps two and folds the rest behind its own `+N more` pill.
+    // ...and at a fan of 2 the rail keeps two and folds the rest behind its `+N more`. A real switch
+    // carries its segments itself and never folds (a3..a6 stay with `core`).
     const folded = placed("corp-tree", BIG_TE, { fan: 2 });
-    expect(folded.hiddenSegments).toBe(3); // a5, a6 under core; b3 under hq
+    expect(folded.hiddenSegments).toBe(1); // b3 under hq
     const over = folded.nodes.filter((n) => n.type === "overflow").map((n) => n.id).sort();
-    expect(over).toEqual([TREE_ID.carrierOverflow("core"), TREE_ID.carrierOverflow("hq")]);
-    expect(folded.anchorByName["a6"]).toBe(TREE_ID.carrierOverflow("core"));
+    expect(over).toEqual([TREE_ID.carrierOverflow("hq")]);
+    expect(folded.anchorByName["b3"]).toBe(TREE_ID.carrierOverflow("hq"));
+    expect(folded.anchorByName["a6"]).toBe(TREE_ID.device("core"));
     // The router's leg to a folded segment goes to the fold, once, however many fold there.
     expect(folded.edges.find((e) => e.id === `legs:hq>${TREE_ID.carrierOverflow("hq")}`)?.data).toMatchObject({ kind: "leg", folded: 1 });
     // Expanding the carrier lifts its fold.
-    const open = placed("corp-tree", BIG_TE, { fan: 2, expanded: ["carrier:core"] });
-    expect(open.hiddenSegments).toBe(1);
-    // One router: the branch is neutral down to its pills (R3-5).
-    const a1 = p.byId.get(ID.segment("a1"))!.data;
-    expect(a1.kind === "segment" && a1.hue).toBe(HUE_NEUTRAL);
+    const open = placed("corp-tree", BIG_TE, { fan: 2, expanded: ["carrier:hq"] });
+    expect(open.hiddenSegments).toBe(0);
+    // One router: the branch is neutral down to its switches (R3-5).
+    const b1 = p.byId.get(ID.segment("b1"))!.data;
+    expect(b1.kind === "segment" && b1.hue).toBe(HUE_NEUTRAL);
     const dev = p.byId.get(TREE_ID.device("access"))!.data;
     expect(dev.kind === "device" && dev.hue).toBe(HUE_NEUTRAL);
     expect(HUE_GREY).not.toBe(hueOf(0));
@@ -317,8 +338,10 @@ describe("on the page", () => {
     expect(dev.dataset["nodeId"]).toBe("access-sw");
     expect(within(dev).getByTestId("device-badge").textContent).toBe("L2");
     expect(hosts()).toEqual(["corp-workstation", "file-server"]);
-    expect(segments()).toEqual(["office", "servers"]);
-    expect(screen.getAllByTestId("canvas-segment").find((s) => s.dataset["name"] === "office")!.dataset["carrier"]).toBe("access-sw");
+    // Only the switch-less segment draws, as its implied switch; office is access-sw's.
+    expect(segments()).toEqual(["servers"]);
+    expect(screen.getByTestId("canvas-segment").dataset["implied"]).toBe("true");
+    expect(within(screen.getByTestId("canvas-segment")).getByTestId("implied-mark")).toBeTruthy();
     expect(within(host("corp-workstation")).getByTestId("count-badge").textContent).toBe("×2·");
     // Overlay off: a dot on the asserted switch; nothing on a discovered (or unmarked, on a cast twin) item.
     expect(within(dev).getByTestId("prov-dot").dataset["source"]).toBe("asserted");
@@ -326,7 +349,7 @@ describe("on the page", () => {
     fireEvent.click(screen.getByTestId("rail-overlay"));
     await waitFor(() => expect(screen.getByTestId("canvas").dataset["overlay"]).toBe("on"));
     expect(within(dev).getByTestId("prov-badge").dataset["source"]).toBe("asserted");
-    expect(screen.getAllByTestId("prov-badge").map((b) => b.dataset["source"]).sort()).toEqual(["asserted", "discovered", "discovered", "discovered", "discovered", "discovered"]); // R3-1: unmarked reads discovered on a cast twin
+    expect(screen.getAllByTestId("prov-badge").map((b) => b.dataset["source"]).sort()).toEqual(["asserted", "discovered", "discovered", "discovered", "discovered"]); // R3-1: unmarked reads discovered on a cast twin (gw, two hosts, servers)
     fireEvent.keyDown(window, { key: "o" });
     await waitFor(() => expect(screen.getByTestId("canvas").dataset["overlay"]).toBe("off"));
   });
@@ -407,9 +430,9 @@ describe("a router's rail (R4-2b) and an open site's row (R4-8)", () => {
     expect(p.anchorByName["s192"]).toBe(TREE_ID.carrierOverflow("hq"));
     expect(p.byId.get(TREE_ID.carrierOverflow("hq"))?.data).toMatchObject({ hidden: 1 });
     expect(p.hiddenSegments).toBe(1);
-    // The overflow is a leaf: nothing hangs below it.
+    // The overflow is a leaf: nothing hangs below it (hosts hang below their switches, not under it).
     const over = box(p, TREE_ID.carrierOverflow("hq"));
-    expect(p.nodes.filter((n) => !n.parentId && p.abs(n).y > over.y + over.h)).toEqual([]);
+    expect(p.nodes.filter((n) => !n.parentId && p.abs(n).y > over.y + over.h && p.abs(n).x < over.x + over.w && p.abs(n).x + (n.width ?? 0) > over.x)).toEqual([]);
     expect(p.edges.filter((e) => e.source === TREE_ID.carrierOverflow("hq"))).toEqual([]);
   });
   it("opened, the carrier's items stay one row with the collapse tile last, folding back what +N more held; a fold of bridged segments hangs from the router, dashed, naming the bridge", () => {

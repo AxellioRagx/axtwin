@@ -40,7 +40,6 @@ import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from ".
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
-import { hostsKey } from "./canvas/tree";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
 import { Icon } from "./icons";
 import { newAnnotation, type Annotation, type AnnotationKind } from "./edit/annotations";
@@ -268,7 +267,7 @@ export function carryTarget(nodes: Parameters<typeof deviceAt>[0], at: { x: numb
 /** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
 export function connectionToAttach(c: Pick<Connection, "source" | "target">): { node: string; segment: string } | null {
   const node = c.source.startsWith("host:") ? c.source.slice(5) : c.source.startsWith("router:") ? c.source.slice(7) : null;
-  const segment = c.target.startsWith("seg:") ? c.target.slice(4) : null;
+  const segment = c.target.startsWith(ID.segment("")) ? c.target.slice(ID.segment("").length) : null;
   return node && segment ? { node, segment } : null;
 }
 
@@ -812,10 +811,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         pendingFit.current = { key: node.data.siteKey };
         onToggleSite(node.data.siteKey);
       }
-      // A pill's host fold (`+N`, the per-segment host budget) opens or closes in place.
-      const hostFold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-host-fold]") : null;
-      if (hostFold?.dataset["hostFold"]) {
-        onToggleSite(hostsKey(hostFold.dataset["hostFold"]));
+      // A switch's host fold (`+N`, the per-switch host budget) opens or closes in place.
+      if (node.data.kind === "hostfold") {
+        onToggleSite(node.data.key);
         return;
       }
       const fold = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-site-collapse]") : null;
@@ -1237,14 +1235,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     }
   }, [nodesReady, rf]);
 
-  // Compact: the icons (and a bus's rungs) leave the DOM; React Flow hides
-  // their edges with them. State keeps them, so a selection survives a zoom.
+  // Compact keeps the host icons: on the device tree they are the switches' leaves (2026-11-11),
+  // bounded by the per-switch host budget; only their captions go (`canvas.css`).
   const shownNodes = useMemo(() => {
     const foldedSites = new Set(folded);
     const hiddenIds = new Set<string>();
     return nodes.map((n) => {
       let out = n;
-      if (detail === "compact" && (n.type === "host" || n.type === "rungs")) out = { ...out, hidden: true };
       if (n.data.kind === "site" && foldedSites.has(n.data.key)) out = { ...out, width: SITE_FOLDED_W, height: SITE_FOLDED_H, data: { ...n.data, collapsed: true } };
       // A parent comes before its children in the placement's order.
       if (n.parentId && (foldedSites.has(n.parentId) || hiddenIds.has(n.parentId))) {

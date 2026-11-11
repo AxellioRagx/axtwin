@@ -242,7 +242,7 @@ describe("the design canvas (C2, read-only)", () => {
     expect(lit()).toEqual(["address:10.20.5.3", "address:10.80.20.4"]);
   });
 
-  it("node detail: the rail toggle pins compact (glyph tiles, no chips, no arc labels) or full, and back to auto", async () => {
+  it("node detail: the rail toggle pins compact (host icons stay, as the switches' leaves; no arc labels) or full, and back to auto", async () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-cast/canvas");
     await screen.findAllByTestId("canvas-host");
@@ -256,12 +256,12 @@ describe("the design canvas (C2, read-only)", () => {
     expect(detail().getAttribute("aria-label")).toBe("Node detail: full");
     fireEvent.click(detail()); // full -> compact
     expect(shell().dataset["detail"]).toBe("compact");
-    expect(screen.queryAllByTestId("canvas-host")).toEqual([]);
+    // Compact keeps the host icons (2026-11-11): on the device tree they are the switches' leaves, bounded by the host budget.
+    expect(screen.getAllByTestId("canvas-host").length).toBe(4);
+    expect(screen.queryByTestId("segment-glyphs")).toBeNull();
     const tiles = screen.getAllByTestId("canvas-segment");
-    expect(tiles.every((t) => t.dataset["detail"] === "compact")).toBe(true);
+    expect(tiles.every((t) => t.dataset["implied"] === "true")).toBe(true);
     const lan = tiles.find((t) => t.dataset["cidr"] === "10.80.20.0/24")!;
-    const glyphs = within(lan).getByTestId("segment-glyphs");
-    expect(within(glyphs).getAllByTitle(/domain-controller · 1|corp-workstation · 1/).length).toBe(2);
     expect(within(lan).getByTestId("segment-count").textContent).toBe("2"); // number only; the words are its title
     expect(within(lan).getByTestId("segment-count").getAttribute("title")).toBe("2 hosts");
     expect(screen.queryByText(/bytes · .* flows/)).toBeNull(); // arc labels are off

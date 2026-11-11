@@ -44,7 +44,7 @@ import {
 import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
-import { duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
+import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
 import { selectorOf, tapsOn, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
@@ -843,6 +843,26 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           );
         })}
       </ul>
+      {n.kind === "switch" ? (
+        <>
+          <h5>Segments (VLANs)</h5>
+          {/* §7.1 rule 1: a segment a switch carries has no box of its own; this is where it is selected. */}
+          {carriedBy(p.model.te, n.name).length === 0 ? <p className="muted">carries no segment</p> : null}
+          <ul className="cv-legs" data-testid="carried-segments">
+            {carriedBy(p.model.te, n.name).map((seg) => {
+              const sg = p.model.te.segments.find((x) => x.name === seg);
+              const hostsOn = p.model.te.nodes.filter((x) => x.kind !== "router" && x.kind !== "switch" && x.nets.some((l) => l.segment === seg)).reduce((k, x) => k + x.countValue, 0);
+              return (
+                <li key={seg} data-testid="carried-segment" data-segment={seg}>
+                  <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "segment", names: [seg] })} title="open the segment's panel">
+                    <span className="mono">{seg}</span> <span className="muted">· {sg?.cidr ?? "unknown"} · {hostsOn} host{hostsOn === 1 ? "" : "s"}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
       <h4>Traffic <span className="muted">· tfc, live</span></h4>
       <Field label={bound ? "Bound to this group" : assignment ? `Inherited from role ${assignment.target}` : "Not bound"} hint="written to the traffic profile; applies live on a deployed twin">
         <select

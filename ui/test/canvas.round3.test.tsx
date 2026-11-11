@@ -56,12 +56,14 @@ describe("R3-1: a missing source reads by the twin's origin", () => {
   it("discovered on a cast twin, authored on a hand-authored one; an explicit source always wins", () => {
     const srcOf = (p: ReturnType<typeof placed>, id: string) => (p.nodes.find((n) => n.id === id)!.data as { source: string | null }).source;
     const cast = placed("discovered");
-    expect(srcOf(cast, "seg:servers")).toBe("discovered");
+    expect(srcOf(cast, "vsw:servers")).toBe("discovered");
     expect(srcOf(cast, "router:gw")).toBe("discovered");
     expect(srcOf(cast, "device:access-sw")).toBe("asserted");
     const authored = placed("authored");
-    expect(srcOf(authored, "seg:servers")).toBe("authored");
-    expect(srcOf(authored, "seg:office")).toBe("discovered");
+    expect(srcOf(authored, "vsw:servers")).toBe("authored");
+    expect(srcOf(authored, "device:access-sw")).toBe("asserted");
+    // office is access-sw's (its trunk carries it): no node of its own to wear a source.
+    expect(authored.nodes.some((n) => n.id === "vsw:office")).toBe(false);
   });
   it("the Checks summary counts by the same rule", () => {
     const m = model();
