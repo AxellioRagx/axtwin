@@ -2,84 +2,100 @@
 
 <!-- REPLACED at every handoff, never appended (`/handoff`); checked against the repo at every
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
-because it will be believed. -->
+because it will be believed. Earlier handoffs: docs/handoffs/<YYYY-MM>.md. -->
 
-**Last updated:** 2026-11-09 (full-cycle fixes, pushed) · **Branch:** `wip/design-platforms-canvas`,
-pushed; `wip/api-discovery-runs` and `master` fast-forwarded to the same commit and pushed (the
-docs commit `57e230a`; this note rides on top of it). Rule: commit each piece as it lands,
-staged by path; never `git add -A`; push only when the user asks.
+**Last updated:** 2026-11-11 (targets and the O2 lab, pushed) · **Branch:**
+`wip/design-platforms-canvas` at `7397107`, pushed; `master` fast-forwarded to the same commit
+and pushed (local `master` too). `wip/api-discovery-runs` was NOT moved this time (still
+`1f3bb08`). Rule: commit each piece as it lands, staged by path; never `git add -A`; push only
+when the user asks.
 
 ## What this session did
 
-The five defects from the 2026-11-09 full-cycle test (cast → edit → deploy → live tap apply →
-destroy on switch-test), one commit each, plus two found re-running the cycle by eye:
-
-- `e79bc09` 1+4: an empty tap plan is "no taps" (loader), Apply of a copy with no taps tears the
-  tap tier down; the canvas drops `tap/default.yaml` + `tiers.tap` with the last tap. Add tap
-  needs a sensor; `GET /api/targets` lists `sensors` (EXTERNAL_SENSORS ids); Checks "N taps need
-  a sensor" filters the canvas and sets one sensor on all.
-- `049082d` 2: `aximprint install-cast` writes the twin folder (`twin.yaml`, `te.yaml`,
-  `tfc/default.yaml`, `tap/default.yaml`, `generated/`), filing a legacy bundle in. The imprint
-  Apply no longer refuses a twins/ folder. Legacy names read when there is no manifest
-  (`edits.LEGACY_TIER_FILES`, the canvas's copy), with a Notes line. A sensor-less binding is a
-  TIER-LOAD **warning** in validate (Save open); every apply still refuses it.
-- `0aac4fd` 3: `POST /api/twins/{id}/deploy {follow_on: [tap, tfc]}` → `run_follow_on` after te;
-  per-tier record in `~/.axrange/state.db.follow-on.json` (`api/follow_on.py`), served as the te
-  row's `follow_on`; `POST /api/deploys/{id}/tiers/{tap|tfc}` (Start tap / Start tfc on the
-  canvas bar). Twin page and pill poll until terminal.
-- `d6a2ea1` 5: drag a tap chip onto a segment / router (boundary) / link (port); inspector
-  Scope + Target; one splice, one undo.
-- `f5edf4a` a sensor set keeps a discovered tap discovered (it re-stamped `authored`).
-- `291f619` the tap drag-stop returned at the pin-key check (the real snap-back cause).
-- `d0585ee` a twin-tree test updated for "empty = no taps".
+Implemented the design record "axtwin design: targets and the O2 lab" (claude.ai doc
+https://claude.ai/artifact/D7NNQhdjQ6ak7isN85j3Nx), following its §5 build order with a browser
+review stop after each step. One commit per step: `b46e911` the lab block (engine
+`platform/lab.py`, lab sensors merged into EXTERNAL_SENSORS), `19e3d97` API (targets carry
+`lab`, `GET /api/targets/{name}/health`, `?target=` preflight on validate/plan, rules
+TARGET-SENSOR / TARGET-IMAGE), `c19acb5` the Targets page, `b757605` the Deploy dialog (target
+select, preflight rows with Remap, canvas Deploy… and target chip, plus the carry-alongs: tap
+drag test and the Destroy wording for applied-but-unpersisted), `7397107` canvas tap Sensors
+picked from the target's lab and the Lab overlay. Then moved all three dev45 sensors out of
+adapter.conf into the lab block in `~/.axrange/targets.yaml` (host files only, no commit).
 
 ## Current state
 
-- **Tests:** ui typecheck clean, 31 files / 495. Engine full suite: 4255 passed, 3 failing =
-  the known untracked-catalog scans (`test_twinconfig_registry` ×2,
-  `test_every_migrated_twin_folder_has_a_valid_manifest`; corp-apcn-reader-20261028 has no
-  twin.yaml). Discovery `test_install_cast_as_twin.py` 28 passed.
-- **Serve:** :8080 restarted after each engine commit (now pid from `restart.sh`, `none` mode,
-  env `serve.env` in this session's scratchpad, token dropped); `ui/dist` rebuilt last at
-  `291f619`.
-- **Live (dev45):** the cycle re-run by eye passed end to end — recorded in the edit-canvas
-  SPEC "Full-cycle test checklist (2026-11-09)". switch-test deployed from the Twins page
-  (te 225 s, tap, tfc by 240 s), tap moved by drag and Applied (mirror servers only), destroyed
-  from the canvas bar (~31 s, all three tiers). `/api/deploys` empty; nothing deployed.
-  switch-test catalog unchanged. Scratch cast `cycle-scratch-1109` deleted.
-- Untracked, the user's: the catalog folders, `ui/dist.old/`; mine: `ui/dist.prev/`.
+- **Tests:** ui 551/551 at `7397107` (one `canvas.subtree` flake seen once under load). Engine:
+  the new suites `test_targets_lab.py` (24) and `test_targets_api.py` pass. The full suite has
+  about 60 failures that are also on clean HEAD, all from the untracked `catalog/twins/*`
+  folders (list: `fail_base.txt` in the old session's scratchpad). No new failures.
+- **Serve:** :8080 pid 1712222, started 2026-11-09 19:16 with `AXRANGE_TARGETS=~/.axrange/targets.yaml`
+  (recipe in memory `axrange-serve-restart-recipe.md`). `ui/dist` built at `7397107`.
+- **Live (dev45):** `/api/targets` reports sensors XPress-SW-A, Tcpdump-SW-A, o2-suricata, all
+  from the lab, all `protected: true`. Health: XPress-SW-A up; Tcpdump-SW-A (vmid 260) and
+  o2-suricata (vmid 883610) unknown, because Proxmox doesn't resolve those VMs and their
+  transport IPs aren't routable from the API host. Grafana/Prometheus/Loki/Caldera/Wazuh are
+  down because the O2 stack isn't running here. switch-test preflight on dev45 is clean.
+  Nothing is deployed by this session.
+- **Host files changed:** `config/adapter.conf` has no EXTERNAL_SENSORS line any more (backups
+  `~/.axrange/adapter.conf.bak-20261109-pre-lab`, `...-pre-lab2`); `~/.axrange/targets.yaml`
+  (backup `targets.yaml.bak-20261109`).
+- Untracked, the user's: the `catalog/twins/*` folders (including a new `e2e-disc/`, origin
+  unknown to this session), `ui/dist.old/`; mine: `ui/dist.prev/`.
 
-## Not done / honest gaps
+## Work in progress
 
-- Start tap / Start tfc not clicked live (both tiers stood); link and router drops unit-tested
-  only (the live drag was segment). No jsdom test drives an RF node drag (the pin-key bug hid
-  there): eyes or Playwright only.
-- A cast's chips render only on drawn pills (4 of 43 on the opening fold of the 44-segment cast).
-- The follow-on chain runs in the serve's thread: a serve restart mid-chain leaves a tier
-  `pending`/`running` in the record (Start tap/tfc refuses it as in progress; delete the entry
-  from `state.db.follow-on.json` by hand if it ever happens).
-- corp-apcn-reader-20261028 still invalid (IPv6 /64, CV-012) and folder-less: the user's call.
-- Yours to decide: the serve's auth mode (`none` on 0.0.0.0).
+Nothing half-edited; the tree is clean apart from the untracked folders above.
 
-## Gotchas
+## Next steps (ordered)
 
-- `cd` does not persist between Bash calls; never chain a destructive git command after a `cd`
-  without `&&`.
-- A subagent worktree is created from an old base here (39fa362): make one by hand.
-- corp-twin has segments that SHARE a CIDR: never map a host to its pill by CIDR.
-- The engine's catalog-scanning tests fail while untracked twin folders sit in `catalog/twins`.
-- A UI-only change goes live by swapping `ui/dist` (build `dist.new`, swap); an engine change
-  needs the restart. `restart.sh` stops the serve FIRST: pass the env file.
-- `onNodeDragStop` in `Canvas.tsx`: any node kind without a pin key must be handled BEFORE the
-  `pinKeyOf` early return.
-- The canvas provenance pass (`edit/provenance.ts`) stamps `authored` on anything whose shape
-  changed: decide per field whether it is placement or a lab fact.
-- Playwright: off-viewport tree nodes refuse `.click()`; use `el.evaluate((e) => e.click())`.
-- `ui/`: `npm ci` only. Contract files change only with the user's confirmation.
+1. User's commit `7055ba4` (`docs/design/targets-and-lab.md` + api/ui Spec lines) is not on the
+   remote. This session deliberately didn't create those files, so it should merge cleanly.
+2. Browser review of step 5 (tap Sensors checkboxes, Lab overlay via the rail's `rail-lab`
+   button) was not signed off.
+3. Live acceptance run, if the user approves (it creates VMs): deploy switch-test from the
+   Deploy dialog on dev45, move its tap in the inspector, Apply, Destroy.
+4. Find out whether VMs 260 and 883610 exist on dev45; bring them up or drop them from the lab.
+5. Multi-target gap: the canvas, the Twins page and `/api/taps` read only the default target's
+   deploys and store. Harmless with dev45 alone; needed before a second target is real.
+
+## Open questions / decisions pending
+
+- Tcpdump-SW-A / o2-suricata: keep in the lab or remove (step 4 above).
+- When to drop the one-release adapter.conf EXTERNAL_SENSORS fallback (the Lab overlay still
+  draws such sensors tagged "adapter.conf").
+- Carried forward: the serve's auth mode (`none` on 0.0.0.0); corp-apcn-reader-20261028 is
+  still invalid (IPv6 /64, CV-012) with no twin.yaml.
+
+## Mental model / gotchas
+
+- A serve or CLI run **without `AXRANGE_TARGETS`** now sees no external sensors at all on
+  dev45, since adapter.conf no longer lists them. `cli/main.py` registers labs from that env
+  var; `create_app` registers them from the parsed targets.
+- Sensor health is ssh :22 on the platform-resolved VM IP, else transport_ip, else unknown with
+  the reason. There is no tap metrics route, and transport IPs aren't routable from the API host,
+  so "unknown" there is normal. Health is cached for 15 s server-side.
+- Lab sensor ids may not also appear in EXTERNAL_SENSORS (`merge_lab_sensors` raises).
+- `api/preflight.py` uses `check_platform`, not DEFAULT_PLATFORM: the layering test forbids it.
+- `imprint_deploy` refuses an unclean preflight with 409 `{code: "preflight"}` before any write.
+- Restarting :8080: find the pid with `ps -eo pid,args | grep '[a]xrange serve --host 0.0.0.0'`
+  and kill it by number in a separate command; `kill $(pgrep -f …)` killed the calling shell once.
+- React Flow drags can't run in jsdom: drop logic lives in the pure `tapDropSelector`
+  (`Canvas.tsx`) and is tested there. `onNodeDragStop` must handle pin-key-less kinds before
+  the `pinKeyOf` early return.
+- Carried forward: the follow-on chain runs in the serve's thread (a restart mid-chain leaves a
+  tier pending in `~/.axrange/state.db.follow-on.json`; delete it by hand); a cast's tap chips
+  render only on drawn pills; Start tap / Start tfc never clicked live; corp-twin segments share
+  CIDRs (never map host→pill by CIDR); `edit/provenance.ts` stamps `authored` on any shape
+  change; a subagent worktree comes from an old base (39fa362), make one by hand.
+- UI-only change: build to `ui/dist.new` and swap (never build into the served `ui/dist`);
+  engine change needs the restart. `ui/`: `npm ci` only.
 
 ## Environment
 
 One venv at `.venv/` (engine + discovery editable), node 22 for `ui/`, live state in
-`~/.axrange/`. Playwright 1.61 at `/home/rocky/fx-cap/mgmtui/node_modules/playwright` +
-`~/.cache/ms-playwright/chromium-1228` (this session's scratchpad: `scratch.cjs`, `deploy.cjs`,
-`move.cjs`, `destroy.cjs`, `dist.sh`, `restart.sh`, `serve.env`). dev45 API 10.80.76.108:8006.
+`~/.axrange/` (targets file `~/.axrange/targets.yaml`, schema in
+`config/adapter.targets.example.yaml`). Playwright at
+`/home/rocky/fx-cap/mgmtui/node_modules/playwright`. dev45 API 10.80.76.108:8006. The serve env
+file lives in a session scratchpad and holds secrets; rebuild it from the live env plus
+`AXRANGE_TARGETS` and `AXRANGE_IMAGES_ROOT=~/axr-product/deploy-dev45`.
