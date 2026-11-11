@@ -47,6 +47,8 @@ import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
+import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
+import type { PlaceVia } from "./Canvas";
 import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -653,8 +655,12 @@ export function CanvasPage() {
     });
   }, [edit]);
   const onPlace = useCallback(
-    (item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null) => {
+    (item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia) => {
       setPlacing(null);
+      if (via && "blocked" in via) {
+        setBlocked(via.blocked);
+        return;
+      }
       if (item.kind === "segment") {
         onAddSegment();
         return;
@@ -669,14 +675,26 @@ export function CanvasPage() {
         return;
       }
       const nodeKind = item.kind === "router" || item.nodeKind === "router" ? "router" : "host";
-      if (!segment && nodeKind !== "router") {
+      const onRouter = via && "router" in via && nodeKind !== "router" ? via.router : null;
+      if (!segment && nodeKind !== "router" && !onRouter) {
         setBlocked(`${item.label} needs a segment: arm it, then click a segment (or drag it onto one)`);
         return;
       }
       const name = item.kind === "group" ? item.id.split("/").pop()! : item.id.replace(/@.*$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
       let placed: string[] = [];
-      const reason = edit(`place ${item.label} ×${count}${segment ? ` on ${segment}` : ""}`, (d, m) => {
-        const r = placeNodes(d, m, { name, count, image: item.image ?? item.id, role: item.role ?? null, kind: nodeKind, segment, fanOut: item.kind === "group" && item.count && item.count > 1 ? item.count : undefined });
+      // Dropped on a router: a new segment under it (the next free /24 in its site), its leg on it, the
+      // host on it -- one command, one undo step; it draws under a new implied switch (§7.1).
+      const reason = edit(`place ${item.label} ×${count}${segment ? ` on ${segment}` : onRouter ? ` on a new segment under ${onRouter}` : ""}`, (d, m) => {
+        let doc = d;
+        let mod = m;
+        let seg = segment;
+        if (onRouter) {
+          const made = newSegmentOnRouter(d, m, onRouter);
+          doc = { ...d, files: made.files };
+          mod = readDoc(doc);
+          seg = made.segment;
+        }
+        const r = placeNodes(doc, mod, { name, count, image: item.image ?? item.id, role: item.role ?? null, kind: nodeKind, segment: seg, fanOut: item.kind === "group" && item.count && item.count > 1 ? item.count : undefined });
         placed = r.names;
         return r.files;
       });
@@ -1038,6 +1056,12 @@ export function CanvasPage() {
       onRemoveNode: (name) => void edit(`remove ${name}`, (d, m) => removeNode(d, m, name)),
       onRemoveSegment: (name) => void edit(`remove segment ${name}`, (d, m) => removeSegment(d, m, name)),
       onAddSegment,
+      onInsertSwitch: (segment) => {
+        let made: { name: string; skipped: string[] } | null = null;
+        if (edit(`insert switch on ${segment}`, (d, m) => { const out = insertSwitch(d, m, segment); made = out; return out.files; }) !== null || !made) return;
+        const done: { name: string; skipped: string[] } = made;
+        setSelection({ kind: "node", names: [done.name] });
+      },
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),

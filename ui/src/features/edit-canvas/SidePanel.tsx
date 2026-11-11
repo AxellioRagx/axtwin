@@ -21,6 +21,7 @@ import {
   detach,
   duplicateOnto,
   mergeSegments,
+  moveTo,
   readDoc,
   removeLink,
   removeNode,
@@ -45,6 +46,7 @@ import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
+import { hostSwitch, insertSwitch } from "./edit/switches";
 import { selectorOf, tapsOn, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
@@ -796,6 +798,22 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </li>
         ))}
       </ul>
+      {(() => {
+        // §7.1: a host on a switch of several segments picks its VLAN here (a drop defaulted it).
+        const hs = hostSwitch(p.model.te, n.name);
+        if (!hs || hs.choices.length < 2) return null;
+        return (
+          <Field label={`VLAN on ${hs.switch}`} hint="the segment this host's first leg is on, among those its switch carries; re-addressed there">
+            <select aria-label="VLAN" data-testid="vlan-picker" value={hs.segment} disabled={ro} onChange={(e) => p.apply(`move ${n.name} to ${e.target.value}`, (d, m) => moveTo(d, m, n.name, e.target.value))}>
+              {hs.choices.map((seg) => (
+                <option key={seg} value={seg}>
+                  {seg}
+                </option>
+              ))}
+            </select>
+          </Field>
+        );
+      })()}
       {otherSegments.length ? (
         <div className="row cv-inline">
           <select aria-label="Attach to segment" value={legTarget} disabled={ro} onChange={(e) => setLegTarget(e.target.value)}>
@@ -988,11 +1006,38 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
   if (!s) return <p className="muted">segment {p.name} is not in the document</p>;
   const ro = p.locked;
   const on = p.model.te.nodes.filter((n) => n.nets.some((l) => l.segment === s.name));
+  // §7.1: the real switch that carries it, else it is drawn as an implied switch (presentation only).
+  const carrier = p.model.te.nodes.find((n) => n.kind === "switch" && carriedBy(p.model.te, n.name).includes(s.name)) ?? null;
+  const groups = on.filter((n) => n.kind !== "router" && n.kind !== "switch" && n.nets[0]?.segment === s.name && !(n.countValue === 1 && typeof n.count === "number"));
   return (
-    <section className="cv-side-section" data-testid="segment-panel">
+    <section className="cv-side-section" data-testid="segment-panel" data-implied={carrier ? undefined : "true"}>
       <h3>
         Segment <span className="mono">{s.name}</span>
       </h3>
+      {carrier ? (
+        <p className="muted hint" data-testid="segment-carrier">
+          carried by switch{" "}
+          <button type="button" className="cv-link-row mono" onClick={() => p.onSelect?.({ kind: "node", names: [carrier.name] })}>{carrier.name}</button>
+          : its hosts hang off it, the segment a VLAN on their access edges
+        </p>
+      ) : (
+        <div className="cv-implied-note" data-testid="implied-note">
+          <p className="muted hint">drawn as an implied switch: no switch in the config carries {s.name}. It is not written to the config.</p>
+          <button
+            type="button"
+            disabled={ro}
+            data-testid="insert-switch"
+            title={`a kind: switch node (imageless, authored), a trunk from the router to it carrying ${s.name}, and an access link to each single host on it`}
+            onClick={() => {
+              const made = { name: "" };
+              if (p.apply(`insert switch on ${s.name}`, (d, m) => { const out = insertSwitch(d, m, s.name); made.name = out.name; return out.files; }) === null) p.onSelect?.({ kind: "node", names: [made.name] });
+            }}
+          >
+            Insert switch
+          </button>
+          {groups.length ? <p className="muted hint" data-testid="insert-switch-groups">{groups.map((g) => g.name).join(", ")}: a ×N group cannot be named by a link; it stays on its <span className="mono">net:</span> and draws under the switch</p> : null}
+        </div>
+      )}
       <Field label="Name">
         <Text ariaLabel="Segment name" value={s.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename segment ${s.name} → ${v}`, (d) => renameSegment(d, s.name, v)) === null) p.onRenamed?.("segment", s.name, v); }} />
       </Field>

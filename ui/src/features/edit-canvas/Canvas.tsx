@@ -47,6 +47,7 @@ import { EditContext, type EditState, type PaletteItem } from "./edit/EditContex
 import type { DocModel } from "./edit/document";
 import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
 import type { TeModel } from "./edit/te";
+import { switchSegment } from "./edit/switches";
 import { LabOverlay, type LabSource } from "./canvas/LabOverlay";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
@@ -69,7 +70,10 @@ export interface CanvasEditProps {
   placing: PaletteItem | null;
   onPlacing(item: PaletteItem | null): void;
   /** A palette item landed on a segment (or nowhere, `segment: null`). */
-  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null): void;
+  /** `via`: the drop landed on a router (a new segment under it, §7.1) or somewhere it cannot go. */
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia): void;
+  /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
+  onInsertSwitch?(segment: string): void;
   onAttach(node: string, segment: string): void;
   /** An existing chip was dropped onto another segment. */
   onMove(node: string, segment: string): void;
@@ -196,7 +200,8 @@ export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position"
 export type TapDropEdge = { kind?: string; index?: number; segment?: string };
 
 /** Where a dropped tap chip lands (topology-layers §8), or null (it springs back). Pure: on a router joining two
- *  segments, the boundary between them; on a segment (its body, below the pill), `{scope: segment, target}`; on a
+ *  segments, the boundary between them; on a real switch, a segment tap on its segment; on an implied
+ *  switch, `{scope: segment, target}`; on a
  *  device link, a port on its VM end; on a segment's link, that segment. `edgeAt` is read only when nothing
  *  under the chip's centre decided it. */
 export function tapDropSelector(
@@ -208,6 +213,9 @@ export function tapDropSelector(
   const dev = deviceAt(others, centre);
   const atDevice = dev ? boundaryAt(te, dev) : null;
   if (atDevice) return atDevice;
+  // On a real switch: a segment tap on the segment it stands for (§7.1, its drop rule), the chip riding it.
+  const swSeg = dev && te.nodes.find((n) => n.name === dev)?.kind === "switch" ? switchSegment(te, dev).segment : null;
+  if (swSeg) return { scope: "segment", target: swSeg };
   const seg = segmentAt(others, { x: centre.x, y: centre.y + 20 });
   if (seg) return { scope: "segment", target: seg };
   const data = edgeAt();
@@ -225,6 +233,29 @@ function edgeUnder(e: { clientX?: number; clientY?: number } | null | undefined)
     if (g) return g.getAttribute("data-testid")!.slice("rf__edge-".length);
   }
   return null;
+}
+
+/** Where a host lands that is dropped on, or armed and clicked on, a device (§7.1 drop rules,
+ *  2026-11-11): a real switch's segment (`switchSegment`: its one segment, else its uplink's native,
+ *  else its busiest), a router's new segment, or a reason it cannot. Pure. */
+export type PlaceVia = { router: string } | { blocked: string };
+export function placeOnDevice(te: TeModel, device: string): { segment: string } | PlaceVia | null {
+  const n = te.nodes.find((x) => x.name === device);
+  if (n?.kind === "router") return { router: device };
+  if (n?.kind === "switch") {
+    const seg = switchSegment(te, device).segment;
+    return seg ? { segment: seg } : { blocked: `${device} carries no segment yet: link it to a router or give it a port first` };
+  }
+  return null;
+}
+
+/** Where a palette item dropped at `at` lands: an implied switch's segment, else a device's (above),
+ *  else nowhere (`null`: the empty canvas). Pure. */
+export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: number; y: number }, te: TeModel): { segment: string } | PlaceVia | null {
+  const seg = segmentAt(nodes, at);
+  if (seg) return { segment: seg };
+  const dev = deviceAt(nodes, at);
+  return dev ? placeOnDevice(te, dev) : null;
 }
 
 export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
@@ -498,7 +529,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const moved = current.map((n) => (n.id === node.id ? { ...n, position: node.position } : n));
       const at = absolutePosition(moved, node.id);
       if (!at) return;
-      // A pill drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 6).
+      // An implied switch drags free on the tree plane: its `segment:` pin is an absolute top-left (epoch 7).
       void onPinMany;
       // A parked device (no link names it) dropped on another device attaches there (§6.3).
       if (editing && edit?.onLink && (node.data.kind === "device" || node.data.kind === "router")) {
@@ -512,13 +543,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           return;
         }
       }
-      // A host icon dropped inside another bus's lane moves there (the attach gesture by drop);
-      // on a lane it is already on, it just takes the spot.
+      // A host icon dropped on another segment's switch -- an implied one, or a real one (its segment by
+      // the §7.1 drop rule) -- moves there; on a switch of a segment it is already on, it just takes the spot.
       if (editing && edit && node.data.kind === "host") {
         const w = node.measured?.width ?? node.width ?? 0;
         const h = node.measured?.height ?? node.height ?? 0;
         const nodeId = node.data.nodeId;
-        const under = segmentAt(moved.filter((n) => n.id !== node.id), { x: at.x + w / 2, y: at.y + h / 2 });
+        const t = placeTarget(moved.filter((n) => n.id !== node.id), { x: at.x + w / 2, y: at.y + h / 2 }, edit.model.te);
+        const under = t && "segment" in t ? t.segment : null;
         const group = edit.model.te.nodes.find((n) => n.name === nodeId);
         if (under && group && !group.nets.some((l) => l.segment === under)) {
           edit.onMove(nodeId, under);
@@ -853,6 +885,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         selectSubtree(d.name);
         return;
       }
+      // An armed host item clicked on a switch or a router places there (§7.1), as a drop would.
+      if (editing && edit.placing && !placesWithoutSegment(edit.placing) && (d.kind === "router" || d.kind === "device")) {
+        const t = placeOnDevice(edit.model.te, d.name);
+        if (t) {
+          if ("segment" in t) edit.onPlace(edit.placing, t.segment, edit.placing.count ?? 1, null);
+          else edit.onPlace(edit.placing, null, edit.placing.count ?? 1, null, t);
+          return;
+        }
+      }
       if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
@@ -951,8 +992,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         return;
       }
       const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const seg = segmentAt(rf.getNodes(), at);
-      edit.onPlace(item, seg, item.count ?? 1, at);
+      // A router item lands on the pane (it joins segments by legs); a host on a switch or a router (§7.1).
+      const t = placesWithoutSegment(item) ? null : placeTarget(rf.getNodes(), at, edit.model.te);
+      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at);
+      else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined);
     },
     [edit, editing, rf],
   );
@@ -1290,6 +1333,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     } else if (t.kind === "segment") {
       if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
       if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
+      if (edit.onInsertSwitch) items.push({ label: "Insert switch", run: () => edit.onInsertSwitch!(t.name) });
       items.push({ label: "Add a segment in this site", run: () => edit.onAddSegment(t.name) });
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }

@@ -40,8 +40,8 @@ const TE = `twin_config:
 `;
 const TAP = `tap-plan:\n  target: drag\n  bindings:\n    - selector: { scope: boundary, target: [office, servers] }\n      sensors: [XPress-SW-A]\n      mode: exclusive\n`;
 
-// Laid-out nodes as React Flow holds them at drag stop: two segment bodies, the router between them.
-const seg = (name: string, x: number) => ({ id: `seg:${name}`, position: { x, y: 0 }, width: 300, height: 200, data: { kind: "segment", name } }) as never;
+// Laid-out nodes as React Flow holds them at drag stop: two implied switches, the router between them.
+const seg = (name: string, x: number) => ({ id: `vsw:${name}`, position: { x, y: 0 }, width: 300, height: 200, data: { kind: "segment", name, implied: true } }) as never;
 const router = { id: "dev:gw", position: { x: 320, y: 60 }, width: 60, height: 40, data: { kind: "router", name: "gw" } } as never;
 const NODES = [seg("office", 0), seg("servers", 400), router];
 
@@ -58,6 +58,15 @@ describe("dropping a tap chip", () => {
     expect(tapDropSelector(NODES, { x: 340, y: 70 }, te, noEdge)).toEqual({ scope: "boundary", target: ["office", "servers"] });
     expect(tapDropSelector(NODES, { x: 1000, y: 900 }, te, () => ({ kind: "seglink", segment: "office" }))).toEqual({ scope: "segment", target: "office" });
     expect(tapDropSelector(NODES, { x: 1000, y: 900 }, te, noEdge)).toBeNull();
+  });
+
+  it("on a real switch: a segment tap on the segment it stands for (its one, else its uplink's native)", () => {
+    const withSw = readTe(`${TE}    - { name: access-sw, kind: switch, role: l2-switch }
+  links:
+    - { a: { device: gw, port: eth1 }, b: { device: access-sw, port: SFP1 }, mode: trunk, native: office, vlans: [office, servers] }
+`);
+    const sw = { id: "device:access-sw", position: { x: 320, y: 300 }, width: 150, height: 66, data: { kind: "device", name: "access-sw" } } as never;
+    expect(tapDropSelector([...NODES, sw], { x: 390, y: 330 }, withSw, noEdge)).toEqual({ scope: "segment", target: "office" });
   });
 
   it("the selector it decides rewrites only that binding's selector", () => {

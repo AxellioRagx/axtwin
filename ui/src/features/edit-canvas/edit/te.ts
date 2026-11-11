@@ -399,6 +399,8 @@ export interface NewNode {
   nets: TeNet[];
   requires?: string[];
   resources?: Record<string, string | number> | null;
+  /** Provenance (topology-layers §3.1): an authored device says so. */
+  source?: TeSource | null;
 }
 
 function netLines(indent: number, nets: readonly TeNet[]): string[] {
@@ -426,6 +428,7 @@ export function addNode(text: string, node: NewNode): string {
   if (node.resources && Object.keys(node.resources).length) lines.push(`${pad}resources: { ${Object.entries(node.resources).map(([k, v]) => `${k}: ${encodeScalar(v)}`).join(", ")} }`);
   if (node.count !== undefined && node.count !== 1) lines.push(`${pad}count: ${typeof node.count === "number" ? node.count : encodeScalar(node.count)}`);
   lines.push(...netLines(keyIndent, node.nets));
+  if (node.source) lines.push(`${pad}source: ${node.source}`);
   insertLines(t.lines, slot.at, lines);
   return t.out();
 }
@@ -482,6 +485,28 @@ export function setNodeNets(text: string, name: string, nets: readonly TeNet[]):
   for (const n of nets) {
     if (seen.has(n.segment)) throw new Error(`node '${name}' would attach to segment '${n.segment}' twice`);
     seen.add(n.segment);
+  }
+  // A node written as one flow line (`- { name: pc, image: x, nets: [...] }`) is re-serialised whole,
+  // as `setLinkField` does a flow link: its entries are not lines of their own (2026-11-11: splicing
+  // them dropped the node and left a stray `nets:` block).
+  if (m.flow && m.flowLine !== undefined && m.flowCol !== undefined && m.flowEnd !== undefined) {
+    const plain = toPlain(m) as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    let placed = false;
+    const put = () => {
+      if (placed || nets.length === 0) return;
+      placed = true;
+      if (nets.length === 1 && nets[0]!.ip === null) out["net"] = nets[0]!.segment;
+      else out["nets"] = nets.map((n) => (n.ip ? { segment: n.segment, ip: n.ip } : { segment: n.segment }));
+    };
+    for (const [k, v] of Object.entries(plain)) {
+      if (k === "net" || k === "nets") put();
+      else out[k] = v;
+    }
+    put();
+    const raw = t.lines[m.flowLine]!;
+    t.lines[m.flowLine] = raw.slice(0, m.flowCol) + flowText(out) + raw.slice(m.flowEnd);
+    return t.out();
   }
   const old = m.entries.filter((e) => e.key === "net" || e.key === "nets");
   let at: number;
