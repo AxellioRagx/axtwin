@@ -291,17 +291,23 @@ PLATFORMS: frozenset[str] = frozenset(_BUILDERS)
 #: (`docs/contracts/ADAPTER.md` §3; `docs/design/native-switches.md` §2.1):
 #: `native-switch` makes an imageless `kind: switch` an adapter-owned switch.
 #: libvirt declares none until it implements the switch ops (D10).
-_CAPABILITIES: dict[str, frozenset[str]] = {
-    "proxmox": frozenset({"native-switch"}),
-    "libvirt": frozenset(),
+def _libvirt_caps(cfg: Any) -> frozenset[str]:
+    # Native switches need OVS on the host (D10): a Linux-bridge libvirt host
+    # cannot tag a switch port, so it keeps imageless switches logical.
+    return frozenset({"native-switch"}) if getattr(cfg, "network_backend", "linux") == "ovs" else frozenset()
+
+
+_CAPABILITIES: dict[str, Callable[[Any], frozenset[str]]] = {
+    "proxmox": lambda cfg: frozenset({"native-switch"}),
+    "libvirt": _libvirt_caps,
 }
 assert set(_CAPABILITIES) == set(_BUILDERS)
 
 
-def capabilities_for(platform: Optional[str]) -> frozenset[str]:
+def capabilities_for(platform: Optional[str], cfg: Any = None) -> frozenset[str]:
     """The capability set `platform` declares (the default platform for
-    None), refused by name when unknown."""
-    return _CAPABILITIES[check_platform(platform)]
+    None) with config `cfg`, refused by name when unknown."""
+    return _CAPABILITIES[check_platform(platform)](cfg)
 DEFAULT_PLATFORM = "proxmox"  # `api/Spec.md` A4: a target with no `platform:`
 assert DEFAULT_PLATFORM in _BUILDERS
 

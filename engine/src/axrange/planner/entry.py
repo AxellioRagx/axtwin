@@ -80,7 +80,7 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
         )
 
     ctx = ClusterContext.single_node(
-        cfg.default_node, platform_caps=capabilities_for(platform_of(cfg)),
+        cfg.default_node, platform_caps=capabilities_for(platform_of(cfg), cfg),
     )
 
     parse_result = parse_ir(path=str(scenario_path))

@@ -55,6 +55,7 @@ from axrange.adapter_libvirt.connection import (
     libvirt_call,
 )
 from axrange.adapter_libvirt.domain_xml import (
+    set_switch_interface,
     DomainSpec,
     add_cdrom,
     interfaces,
@@ -97,9 +98,18 @@ LIBVIRT_OPS = frozenset({
     "create-ovs-bridge", "create-vnet", "apply-sdn-config", "clone-vm",
     "configure-vm-hardware", "configure-cloud-init", "attach-vm-to-vnet",
     "start-vm", "wait-guest-agent",
+    "attach-vm-to-switch-port",
 })
 GUEST_OPS = frozenset({"wait-os-ready", "configure-router", "configure-routing"})
-HOST_OPS = frozenset({"attach-gre-tunnel", "install-ovs-mirror"})
+HOST_OPS = frozenset({
+    "attach-gre-tunnel", "install-ovs-mirror",
+    # native switches (docs/design/native-switches.md D10): OVS on the KVM
+    # host, the same commands as on a Proxmox node (`adapter_proxmox.switches`)
+    "create-switch", "link-switches", "set-port-state", "install-span",
+})
+
+#: Where a domain's native-switch fragments live (R5); its qemu hook runs them.
+OVS_FRAGMENT_DIR = "/etc/libvirt/hooks/axrange-ovs"
 
 
 def _network_xml(name: str, backend: str) -> str:
@@ -141,6 +151,11 @@ set -e
 case "$2" in
   started)
 {started}
+    # native-switch OVS state a re-created tap loses (docs/design/
+    # native-switches.md R5): span selections, blocked flags
+    for f in /etc/libvirt/hooks/axrange-ovs/{uuid}-*.sh; do
+      [ -f "$f" ] && sh "$f" post-start || true
+    done
     ;;
   stopped|release)
 {stopped}
@@ -173,7 +188,7 @@ def _hook_script(name: str, uuid: str, plan_id: str, entries: list[tuple[int, st
         q = shlex.quote(tap)
         started.append("    " + _ethtool_off_cmd(tap))
         started.append("    " + _tc_mirror_cmd(tap, gretaps))
-        started.append(f"    tc filter show dev {q} ingress | grep -q mirred")
+        started.append(f"    {{ tc filter show dev {q} ingress; tc filter show dev {q} egress; }} | grep -q mirred")
         stopped.append(f"    tc qdisc del dev {q} clsact 2>/dev/null || true")
     comment = ", ".join(f"{n}:{t}->{g}({d})" for n, t, g, d in entries) or "(none)"
     return _HOOK_TEMPLATE.format(
@@ -878,6 +893,87 @@ class LibvirtAdapter:
         return result
 
 
+class LibvirtFragments:
+    """`switches.FragmentStore` on a KVM host: fragments under
+    `/etc/libvirt/hooks/axrange-ovs`, run by the domain's axRange qemu hook."""
+
+    def __init__(self, adapter: "LibvirtAdapter") -> None:
+        self.adapter = adapter
+
+    def ensure_hook(self, vm: Any, plan_id: str) -> str:
+        host = self.adapter.host
+        path = naming.hook_script_path(str(vm))
+        body = host.run(f"cat {shlex.quote(path)} 2>/dev/null || true", timeout_s=15)
+        if "axrange-ovs" in body:
+            return "present"
+        if body.strip():
+            raise AdapterError(
+                f"domain {vm}'s hook {path} predates the native-switch fragment runner; "
+                "re-apply its tap plan (install-ovs-mirror rewrites the hook) first",
+                error_class="adapter-conflict",
+            )
+        dom = self.adapter._domain(str(vm))
+        host.put_file(_hook_script(dom.name(), str(vm), plan_id, []), path, mode="0755", timeout_s=20)
+        return "registered"
+
+    def path(self, vm: Any, suffix: str) -> str:
+        return f"{OVS_FRAGMENT_DIR}/{vm}-{suffix}.sh"
+
+    def glob(self, suffix: str) -> str:
+        return f"{OVS_FRAGMENT_DIR}/*-{suffix}.sh"
+
+    def write(self, path: str, content: str) -> None:
+        self.adapter.host.run(f"mkdir -p {OVS_FRAGMENT_DIR}", timeout_s=10)
+        self.adapter.host.put_file(content, path, mode="0755", timeout_s=20)
+
+
+def _switch_ops(adapter: "LibvirtAdapter") -> Any:
+    from axrange.adapter_proxmox.switches import SwitchOps
+
+    return SwitchOps(lambda cmd, **kw: adapter.host.run(cmd, timeout_s=kw.get("timeout_s", 60)),
+                     fragments=LibvirtFragments(adapter))
+
+
+def _op_create_switch(self: "LibvirtAdapter", op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    return _switch_ops(self).create_switch(op, inp, ctx)
+
+
+def _op_link_switches(self: "LibvirtAdapter", op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    return _switch_ops(self).link_switches(op, inp, ctx)
+
+
+def _op_set_port_state(self: "LibvirtAdapter", op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    return _switch_ops(self).set_port_state(op, inp, ctx)
+
+
+def _op_install_span(self: "LibvirtAdapter", op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    return _switch_ops(self).install_span(op, inp, ctx)
+
+
+def _op_attach_vm_to_switch_port(self: "LibvirtAdapter", op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
+    """A domain NIC as a native-switch port (D10): `<interface type='bridge'>`
+    on the switch's OVS bridge with `<virtualport type='openvswitch'/>`, the
+    VLAN tag, and `<link state='down'/>` for a down port."""
+    guest = self._uuid(inp)
+    bridge = inp.get("bridge_name")
+    tag = inp.get("vlan_tag")
+    if not bridge or tag is None:
+        raise AdapterError("attach-vm-to-switch-port: bridge_name / vlan_tag missing",
+                           error_class="adapter-input")
+    nic_index = int(inp.get("nic_index", 0))
+    host_id = op.scope.get("host") or ""
+    dom = self._domain(guest)
+    xml = dom.XMLDesc(VIR_DOMAIN_XML_INACTIVE)
+    tap = naming.tap_name_for_nic(guest, nic_index)
+    self.conn.define_domain(set_switch_interface(
+        xml, nic_index, mac=naming.mac_for_nic(ctx.plan_id, host_id, nic_index),
+        bridge=str(bridge), vlan_tag=int(tag), tap=tap,
+        model=metadata_of(xml).get("nic_model") or "virtio",
+        link_down=bool(inp.get("link_down")),
+    ))
+    return {"nic_attached": True, "ovs_port": tap}
+
+
 _OP_TO_METHOD: dict[str, Any] = {
     "create-sdn-zone": LibvirtAdapter.op_create_sdn_zone,
     "create-subnet": LibvirtAdapter.op_create_subnet,
@@ -895,5 +991,10 @@ _OP_TO_METHOD: dict[str, Any] = {
     "configure-routing": LibvirtAdapter.op_configure_routing,
     "attach-gre-tunnel": LibvirtAdapter.op_attach_gre_tunnel,
     "install-ovs-mirror": LibvirtAdapter.op_install_ovs_mirror,
+    "create-switch": _op_create_switch,
+    "link-switches": _op_link_switches,
+    "set-port-state": _op_set_port_state,
+    "install-span": _op_install_span,
+    "attach-vm-to-switch-port": _op_attach_vm_to_switch_port,
 }
 assert set(_OP_TO_METHOD) == LOGICAL_OPS | LIBVIRT_OPS | GUEST_OPS | HOST_OPS

@@ -615,6 +615,26 @@ def ensure_ovs_hook(cfg: AdapterConfig, vmid: int, plan_id: str) -> str:
     return "registered"
 
 
+class ProxmoxFragments:
+    """`switches.FragmentStore` on a Proxmox node: snippets behind the VM's
+    one axRange hookscript (`ensure_ovs_hook`)."""
+
+    def __init__(self, cfg: AdapterConfig) -> None:
+        self.cfg = cfg
+
+    def ensure_hook(self, vm: Any, plan_id: str) -> str:
+        return ensure_ovs_hook(self.cfg, int(vm), plan_id)
+
+    def path(self, vm: Any, suffix: str) -> str:
+        return f"/var/lib/vz/snippets/axrange-ovs-{int(vm)}-{suffix}.sh"
+
+    def glob(self, suffix: str) -> str:
+        return f"/var/lib/vz/snippets/axrange-ovs-*-{suffix}.sh"
+
+    def write(self, path: str, content: str) -> None:
+        scp_to_remote(self.cfg, content, path, timeout_s=20)
+
+
 class SshBackend:
     """The two SSH-routed ops + tiny shared SSH helpers."""
 
@@ -636,11 +656,8 @@ class SshBackend:
         if op.op_name in ("create-switch", "link-switches", "set-port-state", "install-span"):
             from axrange.adapter_proxmox.switches import SwitchOps
 
-            ops = SwitchOps(
-                lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw),
-                ensure_hook=lambda vmid, plan_id: ensure_ovs_hook(self.cfg, vmid, plan_id),
-                write_file=lambda path, content: scp_to_remote(self.cfg, content, path, timeout_s=20),
-            )
+            ops = SwitchOps(lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw),
+                            fragments=ProxmoxFragments(self.cfg))
             fn = {
                 "create-switch": ops.create_switch,
                 "link-switches": ops.link_switches,

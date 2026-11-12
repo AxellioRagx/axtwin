@@ -1012,6 +1012,11 @@ def emit_ops(
                                     _op_id(plan_id, "create-switch", {"switch": sw_port.switch}),
                                     "bridge_name",
                                 ),
+                                # the platform's own name for the NIC's port
+                                "ovs_port": (
+                                    _op_id(plan_id, "attach-vm-to-switch-port", attach_scope),
+                                    "ovs_port",
+                                ),
                             },
                             # The VM's tap exists only once it runs: pass3
                             # orders this after start-vm[$host].

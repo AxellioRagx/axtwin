@@ -301,6 +301,48 @@ def set_interface(
     return _dump(root)
 
 
+def set_switch_interface(
+    xml: str,
+    nic_index: int,
+    *,
+    mac: str,
+    bridge: str,
+    vlan_tag: int,
+    tap: Optional[str] = None,
+    model: str = "virtio",
+    link_down: bool = False,
+) -> str:
+    """`attach-vm-to-switch-port` (docs/design/native-switches.md, D10): the
+    NIC at `nic_index` as a port on a native switch's OVS bridge --
+    `<interface type='bridge'>` with `<virtualport type='openvswitch'/>` and the
+    switch's VLAN tag (libvirt sets it on the OVS port), `<link state='down'/>`
+    for a `state: down` port. Replaces or appends like `set_interface`."""
+    root = _parse(xml)
+    dev = _devices(root)
+    ifaces = dev.findall("interface")
+    new = ET.Element("interface", {"type": "bridge"})
+    ET.SubElement(new, "mac", {"address": mac})
+    ET.SubElement(new, "source", {"bridge": bridge})
+    ET.SubElement(new, "virtualport", {"type": "openvswitch"})
+    vlan = ET.SubElement(new, "vlan")
+    ET.SubElement(vlan, "tag", {"id": str(int(vlan_tag))})
+    if tap:
+        ET.SubElement(new, "target", {"dev": tap})
+    ET.SubElement(new, "model", {"type": model})
+    if link_down:
+        ET.SubElement(new, "link", {"state": "down"})
+    if nic_index < len(ifaces):
+        old = ifaces[nic_index]
+        pos = list(dev).index(old)
+        dev.remove(old)
+        dev.insert(pos, new)
+    else:
+        anchor = ifaces[-1] if ifaces else (dev.findall("disk") or [None])[-1]
+        pos = list(dev).index(anchor) + 1 if anchor is not None else len(list(dev))
+        dev.insert(pos, new)
+    return _dump(root)
+
+
 def interfaces(xml: str) -> list[dict[str, Any]]:
     """Every `<interface>` in document order: `{index, mac, tap, network,
     portgroup, bridge}`."""

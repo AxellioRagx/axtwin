@@ -216,6 +216,9 @@ class HostNet:
     # None on an SDN-hosted leg.
     switch: Optional[str] = None
     port: Optional[str] = None
+    # The OVS port the platform plugged that NIC in as (`attach-vm-to-switch-
+    # port`'s output: `tap<vmid>i<n>` on Proxmox, `axt…i<n>` on libvirt).
+    ovs_port: Optional[str] = None
 
 
 @dataclass
@@ -376,11 +379,14 @@ def _fill_ovs_ports(
                 p.ovs_port = patch_ports.get((sw.name, "|".join(ends)))
                 continue
             dev = str(far.get("device") or "")
-            vmid = host_vmid.get(dev)
-            nic = next((n.nic_index for n in host_nets.get(dev, [])
+            leg = next((n for n in host_nets.get(dev, [])
                         if n.switch == sw.name and n.port == p.port), None)
-            if vmid is not None and nic is not None:
-                p.ovs_port = f"tap{vmid}i{nic}"
+            if leg is not None and leg.ovs_port:
+                p.ovs_port = leg.ovs_port
+                continue
+            vmid = host_vmid.get(dev)
+            if vmid is not None and leg is not None and leg.nic_index is not None:
+                p.ovs_port = f"tap{vmid}i{leg.nic_index}"   # a deploy before the output existed
 
 
 def build_twin_inventory(
@@ -576,6 +582,7 @@ def build_twin_inventory(
                     external=is_external,
                     switch=str(inp["switch_id"]) if on_switch and inp.get("switch_id") else None,
                     port=str(inp["port"]) if on_switch and inp.get("port") else None,
+                    ovs_port=str(out["ovs_port"]) if on_switch and out.get("ovs_port") else None,
                 )
             )
             if on_switch:

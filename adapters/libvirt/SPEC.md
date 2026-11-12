@@ -56,7 +56,13 @@ performs no platform call, the pattern ADAPTER.md §8 already used for SDN.
 | `configure-router`, `configure-routing` | unchanged (guest exec / SSH into the guest) | guest |
 | `attach-gre-tunnel` | the same `ip link … type gretap` + deep-FIFO qdisc on the KVM host | host |
 | `install-ovs-mirror` | the same per-tap `tc` mirror hook; the tap name comes from the domain's interface target | host |
-| `create-switch`, `link-switches`, `set-port-state`, `attach-vm-to-switch-port`, `install-span` | not implemented: libvirt does not declare `native-switch`, so the planner never emits them here and an imageless switch is logical (`docs/design/native-switches.md` D10, phase 3) | — |
+| `create-switch` | a native switch's OVS bridge on the KVM host (`ovs-vsctl`, the same commands as the Proxmox adapter's `adapter_proxmox/switches.py`), RSTP when `stp: rstp` | host |
+| `link-switches` | a veth pair, one end on each switch's bridge, VLAN tag / trunks | host |
+| `attach-vm-to-switch-port` | `<interface type='bridge'>` on the switch's bridge with `<virtualport type='openvswitch'/>`, `<vlan><tag/></vlan>`, the pinned tap as `<target dev>`, `<link state='down'/>` for a down port | libvirt |
+| `set-port-state` | OpenFlow flags blocking the domain's tap; a fragment under `/etc/libvirt/hooks/axrange-ovs/` re-applies them from the domain's qemu hook after a restart | host |
+| `install-span` | an OVS mirror on the switch's bridge into the keyed gretap; per-domain fragments re-add a restarted domain's tap | host |
+
+Native switches (`docs/design/native-switches.md` D10) need `LIBVIRT_NETWORK_BACKEND=ovs`: the platform declares `native-switch` only then (`platform.factory.capabilities_for`), and on a Linux-bridge host an imageless switch stays logical. **Not yet live-verified:** no libvirt host is configured; the mapping is covered by `tests/test_adapter_libvirt.py`.
 
 Multi-host is a later placement concern: a target may name one URI in v1;
 `qemu+ssh://` URIs make a second host a placement decision rather than an

@@ -957,12 +957,19 @@ def test_span_fragment_readds_the_taps_and_skips_a_gone_mirror():
 
 
 class _Persist:
+    """A FragmentStore with Proxmox's paths."""
     def __init__(self):
-        self.hooks: list[int] = []
+        self.hooks: list = []
         self.files: dict[str, str] = {}
 
-    def ensure(self, vmid, plan_id):
-        self.hooks.append(vmid)
+    def ensure_hook(self, vm, plan_id):
+        self.hooks.append(vm)
+
+    def path(self, vm, suffix):
+        return f"/var/lib/vz/snippets/axrange-ovs-{vm}-{suffix}.sh"
+
+    def glob(self, suffix):
+        return f"/var/lib/vz/snippets/axrange-ovs-*-{suffix}.sh"
 
     def write(self, path, content):
         self.files[path] = content
@@ -979,7 +986,7 @@ def test_install_span_writes_one_fragment_per_vm_and_drops_stale_ones():
             self.cmds.append(cmd)
             return f"{stale}\n" if cmd.startswith("ls ") else ""
     run, keep = _R(), _Persist()
-    SwitchOps(run, ensure_hook=keep.ensure, write_file=keep.write).install_span(
+    SwitchOps(run, fragments=keep).install_span(
         _op("install-span", {}),
         {"bridge_name": br, "mirror_key": "sw|s1|", "gre_port": gre,
          "src_ports": ["tap7i0", naming.patch_port_for("p", "k", "a")], "dst_ports": ["tap8i1"]},
@@ -994,7 +1001,7 @@ def test_removing_a_span_deletes_its_fragments():
     br = naming.switch_bridge_for("p", "sw")
     mirror = naming.span_mirror_for("tap-d1", "k")
     run = _Run(list_br="")
-    SwitchOps(run).install_span(_op("install-span", {}), {
+    SwitchOps(run, fragments=_Persist()).install_span(_op("install-span", {}), {
         "bridge_name": br, "mirror_key": "k", "gre_port": naming.gre_port_for_bridge_sensor(br, "s"),
         "remove": True}, _ctx("tap-d1"))
     assert run.cmds[0] == f"rm -f /var/lib/vz/snippets/axrange-ovs-*-span-{mirror}.sh"
@@ -1003,7 +1010,7 @@ def test_removing_a_span_deletes_its_fragments():
 def test_blocked_port_writes_its_fragment():
     br = naming.switch_bridge_for("p", "sw")
     keep = _Persist()
-    SwitchOps(_Run(), ensure_hook=keep.ensure, write_file=keep.write).set_port_state(
+    SwitchOps(_Run(), fragments=keep).set_port_state(
         _op("set-port-state", {}), {"bridge_name": br, "vmid": 600123, "nic_index": 1, "state": "blocked"},
         _ctx("p"))
     frag = keep.files[swmod.blocked_fragment_path(600123, 1)]

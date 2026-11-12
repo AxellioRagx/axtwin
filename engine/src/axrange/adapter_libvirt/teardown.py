@@ -141,6 +141,8 @@ class LibvirtTeardown:
 
     def delete_mirror_snippets(self, host: str, guest: int | str) -> str:
         self.host.remove_files(naming.hook_script_path(str(guest)))
+        # its native-switch fragments (R5)
+        self.host.run(f"rm -f /etc/libvirt/hooks/axrange-ovs/{guest}-*.sh", timeout_s=20)
         return "removed"
 
     # ---- mirror plane -------------------------------------------------
@@ -204,6 +206,10 @@ class LibvirtTeardown:
         return "removed"
 
     def delete_switch(self, host: str, bridge_name: str) -> str:
-        """libvirt does not declare `native-switch` (docs/design/
-        native-switches.md D10), so it never creates one: nothing to remove."""
-        return "absent"
+        """A native switch's OVS bridge on the KVM host (docs/design/
+        native-switches.md D10): its veth links, mirrors and the bridge,
+        verified gone -- the same commands as on a Proxmox node."""
+        from axrange.adapter_proxmox.switches import SwitchOps
+
+        return SwitchOps(lambda cmd, **kw: self.host.run(cmd, timeout_s=kw.get("timeout_s", 60))) \
+            .delete_switch(bridge_name)

@@ -598,6 +598,8 @@ def test_every_catalog_op_in_the_spec_table_is_routed_once():
         "clone-vm", "configure-vm-hardware", "configure-cloud-init", "attach-vm-to-vnet", "start-vm",
         "wait-guest-agent", "wait-os-ready", "configure-router", "configure-routing",
         "attach-gre-tunnel", "install-ovs-mirror",
+        # native switches (docs/design/native-switches.md D10)
+        "create-switch", "link-switches", "set-port-state", "install-span", "attach-vm-to-switch-port",
     }
     assert not (LOGICAL_OPS & LIBVIRT_OPS) and not (GUEST_OPS & HOST_OPS)
 
@@ -1847,3 +1849,62 @@ def test_two_host_plan_deploys_end_to_end_through_the_executor(tmp_path, manifes
     assert len([v for v in rig.pool.vols if v.endswith("-disk0.qcow2")]) == 2
     assert rig.conn.agent.of("guest-ping") and rig.conn.agent.of("guest-exec")
     assert "10.66.20.11/24" in "".join(i or "" for _, i in rig.runner.calls)
+
+
+# ===========================================================================
+# native switches on libvirt (docs/design/native-switches.md D10): OVS on the
+# KVM host, the same commands as on a Proxmox node, a domain NIC as an OVS port
+# ===========================================================================
+
+
+def test_native_switch_capability_needs_the_ovs_backend():
+    from axrange.platform.factory import capabilities_for
+    assert capabilities_for("libvirt", _cfg(network_backend="ovs")) == frozenset({"native-switch"})
+    assert capabilities_for("libvirt", _cfg()) == frozenset()
+    assert capabilities_for("proxmox") == frozenset({"native-switch"})
+
+
+def test_create_switch_runs_ovs_on_the_kvm_host():
+    rig = Rig(network_backend="ovs")
+    out = rig.run("create-switch", {"switch": "sw"}, {"switch_id": "sw", "stp": "rstp"})
+    br = px_naming.switch_bridge_for(PLAN, "sw")
+    assert out == {"bridge_name": br}
+    assert rig.runner.having(f"--may-exist add-br {br}")
+    assert rig.runner.having(f"set bridge {br} stp_enable=false rstp_enable=true")
+
+
+def test_attach_vm_to_switch_port_is_an_openvswitch_bridge_interface():
+    rig = Rig(network_backend="ovs")
+    g = rig.clone()
+    br = px_naming.switch_bridge_for(PLAN, "sw")
+    out = rig.run("attach-vm-to-switch-port", {"host": "h-a", "net": "office"},
+                  {"vmid": g, "bridge_name": br, "vlan_tag": 10, "nic_index": 0, "link_down": True})
+    assert out == {"nic_attached": True, "ovs_port": naming.tap_name_for_nic(g, 0)}
+    iface = ET.fromstring(rig.conn.domains[g].xml).find("./devices/interface")
+    assert iface.get("type") == "bridge"
+    assert iface.find("source").get("bridge") == br
+    assert iface.find("virtualport").get("type") == "openvswitch"
+    assert iface.find("vlan/tag").get("id") == "10"
+    assert iface.find("target").get("dev") == naming.tap_name_for_nic(g, 0)
+    assert iface.find("link").get("state") == "down"
+    assert iface.find("mac").get("address") == naming.mac_for_nic(PLAN, "h-a", 0)
+
+
+def test_blocked_port_on_libvirt_uses_the_domain_tap_and_its_hook_fragment():
+    rig = Rig(network_backend="ovs")
+    g = rig.clone()
+    br = px_naming.switch_bridge_for(PLAN, "sw")
+    tap = naming.tap_name_for_nic(g, 0)
+    rig.run("set-port-state", {"switch": "sw", "port": "P2"},
+            {"vmid": g, "nic_index": 0, "ovs_port": tap, "bridge_name": br, "state": "blocked"})
+    assert rig.runner.having(f"ovs-ofctl mod-port {br} {tap} no-forward")
+    # the fragment the domain's qemu hook runs after a restart (R5), and the hook itself
+    frag = [c for c, i in [(a[-1], inp) for a, inp in rig.runner.calls] if f"/etc/libvirt/hooks/axrange-ovs/{g}-blocked-0.sh" in c]
+    assert frag, rig.runner.cmds
+
+
+def test_libvirt_hook_runs_the_ovs_fragments_and_checks_both_filters():
+    from axrange.adapter_libvirt.adapter import _hook_script
+    hook = _hook_script("dom", "u-1", "p", [(0, "axtabci0", "tapg_aaaaaa", "tx")])
+    assert "for f in /etc/libvirt/hooks/axrange-ovs/u-1-*.sh; do" in hook
+    assert "tc filter show dev axtabci0 egress; } | grep -q mirred" in hook

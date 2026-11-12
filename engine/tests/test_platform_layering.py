@@ -85,6 +85,9 @@ _LIBVIRT_TO_PROXMOX: dict[str, dict[str, tuple[str, ...]]] = {
         "rest": ("ROUTER_NAT_SCRIPT", "WINDOWS_OSREADY_MARKER", "_render_userdata", "_render_windows_userdata"),
         "ssh": ("SshBackend", "_tc_mirror_cmd", "apply_vyos_sets", "gretap_add_cmd", "gretap_heal_cmd",
                 "gretap_offload_cmd", "gretap_qdisc_cmd", "gretap_show_cmd", "gretap_up_cmd", "run_ssh_guest"),
+        # the native-switch OVS commands, run on the KVM host the same as on a
+        # Proxmox node (docs/design/native-switches.md D10)
+        "switches": ("SwitchOps",),
     },
     "config.py": {
         "config": ("ExternalSensor", "_parse_external_sensors", "_read_conf_file", "default_adapter_conf_paths"),
@@ -102,7 +105,7 @@ _LIBVIRT_TO_PROXMOX: dict[str, dict[str, tuple[str, ...]]] = {
             "vnet_id_for_net", "zone_id_for_plan",
         ),
     },
-    "teardown.py": {"ssh": ("gretap_del_cmd", "gretap_show_cmd")},
+    "teardown.py": {"ssh": ("gretap_del_cmd", "gretap_show_cmd"), "switches": ("SwitchOps",)},
 }
 
 #: Modules that may spell `DEFAULT_PLATFORM`: the factory that defines it

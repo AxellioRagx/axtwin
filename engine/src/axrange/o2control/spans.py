@@ -95,6 +95,9 @@ class SpanSession:
     vlan_tags: tuple[int, ...] = ()
     src: dict[str, str] = field(default_factory=dict)   # ovs port -> switch port label
     dst: dict[str, str] = field(default_factory=dict)
+    # VM port -> its VM's platform handle (vmid / domain UUID): where the
+    # adapter keeps the fragment that re-adds the port after a restart (R5).
+    owners: dict[str, Any] = field(default_factory=dict)
     # A VM on a source port, for the capture heartbeat: (host, net).
     injectors: list[tuple[str, str]] = field(default_factory=list)
 
@@ -109,7 +112,7 @@ def _switch_index(twin: Any) -> dict[str, Any]:
 
 def _add(sessions: dict[tuple[str, str, tuple[str, ...]], SpanSession], sw: Any, sensor: str,
          vlans: tuple[str, ...], ovs_port: str, label: str, direction: str,
-         injector: Optional[tuple[str, str]]) -> None:
+         injector: Optional[tuple[str, str]], owner: Any = None) -> None:
     k = (sw.name, sensor, vlans)
     sess = sessions.get(k)
     if sess is None:
@@ -122,6 +125,8 @@ def _add(sessions: dict[tuple[str, str, tuple[str, ...]], SpanSession], sw: Any,
             sess.injectors.append(injector)
     if direction in ("tx", "both"):
         sess.dst[ovs_port] = label
+    if owner is not None:
+        sess.owners[ovs_port] = owner
 
 
 def resolve_sessions(
@@ -143,6 +148,7 @@ def resolve_sessions(
     switches = _switch_index(twin)
     sessions: dict[tuple[str, str, tuple[str, ...]], SpanSession] = {}
     leg_switch: dict[tuple[str, str], tuple[str, str]] = {}
+    vm_of = {h.host_id: h.vmid for h in getattr(twin, "hosts", []) or [] if h.vmid is not None}
     for h in getattr(twin, "hosts", []) or []:
         for n in h.nets:
             if n.switch and n.port:
@@ -162,7 +168,8 @@ def resolve_sessions(
                 f"interface {host}:{net} is on native switch {hit[0]!r} port {hit[1]!r}, "
                 "but the twin's inventory has no OVS port for it (is the twin fully deployed?)")
         for sid, direction in sids.items():
-            _add(sessions, sw, sid, (), port.ovs_port, port.port, direction, (host, net))
+            _add(sessions, sw, sid, (), port.ovs_port, port.port, direction, (host, net),
+                 vm_of.get(host))
 
     for i, b in span_bindings:
         span = b.span
@@ -202,8 +209,9 @@ def resolve_sessions(
             injector = None
             if far.get("kind") in ("host", "router") and p.vlans:
                 injector = (str(far.get("device")), p.vlans[0])
+            owner = vm_of.get(str(far.get("device"))) if "leg" in far else None
             for sid in b.sensors:
-                _add(sessions, sw, sid, vlans, p.ovs_port, p.port, src["dir"], injector)
+                _add(sessions, sw, sid, vlans, p.ovs_port, p.port, src["dir"], injector, owner)
             dirs.add(src["dir"])
         if binding_directions is not None:
             binding_directions[i] = "+".join(sorted(dirs))
@@ -257,6 +265,7 @@ def compose_span_ops(
                 "dst_ports": sorted(sess.dst),
                 "vlan_tags": list(sess.vlan_tags),
                 "gre_port": gre,
+                "port_owners": {p: sess.owners[p] for p in sorted(sess.owners)},
                 "remove": False,
                 "target_node": target_node,
                 "sensor_id": sess.sensor,

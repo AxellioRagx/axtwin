@@ -14,7 +14,7 @@ so an adopted bridge or port that drifted is healed in place.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Protocol
 
 from axrange.adapter_proxmox.naming import (
     is_tap_gretap,
@@ -114,7 +114,7 @@ def port_state_cmd(bridge: str, port: str, state: str) -> str:
     return " && ".join(f"ovs-ofctl mod-port {bridge} {port} {a}" for a in actions)
 
 
-_PORT_RE = re.compile(r"^(tap[0-9]+i[0-9]+|tepp_[0-9a-f]{8})$")
+_PORT_RE = re.compile(r"^(tap[0-9]+i[0-9]+|axt[0-9a-z]+i[0-9]+|tepp_[0-9a-f]{8})$")
 
 
 def _check_port(port: str) -> None:
@@ -190,7 +190,22 @@ SNIPPETS = "/var/lib/vz/snippets"
 _TAP_RE = re.compile(r"^tap([0-9]+)i([0-9]+)$")
 
 
+class FragmentStore(Protocol):
+    """Where a platform keeps the per-VM fragments its VM-start hook runs
+    (R5): Proxmox under `/var/lib/vz/snippets` behind the VM's hookscript,
+    libvirt under `/etc/libvirt/hooks/axrange-ovs` behind its qemu hook."""
+
+    def ensure_hook(self, vm: Any, plan_id: str) -> Any: ...
+
+    def path(self, vm: Any, suffix: str) -> str: ...
+
+    def glob(self, suffix: str) -> str: ...
+
+    def write(self, path: str, content: str) -> Any: ...
+
+
 def span_fragment_path(vmid: int, mirror: str) -> str:
+    """The Proxmox fragment path (`ProxmoxFragments.path`)."""
     return f"{SNIPPETS}/axrange-ovs-{int(vmid)}-span-{mirror}.sh"
 
 
@@ -226,24 +241,22 @@ def blocked_fragment(bridge: str, port: str) -> str:
 
 
 class SwitchOps:
-    """The SSH-side native-switch ops. `run` is `run_ssh` bound to the
-    adapter config (injected so the tests mock one callable).
-    `ensure_hook(vmid, plan_id)` and `write_file(path, content)` persist OVS
-    state that a VM restart would lose (R5); without them (a caller that only
-    reads) nothing is persisted."""
+    """The native-switch ops, on whichever host runs the OVS (the Proxmox
+    node over SSH, a libvirt KVM host). `run(cmd, timeout_s=)` executes a
+    shell command there; `fragments` persists the OVS state a VM restart
+    would lose (R5) -- without one (a caller that only reads) nothing is
+    persisted."""
 
-    def __init__(self, run: Callable[..., str], *,
-                 ensure_hook: Optional[Callable[[int, str], Any]] = None,
-                 write_file: Optional[Callable[[str, str], Any]] = None) -> None:
+    def __init__(self, run: Callable[..., str], *, fragments: Optional[FragmentStore] = None) -> None:
         self.run = run
-        self.ensure_hook = ensure_hook
-        self.write_file = write_file
+        self.fragments = fragments
 
-    def _persist(self, vmid: int, plan_id: str, path: str, content: str) -> None:
-        if self.ensure_hook is None or self.write_file is None:
+    def _persist(self, vm: Any, plan_id: str, suffix: str, content: str) -> None:
+        if self.fragments is None:
             return
-        self.ensure_hook(int(vmid), plan_id)
-        self.write_file(path, content)
+        self.fragments.ensure_hook(vm, plan_id)
+        path = self.fragments.path(vm, suffix)
+        self.fragments.write(path, content)
         self.run(f"chmod 0755 {path}", timeout_s=10)
 
     def bridge_exists(self, bridge: str) -> bool:
@@ -295,13 +308,13 @@ class SwitchOps:
         if inp.get("vmid") is None or inp.get("nic_index") is None or not bridge:
             raise AdapterError("set-port-state: vmid / nic_index / bridge_name missing",
                                error_class="adapter-input")
-        port = vm_ovs_port(int(inp["vmid"]), int(inp["nic_index"]))
+        port = str(inp.get("ovs_port") or vm_ovs_port(int(inp["vmid"]), int(inp["nic_index"])))
+        _check_port(port)
         self.run(port_state_cmd(bridge, port, state), timeout_s=op.timeout_s or 60)
         if state == "blocked":
             # The flags die with the tap on a VM stop/start: re-applied by the
             # VM's hook from this fragment (R5).
-            self._persist(int(inp["vmid"]), ctx.plan_id,
-                          blocked_fragment_path(int(inp["vmid"]), int(inp["nic_index"])),
+            self._persist(inp["vmid"], ctx.plan_id, f"blocked-{int(inp['nic_index'])}",
                           blocked_fragment(bridge, port))
         return {"state_applied": state, "ovs_port": port}
 
@@ -319,7 +332,8 @@ class SwitchOps:
         mirror = span_mirror_for(ctx.plan_id, str(key))
         t = op.timeout_s or 60
         if inp.get("remove"):
-            self.run(f"rm -f {SNIPPETS}/axrange-ovs-*-span-{mirror}.sh", timeout_s=t)
+            if self.fragments is not None:
+                self.run(f"rm -f {self.fragments.glob(f'span-{mirror}')}", timeout_s=t)
             if self.bridge_exists(bridge):
                 self.run(drop_mirror_cmd(bridge, mirror), timeout_s=t)
                 if inp.get("delete_gre"):
@@ -336,30 +350,36 @@ class SwitchOps:
                                    vlan_tags=_ints(inp.get("vlan_tags") or [])),
                  timeout_s=t)
         self._persist_span(mirror, list(inp.get("src_ports") or []),
-                           list(inp.get("dst_ports") or []), ctx.plan_id, t)
+                           list(inp.get("dst_ports") or []), dict(inp.get("port_owners") or {}),
+                           ctx.plan_id, t)
         return {"mirror_installed": True, "mirror_name": mirror}
 
-    def _persist_span(self, mirror: str, src: list[str], dst: list[str], plan_id: str, t: int) -> None:
-        """One fragment per VM whose tap the mirror selects (R5); fragments
-        for VMs this selection dropped are deleted. Switch-link ports (veth
-        ends) are not re-created by a VM start and need none."""
-        if self.ensure_hook is None or self.write_file is None:
+    def _persist_span(self, mirror: str, src: list[str], dst: list[str],
+                      owners: dict[str, Any], plan_id: str, t: int) -> None:
+        """One fragment per VM whose port the mirror selects (R5); fragments
+        for VMs this selection dropped are deleted. `owners` maps a VM port to
+        its VM's handle (Proxmox falls back to the vmid in `tap<vmid>i<n>`).
+        Switch-link ports (veth ends) are not re-created by a VM start and need
+        none."""
+        if self.fragments is None:
             return
-        by_vm: dict[int, tuple[list[str], list[str]]] = {}
+        by_vm: dict[Any, tuple[list[str], list[str]]] = {}
         for col, ports in ((0, src), (1, dst)):
             for p in ports:
-                m = _TAP_RE.match(p)
-                if m:
-                    by_vm.setdefault(int(m.group(1)), ([], []))[col].append(p)
-        wanted = {span_fragment_path(v, mirror) for v in by_vm}
-        existing = self.run(f"ls {SNIPPETS}/axrange-ovs-*-span-{mirror}.sh 2>/dev/null || true",
+                vm = owners.get(p)
+                if vm is None:
+                    m = _TAP_RE.match(p)
+                    vm = int(m.group(1)) if m else None
+                if vm is not None:
+                    by_vm.setdefault(vm, ([], []))[col].append(p)
+        wanted = {self.fragments.path(v, f"span-{mirror}") for v in by_vm}
+        existing = self.run(f"ls {self.fragments.glob(f'span-{mirror}')} 2>/dev/null || true",
                             timeout_s=t).split()
         for path in existing:
             if path not in wanted:
                 self.run(f"rm -f {path}", timeout_s=t)
-        for vmid, (s_ports, d_ports) in sorted(by_vm.items()):
-            self._persist(vmid, plan_id, span_fragment_path(vmid, mirror),
-                          span_fragment(mirror, s_ports, d_ports))
+        for vm, (s_ports, d_ports) in sorted(by_vm.items(), key=lambda kv: str(kv[0])):
+            self._persist(vm, plan_id, f"span-{mirror}", span_fragment(mirror, s_ports, d_ports))
 
     def delete_switch(self, bridge: str) -> str:
         if not self.bridge_exists(bridge):
