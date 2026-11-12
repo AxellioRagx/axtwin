@@ -206,6 +206,9 @@ class Node(IRBase):
     source: Optional[str] = None  # IR_SCHEMA §3.6 provenance (schema 4); absent == authored
     confidence: Optional[float] = None
     vantage: Optional[str] = None
+    stp: Optional[str] = None  # `kind: switch` only (schema 5, docs/design/native-switches.md
+                               # §2.2): "rstp" enables RSTP on a native switch (phase 3,
+                               # NSW-070); absent == off
 
 
 class InstallAction(IRBase):

@@ -306,6 +306,9 @@ class TwinConfigNode(TwinConfigProvenance):
     # `expand.py` refuses a host or router without one.
     image: Optional[str] = None
     role: Optional[str] = None
+    # `kind: switch` only (docs/design/native-switches.md §2.2): "rstp"
+    # enables RSTP on a native switch (phase 3). Absent == off.
+    stp: Optional[str] = None
     # Per-instance overrides on a `count: N` group (topology-layers §5).
     members: Optional[list[TwinConfigMember]] = None
     # `persona:` REMOVED (2026-08-04, Authority: user,

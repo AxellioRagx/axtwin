@@ -111,6 +111,12 @@ NODE_KINDS: tuple[str, ...] = ("host", "router", "switch")
 #: link, a member override or a provenance field (IR_SCHEMA §1.5, 3->4).
 _IR_VERSION_BASE = 1
 _IR_VERSION_DEVICE_TREE = 4
+#: `5` once a config sets `stp:` on a switch (IR_SCHEMA §1.5, 4->5,
+#: `docs/design/native-switches.md`); every other config keeps 1 or 4.
+_IR_VERSION_NATIVE_SWITCH = 5
+
+#: `nodes[].stp` vocabulary (native-switches §2.2). Absent == off.
+STP_MODES: tuple[str, ...] = ("off", "rstp")
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +324,13 @@ def _check_node_shape(spec: TwinConfigNode) -> None:
             f"{what}: a {spec.kind} needs an `image:` (only a `kind: switch` may "
             "omit it, and then deploys as nothing but its segments' vnets)"
         )
+    if spec.stp is not None:
+        if spec.kind != "switch":
+            raise TwinConfigShapeError(f"{what}: `stp:` is a `kind: switch` field")
+        if spec.stp not in STP_MODES:
+            raise TwinConfigShapeError(
+                f"{what}: stp {spec.stp!r} is not one of {', '.join(STP_MODES)}"
+            )
     _check_provenance(what, spec)
     for k, m in enumerate(spec.members or []):
         _check_provenance(f"{what}.members[{k}]", m)
@@ -368,6 +381,7 @@ def _check_links(
     `native` only on a trunk; an access link carries exactly one segment;
     every segment named exists."""
     ports_used: dict[tuple[str, str], str] = {}
+    members_by_id = _group_member_ids(specs_by_name)
     for i, link in enumerate(links):
         what = f"twin_config.links[{i}] ({_link_label(link)})"
         if link.mode not in LINK_MODES:
@@ -396,19 +410,22 @@ def _check_links(
             if not end.port or not end.port.strip():
                 raise TwinConfigShapeError(f"{what}: {end.device!r} has a blank port")
             spec = specs_by_name.get(end.device)
+            if spec is None and end.device in members_by_id:
+                # A group member by its instance id (`corp-workstation01`):
+                # the link wires that one instance (native-switches §12 S1,
+                # Authority: user, 2026-11-12).
+                spec = members_by_id[end.device]
+            elif spec is not None and _spec_count(spec) > 1:
+                raise TwinConfigShapeError(
+                    f"{what}: {end.device!r} is a count > 1 group -- a link names "
+                    "one device; name a member by its instance id "
+                    f"({', '.join(instance_ids(spec.name, _spec_count(spec))[:2])}, ...) "
+                    "or attach the group to a segment with `net:`"
+                )
             if spec is None:
                 raise TwinConfigShapeError(
                     f"{what}: {end.device!r} is not an emitted node (unknown, or "
                     "excluded by `when:`)"
-                )
-            try:
-                is_group = int(spec.count) > 1
-            except (TypeError, ValueError):
-                is_group = False
-            if is_group:
-                raise TwinConfigShapeError(
-                    f"{what}: {end.device!r} is a count > 1 group -- a link names "
-                    "one device; attach a group to a segment with `net:`"
                 )
             key = (end.device, end.port)
             if key in ports_used:
@@ -418,6 +435,27 @@ def _check_links(
                 )
             ports_used[key] = _link_label(link)
         _check_provenance(what, link)
+
+
+def _spec_count(spec: TwinConfigNode) -> int:
+    try:
+        return int(spec.count)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _group_member_ids(specs_by_name: dict[str, TwinConfigNode]) -> dict[str, TwinConfigNode]:
+    """Instance id -> its group spec, for every `count > 1` group: what a
+    link end may name to wire one member (native-switches §12 S1). A member
+    id that collides with another spec's name is left to that spec."""
+    out: dict[str, TwinConfigNode] = {}
+    for spec in specs_by_name.values():
+        n = _spec_count(spec)
+        if n > 1:
+            for node_id in instance_ids(spec.name, n):
+                if node_id not in specs_by_name:
+                    out[node_id] = spec
+    return out
 
 
 def _declared_segments(spec: TwinConfigNode) -> list[str]:
@@ -729,9 +767,10 @@ def _build_ir(
         for spec in node_specs if spec.kind != "router"
         for seg in _declared_segments(spec)
     }
+    end_specs = {**_group_member_ids(specs_by_name), **specs_by_name}
     for link in links:
         for end in (link.a, link.b):
-            if specs_by_name[end.device].kind != "router":
+            if end_specs[end.device].kind != "router":
                 occupied_before.update(_link_segments(link))
 
     kept_specs: list[TwinConfigNode] = []
@@ -767,6 +806,7 @@ def _build_ir(
         gated_rows.append((row, would_be))
     node_specs = kept_specs
     kept_names = {spec.name for spec in node_specs}
+    kept_names |= set(_group_member_ids({spec.name: spec for spec in node_specs}))
     surviving_links: list[TwinConfigLink] = []
     for link in links:
         gone = [e.device for e in (link.a, link.b) if e.device not in kept_names]
@@ -824,8 +864,10 @@ def _build_ir(
                 "(0/negative silently 'disables' the node -- not supported)"
             )
         members = _apply_members(spec, count)
-        link_segs = tuple(link_segs_by_device.get(spec.name, ()))
         for k, node_id in enumerate(instance_ids(spec.name, count), start=1):
+            # Keyed by the emitted id: a single node's id is its name, and a
+            # group member is wired by its own instance id (§12 S1).
+            link_segs = tuple(link_segs_by_device.get(node_id, ()))
             instances.append(_NodeInstance(node_id=node_id, spec=spec, legs=_legs_for(spec, link_segs)))
             m = members.get(k)
             if m is not None:
@@ -1208,6 +1250,8 @@ def _build_ir(
             node_entry["joins"] = spec.joins
         if spec.routing:
             node_entry["routing"] = dict(spec.routing)
+        if spec.stp is not None:
+            node_entry["stp"] = spec.stp
         nodes_ir.append(node_entry)
 
         # An app is synthesized when the node declares install actions OR a
@@ -1256,10 +1300,14 @@ def _build_ir(
         for spec in node_specs
     ) or any(s.source is not None for s in segments)
 
+    if any(spec.stp is not None for spec in node_specs):
+        ir_version = _IR_VERSION_NATIVE_SWITCH
+    elif uses_device_tree:
+        ir_version = _IR_VERSION_DEVICE_TREE
+    else:
+        ir_version = _IR_VERSION_BASE
     ir: dict[str, Any] = {
-        "scenario_schema_version": (
-            _IR_VERSION_DEVICE_TREE if uses_device_tree else _IR_VERSION_BASE
-        ),
+        "scenario_schema_version": ir_version,
         "scenario": {
             "id": tc.id,
             "version": 1,

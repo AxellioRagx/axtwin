@@ -62,7 +62,7 @@ def check_str_020(ctx: ValidatorContext) -> list[Finding]:
     # `4` (Authority: user, 2026-11-07, `docs/design/topology-layers.md`
     # §10): additive -- `layers.infra.links[]`, provenance fields and a
     # `kind: switch` wired by links. Declaring it is optional like `2`/`3`.
-    if v not in (1, 2, 3, 4):
+    if v not in (1, 2, 3, 4, 5):
         return [make_finding("STR-020", value=v)]
     return []
 
