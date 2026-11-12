@@ -288,8 +288,24 @@ class TapPlanError(Exception):
 #       sensors: [sensor-b]
 #       mode: exclusive                 # fanout (default) | exclusive
 #
-# Exactly ONE of `tap` / `tap_point` / `selector` is required per binding
-# (parse-time validated). `mode` is vocabulary only -- it does not change
+# **SPAN sessions (`docs/design/native-switches.md` §6, 2026-11-12):** a
+# fourth form mirrors a native switch's ports, switch-port directions (`rx` =
+# what the switch receives on the port, `tx` = what it sends, `both`), with an
+# optional per-source VLAN narrowing; it compiles to one OVS mirror into the
+# keyed gretap (`install-span`). A `segment`/`port`/`perimeter`/`boundary`
+# binding that resolves onto a switch-hosted network compiles the same way;
+# on an SDN network it keeps the per-tap `tc` mirror.
+#
+#   bindings:
+#     - span:
+#         switch: access-sw
+#         sources:
+#           - { port: SFP1, dir: both }
+#           - { port: Po1, dir: tx, vlans: [office] }
+#       sensors: [XPress-SW-A]
+#
+# Exactly ONE of `tap` / `tap_point` / `selector` / `span` is required per
+# binding (parse-time validated). `mode` is vocabulary only -- it does not change
 # the underlying mechanism (`docs/design/06-taps-sensors.md`: a `sensors:`
 # list of length 1 already IS exclusive, length N already IS fan-out); it
 # exists so a tap-plan author can say what they mean and have it checked

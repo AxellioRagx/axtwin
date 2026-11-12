@@ -6,8 +6,9 @@ link may name a group member by instance id; S2 and S3 as proposed). Phase 0
 (design and contract diff) is done. Phase 1 (Proxmox single-node native
 switches) is built on `wip/design-platforms-canvas`, which the user chose to
 continue on rather than open a second `wip/*` branch; its contract edits (§10)
-land in the same commit as its last code (`docs/contracts/README.md`). Phase 2
-(SPAN) is next.
+landed with its code (`docs/contracts/README.md`). Phase 2 (SPAN on native
+switches, the canvas editor) is built and live-verified on dev45 (§11.2).
+Phase 3 waits for the user.
 
 **Loop step:** **deploy**, plus the **capture gate**. A switch drawn on the
 canvas becomes a switch on the node, and a SPAN session on its port feeds the
@@ -288,6 +289,14 @@ encapsulation-replicate does (see R3). OVS mirrors each packet at most once per
 mirror, so a frame that matches both a source port and a destination port is not
 duplicated.
 
+Re-applying a plan whose session changed replaces the mirror in place (same
+name, `tapsm_<8hex>` of the tap plan's id and the session key
+`<switch>|<sensor>|<vlans>`); a session the new plan no longer has gets a
+removing `install-span`, which also takes its gretap off the switch and
+deletes it when no other session of that (switch, sensor) remains. `axrange
+tap destroy` (and the cascade from a twin destroy) removes every span mirror
+before the gretaps are swept.
+
 `dir: tx` also becomes a value of the general direction vocabulary
 (`tapscopes.py`). `install-ovs-mirror`'s per-NIC `direction` admits `"tx"`,
 which installs only the egress `mirred` filter. This addition is backward
@@ -306,26 +315,26 @@ does not change:
 | scope | compiles to |
 |---|---|
 | `port` (one VM leg) | its switch port, `both` |
-| `segment` | every **edge** port carrying the segment, across all its carriers, `rx`, with `select_vlan=<tag>` on trunk-edge ports. Edge ports are VM ports. Inter-switch patch ports are excluded, so each frame is mirrored once, where it enters the fabric |
+| `segment` | every VM port on the segment, across all its carriers, `rx`. Inter-switch patch ports are excluded, so each frame is mirrored once, where it enters the fabric. VM ports are access ports in v1 (NSW-060), so no `select_vlan` is needed |
 | `perimeter` | every router port on the segment, `both` |
 | `boundary` | the joining router's port on each of the two segments, `rx` |
 
 One mirror is created per `(switch, binding)`. A scope that spans several
 carriers yields one mirror on each, each with its own gretap.
 
-Mirror selections name OVSDB Port rows. A VM boot removes and re-adds its tap,
-and OVS drops a deleted port from every mirror. So `install-span` also writes the
-mirror's selection by **port name** into the post-start hook that
-`install-ovs-mirror` already installs, and the hook re-adds the re-created port
-to the mirror. The hook gains an `ovs` stanza beside its `tc` one; the per-NIC
-`tc` path is unchanged.
+Mirror selections name OVSDB Port rows. A VM stop/start removes and re-adds its
+tap, and OVS drops a deleted port from every mirror, so after a VM stop/start a
+span loses that VM's port until the tap plan is re-applied (`axrange tap
+deploy` is idempotent and re-asserts every mirror). **Not built in Phase 2:**
+the design's post-start-hook stanza that re-adds the port automatically (R5).
+A guest reboot keeps the tap and the selection.
 
 ### 6.4 `verify-capture`
 
 `verify-capture` (OP-MIR-040) takes a span session the way it takes a bridge:
-it injects the sentinel from a VM on a source port of the mirror and reads the
-sensor. For an external sink (`XPress-SW-A`) it is skipped with the existing
-warning. Capture there is confirmed on the appliance: the gre-cap RX counter,
+the sentinel is injected by a VM on a source (`rx`/`both`) port of the mirror,
+a single-homed one first, and the sensor is read over QGA. For an external sink
+(`XPress-SW-A`) it is skipped with the existing "capture UNVERIFIED" warning. Capture there is confirmed on the appliance: the gre-cap RX counter,
 plus a GRE `tcpdump` on the node.
 
 ## 7. Inventory
@@ -459,6 +468,19 @@ State DB `~/.axrange/state.db`; logs beside it (`switch-test-native-*.log`,
 
 SPAN capture (`XPress-SW-A` counters, the `rx`-only reading) is Phase 2.
 
+### 11.2 Phase 2 live run (dev45, 2026-11-12)
+
+Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
+`switch-trunk-test-span-*`).
+
+| check | reading |
+|---|---|
+| switch-test span on access-sw SFP1 `both` → XPress-SW-A | `tapsm_3f790adf` selects `gw`'s office tap both ways, output `tapg_b3c494` (trunk port); GRE key 0xb3c494d5 carries ws01's echo requests AND file-server's replies; sink `gre-cap` RX 499,807 → 499,850 (+43) for 20 pings |
+| tagged SPAN output (R3) | 98-byte frames arrive as 110-byte keyed-GRE payloads (+4 for the 802.1Q tag); the sink counts them |
+| `P1 rx` sees only ws01's transmit | re-applied in place (same mirror, src = ws01's tap only): ws01→fs 5 requests, ws01's 5 replies to fs, ws01's ARP; nothing from ws02, nothing addressed to ws01 |
+| destroy with a span | cascade "span mirror …: removed", gretap gone with it, switch removed; node: no bridges, mirrors, gretaps |
+| span on a trunk (patch) port, switch-trunk-test Po1 `both` | **captured nothing**: mirror `tx_packets=0` while ws01↔fs crossed Po1 (3/3 pings). `ofproto/trace` of a real gw→fs frame: `push_vlan(20),2,1,pop_vlan,5`, never the gretap (dp port 8). See R6 |
+
 ## 12. Risks and the items not signed off
 
 **Risks**, each checked live in Phase 1 before it is relied on:
@@ -470,17 +492,29 @@ SPAN capture (`XPress-SW-A` counters, the `rx`-only reading) is Phase 2.
   reboot; a redeploy recreates it.
 - **R2, IFNAMSIZ.** Every new name is 14 characters or fewer by construction
   (§4.2). The risk is a future producer, which the round-trip test guards.
-- **R3, tagged SPAN output.** The mirror emits 802.1Q-tagged frames on trunk
-  and access traffic alike, because OVS mirrors carry the internal VLAN. The
-  external sink and the in-guest flow decap must accept tagged inner frames. If
-  `XPress-SW-A` does not count them, the gretap is made an access port of a
-  per-session VLAN. That costs the tag, and the change is local to
-  `install-span`.
+- **R3, tagged SPAN output.** Verified on dev45 (2026-11-12): the mirrored
+  frames carry their 802.1Q tag (a 98-byte ICMP frame arrives as a 110-byte
+  keyed-GRE payload: 8 bytes of GRE with key, 4 of tag) and `XPress-SW-A`'s
+  `gre-cap` RX counts them. The in-guest flow decap of an O2 sensor is not yet
+  exercised with tagged frames.
 - **R4, placement pinning.** Trivially true today (one node per plan). CLU-080
   is what keeps it true when placement grows.
-- **R5, port re-creation.** OpenFlow port flags and mirror port references
-  are lost when a VM reboots; the post-start hook re-asserts them (§2.4,
-  §6.3). This is verified by a VM restart in the live run.
+- **R5, port re-creation.** OpenFlow port flags (`blocked`) and mirror port
+  references are lost when a VM stops and starts (not on a guest reboot). Open:
+  a redeploy / tap re-apply re-asserts them; the post-start-hook re-assert
+  (§2.4, §6.3) is not built.
+
+- **R6, OVS does not mirror on patch ports (found live, 2026-11-12).** A frame
+  crossing an OVS patch port is translated into the peer bridge within the
+  same datapath flow, and the mirror selection does not carry across: a mirror
+  selecting a patch port never fires on real traffic (only on a synthetic
+  `ofproto/trace` that starts on the patch port), and by the same mechanism a
+  `tx` / `both` selection on a VM port misses frames that arrived from another
+  switch (inferred from the trace, not measured). Single-switch spans and every
+  `rx` selection on a VM port are unaffected (the VM's tap is the real ingress).
+  The fix is a **veth pair** in place of the patch pair (D2), so each bridge
+  sees a real ingress port; that changes a ratified decision and waits for the
+  user.
 
 **Not covered by D1–D12; decided by the user on 2026-11-12** (S1: option (a);
 S2 and S3 as proposed below):

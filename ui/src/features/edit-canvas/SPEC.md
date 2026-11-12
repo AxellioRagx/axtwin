@@ -256,6 +256,13 @@ of its own to click).
       and (implied `servers` → file-server): the down link is gone, the tap a
       `segment` tap on `office` (a `port` tap on the imageless access-sw would
       resolve to no tap point); the engine validator PASSes the bundle.
+- [x] SPAN on a native switch (`docs/design/native-switches.md` §6, 2026-11-12):
+      a `span` binding reads and writes as a splice (`edit/tap.ts`
+      `addSpanBinding` / `setSpanSources`), its chip rides the switch, and a
+      switch's panel (and the span tap's own) lists the switch's link ports
+      with a direction (off / rx / tx / both) and, on a trunk, the VLANs to
+      narrow to; an automatic `<host>.<leg>` port is added by name. switch-test's
+      tap is now `span` on access-sw SFP1 — `canvas.span.test.ts`.
 
 ### The device tree checklist (topology-layers, tracks 5a–5d, 2026-11-07)
 

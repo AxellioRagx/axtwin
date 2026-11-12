@@ -9,7 +9,10 @@ native switches, so the twin has no SDN zone: `office` and `servers` are VLANs
 10 and 20 on two OVS bridges joined by one patch pair. Every host reaches `gw`
 across that patch, so reachability proves the trunk forwards both VLANs.
 
-Phase 2 adds the tap tier: a `span` session on `access-sw` Po1, a trunk port.
+The tap tier is a `span` session on `access-sw` Po1, a trunk port. **It
+captures nothing today**: OVS does not mirror on a patch port
+(`docs/design/native-switches.md` R6); the fix (a veth pair for switch links)
+waits for the user.
 
 ```sh
 R=/home/rocky/axr-product/deploy-dev45; D=~/.axrange/state.db
