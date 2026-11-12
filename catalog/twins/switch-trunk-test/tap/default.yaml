@@ -1,0 +1,14 @@
+# Tap plan: switch-trunk-test / default -- a SPAN session on a TRUNK port:
+# access-sw's Po1 (the patch to core), both directions, both VLANs, to the
+# external sink XPress-SW-A (docs/design/native-switches.md §6). Every frame
+# that crosses the core<->access trunk -- office and servers traffic routed
+# by gw -- is mirrored once, tagged 10 or 20.
+tap-plan:
+  target: switch-trunk-test
+  bindings:
+    - span:
+        switch: access-sw
+        sources:
+          - { port: Po1, dir: both }
+      sensors: [XPress-SW-A]
+      mode: exclusive

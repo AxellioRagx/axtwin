@@ -30,6 +30,24 @@ from __future__ import annotations
 TAP_SCOPES = ("port", "segment", "perimeter", "boundary")
 
 
+#: Mirror directions (`docs/design/native-switches.md` §6.2, 2026-11-12:
+#: `tx` added). Switch-port convention: `rx` is what the port RECEIVES (what
+#: the VM on it transmits -- ingress on the VM's tap), `tx` what it sends out
+#: (egress on the tap), `both` the two. Scopes derive only `rx` or `both`;
+#: `tx` is authored, on a `span` source.
+DIRECTIONS = ("rx", "tx", "both")
+
+
+def union_direction(a: "str | None", b: "str | None") -> str:
+    """Two directions for ONE (port, sensor), combined: `both` absorbs
+    everything, `rx` + `tx` is `both`, and `None` (nothing yet) loses."""
+    if a is None:
+        return b  # type: ignore[return-value]
+    if b is None or a == b:
+        return a
+    return "both"
+
+
 def direction_for_scope(scope: str) -> str:
     """The mirror direction a binding on `scope` should carry (brief §3/§4):
     `"rx"` for a MULTI-PORT scope (`segment`/`boundary` -- mirroring both

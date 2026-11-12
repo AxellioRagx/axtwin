@@ -1082,9 +1082,10 @@ def test_slice_op_partition():
         "wait-os-ready", "configure-router", "configure-routing",
         # native switches (docs/design/native-switches.md §5)
         "attach-vm-to-switch-port", "create-switch", "link-switches", "set-port-state",
+        "install-span",
     }
     assert len(_REST_OPS) == 14
-    assert len(_SSH_OPS) == 6  # +configure-routing (fabric slice); +3 native-switch ops
+    assert len(_SSH_OPS) == 7  # +configure-routing (fabric slice); +4 native-switch ops
     assert len(_PROBE_OPS) == 0
 
 

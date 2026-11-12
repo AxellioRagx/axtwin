@@ -603,6 +603,9 @@ class _FakeAdapter:
             return {"vmid": self._vmid}
         if op.op_name == "create-switch":
             return {"bridge_name": naming.switch_bridge_for(ctx.plan_id, inputs["switch_id"])}
+        if op.op_name == "link-switches":
+            return {"port_a": naming.patch_port_for(ctx.plan_id, inputs["link_key"], "a"),
+                    "port_b": naming.patch_port_for(ctx.plan_id, inputs["link_key"], "b")}
         if op.op_name in ("create-ovs-bridge",):
             return {"bridge_name": "tebr_x"}
         if op.op_name == "create-vnet":
@@ -695,3 +698,180 @@ def test_switch_trunk_test_fixture_has_no_sdn_and_one_patch_trunk():
     assert lk.inputs_resolved["vlan_tags"] == [10, 20]
     assert {o.inputs_resolved["switch_id"] for o in _ops(plan, "attach-vm-to-switch-port").values()} \
         == {"core", "access-sw"}
+
+
+# ---------------------------------------------------------------------------
+# SPAN (Phase 2): parse, resolve (span bindings + D8), compose, adapter
+# ---------------------------------------------------------------------------
+from axrange.o2control import spans
+from axrange.o2control.taps import TapBindingSpec, TapPlanError, _compose_ops, parse_tap_plan
+
+
+def test_span_binding_parses_and_normalizes():
+    spec = parse_tap_plan({"tap-plan": {"target": "t", "bindings": [
+        {"span": {"switch": "sw", "sources": [{"port": "SFP1"}, {"port": "P1", "dir": "rx"},
+                                              {"port": "Po1", "dir": "tx", "vlans": ["b", "a"]}]},
+         "sensors": ["s1"], "mode": "exclusive"}]}})
+    b = spec.bindings[0]
+    assert b.span == {"switch": "sw", "sources": [
+        {"port": "SFP1", "dir": "both"}, {"port": "P1", "dir": "rx"},
+        {"port": "Po1", "dir": "tx", "vlans": ["a", "b"]}]}
+
+
+@pytest.mark.parametrize("span, needle", [
+    ({"switch": "sw"}, "sources must be a non-empty list"),
+    ({"switch": "sw", "sources": [{"port": "P1", "dir": "out"}]}, "dir 'out'"),
+    ({"switch": "sw", "sources": [{"port": "P1"}, {"port": "P1"}]}, "listed twice"),
+    ({"switch": "sw", "sources": [{"port": "P1", "vlan": [1]}]}, "unknown key"),
+])
+def test_span_shape_errors(span, needle):
+    with pytest.raises(TapPlanError, match=needle):
+        parse_tap_plan({"tap-plan": {"bindings": [{"span": span, "sensors": ["s"]}]}})
+
+
+def test_span_and_selector_together_is_refused():
+    with pytest.raises(TapPlanError, match="exactly one of"):
+        parse_tap_plan({"tap-plan": {"bindings": [
+            {"span": {"switch": "sw", "sources": [{"port": "P1"}]},
+             "selector": {"scope": "segment"}, "sensors": ["s"]}]}})
+
+
+def _span(switch, *sources, sensors=("s1",)):
+    return TapBindingSpec(span=spans.parse_span({"switch": switch, "sources": list(sources)}, "b"),
+                          sensors=list(sensors))
+
+
+def _ok(_b, _sid):
+    return None
+
+
+def _ovs(inv, switch, port):
+    sw = next(s for s in inv.switches if s.name == switch)
+    return next(p for p in sw.ports if p.port == port).ovs_port
+
+
+def test_span_resolves_to_ovs_ports_with_switch_directions(tmp_path):
+    inv = _inventory(tmp_path, _cfg())
+    sdn, sessions = spans.resolve_sessions(
+        [(0, _span("sw", {"port": "SFP1"}, {"port": "P1", "dir": "rx"}, {"port": "P2", "dir": "tx"}))],
+        {}, inv, validate_sensor=_ok)
+    assert sdn == {}
+    (sess,) = sessions
+    assert sess.switch == "sw" and sess.vlans == ()
+    sfp1, p1, p2 = (_ovs(inv, "sw", p) for p in ("SFP1", "P1", "P2"))
+    assert set(sess.src) == {sfp1, p1} and set(sess.dst) == {sfp1, p2}
+    assert sfp1.startswith("tap") and p1.endswith("i0")
+
+
+def test_d8_compiles_switch_hosted_interfaces_and_keeps_sdn_ones(tmp_path):
+    inv = _inventory(tmp_path, _cfg())
+    ws01 = next(h for h in inv.hosts if h.host_id == "ws01")
+    fs = next(h for h in inv.hosts if h.host_id == "fs")
+    office = next(n for n in ws01.nets if n.net_id == "office")
+    servers = next(n for n in fs.nets if n.net_id == "servers")
+    ifaces = {("ws01", "office", office.nic_index): {"s1": "rx"},
+              ("fs", "servers", servers.nic_index): {"s1": "rx"}}
+    sdn, sessions = spans.resolve_sessions([], ifaces, inv, validate_sensor=_ok)
+    assert sdn == {("fs", "servers", servers.nic_index): {"s1": "rx"}}   # tc path, unchanged
+    (sess,) = sessions
+    assert set(sess.src) == {_ovs(inv, "sw", "P1")} and sess.dst == {}  # rx -> select_src_port
+    assert sess.injectors == [("ws01", "office")]
+
+
+def test_span_on_a_trunk_patch_port_with_vlan_narrowing(tmp_path):
+    inv = _inventory(tmp_path, _bundle("switch-trunk-test"))
+    po1 = _ovs(inv, "access-sw", "Po1")
+    assert naming.is_te_patch_port(po1)
+    _, sessions = spans.resolve_sessions(
+        [(0, _span("access-sw", {"port": "Po1", "dir": "tx", "vlans": ["servers"]}))],
+        {}, inv, validate_sensor=_ok)
+    (sess,) = sessions
+    assert sess.dst == {po1: "Po1"} and sess.src == {}
+    assert sess.vlans == ("servers",) and sess.vlan_tags == (20,)
+
+
+@pytest.mark.parametrize("binding, needle", [
+    (lambda: _span("nope", {"port": "P1"}), "not a native switch"),
+    (lambda: _span("sw", {"port": "P9"}), "not on 'sw'"),
+    (lambda: _span("sw", {"port": "P1", "vlans": ["servers"]}), "does not carry"),
+])
+def test_span_resolution_errors(tmp_path, binding, needle):
+    inv = _inventory(tmp_path, _cfg())
+    with pytest.raises(spans.SpanError, match=needle):
+        spans.resolve_sessions([(0, binding())], {}, inv, validate_sensor=_ok)
+
+
+def test_compose_span_ops_gretap_mirror_and_descope(tmp_path):
+    inv = _inventory(tmp_path, _cfg())
+    _, sessions = spans.resolve_sessions(
+        [(0, _span("sw", {"port": "SFP1"}))], {}, inv, validate_sensor=_ok)
+    ext = SimpleNamespace(transport_ip="10.255.251.21", deploy_id="")
+    warnings: list[str] = []
+    plan = _compose_ops(
+        "tap-d1", SimpleNamespace(), {"s1": ext}, {}, None, "px1",
+        warnings=warnings, span_sessions=sessions,
+        prior_spans=[{"switch": "sw", "sensor": "s1", "mirror_key": "sw|s1|office",
+                      "bridge_name": sessions[0].bridge, "gre_port": "tapg_abcdef"}],
+    )
+    by = {}
+    for op in plan.ops.values():
+        by.setdefault(op.op_name, []).append(op)
+    (gre,) = by["attach-gre-tunnel"]
+    assert gre.inputs_resolved["bridge_name"] == sessions[0].bridge
+    add, rem = sorted(by["install-span"], key=lambda o: o.inputs_resolved["remove"])
+    assert add.inputs_resolved["src_ports"] == add.inputs_resolved["dst_ports"] == [_ovs(inv, "sw", "SFP1")]
+    assert add.inputs_resolved["gre_port"] == naming.gre_port_for_bridge_sensor(sessions[0].bridge, "s1")
+    assert rem.inputs_resolved["remove"] is True and rem.inputs_resolved["delete_gre"] is False
+    assert "verify-capture" not in by
+    assert any("UNVERIFIED" in w and "span" in w for w in warnings)
+
+
+def test_adapter_install_span_replaces_the_named_mirror():
+    run = _Run(list_br="")
+    br = naming.switch_bridge_for("p", "sw")
+    gre = naming.gre_port_for_bridge_sensor(br, "s1")
+    out = SwitchOps(run).install_span(
+        _op("install-span", {}),
+        {"bridge_name": br, "mirror_key": "sw|s1|", "gre_port": gre,
+         "src_ports": ["tap1i0", "tap2i0"], "dst_ports": ["tap1i0"], "vlan_tags": [10]},
+        _ctx("tap-d1"))
+    name = naming.span_mirror_for("tap-d1", "sw|s1|")
+    assert out == {"mirror_installed": True, "mirror_name": name}
+    assert run.cmds[0].startswith(f"ovs-vsctl --may-exist add-port {br} {gre}")
+    assert f"find mirror name={name}" in run.cmds[1]
+    create = run.cmds[2]
+    assert f"create mirror name={name} output_port=@g" in create
+    assert "select_src_port=@p0,@p1" in create and "select_dst_port=@p0" in create
+    assert "select_vlan=10" in create and create.endswith(f"-- add bridge {br} mirrors @m")
+
+
+def test_adapter_install_span_refuses_foreign_ports_and_removes_cleanly():
+    br = naming.switch_bridge_for("p", "sw")
+    gre = naming.gre_port_for_bridge_sensor(br, "s1")
+    with pytest.raises(AdapterError, match="refusing to mirror"):
+        SwitchOps(_Run()).install_span(_op("install-span", {}), {
+            "bridge_name": br, "mirror_key": "k", "gre_port": gre,
+            "src_ports": ["vmbr0"], "dst_ports": []}, _ctx())
+    run = _Run(list_br=f"{br}\n")
+    out = SwitchOps(run).install_span(_op("install-span", {}), {
+        "bridge_name": br, "mirror_key": "k", "gre_port": gre, "remove": True,
+        "delete_gre": True}, _ctx())
+    assert out["mirror_installed"] is False
+    assert any(c == f"ovs-vsctl --if-exists del-port {br} {gre}" for c in run.cmds)
+    assert any(c.startswith(f"ip link show {gre}") for c in run.cmds)
+
+
+def test_tc_tx_direction_mirrors_egress_only():
+    from axrange.adapter_proxmox.ssh import _hook_script, _tc_mirror_cmd
+    cmd = _tc_mirror_cmd("tap1i0", [("tapg_aaaaaa", "tx")])
+    assert "ingress" not in cmd.split("clsact", 2)[-1] and "egress matchall" in cmd
+    hook = _hook_script("p", [(0, "tapg_aaaaaa", "tx")])
+    assert '[ "$dir" != "tx" ]' in hook and '[ "$dir" != "rx" ]' in hook
+
+
+def test_union_direction():
+    from axrange.tapscopes import union_direction
+    assert union_direction("rx", "tx") == "both"
+    assert union_direction(None, "tx") == "tx"
+    assert union_direction("rx", "rx") == "rx"
+    assert union_direction("both", "rx") == "both"

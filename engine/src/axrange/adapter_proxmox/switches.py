@@ -17,9 +17,11 @@ import re
 from typing import Any, Callable, Iterable, Optional
 
 from axrange.adapter_proxmox.naming import (
+    is_tap_gretap,
     is_te_patch_port,
     is_te_switch_bridge,
     patch_port_for,
+    span_mirror_for,
     switch_bridge_for,
 )
 from axrange.planner.executor import AdapterError
@@ -97,6 +99,57 @@ def port_state_cmd(bridge: str, port: str, state: str) -> str:
     return " && ".join(f"ovs-ofctl mod-port {bridge} {port} {a}" for a in actions)
 
 
+_PORT_RE = re.compile(r"^(tap[0-9]+i[0-9]+|tepp_[0-9a-f]{8})$")
+
+
+def _check_port(port: str) -> None:
+    """A mirror selects only a VM tap or one of our patch ports."""
+    if not _PORT_RE.match(port):
+        raise AdapterError(f"refusing to mirror port {port!r}", error_class="adapter-input")
+
+
+def drop_mirror_cmd(bridge: str, mirror: str) -> str:
+    """Detach the named mirror from the bridge if it exists (OVS garbage-
+    collects the row once no bridge references it)."""
+    _check_bridge(bridge)
+    return (f"m=$(ovs-vsctl --bare --columns=_uuid find mirror name={mirror});"
+            f" if [ -n \"$m\" ]; then ovs-vsctl remove bridge {bridge} mirrors $m; fi")
+
+
+def gre_trunk_port_cmd(bridge: str, gre: str) -> str:
+    """Put the keyed gretap on the switch as a port carrying every VLAN, so
+    mirrored frames keep their 802.1Q tags (design §6.2, R3)."""
+    _check_bridge(bridge)
+    if not is_tap_gretap(gre):
+        raise AdapterError(f"refusing non-tapg gretap {gre!r}", error_class="adapter-input")
+    return (f"ovs-vsctl --may-exist add-port {bridge} {gre}"
+            f" -- clear port {gre} tag -- clear port {gre} trunks"
+            f" -- set port {gre} vlan_mode=trunk")
+
+
+def create_mirror_cmd(bridge: str, mirror: str, gre: str, *, src: list[str], dst: list[str],
+                      vlan_tags: list[int]) -> str:
+    _check_bridge(bridge)
+    ports = sorted(set(src) | set(dst))
+    for p in ports:
+        _check_port(p)
+    if not ports:
+        raise AdapterError("install-span: no source or destination port", error_class="adapter-input")
+    ref = {p: f"@p{i}" for i, p in enumerate(ports)}
+    parts = ["ovs-vsctl", f"-- --id=@g get port {gre}"]
+    parts += [f"-- --id={ref[p]} get port {p}" for p in ports]
+    create = f"-- --id=@m create mirror name={mirror} output_port=@g"
+    if src:
+        create += " select_src_port=" + ",".join(ref[p] for p in sorted(src))
+    if dst:
+        create += " select_dst_port=" + ",".join(ref[p] for p in sorted(dst))
+    if vlan_tags:
+        create += " select_vlan=" + ",".join(str(int(t)) for t in sorted(vlan_tags))
+    parts.append(create)
+    parts.append(f"-- add bridge {bridge} mirrors @m")
+    return " ".join(parts)
+
+
 def delete_bridge_cmd(bridge: str) -> str:
     """Remove every mirror on the bridge, then the bridge (its patch ports and
     any leftover VM tap ports go with it)."""
@@ -164,6 +217,37 @@ class SwitchOps:
         port = vm_ovs_port(int(inp["vmid"]), int(inp["nic_index"]))
         self.run(port_state_cmd(bridge, port, state), timeout_s=op.timeout_s or 60)
         return {"state_applied": state, "ovs_port": port}
+
+    def install_span(self, op: Any, inp: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """OP-MIR-060 (design §6.2): (re)create one OVS mirror, or remove it.
+        Check-then-act by replacement: the named mirror is detached first, so
+        a re-run with the same selection converges and a changed selection
+        replaces the old one."""
+        bridge = inp.get("bridge_name")
+        key = inp.get("mirror_key")
+        gre = inp.get("gre_port")
+        if not (bridge and key and gre):
+            raise AdapterError("install-span: bridge_name / mirror_key / gre_port missing",
+                               error_class="adapter-input")
+        mirror = span_mirror_for(ctx.plan_id, str(key))
+        t = op.timeout_s or 60
+        if inp.get("remove"):
+            if self.bridge_exists(bridge):
+                self.run(drop_mirror_cmd(bridge, mirror), timeout_s=t)
+                if inp.get("delete_gre"):
+                    self.run(f"ovs-vsctl --if-exists del-port {bridge} {gre}", timeout_s=t)
+            if inp.get("delete_gre") and is_tap_gretap(gre):
+                self.run(f"ip link show {gre} >/dev/null 2>&1 && ip link del {gre} || true",
+                         timeout_s=t)
+            return {"mirror_installed": False, "mirror_name": mirror}
+        self.run(gre_trunk_port_cmd(bridge, gre), timeout_s=t)
+        self.run(drop_mirror_cmd(bridge, mirror), timeout_s=t)
+        self.run(create_mirror_cmd(bridge, mirror, gre,
+                                   src=list(inp.get("src_ports") or []),
+                                   dst=list(inp.get("dst_ports") or []),
+                                   vlan_tags=_ints(inp.get("vlan_tags") or [])),
+                 timeout_s=t)
+        return {"mirror_installed": True, "mirror_name": mirror}
 
     def delete_switch(self, bridge: str) -> str:
         if not self.bridge_exists(bridge):

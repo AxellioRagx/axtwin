@@ -49,6 +49,7 @@ _SSH_OPS = {
     "create-switch",
     "link-switches",
     "set-port-state",
+    "install-span",
 }
 
 _PROBE_OPS: set[str] = set()  # reserved for future ops the slice doesn't need

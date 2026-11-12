@@ -638,6 +638,12 @@ def emit_ops(
                     # `switches[].ports[]` (native-switches §7); the adapter
                     # does not read it.
                     "ports": [_port_record(p) for p in switch_model.ports.get(sw, [])],
+                    # network -> VLAN id on this switch, for the same
+                    # readers (a span's `vlans:` narrowing, §6.1).
+                    "vlans": {
+                        net: switch_model.vlan_tag[net]
+                        for net, carriers in switch_model.carriers.items() if sw in carriers
+                    },
                 },
             )
         )

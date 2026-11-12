@@ -471,19 +471,24 @@ case "$phase" in
         g="${{rest%%:*}}"
         dir="${{rest##*:}}"
         [ "$pnic" = "$nic" ] || continue
-        if [ -z "$ingress_acts" ]; then ingress_acts="action mirred egress mirror dev $g";
-        else ingress_acts="$ingress_acts pipe action mirred egress mirror dev $g"; fi
-        if [ "$dir" = "both" ]; then
+        # rx and both -> ingress; tx and both -> egress (tx: native-switches §6.2)
+        if [ "$dir" != "tx" ]; then
+          if [ -z "$ingress_acts" ]; then ingress_acts="action mirred egress mirror dev $g";
+          else ingress_acts="$ingress_acts pipe action mirred egress mirror dev $g"; fi
+        fi
+        if [ "$dir" != "rx" ]; then
           if [ -z "$egress_acts" ]; then egress_acts="action mirred egress mirror dev $g";
           else egress_acts="$egress_acts pipe action mirred egress mirror dev $g"; fi
         fi
       done
-      tc filter add dev "$vmnic" ingress matchall $ingress_acts
+      if [ -n "$ingress_acts" ]; then
+        tc filter add dev "$vmnic" ingress matchall $ingress_acts
+      fi
       if [ -n "$egress_acts" ]; then
         tc filter add dev "$vmnic" egress matchall $egress_acts
       fi
       # Fail loud, not silent (the 2026-06-03 silent-zero-capture finding).
-      tc filter show dev "$vmnic" ingress | grep -q mirred
+      {{ tc filter show dev "$vmnic" ingress; tc filter show dev "$vmnic" egress; }} | grep -q mirred
     done
     ;;
   pre-stop)
@@ -523,15 +528,18 @@ def _tc_mirror_cmd(vmnic: str, gretaps: list[tuple[str, str]]) -> str:
     wasted).
     """
     q_nic = shlex.quote(vmnic)
+    # rx and both -> ingress; tx and both -> egress (`tx`, native-switches
+    # §6.2: what the VM receives). Either filter is omitted when empty.
     ingress_acts = " pipe ".join(
-        f"action mirred egress mirror dev {shlex.quote(g)}" for g, _d in gretaps
+        f"action mirred egress mirror dev {shlex.quote(g)}" for g, d in gretaps if d != "tx"
     )
-    both_gretaps = [g for g, d in gretaps if d == "both"]
+    both_gretaps = [g for g, d in gretaps if d != "rx"]
     cmds = [
         f"tc qdisc del dev {q_nic} clsact 2>/dev/null || true",
         f"tc qdisc add dev {q_nic} clsact",
-        f"tc filter add dev {q_nic} ingress matchall {ingress_acts}",
     ]
+    if ingress_acts:
+        cmds.append(f"tc filter add dev {q_nic} ingress matchall {ingress_acts}")
     if both_gretaps:
         egress_acts = " pipe ".join(
             f"action mirred egress mirror dev {shlex.quote(g)}" for g in both_gretaps
@@ -563,7 +571,7 @@ class SshBackend:
             return self._install_ovs_mirror(op, resolved_inputs, ctx)
         if op.op_name == "configure-routing":
             return self._configure_routing(op, resolved_inputs, ctx)
-        if op.op_name in ("create-switch", "link-switches", "set-port-state"):
+        if op.op_name in ("create-switch", "link-switches", "set-port-state", "install-span"):
             from axrange.adapter_proxmox.switches import SwitchOps
 
             ops = SwitchOps(lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw))
@@ -571,6 +579,7 @@ class SshBackend:
                 "create-switch": ops.create_switch,
                 "link-switches": ops.link_switches,
                 "set-port-state": ops.set_port_state,
+                "install-span": ops.install_span,
             }[op.op_name]
             return fn(op, resolved_inputs, ctx)
         raise AdapterError(

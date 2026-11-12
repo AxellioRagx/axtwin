@@ -228,7 +228,11 @@ class SwitchPortInfo:
     native: Optional[str] = None
     state: str = "up"
     source: str = "link"            # link | auto
-    far: dict[str, Any] = field(default_factory=dict)  # {kind, device, port?, nic_index?}
+    far: dict[str, Any] = field(default_factory=dict)  # {kind, device, port?, leg?}
+    # The OVS port this switch port is on the node: `tap<vmid>i<nic>` for a
+    # VM port, the patch port's name for a switch link; None when nothing is
+    # plugged in (a non-up link to a network the VM has no leg on).
+    ovs_port: Optional[str] = None
 
 
 @dataclass
@@ -243,6 +247,7 @@ class SwitchInfo:
     stp: str = "off"
     status: Optional[str] = None
     ports: list[SwitchPortInfo] = field(default_factory=list)
+    vlans: dict[str, int] = field(default_factory=dict)   # network -> VLAN id
 
 
 @dataclass
@@ -355,6 +360,29 @@ class TwinInventory:
         }
 
 
+def _fill_ovs_ports(
+    switches: list[SwitchInfo],
+    host_nets: dict[str, list[HostNet]],
+    host_vmid: dict[str, int],
+    patch_ports: dict[tuple[str, str], str],
+) -> None:
+    """Name each native-switch port's OVS port (design §7): a VM port is the
+    tap of the NIC plugged into it, a switch link is its recorded patch port."""
+    for sw in switches:
+        for p in sw.ports:
+            far = p.far or {}
+            if far.get("kind") == "switch" and "leg" not in far:
+                ends = sorted([f"{sw.name}#{p.port}", f"{far.get('device')}#{far.get('port')}"])
+                p.ovs_port = patch_ports.get((sw.name, "|".join(ends)))
+                continue
+            dev = str(far.get("device") or "")
+            vmid = host_vmid.get(dev)
+            nic = next((n.nic_index for n in host_nets.get(dev, [])
+                        if n.switch == sw.name and n.port == p.port), None)
+            if vmid is not None and nic is not None:
+                p.ovs_port = f"tap{vmid}i{nic}"
+
+
 def build_twin_inventory(
     store: StateStore, deploy_id: str, *, manifests: Any = None,
     role_overrides: Optional[dict[str, str]] = None,
@@ -422,6 +450,7 @@ def build_twin_inventory(
     net_bridge: dict[str, str] = {}
     vlan_underlay: Optional[str] = None
     switches: list[SwitchInfo] = []
+    patch_ports: dict[tuple[str, str], str] = {}   # (switch, link key) -> patch port
     all_net_ids: set[str] = set()   # EVERY declared network
     seen_hosts: dict[str, None] = {}  # insertion-ordered set
 
@@ -584,7 +613,16 @@ def build_twin_inventory(
                     stp=str(inp.get("stp") or "off"),
                     status=getattr(status, "value", None) if status is not None else None,
                     ports=[SwitchPortInfo(**p) for p in (inp.get("ports") or [])],
+                    vlans={str(k): int(v) for k, v in (inp.get("vlans") or {}).items()},
                 ))
+
+        elif op_name == "link-switches":
+            sa, sb = inp.get("switch_a"), inp.get("switch_b")
+            key = str(inp.get("link_key") or scope.get("link") or "")
+            if sa and out.get("port_a"):
+                patch_ports[(str(sa), key)] = str(out["port_a"])
+            if sb and out.get("port_b"):
+                patch_ports[(str(sb), key)] = str(out["port_b"])
 
         elif op_name == "create-ovs-bridge":
             bridge = out.get("bridge_name")
@@ -608,6 +646,8 @@ def build_twin_inventory(
     if vlan_underlay:
         for net_id in all_net_ids:
             net_bridge.setdefault(net_id, vlan_underlay)
+
+    _fill_ovs_ports(switches, host_nets, host_vmid, patch_ports)
 
     hosts = [
         HostInfo(

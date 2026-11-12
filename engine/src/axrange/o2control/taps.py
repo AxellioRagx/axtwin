@@ -209,6 +209,8 @@ from axrange.planner.tappoints import (
     segment_attached_hosts,
     select_tap_points,
 )
+from axrange.o2control.spans import SpanError, parse_span, span_label
+from axrange.tapscopes import DIRECTIONS, union_direction
 
 # The naming seam (ARCHITECTURE §13) of the default platform: the gretap
 # port name is a pure function of `(bridge, sensor)`.
@@ -223,7 +225,10 @@ gre_port_for_bridge_sensor = default_namer().gre_port_for_bridge_sensor
 # half of `destroy_taps`'s guard (S4: the `tap-` plan_id prefix alone is a
 # naming convention a real TE scenario could coincidentally collide with;
 # this is immune to naming).
-_TAP_OP_NAMES = frozenset({"attach-gre-tunnel", "install-ovs-mirror", "verify-capture"})
+_TAP_OP_NAMES = frozenset({
+    "attach-gre-tunnel", "install-ovs-mirror", "verify-capture",
+    "install-span",  # SPAN on native switches (docs/design/native-switches.md §6)
+})
 
 
 def _is_tap_shaped_op_names(op_names: set[str]) -> bool:
@@ -297,6 +302,10 @@ class TapBindingSpec:
     selector: Optional[dict[str, Any]] = None
     sensors: list[str] = field(default_factory=list)
     mode: str = "fanout"
+    # A SPAN session on a native switch (docs/design/native-switches.md §6.1):
+    # `{switch, sources: [{port, dir, vlans?}]}`, normalized by
+    # `spans.parse_span`. The fourth addressing form.
+    span: Optional[dict[str, Any]] = None
 
 
 @dataclass
@@ -352,6 +361,8 @@ def binding_label(
         if isinstance(scope, str) and scope in TAP_SCOPES:
             direction = direction_for_scope(scope)
     suffix = f" [{direction}]" if direction else ""
+    if b.span is not None:
+        return f"{span_label(b.span)}{suffix}"
     if b.tap is not None:
         return f"{b.tap}{suffix}"
     if b.tap_point is not None:
@@ -363,7 +374,9 @@ def _binding_dedup_key(b: TapBindingSpec) -> tuple[str, str]:
     """The identity a duplicate-binding check dedupes on -- one binding per
     DISTINCT addressing target, regardless of which of the three addressing
     modes it used (mirrors `binding_label`'s precedence: `tap` >
-    `tap_point` > `selector`)."""
+    `tap_point` > `selector`; a `span` keys on its whole normalized mapping)."""
+    if b.span is not None:
+        return ("span", json.dumps(b.span, sort_keys=True))
     if b.tap is not None:
         return ("tap", b.tap)
     if b.tap_point is not None:
@@ -520,12 +533,19 @@ def parse_tap_plan(raw: dict[str, Any], *, require_sensors: bool = True) -> TapP
         tap = b.get("tap")
         tap_point = b.get("tap_point")
         selector_raw = b.get("selector")
-        addr_present = [x is not None for x in (tap, tap_point, selector_raw)]
+        span_raw = b.get("span")
+        addr_present = [x is not None for x in (tap, tap_point, selector_raw, span_raw)]
         if sum(addr_present) != 1:
             raise TapPlanError(
                 f"bindings[{i}]: exactly one of 'tap' / 'tap_point' / "
-                "'selector' is required", status=400,
+                "'selector' / 'span' is required", status=400,
             )
+        span: Optional[dict[str, Any]] = None
+        if span_raw is not None:
+            try:
+                span = parse_span(span_raw, f"bindings[{i}]")
+            except SpanError as e:
+                raise TapPlanError(str(e), status=400) from e
         if tap is not None and (not isinstance(tap, str) or not tap):
             raise TapPlanError(f"bindings[{i}]: 'tap' must be a non-empty string", status=400)
         if tap_point is not None and (not isinstance(tap_point, str) or not tap_point):
@@ -582,7 +602,7 @@ def parse_tap_plan(raw: dict[str, Any], *, require_sensors: bool = True) -> TapP
             or not sensors
             or not all(isinstance(s, str) and s for s in sensors)
         ):
-            label = tap or tap_point or "selector"
+            label = tap or tap_point or (span_label(span) if span else "selector")
             raise TapPlanError(
                 f"bindings[{i}] ({label!r}): 'sensors' must be a non-empty "
                 "list of sensor-id strings", status=400,
@@ -595,7 +615,7 @@ def parse_tap_plan(raw: dict[str, Any], *, require_sensors: bool = True) -> TapP
         bindings.append(
             TapBindingSpec(
                 tap=tap, tap_point=tap_point, selector=selector,
-                sensors=list(sensors), mode=mode,
+                sensors=list(sensors), mode=mode, span=span,
             )
         )
 
@@ -1068,7 +1088,7 @@ def _union_direction(a: Optional[str], b: Optional[str]) -> str:
     reused at every granularity that needs it (within one selector's several
     matched points, and across several bindings, `_resolve_bindings` below).
     `None` (nothing yet) loses to any real direction."""
-    return "both" if "both" in (a, b) else (b if a is None else a)
+    return union_direction(a, b)  # rx + tx = both (native-switches §6.2)
 
 
 def _resolve_binding_targets(
@@ -1261,6 +1281,8 @@ def _resolve_bindings(
     claims: list[tuple[TapBindingSpec, list[tuple[str, str, int]]]] = []
 
     for i, b in enumerate(spec.bindings):
+        if b.span is not None:
+            continue  # a SPAN session: `spans.resolve_sessions` (native-switches §6)
         target_directions, matched_points = _resolve_binding_targets(
             b, ifaces, points, twin, index, warnings=warnings,
         )
@@ -1562,6 +1584,10 @@ class TapPlanResolution:
     # callers (`axrange.cli.main`) so every renderer shows a binding's
     # resolved direction without re-deriving it (LES-037).
     binding_directions: dict[int, str] = field(default_factory=dict)
+    # SPAN sessions on native switches (docs/design/native-switches.md §6):
+    # span bindings plus every interface resolved onto a switch-hosted network
+    # (D8). `iface_new_sensors` above then holds SDN-hosted legs only.
+    span_sessions: list[Any] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -1714,6 +1740,21 @@ def resolve_tap_plan_bindings(
         # way every other resolve-time binding problem does.
         raise TapPlanError(str(e), status=400) from e
 
+    # SPAN (native-switches §6): span bindings, and every interface on a
+    # switch-hosted network (D8), become OVS mirror sessions; the rest stays
+    # on the `tc` path unchanged.
+    from axrange.o2control.spans import resolve_sessions
+
+    try:
+        iface_new_sensors, span_sessions = resolve_sessions(
+            [(i, b) for i, b in enumerate(spec.bindings) if b.span is not None],
+            iface_new_sensors, twin,
+            validate_sensor=lambda b, sid: _check_span_sensor(b, sid, sensor_by_id),
+            binding_directions=binding_directions,
+        )
+    except SpanError as e:
+        raise TapPlanError(str(e), status=400) from e
+
     capacity_warning = _capacity_warning(iface_new_sensors)
     if capacity_warning is not None:
         warnings.append(capacity_warning)
@@ -1722,7 +1763,21 @@ def resolve_tap_plan_bindings(
         target_status=te.status.value, inv=inv, sensor_by_id=sensor_by_id,
         iface_new_sensors=iface_new_sensors, warnings=warnings,
         points=points, twin=twin, binding_directions=binding_directions,
+        span_sessions=span_sessions,
     )
+
+
+def _check_span_sensor(b: TapBindingSpec, sid: str, sensor_by_id: dict[str, Any]) -> None:
+    """The same sensor checks `_resolve_bindings` makes, for a span binding."""
+    sensor = sensor_by_id.get(sid)
+    if sensor is None:
+        raise SpanError(
+            f"binding {binding_label(b)!r}: unknown sensor {sid!r} -- not in the "
+            "standing O2 inventory (axrange o2 status)")
+    if not sensor.transport_ip:
+        raise SpanError(
+            f"binding {binding_label(b)!r}: sensor {sid!r} has no transport IP yet "
+            "(is the O2 surface fully up?)")
 
 
 def _needed_pairs(
@@ -2037,6 +2092,8 @@ def _compose_ops(
     *,
     prior_hosts: Optional[set[str]] = None,
     warnings: Optional[list[str]] = None,
+    span_sessions: Optional[list[Any]] = None,
+    prior_spans: Optional[list[dict[str, Any]]] = None,
 ) -> Plan:
     """Compose the OP-MIR playout for `iface_new_sensors` (this apply's
     resolved bindings). `prior_hosts` (M1/S2) widens the affected-host set
@@ -2421,6 +2478,43 @@ def _compose_ops(
             if mop is not None:
                 plan.add_edge(mop.op_id, vop.op_id, "ordering")
 
+    # 4. SPAN sessions on native switches (docs/design/native-switches.md §6):
+    #    a keyed gretap per (switch, sensor) and one OVS mirror per session,
+    #    plus a removing install-span for every session a prior apply made
+    #    that this one no longer wants. Nothing here for a twin without one.
+    if span_sessions or prior_spans:
+        from axrange.o2control.spans import compose_span_ops
+
+        def _span_verify_inputs(sess: Any, gre: str) -> Optional[dict[str, Any]]:
+            # The first single-homed VM on a source port injects the
+            # sentinel on its own segment (the mirror sees what it sends);
+            # a multi-homed one is a last resort, as for `tc` taps.
+            cands = sorted(sess.injectors, key=lambda hn: (_is_route_ambiguous(inv, hn[0]), hn))
+            for host, net_id in cands:
+                vmid = inv.host_vmid.get(host)
+                if vmid is None or host not in inv.host_os_family:
+                    continue
+                vin: dict[str, Any] = {
+                    "vmid": vmid, "injector_host_id": host, "net_id": net_id,
+                    "sensor_id": sess.sensor, "bridge_name": sess.bridge, "gre_port": gre,
+                    "sensor_iface": "gre-cap",
+                    "os_family": inv.host_os_family.get(host, "linux"),
+                }
+                gw = _gateway_ip_for_net(inv, net_id)
+                if gw:
+                    vin["gateway_ip"] = gw
+                svmid = _sensor_vmid(store, sensor_by_id[sess.sensor])
+                if svmid is not None:
+                    vin["sensor_vmid"] = svmid
+                return vin
+            return None
+
+        compose_span_ops(
+            plan, plan_id, list(span_sessions or []), sensor_by_id, target_node,
+            make_op=_make_mir_op, gre_port_for=gre_port_for_bridge_sensor,
+            prior_spans=prior_spans, warnings=warnings, verify_inputs=_span_verify_inputs,
+        )
+
     plan.freeze()
     return plan
 
@@ -2439,6 +2533,7 @@ def compose_tap_ops(
     return _compose_ops(
         plan_id, resolution.inv, resolution.sensor_by_id,
         resolution.iface_new_sensors, store, target_node,
+        span_sessions=resolution.span_sessions,
     )
 
 
@@ -2712,9 +2807,19 @@ def apply_tap_plan(
         # would otherwise sit forever as a stale `pending`/`failed` row for
         # this deploy_id with no bookkeeping ever retiring it.
         prior_verify_op_ids: set[str] = set()
+        prior_spans: list[dict[str, Any]] = []
         if existing is not None:
             for op in store.ops_for_deploy(existing.deploy_id):
                 op_scope = _json_obj(op.scope_json)
+                if op.op_name == "install-span":
+                    op_inp = _json_obj(op.inputs_resolved_json)
+                    if not op_inp.get("remove"):
+                        prior_spans.append({
+                            "switch": op_scope.get("switch"), "sensor": op_scope.get("sensor"),
+                            "mirror_key": op_inp.get("mirror_key"),
+                            "bridge_name": op_inp.get("bridge_name"),
+                            "gre_port": op_inp.get("gre_port"),
+                        })
                 if op.op_name == "install-ovs-mirror":
                     h = op_scope.get("host")
                     if h:
@@ -2733,6 +2838,7 @@ def apply_tap_plan(
         plan = _compose_ops(
             plan_id, inv, sensor_by_id, iface_new_sensors, store, cfg.default_node,
             prior_hosts=prior_hosts, warnings=warnings,
+            span_sessions=resolution.span_sessions, prior_spans=prior_spans,
         )
         needed_pairs = _needed_pairs(iface_new_sensors)
         dropped_pairs = prior_pairs - needed_pairs
@@ -3031,6 +3137,11 @@ def destroy_taps(
                 )
             except Exception as e:  # noqa: BLE001
                 log(f"  ! tap-plan de-scope pass failed: {e}")
+            try:
+                _remove_span_mirrors(store, did, d.plan_id, adapter=real_adapter,
+                                     default_node=cfg.default_node, log=log)
+            except Exception as e:  # noqa: BLE001
+                log(f"  ! tap-plan span de-scope failed: {e}")
 
             try:
                 result = destroy_deploy(
@@ -3058,6 +3169,39 @@ def destroy_taps(
 # -- NOT by this module's own destroy path (a tap-plan destroying itself has
 # nothing to cascade to).
 # ---------------------------------------------------------------------------
+def _remove_span_mirrors(
+    store: Any, deploy_id: str, plan_id: str, *, adapter: Any, default_node: str,
+    log: Callable[[str], None],
+) -> None:
+    """Remove every SPAN mirror (and its gretap's switch port) a tap-plan
+    installed, before `destroy_deploy` deletes the gretap netdevs (design
+    §6). Best-effort per mirror, like the `tc` de-scope beside it; a twin
+    destroy removes the whole switch bridge anyway."""
+    from axrange.planner.cluster import ClusterContext
+    from axrange.planner.executor import ExecutionContext
+
+    ctx = ExecutionContext(
+        plan_id=plan_id, deploy_id=deploy_id, cluster=ClusterContext.single_node(default_node),
+        placement={}, timeout_s=None, tier="te",
+    )
+    for op in store.ops_for_deploy(deploy_id):
+        if op.op_name != "install-span":
+            continue
+        inp = _json_obj(op.inputs_resolved_json)
+        if inp.get("remove"):
+            continue
+        scope = _json_obj(op.scope_json)
+        rop = _make_mir_op(
+            plan_id, "install-span", {**scope, "op": "remove"},
+            {**inp, "remove": True, "delete_gre": True, "src_ports": [], "dst_ports": []},
+        )
+        try:
+            adapter.run(rop, rop.inputs_resolved, ctx)
+            log(f"  - span mirror {inp.get('mirror_key')}: removed")
+        except Exception as e:  # noqa: BLE001
+            log(f"  ! span mirror {inp.get('mirror_key')}: {e}")
+
+
 def cascade_destroy_for_te(
     *,
     db_path: str,
