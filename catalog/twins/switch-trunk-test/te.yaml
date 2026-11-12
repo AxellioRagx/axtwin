@@ -1,5 +1,5 @@
 # switch-trunk-test -- two native switches joined by a trunk
-# (docs/design/native-switches.md §11; the switch<->switch patch-link and
+# (docs/design/native-switches.md §11; the switch<->switch link and
 # trunk-port fixture beside switch-test).
 #
 #   gw --eth0/Te1 (office)--- core ---Po1 trunk [office, servers]--- access-sw
@@ -9,8 +9,8 @@
 #
 # Both segments are carried by native switches, so the twin has no SDN zone
 # at all: office and servers are VLANs 10 and 20 on the two bridges, and the
-# core<->access trunk is one OVS patch pair carrying both. gw reaches every
-# host across that patch, so a working ping proves the trunk forwards both
+# core<->access trunk is one veth pair carrying both. gw reaches every
+# host across it, so a working ping proves the trunk forwards both
 # VLANs. Phase 2 puts a SPAN session on access-sw's Po1 (a trunk port).
 twin_config:
   id: switch-trunk-test

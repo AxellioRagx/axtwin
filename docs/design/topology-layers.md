@@ -115,7 +115,7 @@ rule it already has (§9 D3).
 | thing | deploys as |
 |---|---|
 | segment | one SDN vnet, as today, unless a native switch carries it: then it is a VLAN on that switch's OVS bridge (`native-switches.md` §2.3) |
-| `switch` without `image`, platform declares `native-switch` | a native switch: one adapter-owned OVS bridge, its links as access / trunk / patch ports (`native-switches.md` §2, §4) |
+| `switch` without `image`, platform declares `native-switch` | a native switch: one adapter-owned OVS bridge, its links as access and trunk ports, switch links as veth pairs (`native-switches.md` §2, §4) |
 | `switch` without `image`, otherwise | nothing (logical): the vnets its links carry already exist; the switch is topology the operator can see and edit |
 | `switch` with `image` | a VM with one bridge-port NIC per segment its links carry (what `scripts/serve-l2switch.sh` does for corp-twin today, generated from `links[]` instead of a hand-kept port table) |
 | trunk / access link | nothing of its own; it is the reason a switch VM has a NIC on a segment |

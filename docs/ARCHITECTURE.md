@@ -213,7 +213,7 @@ symmetric IRB; a tenant VRF has no internet egress yet.
 
 A `kind: switch` with no image is a **native switch** on a platform that
 declares `native-switch`: one adapter-owned OVS bridge per switch, VM NICs as
-tagged access or trunk ports, patch ports between switches, single-node in v1.
+tagged access or trunk ports, veth pairs between switches, single-node in v1.
 The segments it carries leave SDN and become VLANs on its bridge
 (`docs/design/native-switches.md`; Proxmox, live-verified on dev45 2026-11-12,
 SPAN sessions included).

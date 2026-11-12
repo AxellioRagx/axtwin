@@ -108,7 +108,7 @@ The group name itself is still refused as a link end.
 |---|---|
 | `access`, far end a VM (host or router) | the VM's NIC for that segment, plugged into the bridge with `tag=<vlan>` |
 | `trunk`, far end a VM | the VM's NIC, `trunks=<vlans>`, with `tag=<native>` and `vlan_mode=native-untagged` when `native` is set. The guest has to handle the tags. In v1, NSW-060 refuses a VM-end trunk that carries anything beyond its native VLAN; see §12 S3 |
-| `access` or `trunk`, both ends native switches | an OVS patch-port pair, one port on each bridge, each with the same tag or trunk set |
+| `access` or `trunk`, both ends native switches | a kernel veth pair, one end a port on each bridge, each with the same tag or trunk set (an OVS patch pair until R6, 2026-11-12) |
 | far end a switch with an image | a VM port like any other: that switch is a VM |
 | far end a logical switch | refused (NSW-050): there is nothing deployed to plug into |
 
@@ -117,8 +117,8 @@ The group name itself is still refused as a link end.
 | `state` | effect |
 |---|---|
 | `up` (default) | forwarding |
-| `down` | the port is admin-down. On a VM port this is the NIC's `link_down=1`, written by `attach-vm-to-switch-port` itself: persistent in the VM config, and the guest sees carrier loss. On a patch port it is the OpenFlow port flag `down` on both ends, asserted by `link-switches` on every run |
-| `blocked` | the port exists but does not forward: the OpenFlow flags `no-receive,no-forward,no-flood`. On a patch port `link-switches` asserts them; on a VM port `set-port-state` does, after `start-vm` (the tap exists only once the VM runs). With `stp: rstp` (Phase 3), STP decides and the authored value is only advisory |
+| `down` | the port is admin-down. On a VM port this is the NIC's `link_down=1`, written by `attach-vm-to-switch-port` itself: persistent in the VM config, and the guest sees carrier loss. On a switch-link port it is the OpenFlow port flag `down` on both ends, asserted by `link-switches` on every run |
+| `blocked` | the port exists but does not forward: the OpenFlow flags `no-receive,no-forward,no-flood`. On a switch-link port `link-switches` asserts them; on a VM port `set-port-state` does, after `start-vm` (the tap exists only once the VM runs). With `stp: rstp` (Phase 3), STP decides and the authored value is only advisory |
 
 The OpenFlow flags do not survive a port being re-created: Proxmox removes and
 re-adds a VM's tap when the VM stops and starts (a guest reboot keeps it). A
@@ -182,7 +182,7 @@ of another twin, are both checked live in Phase 1 (§12 R1).
 | resource | producer | shape | length | tier |
 |---|---|---|---|---|
 | switch bridge | `switch_bridge_for(plan_id, switch)` | `tesw_<8hex>` | 13 | `te` |
-| patch port | `patch_port_for(plan_id, link_key, end)` | `tepp_<8hex>` | 13 | `te` |
+| switch-link port (a veth end) | `patch_port_for(plan_id, link_key, end)` | `tepp_<8hex>` | 13 | `te` |
 | span mirror (OVSDB name, not an ifname) | `span_mirror_for(plan_id, binding_key)` | `tapsm_<8hex>` | 14 | `tap` |
 | span gretap | existing `gre_port_for_bridge_sensor(bridge, sensor)` | `tapg_<6hex>` | 11 | `tap` |
 
@@ -205,7 +205,7 @@ unchanged. A `te` destroy:
 2. removes each `tesw_*` bridge recorded by the deploy's `create-switch` ops,
    only when it is exactly the name `switch_bridge_for(plan_id, switch)`
    produces (anything else is a guard violation); it clears the bridge's
-   mirrors, then `del-br` takes the patch ports and any leftover VM taps;
+   mirrors and deletes its link veths, then `del-br` takes any leftover VM taps;
 3. confirms that `ovs-vsctl list-br` no longer shows the bridge. A survivor is
    a teardown failure, not a warning.
 
@@ -315,7 +315,7 @@ does not change:
 | scope | compiles to |
 |---|---|
 | `port` (one VM leg) | its switch port, `both` |
-| `segment` | every VM port on the segment, across all its carriers, `rx`. Inter-switch patch ports are excluded, so each frame is mirrored once, where it enters the fabric. VM ports are access ports in v1 (NSW-060), so no `select_vlan` is needed |
+| `segment` | every VM port on the segment, across all its carriers, `rx`. Inter-switch link ports are excluded, so each frame is mirrored once, where it enters the fabric. VM ports are access ports in v1 (NSW-060), so no `select_vlan` is needed |
 | `perimeter` | every router port on the segment, `both` |
 | `boundary` | the joining router's port on each of the two segments, `rx` |
 
@@ -479,7 +479,10 @@ Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
 | tagged SPAN output (R3) | 98-byte frames arrive as 110-byte keyed-GRE payloads (+4 for the 802.1Q tag); the sink counts them |
 | `P1 rx` sees only ws01's transmit | re-applied in place (same mirror, src = ws01's tap only): ws01→fs 5 requests, ws01's 5 replies to fs, ws01's ARP; nothing from ws02, nothing addressed to ws01 |
 | destroy with a span | cascade "span mirror …: removed", gretap gone with it, switch removed; node: no bridges, mirrors, gretaps |
-| span on a trunk (patch) port, switch-trunk-test Po1 `both` | **captured nothing**: mirror `tx_packets=0` while ws01↔fs crossed Po1 (3/3 pings). `ofproto/trace` of a real gw→fs frame: `push_vlan(20),2,1,pop_vlan,5`, never the gretap (dp port 8). See R6 |
+| span on a trunk port while links were OVS patch pairs, switch-trunk-test Po1 `both` | **captured nothing**: mirror `tx_packets=0` while ws01↔fs crossed Po1 (3/3 pings). `ofproto/trace` of a real gw→fs frame: `push_vlan(20),2,1,pop_vlan,5`, never the gretap (dp port 8). See R6 |
+| span on trunk Po1 `both`, links as veth pairs (`switch-trunk-test-7efc5447`) | mirror `tx_packets=28`; ws01→fs crosses Po1 twice and every frame is mirrored: `vlan 10` and `vlan 20`, requests and replies, 5 each |
+| `tx` on P3 (file-server) for frames from the other switch | exactly the 5 echo requests that reached fs from core; its replies (P3 `rx`) not mirrored |
+| destroy, veth links | span mirror removed, both switches removed; node: no bridges, `tepp_` veths, mirrors or gretaps |
 
 ## 12. Risks and the items not signed off
 
@@ -504,7 +507,7 @@ Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
   a redeploy / tap re-apply re-asserts them; the post-start-hook re-assert
   (§2.4, §6.3) is not built.
 
-- **R6, OVS does not mirror on patch ports (found live, 2026-11-12).** A frame
+- **R6, OVS does not mirror on patch ports (found live, resolved 2026-11-12).** A frame
   crossing an OVS patch port is translated into the peer bridge within the
   same datapath flow, and the mirror selection does not carry across: a mirror
   selecting a patch port never fires on real traffic (only on a synthetic
@@ -512,9 +515,10 @@ Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
   `tx` / `both` selection on a VM port misses frames that arrived from another
   switch (inferred from the trace, not measured). Single-switch spans and every
   `rx` selection on a VM port are unaffected (the VM's tap is the real ingress).
-  The fix is a **veth pair** in place of the patch pair (D2), so each bridge
-  sees a real ingress port; that changes a ratified decision and waits for the
-  user.
+  **Resolved** (the user's go, 2026-11-12, changing D2's "OVS patch-port
+  pair"): a switch link is a kernel **veth pair**, one end a port on each
+  bridge, so each bridge sees a real ingress port; teardown deletes the veths
+  before `del-br`. Live readings in §11.2.
 
 **Not covered by D1–D12; decided by the user on 2026-11-12** (S1: option (a);
 S2 and S3 as proposed below):

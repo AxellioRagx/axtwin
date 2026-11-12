@@ -288,7 +288,7 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
     external_ids axrange-tier=te / axrange-deploy / axrange-switch) on the
     switch's placed node. Check-then-act: an existing bridge with this name and
     deploy id is adopted and its attributes re-asserted, including the OpenFlow
-    flags of its patch ports (set-port-state).
+    flags of its link ports (link-switches).
   inputs:
     switch_id: node-id:str              # the bridge name is derived by the adapter
                                         # (tesw_<8hex>, naming.switch_bridge_for)
@@ -315,7 +315,8 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
   name: link-switches
   kind: action
   description: |
-    Wire two native switches: an OVS patch-port pair (tepp_<8hex> each end, named
+    Wire two native switches: a kernel veth pair, one end a port on each bridge
+    (tepp_<8hex> each end, named
     by the adapter), each port carrying the link's VLANs -- access: tag=<vlan>;
     trunk: trunks=<vlans>, plus tag=<native> vlan_mode=native-untagged when native
     is set -- and asserts the link's state as OpenFlow port flags on both ends
@@ -355,7 +356,7 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
     tap exists only while the VM runs, so this follows start-vm; a VM stop/start
     re-creates the tap without the flags (re-asserted by a redeploy in phase 1,
     by the post-start hook from phase 2). `down` on a VM port is not this op:
-    attach-vm-to-switch-port writes link_down=1. A patch port's state is
+    attach-vm-to-switch-port writes link_down=1. A switch link's state is
     link-switches'.
   inputs:
     switch_id: node-id:str

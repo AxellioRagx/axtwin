@@ -50,7 +50,7 @@ Every `infra`-class op in `docs/OP_CATALOG.md` maps to one adapter capability on
 | `attach-gre-tunnel` (OP-MIR-010) | create keyed gretap netdev (`ip link … type gretap`) + assert a deep-FIFO qdisc on it | SSH |
 | `install-ovs-mirror` (OP-MIR-020) | write + register post-start/pre-stop hook (`tc` mirror rules) | SSH |
 | `create-switch` (OP-NET-060) | create/adopt a native switch's OVS bridge (`ovs-vsctl`, outside SDN) | SSH |
-| `link-switches` (OP-NET-070) | OVS patch-port pair with VLAN tag/trunks | SSH |
+| `link-switches` (OP-NET-070) | kernel veth pair, one end on each bridge, with VLAN tag/trunks (not an OVS patch pair: OVS does not mirror across one, design R6) | SSH |
 | `set-port-state` (OP-NET-080) | OpenFlow port flags blocking a running VM's tap | SSH |
 | `attach-vm-to-switch-port` (OP-HOST-110) | set VM NIC → native-switch bridge with `tag`, `firewall=0`, and `link_down=1` for a down port | REST |
 | `install-span` (OP-MIR-060) | OVS mirror on a native switch's bridge → keyed gretap; selection mirrored into the post-start hook | SSH |
@@ -115,7 +115,7 @@ All v1 adapter ops use `cleanup_strategy: redo` — none of the slice ops are `e
 | source gretap netdev | `gre_port_for_bridge` / `gre_port_for_bridge_sensor` | `tapg_<6hex>` (≤15 chars) | `tap` |
 | per-tap OVS mirror | `mirror_name_for_vmid` | `tapm-<vmid>` | `tap` |
 | native-switch bridge | `switch_bridge_for` | `tesw_<8hex>` (13 chars) | `te` |
-| native-switch patch port | `patch_port_for` | `tepp_<8hex>` (13 chars) | `te` |
+| native-switch link port (veth end) | `patch_port_for` | `tepp_<8hex>` (13 chars) | `te` |
 | span mirror (OVSDB name) | `span_mirror_for` | `tapsm_<8hex>` | `tap` |
 | standing O2 vnet/bridge/VM | `o2_vnet_id_for_component` / `o2_bridge_name_for_component` / `o2_vm_name_for_component` (called via `tier="o2"`) | `o2v<5hex>` / `o2br_<6hex>` / `o2-<slug>` — **now called by `axrange/o2control/`'s standing-surface deploy (A1, BUILT 2026-07-11, `docs/design/05-o2-surface.md`)** | `o2` |
 | golden template VM name | `img_vm_name_for_image` (also used by `imagebuild/builder.py`) | `img-<image-slug>` (≤63 chars), e.g. `img-debian-12-cloud` | `img` |
