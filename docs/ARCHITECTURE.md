@@ -211,6 +211,12 @@ SSH, discovered by MAC). A VyOS-only `fabric:` block adds IS-IS or OSPF,
 iBGP with route reflection, eBGP at borders and BGP-EVPN/VXLAN overlay with
 symmetric IRB; a tenant VRF has no internet egress yet.
 
+A `kind: switch` with no image is a **native switch** on a platform that
+declares `native-switch`: one adapter-owned OVS bridge per switch, VM NICs as
+tagged access or trunk ports, patch ports between switches, single-node in v1.
+The segments it carries leave SDN and become VLANs on its bridge
+(`docs/design/native-switches.md`; being built, 2026-11-12).
+
 Capture is a SPAN session: a per-tap `tc` mirror on the VM's own tap interface
 sends frames into a keyed gretap over a dedicated transport vnet to the sensor,
 which decaps by flow. It works identically in either zone type because it
@@ -249,6 +255,8 @@ captured once. Tap points are derived from the twin's published topology at
 bind time; the twin substrate is tap-agnostic and the tap plan is the sole
 authority on what is captured. A tap plan binds `tap | tap_point | selector`
 to one or more sensors (fan-out duplicates frames on the transport wire;
+a `span` binding is a SPAN session on a native switch's ports, an OVS mirror
+into the same keyed gretap, `docs/design/native-switches.md` §6;
 `mode: exclusive` claims a point for one sensor). Apply is idempotent with a
 de-scope pass; a plan may name a twin by scenario or config name and resolves
 to the newest live deploy.

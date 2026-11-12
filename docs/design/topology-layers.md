@@ -58,7 +58,9 @@ is offered conversion to `kind: switch` (§9 D2); nothing converts on its own.
 
 A switch may carry `image`, `requires` and `resources` like any node. With an
 image it deploys as a VM (corp-twin's bridge VMs are this); without one it
-deploys as nothing but the vnets its links carry (§2.5). A switch's own
+deploys as a **native switch** when the platform declares `native-switch`, and
+as nothing but the vnets its links carry otherwise (§2.5;
+`docs/design/native-switches.md`, signed off 2026-11-12). A switch's own
 `nets[]` legs are L2 ports unless given an address: a management SVI (the
 MS120's) or an L3 switch's VRRP leg (the 9k pair's) is addressed, and NET-090
 no longer refuses it (track 5a's eye check on corp-tree found the refusal).
@@ -112,11 +114,12 @@ rule it already has (§9 D3).
 
 | thing | deploys as |
 |---|---|
-| segment | one SDN vnet, as today |
-| `switch` without `image` | nothing: the vnets its links carry already exist; the switch is topology the operator can see and edit |
+| segment | one SDN vnet, as today, unless a native switch carries it: then it is a VLAN on that switch's OVS bridge (`native-switches.md` §2.3) |
+| `switch` without `image`, platform declares `native-switch` | a native switch: one adapter-owned OVS bridge, its links as access / trunk / patch ports (`native-switches.md` §2, §4) |
+| `switch` without `image`, otherwise | nothing (logical): the vnets its links carry already exist; the switch is topology the operator can see and edit |
 | `switch` with `image` | a VM with one bridge-port NIC per segment its links carry (what `scripts/serve-l2switch.sh` does for corp-twin today, generated from `links[]` instead of a hand-kept port table) |
 | trunk / access link | nothing of its own; it is the reason a switch VM has a NIC on a segment |
-| link `state: down` or `blocked` | nothing; the port is drawn dashed and the segments it alone carries become orphans the validator warns about |
+| link `state: down` or `blocked` | on a native switch, the port is admin-down or excluded from forwarding (`native-switches.md` §2.4); otherwise nothing: the port is drawn dashed and the segments it alone carries become orphans the validator warns about |
 | `router` | as today |
 
 The validator (§10.2) refuses a trunk naming an unknown segment, a port used
@@ -405,8 +408,10 @@ vantage when the vantage names a point the twin has (§9 D8). Taps never
 duplicate with a subtree.
 
 A tap on a link is a `port` selector on one end of the link in the tap plan
-(`scope: port`); a tap on a segment is `scope: segment`, as today. No new
-tap-plan scope is needed.
+(`scope: port`); a tap on a segment is `scope: segment`, as today. A tap on a
+native switch's port is a `span` binding, a SPAN session on that switch
+(`native-switches.md` §6, 2026-11-12), and its chip rides the switch; the
+scopes are not extended.
 
 Where the chip sits (2026-11-11, §7.1): a `scope: segment` chip rides the
 segment's switch, real or implied; a `scope: boundary` chip is ONE chip on the
@@ -419,7 +424,7 @@ the host's switch.
 | # | the brief says | the code or contract says | resolution in this design |
 |---|---|---|---|
 | D1 | `kind: switch` in the IR is new scope | The Scenario IR already has it: `docs/contracts/IR_SCHEMA.md:180` (`kind: host \| router \| switch`), `:254` (a switch bridges `nets: [<id>, …]`, a string list); the validator admits it (`VALIDATOR.md:166` STR-080, `:262` CAP-060, `:295` NET-090). What admits only `host \| router` is the **twin config**, the document the cast writes and the canvas edits: `engine/src/axrange/twinconfig/schema.py:240`, and its expander sends every bridge to a `kind: host` device VM (`twinconfig/expand.py:213-217`). The topology DTO already passes any kind through (`api/service.py:853`). | The new scope is `kind: switch` in the twin config and its expansion to the IR, plus `links[]`, `source` and `members[]` in both. The IR's string-list `nets:` form for a switch is superseded by `links[]` (§10.1). |
-| D2 | an `l2-switch` host today becomes a `switch`; a switch deploys as vnets only unless given an image | corp-twin's twelve switch-class nodes are `kind: host, role: l2-switch` **with** an image and `l2: true` legs (`catalog/twins/corp-twin/te.yaml:379-397`), running `scripts/serve-l2switch.sh` from a hand-kept port table whose leg order is load-bearing (`te.yaml:367-373`); its trunks are segments (`sfp25`, `t-ms120-*`, `te.yaml:132`). | Conversion is offered, never automatic: a converted switch keeps its image and so keeps deploying as a VM; its `l2: true` legs stay valid (a switch port with no address) and `links[]` is added beside them. corp-twin deploys byte-identically until the operator converts it. |
+| D2 | an `l2-switch` host today becomes a `switch`; a switch deploys as vnets only unless given an image | corp-twin's twelve switch-class nodes are `kind: host, role: l2-switch` **with** an image and `l2: true` legs (`catalog/twins/corp-twin/te.yaml:379-397`), running `scripts/serve-l2switch.sh` from a hand-kept port table whose leg order is load-bearing (`te.yaml:367-373`); its trunks are segments (`sfp25`, `t-ms120-*`, `te.yaml:132`). | Conversion is offered, never automatic: a converted switch keeps its image and so keeps deploying as a VM; its `l2: true` legs stay valid (a switch port with no address) and `links[]` is added beside them. corp-twin deploys byte-identically until the operator converts it. **2026-11-12:** the conversion target is now a native switch, replacing the bridge VM and its isolated partner segments with `links[]` (`native-switches.md`, D11; phase 3). |
 | D3 | the validator refuses two segments with one CIDR | The twin config allows exactly that for an `isolated: true` access segment behind a bridge VM and its anchor (`twinconfig/schema.py:134-143`; the NET-010 exemption, `VALIDATOR.md:287`), and corp-twin uses it for every VLAN (`te.yaml:115` and `:152`, `mx-vlan20` / `vlan20`, both 10.180.16.0/20). The canvas keys hosts by CIDR, which is why one of the pair shows no icons (`SESSION_STATE.md`, issues). | The rule is "two segments with one CIDR unless one is the other's `isolated` extension", which NET-010 already is; a duplicate's re-allocated CIDR (§6.2) is refused by the same rule. The canvas keys segments by name. |
 | D4 | the assertions seam accepts host roles and segment merges | True: `add` of `conduit \| host \| segment` (`discovery/src/aximprint/operator_assertions.py:71`), `override` of `image \| resources \| role \| segment` on a host and `name \| zone_type` on a segment (`:94`), `suppress` of a host; keys are entity keys and CIDRs (`:112`). The schema is a published contract (`discovery/src/aximprint/schemas/axr-assertions-1.schema.json`) with a byte-identical copy in the engine (`engine/src/axrange/api/schemas/axr-assertions-1.schema.json`, checked by `api/console_files.py`). | The device, link, member, tap, confirm and doubt records of §3.2 are `axr-assertions/2`: a seam version bump, a parser change, the engine's copy, and the console's promote path. §11 decision 2. |
 | D5 | `source` on nodes, links, segments, taps | Provenance today is a per-field **side-car** (`<id>.provenance.json`, written by `discovery/src/aximprint/synth/compiler.py:1631-1643`, one record per `twin_config.nodes[i].<field>`), not a field of the node; the config itself says nothing about where a value came from. | Both: the side-car stays the per-field record, `source` is its one-word summary in the config (§3.1). A cast writes both; a hand edit writes `source` only. |
@@ -431,7 +436,7 @@ the host's switch.
 | D11 | the canvas edits attachments, never wires interface to interface | `SPEC.md:12-17` ("a twin has no link objects … never wire interface to interface") and the rendering rules (`SPEC.md:359-363`, "there are no link objects"). | Superseded. The attach gesture gains the device-to-device form (§6.4); the drop-on-segment gesture stays for hosts. The SPEC points here. |
 | D12 | the cast of corp-twin has twelve switch nodes with no attachments | corp-twin has no cast; its switches carry `nets[]` with `l2: true` entries (`te.yaml:385-397`), already recorded in `SPEC.md:349-356`. | Premise correction only; the design is unchanged by it. |
 | D13 | schema version bump in `IR_SCHEMA.md` and `VALIDATOR.md` | `VALIDATOR.md:159` still states STR-020's set as `{1, 2}` while the code recognises `{1, 2, 3}` (`engine/src/axrange/validator/checks/structural.py:59-61`) and `IR_SCHEMA.md:90-105` records `3`. Both specs say a change "adds a CHANGELOG entry" (`IR_SCHEMA.md:5`, `VALIDATOR.md:5`), which root `CLAUDE.md` rule 3 forbids. | The draft diff (§10) bumps to `4`, corrects the STR-020 row, and names this document as the record in place of a changelog entry. |
-| D14 | a `down` or `blocked` link deploys nothing | corp-twin deploys `sfp26` as a segment and lets kernel STP in the bridge VM block it; `P17` is admin-down inside the VM (`te.yaml:367-373`). | Equivalent only for an imageless switch. A switch with an image keeps its script's behaviour; the generated port table marks the port down or blocked. |
+| D14 | a `down` or `blocked` link deploys nothing | corp-twin deploys `sfp26` as a segment and lets kernel STP in the bridge VM block it; `P17` is admin-down inside the VM (`te.yaml:367-373`). | Equivalent only for an imageless switch. A switch with an image keeps its script's behaviour; the generated port table marks the port down or blocked. **2026-11-12:** on a native switch `down` and `blocked` act on the port (`native-switches.md` §2.4); "deploys nothing" remains only for a logical switch. |
 | D15 | (2026-11-11, user) segments were drawn as "pills" holding their hosts | `canvas/tree.ts` placed every segment's hosts in a pill box; on simple twins (switch-test) `access-sw` sat above an "office" box, a "servers" box hung off `gw`, and tap chips sat on both | **Decided 2026-11-11:** segments stay in the model and are drawn as switches (§7.1 rules 1–4): a real carrier stands for its segments, a switch-less segment is an implied switch (`vsw:<segment>`, presentation only), a `/30` stays a router–router line. Folding is per switch (§7.6), taps ride switches and a boundary tap the boundary router (§8), plane epoch 7 (§7.8). UI only: no model, schema, validator, engine, deploy-mapping or contract change. |
 
 Not a delta: the uplink marker is the segment-level `egress: true`
