@@ -8,7 +8,9 @@ switches) is built on `wip/design-platforms-canvas`, which the user chose to
 continue on rather than open a second `wip/*` branch; its contract edits (§10)
 landed with its code (`docs/contracts/README.md`). Phase 2 (SPAN on native
 switches, the canvas editor) is built and live-verified on dev45 (§11.2).
-Phase 3 waits for the user.
+R5 and Phase 3 (RSTP, the libvirt adapter) are built on the user's go,
+2026-11-12; Phase 3's cross-node switches and the corp-twin conversion offer
+are stopped for decisions (§12).
 
 **Loop step:** **deploy**, plus the **capture gate**. A switch drawn on the
 canvas becomes a switch on the node, and a SPAN session on its port feeds the
@@ -62,8 +64,12 @@ corp-twin's bridge VMs are `kind: host` and are not touched (D11).
 `stp: rstp` is an optional field on a `kind: switch` node, in the twin config
 and in the IR. It is absent by default, which means STP is off. It is admitted on
 any switch but takes effect only on a native one; on a VM or logical switch it
-warns (NSW-070). It is **Phase 3**: Phase 1 parses it and refuses `rstp` on a
-native switch with "RSTP is phase 3" (NSW-070, error until then).
+warns (NSW-070). On a native switch (Phase 3) `create-switch` sets the
+bridge's `rstp_enable=true`; VM ports are edge ports by OVS's own
+auto-edge detection and forward within seconds, switch links run the
+protocol. A loop of native switches over `up` links must run RSTP on every
+switch in it (NSW-090): without it the second link would be a broadcast storm
+on the node.
 
 ### 2.3 Segment hosting (D1)
 
@@ -118,14 +124,20 @@ The group name itself is still refused as a link end.
 |---|---|
 | `up` (default) | forwarding |
 | `down` | the port is admin-down. On a VM port this is the NIC's `link_down=1`, written by `attach-vm-to-switch-port` itself: persistent in the VM config, and the guest sees carrier loss. On a switch-link port it is the OpenFlow port flag `down` on both ends, asserted by `link-switches` on every run |
-| `blocked` | the port exists but does not forward: the OpenFlow flags `no-receive,no-forward,no-flood`. On a switch-link port `link-switches` asserts them; on a VM port `set-port-state` does, after `start-vm` (the tap exists only once the VM runs). With `stp: rstp` (Phase 3), STP decides and the authored value is only advisory |
+| `blocked` | the port exists but does not forward: the OpenFlow flags `no-receive,no-forward,no-flood`. On a switch-link port `link-switches` asserts them; on a VM port `set-port-state` does, after `start-vm` (the tap exists only once the VM runs). With `stp: rstp` on both ends of a switch link (or on a VM port's switch), STP decides and the authored value is advisory: no flags are set and no `set-port-state` is emitted |
 
 The OpenFlow flags do not survive a port being re-created: Proxmox removes and
-re-adds a VM's tap when the VM stops and starts (a guest reboot keeps it). A
-`blocked` VM port is therefore re-asserted only by a redeploy in Phase 1; Phase
-2 moves it, with the span selections, into the VM's post-start hook (the
-mechanism `install-ovs-mirror` already relies on, `OP_CATALOG.md` §5.3; §6.3).
-`down` has no such gap: `link_down` lives in the VM config.
+re-adds a VM's tap when the VM stops and starts (a guest reboot keeps it). So
+`set-port-state` also writes a **fragment** that the VM's start hook runs
+(R5, built 2026-11-12): Proxmox allows one hookscript per VM and the `tc`
+mirror already owns it, so every axRange hook runs
+`/var/lib/vz/snippets/axrange-ovs-<vmid>-*.sh` on `post-start`, and an op
+writing a fragment registers an empty axRange hook on a VM that has none,
+regenerates an older axRange hook from its own recorded mirror pairs, and
+refuses a foreign hookscript. On libvirt the fragments sit under
+`/etc/libvirt/hooks/axrange-ovs/` and the domain's qemu hook runs them.
+`down` needs none: `link_down` lives in the VM config. A switch link is a
+veth pair, which a VM restart does not touch.
 
 ### 2.5 What a native switch does not do in v1
 
@@ -323,11 +335,11 @@ One mirror is created per `(switch, binding)`. A scope that spans several
 carriers yields one mirror on each, each with its own gretap.
 
 Mirror selections name OVSDB Port rows. A VM stop/start removes and re-adds its
-tap, and OVS drops a deleted port from every mirror, so after a VM stop/start a
-span loses that VM's port until the tap plan is re-applied (`axrange tap
-deploy` is idempotent and re-asserts every mirror). **Not built in Phase 2:**
-the design's post-start-hook stanza that re-adds the port automatically (R5).
-A guest reboot keeps the tap and the selection.
+tap, and OVS drops a deleted port from every mirror. `install-span` therefore
+writes one fragment per selected VM (`axrange-ovs-<vm>-span-<mirror>.sh`) that
+re-adds the re-created tap to the mirror on `post-start` (R5), deletes the
+fragments of VMs a re-apply dropped, and a removed session deletes all of its
+own. The VM's handle for each port travels in the op's `port_owners`.
 
 ### 6.4 `verify-capture`
 
@@ -412,7 +424,8 @@ NSW-020 reports the logical case.
 | NSW-040 | error | A leg that gets an automatic port has exactly one deepest carrier. Otherwise: "ambiguous carrier for <host> on <segment>: <sw1>, <sw2>; add an explicit link" |
 | NSW-050 | error | Every `vlans[]` / `native` on an up native-switch port is a segment the switch carries; a link to a VM names a segment the VM has a leg on; one VM NIC is plugged by at most one link; an automatic port name does not collide with an authored one; a native switch links only to VMs (including imaged switches) and native switches. Span sources naming unknown ports are refused at `tap plan` (Phase 2) |
 | NSW-060 | error | A link with a VM end carries exactly one segment the VM has a leg on (access, or trunk with only `native`). v1 does no in-guest VLAN tagging (§12 S3) |
-| NSW-070 | error | `stp: rstp` on a native switch: RSTP is Phase 3. A warning on a VM or logical switch: it has no effect |
+| NSW-070 | warning | `stp: rstp` on a VM or logical switch: it has no effect (on a native switch it is OVS RSTP, Phase 3) |
+| NSW-090 | error | A loop of native switches over `up` links (parallel links count) runs `stp: rstp` on every switch in it; a `down` link breaks the loop. Added 2026-11-12 with RSTP: without it a looped twin deploys into a broadcast storm |
 | NSW-080 | warning | An addressed leg on a native switch: the address is not deployed (§2.5) |
 | CLU-080 | error | Planner-side (Pass 4): every native switch, and every VM attached to one, is placeable on one Proxmox node (§3) |
 
@@ -484,6 +497,16 @@ Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
 | `tx` on P3 (file-server) for frames from the other switch | exactly the 5 echo requests that reached fs from core; its replies (P3 `rx`) not mirrored |
 | destroy, veth links | span mirror removed, both switches removed; node: no bridges, `tepp_` veths, mirrors or gretaps |
 
+### 11.3 R5 and Phase 3 live runs (dev45, 2026-11-12)
+
+| check | reading |
+|---|---|
+| R5: span and `blocked` survive a VM stop/start (`switch-test-4ed6ac9a`, P2 `blocked`, `P1 rx` span) | before: mirror src `tap661338i0`, ws02 `NO_RECV NO_FLOOD NO_FWD`, fragments `axrange-ovs-650112-blocked-0.sh`, `axrange-ovs-661338-span-tapsm_4e5e7e08.sh`, both hooks with the runner; after `qm stop`: mirror empty, flags gone; after `qm start`: mirror src `tap661338i0` again (new port UUID), flags back; ws01→fs 4/4 with its 4 requests mirrored, ws02 0/2 |
+| R5 destroy | no bridges, mirrors, fragments or hooks left |
+| RSTP on a loop (`switch-trunk-test-157f2f0d`, a second core↔access trunk, `stp: rstp` on both) | access-sw root; core Po1 Root/Forwarding, Po2 Alternate/Discarding; agent installs crossed the loop; ws01→fs 4/4 |
+| RSTP failover | Po1's veth down: Po2 Root/Forwarding, 4/4; Po1 back: roles restored, 4/4 |
+| RSTP destroy | both switches, their veths, no mirrors or fragments left |
+
 ## 12. Risks and the items not signed off
 
 **Risks**, each checked live in Phase 1 before it is relied on:
@@ -502,10 +525,9 @@ Logs beside the state DB (`switch-test-span-*.log`, `switch-test-span-p1rx-*`,
   exercised with tagged frames.
 - **R4, placement pinning.** Trivially true today (one node per plan). CLU-080
   is what keeps it true when placement grows.
-- **R5, port re-creation.** OpenFlow port flags (`blocked`) and mirror port
-  references are lost when a VM stops and starts (not on a guest reboot). Open:
-  a redeploy / tap re-apply re-asserts them; the post-start-hook re-assert
-  (§2.4, §6.3) is not built.
+- **R5, port re-creation.** Resolved 2026-11-12 (§2.4, §6.3): the VM's start
+  hook re-applies OVS fragments. Verified on dev45 by a `qm stop` / `qm start`
+  of both workstations (§11.3).
 
 - **R6, OVS does not mirror on patch ports (found live, resolved 2026-11-12).** A frame
   crossing an OVS patch port is translated into the peer bridge within the
@@ -538,3 +560,22 @@ S2 and S3 as proposed below):
 - **S3, a VM-end trunk carrying more than its native VLAN.** This needs
   in-guest 802.1Q subinterfaces, which `configure-router` does not do; NSW-060
   refuses it in v1.
+
+**Phase 3 items stopped for the user (2026-11-12):**
+
+- **S4, cross-node switches and MTU (D3's deferral).** dev45 is a standalone
+  node (no corosync cluster), and the planner places every plan on one node
+  (`pass4_placement.py`, PLANNER §3.4's least-loaded placement is deferred).
+  Cross-node tunnels need multi-node placement first -- new scope -- and a
+  second node to verify on.
+- **S5, the corp-twin conversion offer (D11).** Two decisions D11 leaves open:
+  (a) the unit -- converting one bridge VM leaves native switches trunked to
+  the remaining bridge VMs, which NSW-060 refuses (no in-guest tagging), so
+  only a whole-fabric conversion yields a valid twin; (b) the trunk VLAN sets
+  live only in `catalog/twins/corp-twin/scripts/serve-l2switch.sh`'s port table
+  (`<leg> access:<vid>` / `trunk:<native>:<vids>`, flags `cost=`, `down`,
+  `mgmt`), which the canvas does not load: the conversion needs an engine-side
+  reader behind an API route, and the `mgmt` SVI (ms120) and the L3 9K pair
+  (VRRP) stay VMs or lose their addresses (S2).
+- **libvirt native switches** are built (D10) but not live-verified: no
+  libvirt host is configured.

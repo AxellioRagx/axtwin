@@ -249,7 +249,7 @@ A multi-homed node uses `nets:` (a list) instead of `net:` (a single id):
 | `role` | no | string | **Additive** (`docs/WORK_ORDER_traffic_tier.md`, `docs/design/02-twin-model.md`; Authority: user, 2026-07-24; parsed regardless of the declared `scenario_schema_version` — a `version: 1` IR with `role:` gets it too, it is not gated on v2). A **persona-assignable role tag** (e.g. `corp-workstation`, `domain-controller`) — what the Traffic tier (`tfc`) binds a persona onto. Sourced from `clone-vm`'s `node_role` input into `hosts[].role` in the published twin inventory (`axrange.planner.inventory.build_twin_inventory`); `None`/absent when undeclared, never fabricated. Unrelated to `kind` (a topology-shape tag: host/router/switch) or to any identity/overlay role. A twin config's `nodes[].role` (`docs/design/02-twin-model.md`) is the same tag, propagated by the expander. |
 | `source`, `confidence`, `vantage` | no | | **Additive, `4`** (`docs/design/topology-layers.md`). Provenance, §3.6. |
 | `image` on `kind: switch` | no | string | **`4`.** A switch may omit `image:`; the planner then emits no VM for it and resolves it native or logical (**`5`**, below). A host or router still requires one. |
-| `stp` | no | enum | **`5`**, `kind: switch` only. `rstp` enables RSTP on a native switch (phase 3; refused until then by NSW-070); absent means off. No effect on a VM or logical switch (NSW-070 warns). `docs/design/native-switches.md` §2.2. |
+| `stp` | no | enum | **`5`**, `kind: switch` only. `rstp` enables OVS RSTP on a native switch (a loop of native switches must run it on every switch, NSW-090); absent means off. No effect on a VM or logical switch (NSW-070 warns). `docs/design/native-switches.md` §2.2. |
 
 **Router/switch specifics:**
 

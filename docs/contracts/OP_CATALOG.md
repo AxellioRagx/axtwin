@@ -292,7 +292,7 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
   inputs:
     switch_id: node-id:str              # the bridge name is derived by the adapter
                                         # (tesw_<8hex>, naming.switch_bridge_for)
-    stp: str                            # "off" in v1 ("rstp" is phase 3)
+    stp: str                            # "off" | "rstp" (OVS rstp_enable on the bridge)
     target_node: proxmox-node:str
     ports: list                         # the switch's port table, published as the
                                         # inventory's switches[].ports[]; not read
@@ -332,7 +332,8 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
     mode: str                           # access | trunk
     vlan_tags: list                     # VLAN ids carried
     native_tag: int                     # trunk native, optional
-    state: str                          # up | down | blocked
+    state: str                          # up | down | blocked (blocked advisory under RSTP)
+    stp: str                            # rstp when both ends run it
     target_node: proxmox-node:str
   outputs:
     port_a: ovs-port-name:str
@@ -352,10 +353,11 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
   kind: action
   description: |
     Block a VM's native-switch port (`state: blocked` on its link): OpenFlow
-    flags up,no-receive,no-forward,no-flood on the VM's tap (tap<vmid>i<n>). The
-    tap exists only while the VM runs, so this follows start-vm; a VM stop/start
-    re-creates the tap without the flags (re-asserted by a redeploy in phase 1,
-    by the post-start hook from phase 2). `down` on a VM port is not this op:
+    flags up,no-receive,no-forward,no-flood on the VM's port (`ovs_port`, the
+    attach op's output: tap<vmid>i<n> on Proxmox). The tap exists only while the
+    VM runs, so this follows start-vm; a VM stop/start re-creates the tap without
+    the flags, so the op also writes a fragment the VM's start hook re-applies
+    (R5). Not emitted when the switch runs RSTP (blocked is then advisory). `down` on a VM port is not this op:
     attach-vm-to-switch-port writes link_down=1. A switch link's state is
     link-switches'.
   inputs:
@@ -364,6 +366,7 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
     state: str                          # blocked
     vmid: vmid:int
     nic_index: int
+    ovs_port: ovs-port-name:str         # from attach-vm-to-switch-port
     bridge_name: ovs-bridge-name:str    # from create-switch
     target_node: proxmox-node:str
   outputs:
@@ -878,6 +881,7 @@ is now proven by `axrange tap deploy`, not by `axrange te deploy`.
     dst_ports: list
     vlan_tags: list                     # optional
     gre_port: ovs-port-name:str
+    port_owners: dict                   # VM port -> its VM's handle: where the R5 fragment goes
     remove: bool
     target_node: proxmox-node:str
     sensor_id: sensor-id:str
