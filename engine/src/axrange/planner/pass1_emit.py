@@ -663,6 +663,10 @@ def emit_ops(
                     "vlan_tags": switch_model.vlan_ids(port.vlans),
                     "native_tag": native_tag,
                     "state": port.state,
+                    # Both ends run RSTP: an authored `blocked` is advisory and
+                    # STP decides (D6); `down` still applies.
+                    "stp": "rstp" if (switch_model.stp.get(sl.a.switch) == "rstp"
+                                      and switch_model.stp.get(sl.b.switch) == "rstp") else "off",
                     "target_node": ctx.default_node,
                 },
                 inputs_from_outputs={
@@ -989,7 +993,7 @@ def emit_ops(
                         },
                     )
                 )
-                if sw_port.state == "blocked":
+                if sw_port.state == "blocked" and switch_model.stp.get(sw_port.switch) != "rstp":
                     plan.add_op(
                         _make_op(
                             plan_id,

@@ -558,11 +558,14 @@ _RULES_LIST: list[Rule] = [
     _R("NSW-060", RuleCategory.NATIVE_SWITCH, ERR, 3,
        "A link with a VM end carries exactly one network the VM has a leg on (no in-guest tagging in v1)",
        message_template="{detail}"),
-    _R("NSW-070", RuleCategory.NATIVE_SWITCH, ERR, 3,
-       "stp: rstp on a native switch is phase 3 (a warning on a VM or logical switch)",
+    _R("NSW-070", RuleCategory.NATIVE_SWITCH, WARN, 3,
+       "stp: rstp on a VM or logical switch has no effect (native switches run OVS RSTP since phase 3)",
        message_template="{detail}"),
     _R("NSW-080", RuleCategory.NATIVE_SWITCH, WARN, 3,
        "An addressed leg on a native switch is not deployed (no SVI in v1)",
+       message_template="{detail}"),
+    _R("NSW-090", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "A loop of native switches over up links runs RSTP on every switch in it",
        message_template="{detail}"),
 
     # -----------------------------------------------------------------------
@@ -787,8 +790,8 @@ assert _BY_CAT[RuleCategory.ACTIVITY] == 7, _BY_CAT  # +ACT-060/070, schedule ex
 assert _BY_CAT[RuleCategory.DEFENSE] == 5, _BY_CAT
 assert _BY_CAT[RuleCategory.FABRIC] == 8, _BY_CAT  # fabric slice, 2026-06-29
 assert _BY_CAT[RuleCategory.CLUSTER] == 8, _BY_CAT  # +CLU-080 native switches
-assert _BY_CAT[RuleCategory.NATIVE_SWITCH] == 7, _BY_CAT  # NSW-020..080, 2026-11-12
+assert _BY_CAT[RuleCategory.NATIVE_SWITCH] == 8, _BY_CAT  # NSW-020..090, 2026-11-12
 # PSN-010..090 persona library 2026-07-24; +PSN-100/110 (transport +
 # peer_scope enums) with the high-volume persona wave, 2026-07-28.
 assert _BY_CAT[RuleCategory.PERSONA] == 11, _BY_CAT
-assert sum(_BY_CAT.values()) == 129  # 114 + the device tree's 7 (2026-11-07) + native switches' 8 (NSW-020..080, CLU-080, 2026-11-12)
+assert sum(_BY_CAT.values()) == 130  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (NSW-020..090, CLU-080, 2026-11-12)

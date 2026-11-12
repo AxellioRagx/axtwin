@@ -165,6 +165,12 @@ def create_mirror_cmd(bridge: str, mirror: str, gre: str, *, src: list[str], dst
     return " ".join(parts)
 
 
+def rstp_cmd(bridge: str, on: bool) -> str:
+    _check_bridge(bridge)
+    return (f"ovs-vsctl set bridge {bridge} stp_enable=false "
+            f"rstp_enable={'true' if on else 'false'}")
+
+
 def delete_bridge_cmd(bridge: str) -> str:
     """Remove every mirror on the bridge, then the bridge (its link ports and
     any leftover VM tap ports leave OVS with it; `delete_switch` removes the
@@ -248,14 +254,18 @@ class SwitchOps:
         switch_id = inp.get("switch_id") or op.scope.get("switch")
         if not switch_id:
             raise AdapterError("create-switch: switch_id missing", error_class="adapter-input")
-        if (inp.get("stp") or "off") != "off":
-            raise AdapterError("create-switch: RSTP is phase 3", error_class="adapter-unsupported")
+        stp = str(inp.get("stp") or "off")
+        if stp not in ("off", "rstp"):
+            raise AdapterError(f"create-switch: unknown stp {stp!r}", error_class="adapter-input")
         bridge = switch_bridge_for(ctx.plan_id, str(switch_id))
         # Check-then-act: `--may-exist` adopts a bridge a prior attempt made,
         # and the `set` re-asserts its attributes either way.
         self.run(create_bridge_cmd(bridge, plan_id_tag=_tag(ctx.plan_id),
                                    switch_id_tag=_tag(str(switch_id))),
                  timeout_s=op.timeout_s or 60)
+        # RSTP (D6, phase 3): OVS's own; a VM port is detected as an edge port
+        # (OVS's default rstp-port-auto-edge) and forwards within seconds.
+        self.run(rstp_cmd(bridge, stp == "rstp"), timeout_s=op.timeout_s or 60)
         return {"bridge_name": bridge}
 
     def link_switches(self, op: Any, inp: dict[str, Any], ctx: Any) -> dict[str, Any]:
@@ -273,6 +283,8 @@ class SwitchOps:
                                 native_tag=int(native) if native else None),
                  timeout_s=op.timeout_s or 60)
         state = str(inp.get("state") or "up")
+        if state == "blocked" and inp.get("stp") == "rstp":
+            state = "up"   # RSTP decides which port blocks (D6); the authored value is advisory
         for bridge, port in ((bridge_a, port_a), (bridge_b, port_b)):
             self.run(port_state_cmd(bridge, port, state), timeout_s=op.timeout_s or 60)
         return {"port_a": port_a, "port_b": port_b}

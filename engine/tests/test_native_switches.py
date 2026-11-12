@@ -253,7 +253,7 @@ def test_stp_and_svi_problems():
     sw["stp"] = "rstp"
     sw["nets"] = [{"segment": "office", "ip": "10.71.10.250"}]
     probs = {p.rule_id: p.severity for p in _model(cfg).problems}
-    assert probs == {"NSW-070": "error", "NSW-080": "warning"}
+    assert probs == {"NSW-080": "warning"}   # RSTP on a native switch is built (phase 3)
     probs = {p.rule_id: p.severity for p in _model(cfg, caps=frozenset()).problems}
     assert probs["NSW-070"] == "warning" and "NSW-080" not in probs
 
@@ -291,6 +291,47 @@ def test_nsw_rules_fire_only_with_a_known_platform():
     assert not [f for f in _validate(cfg, None).findings if f.rule_id.startswith("NSW")]
     ids = [f.rule_id for f in _validate(cfg, CAPS).findings]
     assert "NSW-060" in ids
+
+
+def _loop_cfg(stp=None):
+    """switch-trunk-test's shape plus a second core<->access trunk: a loop."""
+    cfg = _two_switch_cfg()
+    tc = cfg["twin_config"]
+    tc["links"].append({"a": {"device": "core", "port": "Po2"}, "b": {"device": "sw", "port": "Po2"},
+                        "mode": "trunk", "vlans": ["office", "servers"]})
+    if stp:
+        for n in tc["nodes"]:
+            if n["name"] in ("core", "sw"):
+                n["stp"] = stp
+    return cfg
+
+
+def test_a_loop_without_rstp_is_refused_and_with_rstp_plans():
+    m = _model(_loop_cfg())
+    assert [p.rule_id for p in m.errors()] == ["NSW-090"]
+    assert "core, sw" in m.errors()[0].message
+    assert _model(_loop_cfg("rstp")).problems == []
+    plan = _plan(_loop_cfg("rstp"))
+    assert {o.inputs_resolved["stp"] for o in _ops(plan, "link-switches").values()} == {"rstp"}
+    assert {o.inputs_resolved["stp"] for o in _ops(plan, "create-switch").values()} == {"rstp"}
+
+
+def test_a_loop_broken_by_a_down_link_needs_no_rstp():
+    cfg = _loop_cfg()
+    cfg["twin_config"]["links"][-1]["state"] = "down"
+    assert _model(cfg).errors() == []
+
+
+def test_blocked_is_advisory_under_rstp():
+    run = _Run()
+    a, b = naming.switch_bridge_for("p", "core"), naming.switch_bridge_for("p", "sw")
+    SwitchOps(run).link_switches(_op("link-switches", {}), {
+        "link_key": "k", "bridge_a": a, "bridge_b": b, "mode": "trunk", "vlan_tags": [10],
+        "state": "blocked", "stp": "rstp"}, _ctx("p"))
+    assert "no-forward" not in " ".join(run.cmds) and run.cmds[1].endswith(" flood")
+    cfg = _loop_cfg("rstp")
+    cfg["twin_config"]["links"][1]["state"] = "blocked"  # gw<->core access, a VM port on core
+    assert not _ops(_plan(cfg), "set-port-state")
 
 
 def test_nsw_070_warning_half_is_a_warning_finding():
@@ -463,16 +504,21 @@ def test_create_switch_is_check_then_act_and_reasserts():
     out2 = ops.create_switch(_op("create-switch", {"switch": "access-sw"}),
                              {"switch_id": "access-sw", "stp": "off"}, _ctx())
     assert out1 == out2 == {"bridge_name": naming.switch_bridge_for("switch-test-1a2b3c4d", "access-sw")}
-    assert run.cmds[0] == run.cmds[1]  # the same idempotent command on re-run
+    assert run.cmds[:2] == run.cmds[2:]  # the same idempotent commands on re-run
+    assert run.cmds[1].endswith("stp_enable=false rstp_enable=false")
     cmd = run.cmds[0]
     assert "--may-exist add-br tesw_" in cmd and "fail_mode=standalone" in cmd
     assert "external_ids:axrange-tier=te" in cmd and "external_ids:axrange-switch=access-sw" in cmd
 
 
-def test_create_switch_refuses_rstp():
-    with pytest.raises(AdapterError, match="phase 3"):
+def test_create_switch_enables_rstp():
+    run = _Run()
+    out = SwitchOps(run).create_switch(_op("create-switch", {"switch": "s"}),
+                                       {"switch_id": "s", "stp": "rstp"}, _ctx())
+    assert run.cmds[1] == f"ovs-vsctl set bridge {out['bridge_name']} stp_enable=false rstp_enable=true"
+    with pytest.raises(AdapterError, match="unknown stp"):
         SwitchOps(_Run()).create_switch(_op("create-switch", {"switch": "s"}),
-                                        {"switch_id": "s", "stp": "rstp"}, _ctx())
+                                        {"switch_id": "s", "stp": "mstp"}, _ctx())
 
 
 def test_link_switches_builds_a_trunk_veth_pair_and_asserts_state():

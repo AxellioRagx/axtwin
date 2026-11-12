@@ -35,5 +35,5 @@ def _rule_check(rule_id: str) -> Check:
     return check
 
 
-RULE_IDS = ("NSW-020", "NSW-030", "NSW-040", "NSW-050", "NSW-060", "NSW-070", "NSW-080")
+RULE_IDS = ("NSW-020", "NSW-030", "NSW-040", "NSW-050", "NSW-060", "NSW-070", "NSW-080", "NSW-090")
 CHECKS: list[Check] = [_rule_check(r) for r in RULE_IDS]

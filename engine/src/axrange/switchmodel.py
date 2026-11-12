@@ -193,10 +193,8 @@ def resolve_switches(ir: Any, platform_caps: Optional[Iterable[str]] = None) -> 
                         "'native-switch': it is logical -- it deploys as nothing, and its "
                         "link states and taps have no effect", loc)
         if stp == "rstp":
-            if model.resolution[n.id] == "native":
-                problem("NSW-070", "error",
-                        f"Switch '{n.id}' sets stp: rstp -- RSTP on a native switch is phase 3", loc)
-            else:
+            # Native: OVS RSTP (phase 3, 2026-11-12). Elsewhere it does nothing.
+            if model.resolution[n.id] != "native":
                 problem("NSW-070", "warning",
                         f"Switch '{n.id}' sets stp: rstp but is a {model.resolution[n.id]} "
                         "switch: it has no effect", loc)
@@ -352,6 +350,36 @@ def resolve_switches(ir: Any, platform_caps: Optional[Iterable[str]] = None) -> 
                 problem("NSW-050", "error",
                         f"Port '{p.port}' on '{sw}' names {missing}, which '{sw}' does not carry",
                         f"layers.infra.links[{p.link_index}]")
+
+    # ---- A loop of native switches needs RSTP (NSW-090) -------------------
+    # Without it the loop is a broadcast storm on the node the moment the
+    # second link comes up. Parallel links count (two links between the same
+    # pair are a loop).
+    parent = {sw: sw for sw in model.native}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    closing: list[SwitchLink] = []
+    for sl in model.switch_links:
+        if sl.a.state != "up":
+            continue
+        ra, rb = find(sl.a.switch), find(sl.b.switch)
+        if ra == rb:
+            closing.append(sl)
+        else:
+            parent[ra] = rb
+    for sl in closing:
+        comp = sorted(sw for sw in model.native if find(sw) == find(sl.a.switch))
+        without = [sw for sw in comp if model.stp.get(sw) != "rstp"]
+        if without:
+            problem("NSW-090", "error",
+                    f"Native switches {', '.join(comp)} form a loop (closed by link "
+                    f"{sl.key}) but {', '.join(without)} do not set stp: rstp -- the loop "
+                    "would be a broadcast storm; set stp: rstp on every switch in it, or "
+                    "mark a link down", f"layers.infra.links[{sl.link_index}]")
 
     # ---- SDN-or-switch, never both (D1, NSW-030) -------------------------
     for net in model.carriers:
