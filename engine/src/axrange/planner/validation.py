@@ -59,6 +59,7 @@ def _check_placement(plan: Plan) -> None:
         "configure-vm-hardware",
         "configure-cloud-init",
         "attach-vm-to-vnet",
+        "attach-vm-to-switch-port",
         "start-vm",
         "wait-guest-agent",
         "wait-os-ready",

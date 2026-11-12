@@ -94,6 +94,10 @@ _CAT = {
     "configure-vm-hardware": "OP-HOST-020",
     "configure-cloud-init": "OP-HOST-030",
     "attach-vm-to-vnet": "OP-HOST-040",
+    "attach-vm-to-switch-port": "OP-HOST-110",
+    "create-switch": "OP-NET-060",
+    "link-switches": "OP-NET-070",
+    "set-port-state": "OP-NET-080",
     "configure-router": "OP-HOST-090",
     "start-vm": "OP-HOST-060",
     "wait-guest-agent": "OP-HOST-070",
@@ -390,6 +394,21 @@ def emit_ops(
                 f"node {n.id!r} kind={n.kind!r}: only kind=host, kind=router and "
                 "kind=switch are supported"
             )
+    # Native switches (docs/design/native-switches.md §2, Authority: user,
+    # 2026-11-12): an imageless switch on a platform declaring `native-switch`
+    # is an adapter-owned OVS bridge; the networks it carries leave SDN. The
+    # model is empty for a twin with no native switch, and every branch below
+    # then takes exactly the path it took before (D1, the golden plans).
+    from axrange.switchmodel import resolve_switches
+
+    switch_model = resolve_switches(ir, ctx.platform_caps)
+    nsw_errors = switch_model.errors()
+    if nsw_errors:
+        raise EmissionError(
+            "native switches: " + "; ".join(f"{p.rule_id}: {p.message}" for p in nsw_errors)
+        )
+    for p in switch_model.problems:
+        _log.warning("pass1: %s: %s", p.rule_id, p.message)
     imageless_switches = [
         n.id for n in nodes
         if n.kind is not None and str(n.kind).lower().split(".")[-1] == "switch"
@@ -523,13 +542,18 @@ def emit_ops(
     #   - Simple -> one bridge per network (the vnet materializes the bridge).
     # create-ovs-bridge runs BEFORE create-sdn-zone so a VLAN zone can
     # reference an already-existing underlay bridge.
-    zone_type = _zone_type(networks)
+    # Only SDN-hosted networks enter the zone; a switch-hosted one is a VLAN on
+    # its native switches' bridges (native-switches §2.3). With no native
+    # switch this is every network, unchanged.
+    sdn_networks = [n for n in networks if not switch_model.is_switch_hosted(n.id)]
+    zone_type = _zone_type(sdn_networks)
     is_vlan = zone_type == "vlan"
     scenario_scope = {"scenario": scenario_id}
+    emit_sdn = bool(sdn_networks)
 
     # create-ovs-bridge — VLAN underlay (once per zone) here; per network in the
     # loop below for Simple.
-    if is_vlan:
+    if is_vlan and emit_sdn:
         plan.add_op(
             _make_op(
                 plan_id,
@@ -546,28 +570,29 @@ def emit_ops(
             _op_id(plan_id, "create-ovs-bridge", scenario_scope),
             "bridge_name",
         )
-    plan.add_op(
-        _make_op(
-            plan_id,
-            "create-sdn-zone",
-            scenario_scope,
-            inputs_resolved={"scenario_id": scenario_id, "zone_type": zone_type},
-            inputs_from_outputs=zone_from_outputs,
+    if emit_sdn:
+        plan.add_op(
+            _make_op(
+                plan_id,
+                "create-sdn-zone",
+                scenario_scope,
+                inputs_resolved={"scenario_id": scenario_id, "zone_type": zone_type},
+                inputs_from_outputs=zone_from_outputs,
+            )
         )
-    )
-    plan.add_op(
-        _make_op(
-            plan_id,
-            "apply-sdn-config",
-            scenario_scope,
-            inputs_from_outputs={
-                "zone_id": (
-                    _op_id(plan_id, "create-sdn-zone", scenario_scope),
-                    "zone_id",
-                ),
-            },
+        plan.add_op(
+            _make_op(
+                plan_id,
+                "apply-sdn-config",
+                scenario_scope,
+                inputs_from_outputs={
+                    "zone_id": (
+                        _op_id(plan_id, "create-sdn-zone", scenario_scope),
+                        "zone_id",
+                    ),
+                },
+            )
         )
-    )
 
     # mirror-ready[$sensor] is NOT emitted by the te planner any more (2026-07-13,
     # docs/WORK_ORDER_sensor_agnostic_te.md): its only predecessors
@@ -585,10 +610,51 @@ def emit_ops(
     if any(_is_router(n) and getattr(n, "routing", None) is not None for n in nodes):
         plan.add_barrier(_make_barrier(plan_id, "fabric-ready", {"scenario": scenario_id}))
 
+    # ---- Native switches (OP-NET-060/070, native-switches §5) -----------------
+    for sw in switch_model.native:
+        plan.add_op(
+            _make_op(
+                plan_id,
+                "create-switch",
+                {"switch": sw},
+                inputs_resolved={
+                    "switch_id": sw,
+                    "stp": switch_model.stp.get(sw, "off"),
+                    "target_node": ctx.default_node,
+                },
+            )
+        )
+    for sl in switch_model.switch_links:
+        port = sl.a
+        native_tag = switch_model.vlan_tag.get(port.native) if port.native else None
+        plan.add_op(
+            _make_op(
+                plan_id,
+                "link-switches",
+                {"link": sl.key},
+                inputs_resolved={
+                    "link_key": sl.key,
+                    "switch_a": sl.a.switch,
+                    "switch_b": sl.b.switch,
+                    "mode": port.mode,
+                    "vlan_tags": switch_model.vlan_ids(port.vlans),
+                    "native_tag": native_tag,
+                    "state": port.state,
+                    "target_node": ctx.default_node,
+                },
+                inputs_from_outputs={
+                    "bridge_a": (_op_id(plan_id, "create-switch", {"switch": sl.a.switch}), "bridge_name"),
+                    "bridge_b": (_op_id(plan_id, "create-switch", {"switch": sl.b.switch}), "bridge_name"),
+                },
+            )
+        )
+
     # ---- Per-network ops ---------------------------------------------------
     for net in networks:
         if net.id is None:
             raise EmissionError("network entry without id")
+        if switch_model.is_switch_hosted(net.id):
+            continue  # a VLAN on its native switches: no vnet, no network-ready
         net_id = net.id
         net_scope = {"net": net_id}
 
@@ -871,6 +937,61 @@ def emit_ops(
             nic_index = i + lan_base
             net_scope = {"net": net_id}
             attach_scope = {"host": host_id, "net": net_id}
+            sw_port = switch_model.leg_port.get((host_id, net_id))
+            if sw_port is not None:
+                # A leg on a switch-hosted network: a native-switch port
+                # (OP-HOST-110) in place of the vnet attach.
+                plan.add_op(
+                    _make_op(
+                        plan_id,
+                        "attach-vm-to-switch-port",
+                        attach_scope,
+                        inputs_resolved={
+                            "switch_id": sw_port.switch,
+                            "port": sw_port.port,
+                            "net_id": net_id,
+                            "ip": ip,
+                            "nic_index": nic_index,
+                            "mode": sw_port.mode,
+                            "vlan_tag": switch_model.vlan_tag[net_id],
+                            "link_down": sw_port.state == "down",
+                            "target_node": target_node,
+                        },
+                        inputs_from_outputs={
+                            "vmid": (clone_id, "vmid"),
+                            "bridge_name": (
+                                _op_id(plan_id, "create-switch", {"switch": sw_port.switch}),
+                                "bridge_name",
+                            ),
+                        },
+                    )
+                )
+                if sw_port.state == "blocked":
+                    plan.add_op(
+                        _make_op(
+                            plan_id,
+                            "set-port-state",
+                            {"switch": sw_port.switch, "port": sw_port.port},
+                            inputs_resolved={
+                                "switch_id": sw_port.switch,
+                                "port": sw_port.port,
+                                "state": "blocked",
+                                "nic_index": nic_index,
+                                "target_node": target_node,
+                            },
+                            inputs_from_outputs={
+                                "vmid": (clone_id, "vmid"),
+                                "bridge_name": (
+                                    _op_id(plan_id, "create-switch", {"switch": sw_port.switch}),
+                                    "bridge_name",
+                                ),
+                            },
+                            # The VM's tap exists only once it runs: pass3
+                            # orders this after start-vm[$host].
+                            planner_hints={"host": host_id},
+                        )
+                    )
+                continue
             plan.add_op(
                 _make_op(
                     plan_id,

@@ -133,7 +133,7 @@ def te_info_from_ops(ops: Any, *, scenario_id: str, plan_id: Optional[str]) -> T
                 hi.ssh_user = inputs.get("ci_user")
                 hi.os_family = (inputs.get("os_family") or "linux").lower()
                 hi.explicit_password = inputs.get("password")
-        elif name == "attach-vm-to-vnet":
+        elif name in ("attach-vm-to-vnet", "attach-vm-to-switch-port"):
             h = scope.get("host")
             if not h:
                 continue

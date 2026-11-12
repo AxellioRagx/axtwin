@@ -161,6 +161,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
+from axrange.ops.registry import ATTACH_OP_NAMES
 from axrange.planner.egress import EgressPosture, egress_posture_from_ops
 from axrange.planner.opview import op_fields
 from axrange.planner.state import StateStore
@@ -483,7 +484,7 @@ def build_twin_inventory(
             # not reinstate it).
             host_kind[str(host)] = "router"
 
-        elif op_name == "attach-vm-to-vnet" and host is not None:
+        elif op_name in ATTACH_OP_NAMES and host is not None:
             host = str(host)
             seen_hosts.setdefault(host, None)
             net_id = scope.get("net") or inp.get("net_id")

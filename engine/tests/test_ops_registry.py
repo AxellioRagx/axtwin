@@ -21,7 +21,10 @@ def test_action_wait_count() -> None:
     # deploy emits no OP-MIR op at all any more)
     # +OP-TFC-020 assign-role (role/persona decoupling,
     # docs/WORK_ORDER_role_persona_tier.md, Authority: user, 2026-08-04)
-    assert len(list_actions_and_waits()) == 34
+    # +5 native switches (create-switch, link-switches, set-port-state,
+    # attach-vm-to-switch-port, install-span; docs/design/native-switches.md,
+    # Authority: user, 2026-11-12)
+    assert len(list_actions_and_waits()) == 39
 
 
 def test_barrier_count() -> None:

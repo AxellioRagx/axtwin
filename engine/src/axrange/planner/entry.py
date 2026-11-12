@@ -64,7 +64,7 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
     job, `axrange o2 tap apply`, against A1's standing sensor inventory).
     """
     from axrange.ir.parser import parse_ir
-    from axrange.platform import load_config
+    from axrange.platform import capabilities_for, load_config, platform_of
     from axrange.planner import build_plan
     from axrange.planner.cluster import ClusterContext
 
@@ -79,7 +79,9 @@ def build_plan_and_ctx(scenario_path: Path, manifests: Any, *,
             "target_node (API) / --node (CLI)",
         )
 
-    ctx = ClusterContext.single_node(cfg.default_node)
+    ctx = ClusterContext.single_node(
+        cfg.default_node, platform_caps=capabilities_for(platform_of(cfg)),
+    )
 
     parse_result = parse_ir(path=str(scenario_path))
     try:

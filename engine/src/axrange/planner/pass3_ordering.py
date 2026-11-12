@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import re
 
-from axrange.ops.registry import get_barrier, get_op
+from axrange.ops.registry import ATTACH_OP_NAMES, get_barrier, get_op
 from axrange.planner.dag import BarrierInstance, OpInstance, Plan, _op_id
 
 
@@ -53,6 +53,30 @@ def add_ordering_edges(plan: Plan) -> None:
     _add_mirror_conditional_edges(plan)
     _add_router_egress_edges(plan)
     _add_forwarder_edges(plan)
+    _add_native_switch_edges(plan)
+
+
+def _add_native_switch_edges(plan: Plan) -> None:
+    """Native switches (docs/design/native-switches.md §5). The data-flow pass
+    already orders every switch op after the `create-switch` it reads a
+    bridge from. Two more, coarse on purpose (a twin's switch fabric is a
+    handful of patch pairs): every `attach-vm-to-switch-port` waits on every
+    `link-switches` (a host's first packet may cross any patch), and a
+    `set-port-state` on a VM port waits on that VM's `start-vm` (its tap
+    exists only once it runs). A plan with no native switch gets no edge."""
+    links = sorted(op.op_id for op in plan.ops.values() if op.op_name == "link-switches")
+    starts = {
+        op.scope.get("host"): op.op_id
+        for op in plan.ops.values() if op.op_name == "start-vm"
+    }
+    for op in sorted(plan.ops.values(), key=lambda o: o.op_id):
+        if op.op_name == "attach-vm-to-switch-port":
+            for src in links:
+                plan.add_edge(src, op.op_id, kind="ordering")
+        elif op.op_name == "set-port-state":
+            host = op.planner_hints.get("host")
+            if host in starts:
+                plan.add_edge(starts[host], op.op_id, kind="ordering")
 
 
 #: The in-guest recipe ops a host's network path must be up for (apt, pip,
@@ -66,7 +90,7 @@ def _plan_topology(plan: Plan) -> tuple[dict[str, set[str]], set[str], set[str]]
     `configure-router` ops."""
     host_nets: dict[str, set[str]] = {}
     for op in plan.ops.values():
-        if op.op_name != "attach-vm-to-vnet":
+        if op.op_name not in ATTACH_OP_NAMES:
             continue
         host, net = op.scope.get("host"), op.scope.get("net")
         if host is None or net is None or net == "__wan__":

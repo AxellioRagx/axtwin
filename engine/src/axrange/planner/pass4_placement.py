@@ -29,3 +29,26 @@ def place_hosts(plan: Plan, ir: IR, ctx: ClusterContext) -> None:
         if node.id is None:
             continue
         plan.placement[node.id] = ctx.default_node
+    _check_native_switch_single_node(plan, ir, ctx)
+
+
+def _check_native_switch_single_node(plan: Plan, ir: IR, ctx: ClusterContext) -> None:
+    """CLU-080 (docs/design/native-switches.md §3): every native switch and
+    every VM attached to one sit on ONE node -- v1 has no cross-node switch.
+    Trivially true while placement is single-node; this keeps it true when
+    placement learns least-loaded."""
+    from axrange.switchmodel import resolve_switches
+
+    model = resolve_switches(ir, ctx.platform_caps)
+    if not model.has_native:
+        return
+    members = list(model.native) + sorted({vm for (vm, _net) in model.leg_port})
+    nodes = {m: plan.placement.get(m) for m in members}
+    distinct = sorted({n for n in nodes.values() if n})
+    if len(distinct) > 1:
+        first = members[0]
+        odd = [m for m in members if nodes[m] != nodes[first]]
+        raise PlacementError(
+            f"CLU-080: native switches are single-node in v1, but {odd[0]!r} is placed on "
+            f"{nodes[odd[0]]!r} and {first!r} on {nodes[first]!r}"
+        )

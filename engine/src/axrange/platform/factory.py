@@ -286,6 +286,22 @@ _BUILDERS: dict[str, _Builders] = {
 }
 
 PLATFORMS: frozenset[str] = frozenset(_BUILDERS)
+
+#: What each platform declares it can deploy beyond the base op set
+#: (`docs/contracts/ADAPTER.md` §3; `docs/design/native-switches.md` §2.1):
+#: `native-switch` makes an imageless `kind: switch` an adapter-owned switch.
+#: libvirt declares none until it implements the switch ops (D10).
+_CAPABILITIES: dict[str, frozenset[str]] = {
+    "proxmox": frozenset({"native-switch"}),
+    "libvirt": frozenset(),
+}
+assert set(_CAPABILITIES) == set(_BUILDERS)
+
+
+def capabilities_for(platform: Optional[str]) -> frozenset[str]:
+    """The capability set `platform` declares (the default platform for
+    None), refused by name when unknown."""
+    return _CAPABILITIES[check_platform(platform)]
 DEFAULT_PLATFORM = "proxmox"  # `api/Spec.md` A4: a target with no `platform:`
 assert DEFAULT_PLATFORM in _BUILDERS
 

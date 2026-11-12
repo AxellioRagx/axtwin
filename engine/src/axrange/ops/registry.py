@@ -216,6 +216,84 @@ _OPS: list[OpDefinition] = [
     # -------------------------------------------------------------------
     # OP-HOST — Host lifecycle (8 ops)
     # -------------------------------------------------------------------
+    # ---- Native switches (OP-NET-060/070/080, OP-HOST-110; docs/design/
+    # native-switches.md §5, Authority: user, 2026-11-12). Bridge and patch-port
+    # names are derived by the adapter at run time from {plan_id, scope}
+    # (ADAPTER §4 Model C), so the planner stays platform-agnostic.
+    OpDefinition(
+        id="OP-NET-060",
+        name="create-switch",
+        kind=OpKind.ACTION,
+        description=(
+            "Create (or adopt and re-assert) one native switch: an adapter-owned, "
+            "VLAN-aware OVS bridge on the switch's placed node, outside SDN."
+        ),
+        inputs={
+            "switch_id": "node-id:str",
+            "stp": "str",
+            "target_node": "node-name:str",
+        },
+        outputs={"bridge_name": "ovs-bridge-name:str"},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.INFRA,
+        resource_categories=("ovs:$target_node",),
+        timeout="60s",
+        redo_on=("nodes[*].kind", "nodes[*].stp"),
+    ),
+    OpDefinition(
+        id="OP-NET-070",
+        name="link-switches",
+        kind=OpKind.ACTION,
+        description=(
+            "Wire two native switches with an OVS patch-port pair carrying the "
+            "link's VLANs (access tag, or trunks with an optional native)."
+        ),
+        inputs={
+            "link_key": "str",
+            "bridge_a": "ovs-bridge-name:str",
+            "bridge_b": "ovs-bridge-name:str",
+            "mode": "str",
+            "vlan_tags": "list",
+            "native_tag": "int",
+            "state": "str",
+            "target_node": "node-name:str",
+        },
+        outputs={"port_a": "ovs-port-name:str", "port_b": "ovs-port-name:str"},
+        after=(),  # create-switch of both ends: pass3 _add_native_switch_edges
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.INFRA,
+        resource_categories=("ovs:$target_node",),
+        timeout="60s",
+        redo_on=("links[*]",),
+    ),
+    OpDefinition(
+        id="OP-NET-080",
+        name="set-port-state",
+        kind=OpKind.ACTION,
+        description=(
+            "Apply a non-up link state to a native-switch port: down = the VM NIC's "
+            "link_down=1 (or the patch pair's OpenFlow `down`); blocked = OpenFlow "
+            "no-forward,no-flood,no-receive."
+        ),
+        inputs={
+            "switch_id": "node-id:str",
+            "port": "str",
+            "state": "str",
+            "vmid": "vmid:int",
+            "nic_index": "int",
+            "ovs_port": "ovs-port-name:str",
+            "bridge_name": "ovs-bridge-name:str",
+            "target_node": "node-name:str",
+        },
+        outputs={"state_applied": "str"},
+        after=(),  # the op that made the port: pass3 _add_native_switch_edges
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.INFRA,
+        resource_categories=("ovs:$target_node",),
+        timeout="60s",
+        redo_on=("links[*].state",),
+    ),
     OpDefinition(
         id="OP-HOST-010",
         name="clone-vm",
@@ -336,7 +414,7 @@ _OPS: list[OpDefinition] = [
         ),
         inputs={"vmid": "vmid:int"},
         outputs={"started": "bool"},
-        after=("attach-vm-to-vnet[$host@*]",),
+        after=("attach-vm-to-vnet[$host@*]", "attach-vm-to-switch-port[$host@*]"),
         cleanup_strategy=CleanupStrategy.REDO,
         idempotency_class=IdempotencyClass.INFRA,
         resource_categories=("proxmox-cluster", "vm:$vmid"),
@@ -462,6 +540,35 @@ _OPS: list[OpDefinition] = [
     # op's `tapped_nics` output. Op count 40 -> 39; the id is retired and
     # never reused (docs/OP_CATALOG.md).
     OpDefinition(
+        id="OP-HOST-110",
+        name="attach-vm-to-switch-port",
+        kind=OpKind.ACTION,
+        description=(
+            "Plug one VM NIC into a native switch's bridge as a switch port "
+            "(access tag, or trunk native) with firewall=0; replaces "
+            "attach-vm-to-vnet for a leg on a switch-hosted network."
+        ),
+        inputs={
+            "vmid": "vmid:int",
+            "bridge_name": "ovs-bridge-name:str",
+            "switch_id": "node-id:str",
+            "port": "str",
+            "net_id": "net-id:str",
+            "ip": "ip:str",
+            "nic_index": "int",
+            "mode": "str",
+            "vlan_tag": "int",
+            "link_down": "bool",
+        },
+        outputs={"nic_attached": "bool", "ovs_port": "ovs-port-name:str"},
+        after=("configure-cloud-init[$host]",),  # + create-switch / link-switches: pass3
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.INFRA,
+        resource_categories=("proxmox-cluster", "vm:$vmid", "ovs:$target_node"),
+        timeout="60s",
+        redo_on=("nodes[*].net", "nodes[*].nets", "links[*]"),
+    ),
+    OpDefinition(
         id="OP-MIR-010",
         name="attach-gre-tunnel",
         kind=OpKind.ACTION,
@@ -519,6 +626,34 @@ _OPS: list[OpDefinition] = [
         # A2-composed only, driven by a tap plan's resolved bindings -- no IR
         # path re-derives this any more (`docs/WORK_ORDER_tap_eligibility.md`,
         # matching attach-gre-tunnel/verify-capture's own `redo_on=()`, below).
+        redo_on=(),
+    ),
+    OpDefinition(
+        id="OP-MIR-060",
+        name="install-span",
+        kind=OpKind.ACTION,
+        description=(
+            "Create (or remove) one OVS mirror on a native switch's bridge: "
+            "select_src_port / select_dst_port / select_vlan -> the keyed gretap "
+            "(docs/design/native-switches.md §6). Composed by the tap playout."
+        ),
+        inputs={
+            "bridge_name": "ovs-bridge-name:str",
+            "mirror_key": "str",
+            "src_ports": "list",
+            "dst_ports": "list",
+            "vlan_tags": "list",
+            "gre_port": "ovs-port-name:str",
+            "remove": "bool",
+            "target_node": "node-name:str",
+            "sensor_id": "sensor-id:str",
+        },
+        outputs={"mirror_installed": "bool", "mirror_name": "str"},
+        after=(),  # attach-gre-tunnel of its (bridge, sensor): composed by the tap playout
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.INFRA,
+        resource_categories=("ovs:$target_node", "gretap:$sensor_id"),
+        timeout="60s",
         redo_on=(),
     ),
     OpDefinition(
@@ -1221,6 +1356,12 @@ _BARRIERS: list[Barrier] = [
 
 
 # Public registry: dict by id and by name for both ops and barriers.
+#: The ops that publish a host's attached leg (`hosts[].nets[]`): the SDN
+#: vnet attach and, for a leg on a switch-hosted network, the native-switch
+#: port attach (docs/design/native-switches.md §5). Every reader of "which
+#: legs does this twin have" matches on this tuple, never on one name.
+ATTACH_OP_NAMES: tuple[str, ...] = ("attach-vm-to-vnet", "attach-vm-to-switch-port")
+
 REGISTRY: dict[str, OpDefinition | Barrier] = {}
 for _op in _OPS:
     REGISTRY[_op.id] = _op
@@ -1253,5 +1394,8 @@ def list_barriers() -> list[Barrier]:
 # record-tap-intent retired, docs/WORK_ORDER_tap_eligibility.md, 2026-07-28
 # -- op count 40 -> 39; OP-TFC-020 assign-role added,
 # docs/WORK_ORDER_role_persona_tier.md, 2026-08-04 -- 39 -> 40) + 6 barriers.
-assert len(_OPS) == 34, f"OP_CATALOG action/wait count must be 34 (got {len(_OPS)})"
+# Native switches (docs/design/native-switches.md, 2026-11-12): +5
+# (create-switch, link-switches, set-port-state, attach-vm-to-switch-port,
+# install-span) -- 40 -> 45.
+assert len(_OPS) == 39, f"OP_CATALOG action/wait count must be 39 (got {len(_OPS)})"
 assert len(_BARRIERS) == 6, f"OP_CATALOG barrier count must be 6 (got {len(_BARRIERS)})"

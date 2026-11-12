@@ -51,15 +51,21 @@ class ClusterContext:
     # means single-sensor: everything resolves to `sensor_transport_ip`.
     sensors: dict[str, str] = field(default_factory=dict)
     default_node: str = ""
+    # The target platform's capabilities (`platform.factory.capabilities_for`,
+    # docs/design/native-switches.md §2.1): `native-switch` makes an imageless
+    # switch native. Empty == none (every imageless switch is logical).
+    platform_caps: frozenset[str] = frozenset()
 
     @classmethod
-    def single_node(cls, node_name: str, *, sensor_transport_ip: str = "") -> "ClusterContext":
+    def single_node(cls, node_name: str, *, sensor_transport_ip: str = "",
+                    platform_caps: frozenset[str] = frozenset()) -> "ClusterContext":
         """Convenience for the slice: one node, one (primary) sensor."""
         return cls(
             nodes=[NodeSnapshot(name=node_name)],
             default_node=node_name,
             sensor_transport_ip=sensor_transport_ip,
             sensors={"default": sensor_transport_ip} if sensor_transport_ip else {},
+            platform_caps=frozenset(platform_caps),
         )
 
     def node_names(self) -> list[str]:

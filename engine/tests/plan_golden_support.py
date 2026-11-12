@@ -53,7 +53,10 @@ def plan_snapshot(twin: str) -> str:
         with path.open("w", encoding="utf-8") as f:
             YAML(typ="safe").dump(ir, f)
         parsed = parse_ir(path=str(path))
-        plan = build_plan(parsed.ir, manifests, ClusterContext.single_node("px1"),
+        # With Proxmox's capability set: a twin with no imageless switch must
+        # plan identically whether or not the platform has native switches.
+        ctx = ClusterContext.single_node("px1", platform_caps=frozenset({"native-switch"}))
+        plan = build_plan(parsed.ir, manifests, ctx,
                           raw_ir=parsed.raw, scenario_dir=str(CATALOG / twin))
     snap = {
         "plan_id": plan.plan_id,

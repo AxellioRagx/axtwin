@@ -298,3 +298,108 @@ def test_nsw_070_warning_half_is_a_warning_finding():
     cfg["twin_config"]["nodes"][2]["stp"] = "rstp"
     f = [f for f in _validate(cfg, frozenset()).findings if f.rule_id == "NSW-070"]
     assert f and f[0].severity.value == "warning"
+
+
+# ---------------------------------------------------------------------------
+# Op emission
+# ---------------------------------------------------------------------------
+from axrange.planner import build_plan
+from axrange.planner.cluster import ClusterContext
+
+
+def _plan(cfg: dict, caps=CAPS):
+    from axrange.manifest.loader import load_registry
+    manifests = load_registry(root=Path(__file__).parent / "fixtures")
+    parsed = _ir(cfg)
+    ctx = ClusterContext.single_node("px1", platform_caps=caps)
+    return build_plan(parsed.ir, manifests, ctx, raw_ir=parsed.raw)
+
+
+def _ops(plan, name):
+    return {op.op_id.split(":", 1)[1]: op for op in plan.ops.values() if op.op_name == name}
+
+
+def test_native_switch_emits_switch_ops_and_moves_office_off_sdn():
+    plan = _plan(_cfg())
+    assert set(_ops(plan, "create-switch")) == {"create-switch[sw]"}
+    vnets = _ops(plan, "create-vnet")
+    assert set(vnets) == {"create-vnet[servers]"}       # office is switch-hosted
+    attach = _ops(plan, "attach-vm-to-switch-port")
+    assert set(attach) == {
+        "attach-vm-to-switch-port[ws01@office]", "attach-vm-to-switch-port[ws02@office]",
+        "attach-vm-to-switch-port[gw@office]",
+    }
+    ws01 = attach["attach-vm-to-switch-port[ws01@office]"]
+    assert ws01.inputs_resolved["port"] == "P1" and ws01.inputs_resolved["vlan_tag"] == 10
+    assert ws01.inputs_resolved["link_down"] is False
+    assert ws01.inputs_from_outputs["bridge_name"][0].endswith("create-switch[sw]")
+    # the vnet attach remains for SDN-hosted legs only
+    assert set(_ops(plan, "attach-vm-to-vnet")) == {
+        "attach-vm-to-vnet[fs@servers]", "attach-vm-to-vnet[gw@servers]", "attach-vm-to-vnet[gw@__wan__]",
+    }
+    assert "network-ready[office]" not in {b.split(":", 1)[1] for b in plan.barriers}
+
+
+def test_without_the_capability_the_switch_is_logical_and_the_plan_is_sdn_only():
+    plan = _plan(_cfg(), caps=frozenset())
+    assert not _ops(plan, "create-switch") and not _ops(plan, "attach-vm-to-switch-port")
+    assert set(_ops(plan, "create-vnet")) == {"create-vnet[office]", "create-vnet[servers]"}
+
+
+def test_all_networks_switch_hosted_emits_no_sdn_zone():
+    cfg = _cfg()
+    tc = cfg["twin_config"]
+    tc["links"].append({"a": {"device": "sw", "port": "P3"}, "b": {"device": "fs", "port": "eth0"},
+                        "mode": "access", "vlans": ["servers"]})
+    tc["links"][0]["vlans"] = ["office"]
+    tc["links"].append({"a": {"device": "gw", "port": "eth2"}, "b": {"device": "sw", "port": "P4"},
+                        "mode": "access", "vlans": ["servers"]})
+    plan = _plan(cfg)
+    for name in ("create-sdn-zone", "apply-sdn-config", "create-vnet", "create-ovs-bridge"):
+        assert not _ops(plan, name), name
+    assert "attach-vm-to-switch-port[fs@servers]" in _ops(plan, "attach-vm-to-switch-port")
+
+
+def test_two_switch_trunk_emits_a_patch_link_ordered_before_every_port():
+    plan = _plan(_two_switch_cfg())
+    links = _ops(plan, "link-switches")
+    assert set(links) == {"link-switches[core#Po1|sw#Po1]"}
+    lk = links["link-switches[core#Po1|sw#Po1]"]
+    assert lk.inputs_resolved["mode"] == "trunk" and lk.inputs_resolved["vlan_tags"] == [10, 20]
+    assert lk.inputs_resolved["state"] == "up"
+    for op in _ops(plan, "attach-vm-to-switch-port").values():
+        assert lk.op_id in plan.predecessors(op.op_id)
+
+
+def test_blocked_vm_port_emits_set_port_state_after_start_vm():
+    cfg = _cfg()
+    cfg["twin_config"]["links"][2]["state"] = "blocked"
+    plan = _plan(cfg)
+    sps = _ops(plan, "set-port-state")
+    assert set(sps) == {"set-port-state[P2@sw]"}
+    start = _ops(plan, "start-vm")["start-vm[ws02]"]
+    assert start.op_id in plan.predecessors(sps["set-port-state[P2@sw]"].op_id)
+
+
+def test_down_vm_port_is_link_down_on_the_attach():
+    cfg = _cfg()
+    cfg["twin_config"]["links"][1]["state"] = "down"
+    plan = _plan(cfg)
+    assert _ops(plan, "attach-vm-to-switch-port")["attach-vm-to-switch-port[ws01@office]"] \
+        .inputs_resolved["link_down"] is True
+    assert not _ops(plan, "set-port-state")
+
+
+def test_start_vm_waits_on_its_switch_port_attach():
+    plan = _plan(_cfg())
+    start = _ops(plan, "start-vm")["start-vm[ws01]"]
+    att = _ops(plan, "attach-vm-to-switch-port")["attach-vm-to-switch-port[ws01@office]"]
+    assert att.op_id in plan.predecessors(start.op_id)
+
+
+def test_a_native_switch_error_refuses_the_plan():
+    from axrange.planner.plan_builder import PlanBuildError
+    cfg = _cfg()
+    cfg["twin_config"]["links"][0]["vlans"] = ["office", "servers"]
+    with pytest.raises(PlanBuildError, match="NSW-060"):
+        _plan(cfg)
