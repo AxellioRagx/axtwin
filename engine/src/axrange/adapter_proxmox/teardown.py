@@ -78,7 +78,9 @@ class ProxmoxTeardown:
             self.cfg,
             "rm -f "
             f"/var/lib/vz/snippets/axrange-mirror-{vmid}.sh "
-            f"/var/lib/vz/snippets/axr-userdata-{vmid}.yaml",
+            f"/var/lib/vz/snippets/axr-userdata-{vmid}.yaml "
+            # native-switch OVS fragments (span selections, blocked flags; R5)
+            f"/var/lib/vz/snippets/axrange-ovs-{vmid}-*.sh",
             timeout_s=20,
         )
         return "removed"

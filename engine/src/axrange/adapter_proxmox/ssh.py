@@ -497,6 +497,13 @@ case "$phase" in
     done
     ;;
 esac
+# OVS state that dies with a re-created tap (native switches, docs/design/
+# native-switches.md R5): a SPAN mirror's selection of this VM's tap and a
+# blocked port's OpenFlow flags. One fragment per (VM, owner), written by
+# install-span / set-port-state; run after this hook's own tc work.
+for f in /var/lib/vz/snippets/axrange-ovs-${{vmid}}-*.sh; do
+  [ -f "$f" ] && sh "$f" "$phase" || true
+done
 exit 0
 """
 
@@ -553,6 +560,61 @@ def _tc_mirror_cmd(vmnic: str, gretaps: list[tuple[str, str]]) -> str:
 # ---------------------------------------------------------------------------
 
 
+#: The marker a hook generated with the OVS-fragment runner carries.
+OVS_FRAGMENT_MARKER = "axrange-ovs-"
+
+
+def hook_snippet_path(vmid: int) -> str:
+    return f"/var/lib/vz/snippets/axrange-mirror-{int(vmid)}.sh"
+
+
+def ensure_ovs_hook(cfg: AdapterConfig, vmid: int, plan_id: str) -> str:
+    """Make sure VM `vmid` runs axRange's hook, so its OVS fragments re-apply
+    on every start (native-switches R5). Proxmox allows ONE hookscript per VM
+    and the tc mirror already owns it, so the fragments share it:
+
+      * no hookscript: write and register an empty-mirror hook;
+      * ours, already with the fragment runner: nothing;
+      * ours, generated before the runner existed: regenerate it from its own
+        recorded `pairs=` line and `# Plan:` (the tc wiring is unchanged);
+      * someone else's: refuse, naming it -- never clobber a foreign hook.
+
+    Returns what it did: "registered" | "present" | "upgraded"."""
+    vmid = int(vmid)
+    path = hook_snippet_path(vmid)
+    want = f"local:snippets/axrange-mirror-{vmid}.sh"
+    cur = run_ssh(cfg, f"qm config {vmid} | sed -n 's/^hookscript: //p'", timeout_s=15).strip()
+    if cur and cur != want:
+        raise AdapterError(
+            f"VM {vmid} already runs hookscript {cur!r}; axRange's OVS re-assert needs its "
+            f"own ({want}) -- refusing to replace a foreign hook",
+            error_class="adapter-conflict",
+        )
+    if cur:
+        body = run_ssh(cfg, f"cat {shlex.quote(path)} 2>/dev/null || true", timeout_s=15)
+        if OVS_FRAGMENT_MARKER in body:
+            return "present"
+        pairs: list[tuple[int, str, str]] = []
+        plan = plan_id
+        for line in body.splitlines():
+            if line.startswith('pairs="') and line.endswith('"'):
+                for triple in line[len('pairs="'):-1].split():
+                    nic, _, rest = triple.partition(":")
+                    gre, _, direction = rest.partition(":")
+                    if nic.isdigit() and gre:
+                        pairs.append((int(nic), gre, direction or "both"))
+            elif line.startswith("# Plan:"):
+                plan = line.split(":", 1)[1].strip() or plan_id
+        scp_to_remote(cfg, _hook_script(plan, pairs), path, timeout_s=20)
+        run_ssh(cfg, f"chmod 0755 {shlex.quote(path)}", timeout_s=10)
+        return "upgraded"
+    run_ssh(cfg, "mkdir -p /var/lib/vz/snippets", timeout_s=10)
+    scp_to_remote(cfg, _hook_script(plan_id, []), path, timeout_s=20)
+    run_ssh(cfg, f"chmod 0755 {shlex.quote(path)}", timeout_s=10)
+    run_ssh(cfg, f"qm set {vmid} --hookscript {want}", timeout_s=60)
+    return "registered"
+
+
 class SshBackend:
     """The two SSH-routed ops + tiny shared SSH helpers."""
 
@@ -574,7 +636,11 @@ class SshBackend:
         if op.op_name in ("create-switch", "link-switches", "set-port-state", "install-span"):
             from axrange.adapter_proxmox.switches import SwitchOps
 
-            ops = SwitchOps(lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw))
+            ops = SwitchOps(
+                lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw),
+                ensure_hook=lambda vmid, plan_id: ensure_ovs_hook(self.cfg, vmid, plan_id),
+                write_file=lambda path, content: scp_to_remote(self.cfg, content, path, timeout_s=20),
+            )
             fn = {
                 "create-switch": ops.create_switch,
                 "link-switches": ops.link_switches,

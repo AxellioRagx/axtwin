@@ -885,3 +885,116 @@ def test_union_direction():
     assert union_direction(None, "tx") == "tx"
     assert union_direction("rx", "rx") == "rx"
     assert union_direction("both", "rx") == "both"
+
+
+# ---------------------------------------------------------------------------
+# R5: OVS state re-asserted by the VM's hook after a stop/start
+# ---------------------------------------------------------------------------
+from axrange.adapter_proxmox import switches as swmod
+
+
+def test_hook_template_runs_the_ovs_fragments():
+    from axrange.adapter_proxmox.ssh import _hook_script
+    hook = _hook_script("p", [])
+    assert 'for f in /var/lib/vz/snippets/axrange-ovs-${vmid}-*.sh; do' in hook
+    assert hook.rstrip().endswith("exit 0")
+
+
+def test_span_fragment_readds_the_taps_and_skips_a_gone_mirror():
+    frag = swmod.span_fragment("tapsm_0011aabb", ["tap5i0"], ["tap5i0", "tap5i1"])
+    assert '[ "$1" = post-start ] || exit 0' in frag
+    assert '[ -n "$(ovs-vsctl --if-exists get mirror tapsm_0011aabb _uuid 2>/dev/null)" ] || exit 0' in frag
+    assert "ovs-vsctl -- --id=@p get port tap5i0 -- add mirror tapsm_0011aabb select_src_port @p" in frag
+    assert "get port tap5i1 -- add mirror tapsm_0011aabb select_dst_port @p" in frag
+    with pytest.raises(AdapterError):
+        swmod.span_fragment("tapsm_0011aabb", ["vmbr0"], [])
+
+
+class _Persist:
+    def __init__(self):
+        self.hooks: list[int] = []
+        self.files: dict[str, str] = {}
+
+    def ensure(self, vmid, plan_id):
+        self.hooks.append(vmid)
+
+    def write(self, path, content):
+        self.files[path] = content
+
+
+def test_install_span_writes_one_fragment_per_vm_and_drops_stale_ones():
+    br = naming.switch_bridge_for("p", "sw")
+    gre = naming.gre_port_for_bridge_sensor(br, "s1")
+    mirror = naming.span_mirror_for("tap-d1", "sw|s1|")
+    stale = swmod.span_fragment_path(999, mirror)
+
+    class _R(_Run):
+        def __call__(self, cmd, **kw):
+            self.cmds.append(cmd)
+            return f"{stale}\n" if cmd.startswith("ls ") else ""
+    run, keep = _R(), _Persist()
+    SwitchOps(run, ensure_hook=keep.ensure, write_file=keep.write).install_span(
+        _op("install-span", {}),
+        {"bridge_name": br, "mirror_key": "sw|s1|", "gre_port": gre,
+         "src_ports": ["tap7i0", naming.patch_port_for("p", "k", "a")], "dst_ports": ["tap8i1"]},
+        _ctx("tap-d1"))
+    assert keep.hooks == [7, 8]          # the veth end needs no fragment
+    assert set(keep.files) == {swmod.span_fragment_path(7, mirror), swmod.span_fragment_path(8, mirror)}
+    assert "select_dst_port" in keep.files[swmod.span_fragment_path(8, mirror)]
+    assert f"rm -f {stale}" in run.cmds
+
+
+def test_removing_a_span_deletes_its_fragments():
+    br = naming.switch_bridge_for("p", "sw")
+    mirror = naming.span_mirror_for("tap-d1", "k")
+    run = _Run(list_br="")
+    SwitchOps(run).install_span(_op("install-span", {}), {
+        "bridge_name": br, "mirror_key": "k", "gre_port": naming.gre_port_for_bridge_sensor(br, "s"),
+        "remove": True}, _ctx("tap-d1"))
+    assert run.cmds[0] == f"rm -f /var/lib/vz/snippets/axrange-ovs-*-span-{mirror}.sh"
+
+
+def test_blocked_port_writes_its_fragment():
+    br = naming.switch_bridge_for("p", "sw")
+    keep = _Persist()
+    SwitchOps(_Run(), ensure_hook=keep.ensure, write_file=keep.write).set_port_state(
+        _op("set-port-state", {}), {"bridge_name": br, "vmid": 600123, "nic_index": 1, "state": "blocked"},
+        _ctx("p"))
+    frag = keep.files[swmod.blocked_fragment_path(600123, 1)]
+    assert keep.hooks == [600123]
+    assert f"ovs-ofctl mod-port {br} tap600123i1 no-forward" in frag
+
+
+@pytest.mark.parametrize("current, body, expect", [
+    ("", "", "registered"),
+    ("local:snippets/axrange-mirror-5.sh", "...\nfor f in /var/lib/vz/snippets/axrange-ovs-${vmid}-*.sh; do\n", "present"),
+    ("local:snippets/axrange-mirror-5.sh", '#!/bin/bash\n# Plan:   tap-old\npairs="0:tapg_aaaaaa:rx"\nexit 0\n', "upgraded"),
+])
+def test_ensure_ovs_hook(monkeypatch, current, body, expect):
+    from axrange.adapter_proxmox import ssh
+    cmds, written = [], {}
+
+    def fake_run(cfg, cmd, **kw):
+        cmds.append(cmd)
+        if cmd.startswith("qm config"):
+            return current + "\n"
+        if cmd.startswith("cat "):
+            return body
+        return ""
+    monkeypatch.setattr(ssh, "run_ssh", fake_run)
+    monkeypatch.setattr(ssh, "scp_to_remote", lambda cfg, content, path, **kw: written.__setitem__(path, content))
+    assert ssh.ensure_ovs_hook(None, 5, "tap-new") == expect
+    if expect == "registered":
+        assert "qm set 5 --hookscript local:snippets/axrange-mirror-5.sh" in cmds
+    if expect == "upgraded":
+        hook = written["/var/lib/vz/snippets/axrange-mirror-5.sh"]
+        assert 'pairs="0:tapg_aaaaaa:rx"' in hook and "# Plan:   tap-old" in hook
+        assert "axrange-ovs-${vmid}" in hook
+        assert not any(c.startswith("qm set") for c in cmds)
+
+
+def test_ensure_ovs_hook_refuses_a_foreign_hook(monkeypatch):
+    from axrange.adapter_proxmox import ssh
+    monkeypatch.setattr(ssh, "run_ssh", lambda cfg, cmd, **kw: "local:snippets/someone-else.sh\n")
+    with pytest.raises(AdapterError, match="foreign hook"):
+        ssh.ensure_ovs_hook(None, 5, "p")
