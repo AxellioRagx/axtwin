@@ -1,0 +1,12 @@
+# switch-trunk-test -- the root manifest: which file is each tier's default.
+# No tap tier yet: its SPAN session on access-sw Po1 lands with phase 2 of
+# docs/design/native-switches.md.
+twin:
+  id: switch-trunk-test
+  description: "Two native switches (core, access-sw) on a trunk: office workstations and the file server behind access-sw, one router on core."
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tfc:
+      default: tfc/default.yaml

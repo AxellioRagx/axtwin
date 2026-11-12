@@ -1,0 +1,11 @@
+# Traffic profile: switch-trunk-test / default -- one persona per host role, both
+# bundle-local (personas/): the office workstations talk to the file server
+# across the core<->access trunk, and it answers.
+traffic-profile:
+  target: switch-trunk-test
+
+  assignments:
+    - role: corp-workstation
+      persona: office-workstation
+    - role: file-server
+      persona: file-share

@@ -656,3 +656,42 @@ def test_inventory_of_a_twin_without_native_switches_has_none(tmp_path):
     cfg["twin_config"]["nodes"][2]["requires"] = ["linux"]
     inv = _inventory(tmp_path, cfg)
     assert inv.switches == [] and inv.to_dict()["switches"] == []
+
+
+# ---------------------------------------------------------------------------
+# The shipped fixtures (catalog/twins/switch-test, switch-trunk-test)
+# ---------------------------------------------------------------------------
+_TWINS = Path(__file__).resolve().parents[2] / "catalog" / "twins"
+
+
+def _bundle(name: str) -> dict:
+    return YAML(typ="safe").load((_TWINS / name / "te.yaml").read_text())
+
+
+def test_switch_test_fixture_is_one_native_switch_with_member_ports():
+    cfg = _bundle("switch-test")
+    m = _model(cfg)
+    assert m.native == ["access-sw"] and m.problems == []
+    assert {p.port: p.far_device for p in m.ports["access-sw"]} == {
+        "SFP1": "gw", "P1": "corp-workstation01", "P2": "corp-workstation02"}
+    assert set(m.carriers) == {"office"}
+    plan = _plan(cfg)
+    assert set(_ops(plan, "create-vnet")) == {"create-vnet[servers]"}
+    assert len(_ops(plan, "attach-vm-to-switch-port")) == 3
+    v = _validate(cfg, CAPS)
+    assert not [f for f in v.findings if f.severity.value == "error"], v.findings
+
+
+def test_switch_trunk_test_fixture_has_no_sdn_and_one_patch_trunk():
+    cfg = _bundle("switch-trunk-test")
+    m = _model(cfg)
+    assert m.native == ["core", "access-sw"] and m.problems == []
+    assert m.depth == {"core": 1, "access-sw": 2}
+    assert [l.key for l in m.switch_links] == ["access-sw#Po1|core#Po1"]
+    plan = _plan(cfg)
+    for name in ("create-sdn-zone", "apply-sdn-config", "create-vnet"):
+        assert not _ops(plan, name), name
+    lk = _ops(plan, "link-switches")["link-switches[access-sw#Po1|core#Po1]"]
+    assert lk.inputs_resolved["vlan_tags"] == [10, 20]
+    assert {o.inputs_resolved["switch_id"] for o in _ops(plan, "attach-vm-to-switch-port").values()} \
+        == {"core", "access-sw"}

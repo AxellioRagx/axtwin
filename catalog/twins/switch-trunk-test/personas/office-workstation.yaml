@@ -1,0 +1,25 @@
+# canvas-test -- a workstation on the office segment that talks to the file
+# server across the office<->servers boundary (the tapped path). Bundle-local
+# because the library's corp-workstation needs a domain controller this twin
+# does not have. Scripted: traffic shape, not a real SMB client.
+persona:
+  id: office-workstation
+  os_family: linux
+  drive: scripted
+  emits:
+    - proto: smb
+      ports: [445]
+      peer_role: file-server
+      transport: tcp
+      direction: EW
+      cadence: cyclic:30s
+      volume: med
+    - proto: http
+      ports: [80]
+      peer_role: file-server
+      transport: tcp
+      direction: EW
+      cadence: cyclic:45s
+      volume: low
+  requires: [file-server]
+  knobs: { intensity: 1.0, schedule: 24x7, seed_jitter: true }

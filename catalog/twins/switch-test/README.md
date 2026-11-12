@@ -1,27 +1,32 @@
-# switch-test — track 2's dev45 fixture for the device tree
+# switch-test — the native-switch fixture
 
 canvas-test's shape (`office` 10.71.10.0/24, `servers` 10.71.20.0/24, `gw`,
 `corp-workstation` ×2, `file-server`) plus one **imageless `kind: switch`**,
-`access-sw`, wired by `links[]`: a trunk from `gw` carrying `office`. (Until
-2026-11-11 it also had a `state: down` access link to the file server that
-deployed nothing; it was removed when the canvas began drawing segments as
-switches, §7.1.) The second
-workstation carries a `members[]` role override (`jump-host`). The switch
-deploys as nothing (`docs/design/topology-layers.md` §2.5), so the deploy is
-canvas-test's: 48 ops, four VMs, tapped to XPress-SW-A. Since 2026-11-11 the
-tap is a `segment` tap on `office` (its chip rides access-sw on the canvas);
-before that it was the `office` ↔ `servers` boundary, which is what the
-measurement below used. A `port` tap on access-sw would resolve to nothing:
-an imageless switch has no VM interface to mirror.
+`access-sw`, wired by `links[]`: a trunk from `gw` (native `office`) on SFP1
+and one access link per workstation on P1 and P2. The workstations are a
+`count: 2` group, so the links name the members by instance id
+(`corp-workstation01` / `02`, `docs/design/native-switches.md` §12 S1). The
+second workstation carries a `members[]` role override (`jump-host`).
+
+On Proxmox, which declares `native-switch`, `access-sw` deploys as a native
+switch (`docs/design/native-switches.md`): one adapter-owned OVS bridge
+`tesw_<8hex>`, `office` as VLAN 10 on it (no SDN vnet for `office`), and the
+three VM NICs as access ports on it. `servers` stays an SDN vnet. Four VMs.
+On a platform without the capability (libvirt today) `access-sw` is logical
+and the deploy is canvas-test's.
+
+The tap plan is still the `segment` tap on `office` from before the
+conversion; phase 2 of the design replaces it with a `span` session on
+access-sw (SFP1, both) and compiles `segment` on a switch-hosted network to
+an OVS mirror. Until then, deploy the tap only on the pre-conversion engine.
 
 ```sh
 R=/home/rocky/axr-product/deploy-dev45; D=~/.axrange/state.db
 axrange te deploy  --config switch-test --images $R --db $D --fresh
-axrange tap deploy --twin switch-test --db $D
 axrange tfc deploy --twin switch-test --db $D
 ```
 
-## Deployed and measured (2026-11-07)
+## Deployed and measured (2026-11-07, before the conversion: access-sw deployed as nothing)
 
 `switch-test-5c614b0e` (48 ops, COMPLETED), tap `…-1a070fcc`-style binding of
 the boundary to XPress-SW-A, tfc `tfc-switch-test-5c614b0e-8adbc15c`. The

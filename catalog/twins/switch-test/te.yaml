@@ -1,20 +1,21 @@
-# switch-test -- canvas-test's shape with ONE imageless access switch between
-# the router and the office workstations (docs/design/topology-layers.md,
-# track 2's dev45 fixture, 2026-11-07). The switch deploys as nothing: its
-# trunk from `gw` says `office` reaches the workstations through `access-sw`,
-# the vnet `office` is what the engine stands up, so the deploy is canvas-test's.
+# switch-test -- canvas-test's shape with ONE native access switch between the
+# router and the office workstations (docs/design/native-switches.md; was the
+# device tree's imageless "deploys as nothing" fixture, topology-layers.md
+# track 2, 2026-11-07).
 #
-# The canvas draws gw -> access-sw -> the workstations (access-sw carries
-# office, so they hang off it) and gw -> an implied switch for `servers` (no
-# switch carries it) -> file-server; no segment boxes (§7.1, 2026-11-11).
-# The workstations get no access links of their own: `corp-workstation` is a
-# `count: 2` group, and a link names one emitted device, never a group or one
-# of its members (§5; the expander refuses it), so they stay on `net: office`.
-# The `state: down` access link from access-sw to the file server (the dashed
-# line, it carried nothing) is gone.
+# `access-sw` has no image, so on Proxmox (which declares `native-switch`) it
+# deploys as an adapter-owned OVS bridge: `office` leaves SDN and becomes VLAN
+# 10 on that bridge; `servers` (no switch carries it) stays an SDN vnet. The
+# trunk from `gw` (native office) and one access link per workstation are its
+# ports. The workstations are a `count: 2` group, wired by instance id
+# (`corp-workstation01` / `02`, native-switches §12 S1, 2026-11-12), so each
+# gets its own port: P1 and P2.
+#
+# The canvas draws gw -> access-sw -> the workstations and gw -> an implied
+# switch for `servers` -> file-server (topology-layers §7.1).
 twin_config:
   id: switch-test
-  description: "canvas-test with an imageless access switch: office workstations behind access-sw, a file server, one router, tapped to XPress-SW-A."
+  description: "canvas-test with a native access switch: office workstations on access-sw ports P1/P2, a file server, one router, tapped to XPress-SW-A."
 
   segments:
     - { name: office, cidr: 10.71.10.0/24, zone_type: vlan }
@@ -49,5 +50,15 @@ twin_config:
       b: { device: access-sw, port: SFP1 }
       mode: trunk
       native: office
+      vlans: [office]
+      source: authored
+    - a: { device: access-sw, port: P1 }
+      b: { device: corp-workstation01, port: eth0 }
+      mode: access
+      vlans: [office]
+      source: authored
+    - a: { device: access-sw, port: P2 }
+      b: { device: corp-workstation02, port: eth0 }
+      mode: access
       vlans: [office]
       source: authored
