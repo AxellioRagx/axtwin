@@ -795,6 +795,13 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             imprint=body.get("imprint"), params=_params_of(body), target=target,
         )
 
+    @app.post("/api/fabric-conversion", response_model=dtos.FabricConversionDTO)
+    @_ro
+    def fabric_conversion(req: dtos.FabricConversionRequest) -> dtos.FabricConversionDTO:
+        """The canvas's "convert the fabric to native switches" (native-
+        switches §12 S5): a pure read over the working document."""
+        return service.fabric_conversion(req)
+
     @app.post("/api/plan", response_model=dtos.PlanSummaryDTO)
     @_ro
     def plan(body: dict, target: Optional[str] = _TARGET_QUERY) -> dtos.PlanSummaryDTO:

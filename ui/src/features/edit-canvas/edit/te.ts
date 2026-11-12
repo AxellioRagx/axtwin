@@ -399,6 +399,8 @@ export interface NewNode {
   nets: TeNet[];
   requires?: string[];
   resources?: Record<string, string | number> | null;
+  /** A switch's spanning tree (`native-switches.md` §2.2): `rstp`, or absent (off). */
+  stp?: "rstp" | null;
   /** Provenance (topology-layers §3.1): an authored device says so. */
   source?: TeSource | null;
 }
@@ -422,6 +424,7 @@ export function addNode(text: string, node: NewNode): string {
   lines.push(`${dash}- name: ${encodeScalar(node.name)}`);
   if (node.role) lines.push(`${pad}role: ${encodeScalar(node.role)}`);
   if (node.kind === "router" || node.kind === "switch") lines.push(`${pad}kind: ${node.kind}`);
+  if (node.stp) lines.push(`${pad}stp: ${node.stp}`);
   // An imageless switch deploys as nothing but its segments' vnets: no `image:` line.
   if (node.image || node.kind !== "switch") lines.push(`${pad}image: ${encodeScalar(node.image)}`);
   if (node.requires?.length) lines.push(`${pad}requires: [${node.requires.map(encodeScalar).join(", ")}]`);

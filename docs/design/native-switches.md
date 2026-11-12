@@ -9,8 +9,9 @@ continue on rather than open a second `wip/*` branch; its contract edits (§10)
 landed with its code (`docs/contracts/README.md`). Phase 2 (SPAN on native
 switches, the canvas editor) is built and live-verified on dev45 (§11.2).
 R5 and Phase 3 (RSTP, the libvirt adapter) are built on the user's go,
-2026-11-12; Phase 3's cross-node switches and the corp-twin conversion offer
-are stopped for decisions (§12).
+2026-11-12, and NSW-090 is confirmed. The corp-twin conversion offer is built
+as a whole-fabric conversion (the user's call, §12 S5). Cross-node switches
+(S4) are deferred by the user ("skip cross-node for now").
 
 **Loop step:** **deploy**, plus the **capture gate**. A switch drawn on the
 canvas becomes a switch on the node, and a SPAN session on its port feeds the
@@ -57,7 +58,8 @@ expander stays platform-agnostic, and the IR records only what the author wrote.
 | `kind: switch`, no `image:` | no | **logical**: deploys as nothing, as today; NSW-020 warns |
 
 Discovery casts emit imageless switches, so they deploy native by default.
-corp-twin's bridge VMs are `kind: host` and are not touched (D11).
+corp-twin's bridge VMs are `kind: host` and are not touched (D11) until the
+operator converts the fabric in the canvas (§12 S5).
 
 ### 2.2 New field: `stp` (D6)
 
@@ -425,7 +427,7 @@ NSW-020 reports the logical case.
 | NSW-050 | error | Every `vlans[]` / `native` on an up native-switch port is a segment the switch carries; a link to a VM names a segment the VM has a leg on; one VM NIC is plugged by at most one link; an automatic port name does not collide with an authored one; a native switch links only to VMs (including imaged switches) and native switches. Span sources naming unknown ports are refused at `tap plan` (Phase 2) |
 | NSW-060 | error | A link with a VM end carries exactly one segment the VM has a leg on (access, or trunk with only `native`). v1 does no in-guest VLAN tagging (§12 S3) |
 | NSW-070 | warning | `stp: rstp` on a VM or logical switch: it has no effect (on a native switch it is OVS RSTP, Phase 3) |
-| NSW-090 | error | A loop of native switches over `up` links (parallel links count) runs `stp: rstp` on every switch in it; a `down` link breaks the loop. Added 2026-11-12 with RSTP: without it a looped twin deploys into a broadcast storm |
+| NSW-090 | error | A loop of native switches over `up` links (parallel links count) runs `stp: rstp` on every switch in it; a `down` or `blocked` link breaks the loop. Added 2026-11-12 with RSTP: without it a looped twin deploys into a broadcast storm |
 | NSW-080 | warning | An addressed leg on a native switch: the address is not deployed (§2.5) |
 | CLU-080 | error | Planner-side (Pass 4): every native switch, and every VM attached to one, is placeable on one Proxmox node (§3) |
 
@@ -561,21 +563,55 @@ S2 and S3 as proposed below):
   in-guest 802.1Q subinterfaces, which `configure-router` does not do; NSW-060
   refuses it in v1.
 
-**Phase 3 items stopped for the user (2026-11-12):**
+**Phase 3 items stopped for the user (2026-11-12); answered the same day:**
 
-- **S4, cross-node switches and MTU (D3's deferral).** dev45 is a standalone
+- **S4, cross-node switches and MTU (D3's deferral). Deferred by the user.** dev45 is a standalone
   node (no corosync cluster), and the planner places every plan on one node
   (`pass4_placement.py`, PLANNER §3.4's least-loaded placement is deferred).
   Cross-node tunnels need multi-node placement first -- new scope -- and a
   second node to verify on.
-- **S5, the corp-twin conversion offer (D11).** Two decisions D11 leaves open:
-  (a) the unit -- converting one bridge VM leaves native switches trunked to
-  the remaining bridge VMs, which NSW-060 refuses (no in-guest tagging), so
-  only a whole-fabric conversion yields a valid twin; (b) the trunk VLAN sets
-  live only in `catalog/twins/corp-twin/scripts/serve-l2switch.sh`'s port table
-  (`<leg> access:<vid>` / `trunk:<native>:<vids>`, flags `cost=`, `down`,
-  `mgmt`), which the canvas does not load: the conversion needs an engine-side
-  reader behind an API route, and the `mgmt` SVI (ms120) and the L3 9K pair
-  (VRRP) stay VMs or lose their addresses (S2).
+- **S5, the corp-twin conversion offer (D11). Decided 2026-11-12: whole-fabric
+  conversion; built the same day.** Converting one bridge VM leaves native
+  switches trunked to the remaining bridge VMs, which NSW-060 refuses, so the
+  offer converts every bridge VM at once. The trunks' VLAN sets live only in
+  the bridge recipe's port table (`catalog/twins/corp-twin/scripts/
+  serve-l2switch.sh`), so the engine reads it: `axrange/twinconfig/fabric.py`
+  (`read_port_tables`, `plan_fabric_conversion`) behind `POST
+  /api/fabric-conversion`, and the canvas applies the plan as one edit
+  (`edit/fabric.ts`). The rules:
+  - **one segment per VLAN.** Among the segments a VLAN's access ports name,
+    the one non-isolated anchor (`mx-vlanN`, `vlan953`) survives; the isolated
+    partners go and their legs move to it, pinned addresses kept (the 9K
+    pair's VRRP legs).
+  - **wires become links.** A trunk segment becomes a `trunk` link with the
+    table's native and tagged VLANs; an access wire between two bridges an
+    `access` link; `down` carries over (P17). Of two parallel `up` links the
+    table's higher-cost one is written `state: blocked` (sfp26, as the capture
+    saw it), deterministic; a loop left after that gets `stp: rstp` on every
+    switch (NSW-090). Bridge priorities and port costs have no field and are
+    not carried.
+  - **every VM keeps its switch.** Where D5's automatic port would land a VM
+    leg on another switch, or tie (NSW-040), an explicit access link wires it
+    to the switch the table puts it on, computed with the deploy gate off so
+    every gated member is covered (corp-twin: hq-mx's eleven VLAN legs, the
+    vlan1 / vlan32 / vlan953 hosts, the 9Ks' 8325 legs).
+  - **taps.** A `segment` binding on a removed wire becomes a source of one
+    SPAN session on the switch the group's wires share (the deeper one on a
+    tie: a veth link mirrors the same frames at either end); one on a removed
+    host-side partner is retargeted to the survivor, which D8 compiles to the
+    VLAN's VM ports (naming VM ports would break when the gate drops a VM).
+    corp-twin's MS120 SPAN becomes `span` on ms120 over its eight link ports
+    plus `segment` bindings on mx-vlan20 and mx-vlan1.
+  - **what stays (S2).** The MS120's management address stays an addressed
+    leg of the native switch (NSW-080 warns, not deployed); `l3-switch` hosts
+    (the 9K pair) are not bridge VMs and stay VMs on access ports.
+  - **known losses.** A twin config has no field for a VLAN ID, so mirrored
+    frames carry the planner's tags (2 upward), not the real IDs; the files'
+    comments still describe the bridge VMs and the recipe is no longer
+    installed. The plan says so in its notes.
+  corp-twin's own files are unchanged. Its converted form validates with the
+  `native-switch` capability at gates 0.8, 0.9 and 0.5 (NSW-080 the only NSW
+  finding) and plans 10 `create-switch`, 9 `link-switches` and 10 fewer VMs
+  (`engine/tests/test_fabric_conversion.py`). Not yet deployed live.
 - **libvirt native switches** are built (D10) but not live-verified: no
   libvirt host is configured.

@@ -2597,6 +2597,30 @@ class ConfigExitCancelDTO(BaseModel):
     cancel_requested: bool = True
 
 
+class FabricConversionRequest(BaseModel):
+    """`POST /api/fabric-conversion`: the canvas's working document and which
+    of its files is the twin config (`docs/design/native-switches.md` §12 S5)."""
+
+    document: TwinConfigWriteRequest
+    te_file: str = "te.yaml"
+
+
+class FabricConversionDTO(BaseModel):
+    """The whole-fabric conversion of a document's bridge VMs to native
+    switches, as a plan the canvas applies in one undoable edit
+    (`axrange.twinconfig.fabric.FabricPlan`). Nothing is written."""
+
+    recipe: str
+    bridges: list[str] = []
+    switches: list[dict] = []
+    remove_segments: list[str] = []
+    node_nets: list[dict] = []
+    links: list[dict] = []
+    taps: list[dict] = []
+    notes: list[str] = []
+    problems: list[dict] = []
+
+
 # `TwinConfigDetailDTO.document` names `TwinConfigDocumentDTO` before it is
 # declared; resolve the forward reference now that it is.
 TwinConfigDetailDTO.model_rebuild()

@@ -48,6 +48,7 @@ import type { Files } from "./edit/commands";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
+import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
@@ -123,6 +124,18 @@ export interface SidePanelProps {
   /** The target `sensors` belong to (the deployed twin's, else the default one): the tap inspector names it. Null
    *  when the targets could not be read. */
   sensorTarget?: string | null | undefined;
+  /** Convert every bridge VM to a native switch, as one undoable edit (`native-switches.md` §12 S5):
+   *  answers the engine's notes and the native-switch rule problems on the result, or rejects with the
+   *  reason the fabric cannot convert. Absent where the canvas cannot reach the API. */
+  onConvertFabric?: (() => Promise<string | null>) | undefined;
+  /** The last conversion's bridges, notes and native-switch rule problems: shown on each converted switch. */
+  fabricResult?: FabricResult | null | undefined;
+}
+
+export interface FabricResult {
+  bridges: string[];
+  notes: string[];
+  problems: { rule_id: string; severity: string; message: string }[];
 }
 
 /** The sensors a tap field offers: the targets' declared ones, then the plan's own. */
@@ -915,6 +928,8 @@ function NodePanel(p: SidePanelProps & { name: string }) {
         </>
       ) : null}
       {n.kind === "switch" && !n.image ? <SpanPorts {...p} sw={n.name} /> : null}
+      {isBridgeVm(n) && p.onConvertFabric ? <ConvertFabric {...p} name={n.name} /> : null}
+      {!isBridgeVm(n) && p.fabricResult?.bridges.includes(n.name) ? <FabricNotes result={p.fabricResult} /> : null}
       {tapsHere.length || n.kind !== "host" ? (
         <>
           <h4>Taps <span className="muted">· tap, live</span></h4>
@@ -1193,6 +1208,60 @@ function TapPanel(p: SidePanelProps & { index: number }) {
  *  VLANs to narrow to. Writes the switch's one `span` binding through the tap
  *  plan: the first direction set adds it (once a sensor is named), the last one
  *  cleared removes it. A `taps` change: live. */
+/** The D11 offer on a bridge VM: convert the WHOLE fabric (every bridge VM) to native switches. One
+ *  bridge alone cannot convert -- its native neighbours would trunk to the remaining bridge VMs, which
+ *  NSW-060 refuses -- so the button converts them all; one undo restores them. */
+function ConvertFabric(p: SidePanelProps & { name: string }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const bridges = p.model.te.nodes.filter(isBridgeVm).length;
+  const run = () => {
+    if (!p.onConvertFabric) return;
+    setBusy(true);
+    setError(null);
+    p.onConvertFabric().then(
+      (blocked) => {
+        setBusy(false);
+        setError(blocked);
+      },
+      (e: unknown) => {
+        setBusy(false);
+        setError(errorText(e));
+      },
+    );
+  };
+  return (
+    <div data-testid="convert-fabric">
+      <h4>Native switches <span className="muted">· topology</span></h4>
+      <p className="muted hint">
+        {p.name} is a bridge VM. Converting replaces all {bridges} bridge VMs with native switches and links, read from the recipe's port tables; the
+        tap plans' bindings on the removed segments move to SPAN sessions. One undo restores the VMs; nothing changes until you save.
+      </p>
+      <button type="button" disabled={p.locked || busy} onClick={run} data-testid="convert-fabric-run">
+        {busy ? "Converting…" : `Convert the fabric (${bridges} bridge VMs)`}
+      </button>
+      {error ? <p className="cv-error" data-testid="convert-fabric-error">{error}</p> : null}
+    </div>
+  );
+}
+
+/** What the engine said about the conversion this switch came from. */
+function FabricNotes({ result }: { result: FabricResult }) {
+  return (
+    <div data-testid="convert-fabric-notes">
+      <h4>Converted from a bridge VM <span className="muted">· topology</span></h4>
+      <ul className="cv-legs">
+        {result.problems.map((x, i) => (
+          <li key={`p${i}`} className={x.severity === "error" ? "cv-error" : "muted"}>{x.rule_id}: {x.message}</li>
+        ))}
+        {result.notes.map((x, i) => (
+          <li key={`n${i}`} className="muted">{x}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function SpanPorts(p: SidePanelProps & { sw: string }) {
   const ro = p.locked;
   const binding = spanOn(p.model.tap, p.sw);

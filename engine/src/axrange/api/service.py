@@ -6551,6 +6551,36 @@ def validate_document(
     )
 
 
+def fabric_conversion(req: dtos.FabricConversionRequest) -> dtos.FabricConversionDTO:
+    """`POST /api/fabric-conversion` (`docs/design/native-switches.md` §12
+    S5, D11): the document's bridge VMs converted to native switches as a
+    whole fabric, read against the port tables in the recipe the bridge VMs
+    install. Pure: the plan is the answer, the canvas applies it."""
+    from axrange.twinconfig.fabric import (
+        FabricConversionError, bridge_recipe, plan_fabric_conversion,
+    )
+
+    files = _normalized_files(req.document.files)
+    te_text = files.get(req.te_file)
+    if te_text is None:
+        raise ApiError(400, f"the document has no {req.te_file!r}")
+    try:
+        from axrange.api import edits
+
+        te_raw = edits.parse_yaml(te_text)
+        recipe = bridge_recipe(te_raw if isinstance(te_raw, dict) else {})
+        if recipe is None:
+            raise FabricConversionError("the twin has no bridge VM to convert")
+        script = files.get(recipe)
+        if script is None:
+            raise FabricConversionError(f"the bridge VMs install {recipe!r}, which the document lacks")
+        taps = {p: t for p, t in files.items() if p.startswith("tap/") and p.endswith((".yaml", ".yml"))}
+        plan = plan_fabric_conversion(te_text, script, taps)
+    except FabricConversionError as e:
+        raise ApiError(422, str(e), detail={"code": "not-convertible"}) from e
+    return dtos.FabricConversionDTO(recipe=recipe, **plan.as_dict())
+
+
 def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
     """Every `tfc/*.yaml`, `tap/*.yaml` and `personas/*.yaml` of the
     document (and a legacy cast's root-level `tap-cast.yaml` / `tfc-cast.yaml`

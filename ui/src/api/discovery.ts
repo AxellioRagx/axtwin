@@ -39,6 +39,7 @@ import type {
   TwinSummary,
   TwinTree,
   ValidateResult,
+  FabricPlan,
   Whoami,
 } from "./types";
 
@@ -116,6 +117,8 @@ export interface Api {
   cancelDeployConfigExit(deployId: string): Promise<ConfigExitCancel>;
   /** Validate a document (`{id, files}`) through the Save / Persist path without writing; a FAIL is a 200 with the findings. */
   validateDocument(document: { id: string; files: Record<string, string> }, signal?: AbortSignal): Promise<ValidateResult>;
+  /** The whole-fabric conversion of the document's bridge VMs to native switches (a pure read). */
+  fabricConversion(document: { id: string; files: Record<string, string> }, teFile: string): Promise<FabricPlan>;
   // Deploy a twin from the console (2026-11-08): the pure plan, then the deploy pinned to it.
   listTargets(signal?: AbortSignal): Promise<TargetList>;
   /** One status per lab component of a target (`docs/design/targets-and-lab.md` §2.2). */
@@ -182,6 +185,7 @@ export function makeApi(request: Requester): Api {
     startTier: (deployId, tier, body) => request("POST", `/api/deploys/${enc(deployId)}/tiers/${enc(tier)}`, { body: body ?? {} }),
     cancelDeployConfigExit: (deployId) => request("POST", `/api/deploys/${enc(deployId)}/config/cancel`, { body: {} }),
     validateDocument: (document, signal) => request("POST", "/api/validate", { body: { document }, signal }),
+    fabricConversion: (document, teFile) => request("POST", "/api/fabric-conversion", { body: { document, te_file: teFile } }),
     listTargets: (signal) => request("GET", "/api/targets", { signal }),
     getTargetHealth: (name, signal) => request("GET", `/api/targets/${enc(name)}/health`, { signal }),
     listTargetDeploys: (target, signal) => request("GET", `/api/deploys?target=${enc(target)}`, { signal }),

@@ -263,6 +263,16 @@ of its own to click).
       with a direction (off / rx / tx / both) and, on a trunk, the VLANs to
       narrow to; an automatic `<host>.<leg>` port is added by name. switch-test's
       tap is now `span` on access-sw SFP1 — `canvas.span.test.ts`.
+- [x] The bridge-VM conversion offer (`native-switches.md` §12 S5, D11,
+      2026-11-12): a bridge VM's panel (a `kind: host`, `role: l2-switch` node
+      with an image) offers "Convert the fabric (N bridge VMs)". It asks the
+      engine (`POST /api/fabric-conversion`) and applies the answer as one
+      edit (`edit/fabric.ts` `applyFabricPlan`), so one undo restores every
+      bridge VM; a converted switch's panel lists the engine's notes and the
+      native-switch rule problems; a refusal shows in place and changes
+      nothing. The whole fabric converts, never one bridge (its neighbours
+      would trunk to the remaining bridge VMs, NSW-060) — `canvas.fabric.test.tsx`
+      (corp-twin's plan applied to its files; the offer on a three-node twin).
 
 ### The device tree checklist (topology-layers, tracks 5a–5d, 2026-11-07)
 

@@ -430,7 +430,7 @@ Added 2026-11-12 (`docs/design/native-switches.md` §9, Authority: user). "Nativ
 | `NSW-060` | error | A link with a VM end carries exactly one network the VM has a leg on (access, or trunk with only `native`): no in-guest VLAN tagging in v1 |
 | `NSW-070` | warning | `stp: rstp` on a VM or logical switch has no effect (on a native switch it is OVS RSTP, phase 3, 2026-11-12) |
 | `NSW-080` | warning | An addressed leg on a native switch: the address is not deployed (a native switch has no SVI in v1) |
-| `NSW-090` | error | A loop of native switches over `up` links (parallel links count) runs `stp: rstp` on every switch in it; a `down` link breaks the loop (2026-11-12, with RSTP) |
+| `NSW-090` | error | A loop of native switches over `up` links (parallel links count) runs `stp: rstp` on every switch in it; a `down` or `blocked` link breaks the loop (2026-11-12, with RSTP) |
 
 ## 6. Worked example: a single rule
 

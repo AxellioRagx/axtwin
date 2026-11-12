@@ -50,6 +50,7 @@ import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
 import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor, type ApplyOptions } from "./edit/useEditor";
@@ -61,7 +62,7 @@ import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
 import { moveMember } from "./edit/members";
 import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
-import { Checks, SidePanel, checksBadge, knownSensors, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
+import { Checks, SidePanel, checksBadge, knownSensors, type FabricResult, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
   twin: TwinSummary;
@@ -453,6 +454,19 @@ export function CanvasPage() {
     },
     [editor, locked],
   );
+
+  // The D11 offer (native-switches §12 S5): the engine plans the whole-fabric conversion over the
+  // working document; the plan lands as one edit (one undo).
+  const [fabricResult, setFabricResult] = useState<FabricResult | null>(null);
+  const onConvertFabric = useCallback(async () => {
+    const doc = editor.doc;
+    const files = editor.files;
+    if (!doc || !files) throw new Error("no document loaded");
+    const plan = await api.fabricConversion({ id: doc.id, files }, doc.teFile);
+    const blocked = edit(`convert the fabric to native switches (${plan.bridges.length} bridge VMs)`, (d, m) => applyFabricPlan(d, m, plan));
+    if (!blocked) setFabricResult({ bridges: plan.bridges, notes: plan.notes, problems: plan.problems });
+    return blocked;
+  }, [api, editor, edit]);
 
   // A deployed twin's edits sync to the working copy (A2) after a short quiet
   // spell; the API validates and classifies, and a refusal reverts the edit.
@@ -1416,6 +1430,8 @@ export function CanvasPage() {
                         onSelect={setSelection}
                         sensors={declaredSensors}
                         sensorTarget={sensorTargetName}
+                        onConvertFabric={onConvertFabric}
+                        fabricResult={fabricResult}
                       />
                     ),
                     checks: (

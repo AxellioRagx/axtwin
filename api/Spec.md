@@ -30,7 +30,7 @@ that is **not** listed under a seam below already exists:
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
 `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology` (a `network` node carries the segment's `egress`, the config's uplink marker the canvas reads -- 2026-11-06),
-`GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `GET|PUT /api/deploys/{id}/config`, `POST /api/deploys/{id}/config/apply|reset|cancel`, `POST /api/validate`,
+`GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `GET|PUT /api/deploys/{id}/config`, `POST /api/deploys/{id}/config/apply|reset|cancel`, `POST /api/validate`, `POST /api/fabric-conversion`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
 `DELETE /api/deploys/{id}`, `GET|POST|DELETE /api/tfc`, `GET|POST|DELETE /api/taps`,
 `GET|POST|DELETE /api/exr`, `GET /openapi.json`.
@@ -43,6 +43,16 @@ the sensors. Since 2026-11-08 the response also lists what came down per tier,
 children first and the te last (`released`: the tap's gretap / mirror actions);
 a tier with nothing standing is a row with `deploy_id: null`. Tests:
 `engine/tests/test_api.py` (a te with a standing tfc and tap).
+
+`POST /api/fabric-conversion {document: {id, files}, te_file}` answers the
+whole-fabric conversion of the document's bridge VMs to native switches
+(`docs/design/native-switches.md` §12 S5) as a plan the canvas applies in one
+undoable edit: the switches, the removed segments, the moved legs, the links,
+each tap file's retargets / removals / SPAN sessions, the engine's notes and the
+native-switch rule problems on the result. Pure, nothing written; a fabric that
+cannot convert is a 422 with the reason. **Built 2026-11-12**
+(`service.fabric_conversion` over `axrange/twinconfig/fabric.py`; tests
+`engine/tests/test_fabric_conversion.py`).
 
 `POST /api/validate` also takes `{document: {id, files}}` -- a twin-config
 bundle in the shape `POST /api/twin-configs` writes -- and validates it

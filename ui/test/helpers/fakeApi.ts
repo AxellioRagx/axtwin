@@ -5,6 +5,7 @@
 import { ApiError } from "../../src/api/client";
 import type { Api } from "../../src/api/discovery";
 import type {
+  FabricPlan,
   ConfigExit,
   DiscoveryPlugin,
   DiscoveryRun,
@@ -109,6 +110,8 @@ export function tunnelSource(over: Partial<DiscoverySource> = {}): DiscoverySour
 }
 
 export interface FakeState {
+  /** What `POST /api/fabric-conversion` answers; unset, the fake refuses like a twin with no bridge VM. */
+  fabricPlan?: FabricPlan;
   /** What `GET /api/whoami` answers (A8); the dev default is an open deployment. */
   whoami: Whoami;
   plugins: DiscoveryPlugin[];
@@ -667,6 +670,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       delete state.workingCopies[deployId];
       tiers.push({ tier: "te", deploy_id: deployId, destroyed: true, removed: 3, errors: 0, released: [] });
       return { deploy_id: deployId, destroyed: true, removed: 3, errors: 0, actions: [], cascade_errors: [], tiers };
+    },
+    async fabricConversion(document, teFile) {
+      state.writes.push({ op: "fabric-conversion", id: document.id, body: { document, te_file: teFile } });
+      if (!state.fabricPlan) throw new ApiError({ kind: "http", status: 422, message: "the twin has no bridge VM to convert", url: "/api/fabric-conversion" });
+      return state.fabricPlan;
     },
     async validateDocument(document) {
       state.writes.push({ op: "validate", id: document.id, body: document });

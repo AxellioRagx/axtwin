@@ -886,6 +886,20 @@ export interface ValidationFinding {
   location?: string | null;
 }
 
+/** `POST /api/fabric-conversion`: a document's bridge VMs converted to native switches as one fabric
+ *  (`docs/design/native-switches.md` §12 S5), as a plan the canvas applies; nothing is written. */
+export interface FabricPlan {
+  recipe: string;
+  bridges: string[];
+  switches: { name: string; role: string; stp: "rstp" | null; nets: { segment: string; ip: string | null }[] }[];
+  remove_segments: string[];
+  node_nets: { node: string; nets: { segment: string; ip: string | null }[] }[];
+  links: { a: { device: string; port: string }; b: { device: string; port: string }; mode: "access" | "trunk"; native: string | null; vlans: string[]; state: "down" | "blocked" | null }[];
+  taps: { path: string; remove: number[]; retarget: { index: number; target: string }[]; add_spans: { switch: string; sources: { port: string; dir: "rx" | "tx" | "both" }[]; sensors: string[]; mode: string | null }[] }[];
+  notes: string[];
+  problems: { rule_id: string; severity: string; message: string; location: string }[];
+}
+
 export interface ValidateResult {
   disposition: string;
   exit_code: number;

@@ -1,0 +1,1419 @@
+{
+ "bridges": [
+  "mx-sw",
+  "ms120",
+  "sgs-5240",
+  "axeprodsw",
+  "cos-sw-r32e01",
+  "labswitch",
+  "hwlab2960s",
+  "sw-3850",
+  "8325h-l",
+  "8325h-r"
+ ],
+ "switches": [
+  {
+   "name": "mx-sw",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "ms120",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": "10.180.16.15"
+    }
+   ]
+  },
+  {
+   "name": "sgs-5240",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "axeprodsw",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "cos-sw-r32e01",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "labswitch",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "hwlab2960s",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": [
+    {
+     "segment": "mx-vlan32",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "name": "sw-3850",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "8325h-l",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  },
+  {
+   "name": "8325h-r",
+   "role": "l2-switch",
+   "stp": null,
+   "nets": []
+  }
+ ],
+ "remove_segments": [
+  "sfp25",
+  "sfp26",
+  "t-ms120-sgs5240",
+  "t-ms120-axeprod",
+  "t-ms120-cos",
+  "t-ms120-labsw",
+  "t-ms120-3850",
+  "vlan1",
+  "vlan20",
+  "vlan32",
+  "p17-hwlab2960s",
+  "vlan40",
+  "vlan48",
+  "vlan52",
+  "vlan64",
+  "vlan192",
+  "x3850-9k01",
+  "x3850-9k02",
+  "x9k01-8325l",
+  "x9k02-8325r",
+  "isl-8325"
+ ],
+ "node_nets": [
+  {
+   "node": "9k01",
+   "nets": [
+    {
+     "segment": "mx-vlan935",
+     "ip": "10.180.93.2"
+    },
+    {
+     "segment": "vlan953",
+     "ip": "10.180.34.2"
+    }
+   ]
+  },
+  {
+   "node": "9k02",
+   "nets": [
+    {
+     "segment": "mx-vlan935",
+     "ip": "10.180.93.3"
+    },
+    {
+     "segment": "vlan953",
+     "ip": "10.180.34.3"
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan1",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-16-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-heavy-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "domain-controller-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-20-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-20-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-20-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "web-tier-light-10-80-20-regular",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-31-core",
+   "nets": [
+    {
+     "segment": "mx-vlan20",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-32-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan32",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-40-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan40",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-10-80-48-core",
+   "nets": [
+    {
+     "segment": "mx-vlan48",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-48-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan48",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-63-core",
+   "nets": [
+    {
+     "segment": "mx-vlan52",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-light-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "dns-resolver-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-64-regular",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-64-regular",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-64-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-65-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-65-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-65-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-10-80-72-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-72-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-72-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-72-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-72-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-72-regular",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "web-tier-10-80-72-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-73-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-73-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-73-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-74-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-74-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-74-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "file-server-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-75-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "web-tier-10-80-75-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-76-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-76-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-77-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-77-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-light-10-80-78-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-10-80-78-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-light-10-80-79-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-79-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-10-80-79-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-10-80-79-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "unroled-endpoint-10-80-79-core",
+   "nets": [
+    {
+     "segment": "mx-vlan64",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "corp-workstation-192-168-core",
+   "nets": [
+    {
+     "segment": "mx-vlan192",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-192-168-core",
+   "nets": [
+    {
+     "segment": "mx-vlan192",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-heavy-192-168-core",
+   "nets": [
+    {
+     "segment": "mx-vlan192",
+     "ip": null
+    }
+   ]
+  },
+  {
+   "node": "generic-endpoint-light-192-168-transient",
+   "nets": [
+    {
+     "segment": "mx-vlan192",
+     "ip": null
+    }
+   ]
+  }
+ ],
+ "links": [
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "sfp25"
+   },
+   "b": {
+    "device": "ms120",
+    "port": "sfp25"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan20",
+    "mx-vlan32",
+    "mx-vlan40",
+    "mx-vlan48",
+    "mx-vlan52",
+    "mx-vlan64",
+    "mx-vlan192",
+    "mx-vlan880",
+    "mx-vlan1010",
+    "mx-vlan935"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "sfp26"
+   },
+   "b": {
+    "device": "ms120",
+    "port": "sfp26"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan20",
+    "mx-vlan32",
+    "mx-vlan40",
+    "mx-vlan48",
+    "mx-vlan52",
+    "mx-vlan64",
+    "mx-vlan192",
+    "mx-vlan880",
+    "mx-vlan1010",
+    "mx-vlan935"
+   ],
+   "state": "blocked"
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "t-ms120-sgs5240"
+   },
+   "b": {
+    "device": "sgs-5240",
+    "port": "t-ms120-sgs5240"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan64"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "t-ms120-axeprod"
+   },
+   "b": {
+    "device": "axeprodsw",
+    "port": "t-ms120-axeprod"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan48",
+    "mx-vlan52"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "t-ms120-cos"
+   },
+   "b": {
+    "device": "cos-sw-r32e01",
+    "port": "t-ms120-cos"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan40"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "t-ms120-labsw"
+   },
+   "b": {
+    "device": "labswitch",
+    "port": "t-ms120-labsw"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan192"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "t-ms120-3850"
+   },
+   "b": {
+    "device": "sw-3850",
+    "port": "t-ms120-3850"
+   },
+   "mode": "trunk",
+   "native": "mx-vlan1",
+   "vlans": [
+    "mx-vlan935"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "p17-hwlab2960s"
+   },
+   "b": {
+    "device": "hwlab2960s",
+    "port": "p17-hwlab2960s"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan32"
+   ],
+   "state": "down"
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "isl-8325"
+   },
+   "b": {
+    "device": "8325h-r",
+    "port": "isl-8325"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan1"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth2"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan1"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan20"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth3"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan20"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan32"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth4"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan32"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan40"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth5"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan40"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan48"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth6"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan48"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan52"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth7"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan52"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan64"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth8"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan64"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan192"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth9"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan192"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan880"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth10"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan880"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan1010"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth11"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan1010"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "mx-sw",
+    "port": "mx-vlan935"
+   },
+   "b": {
+    "device": "hq-mx",
+    "port": "eth12"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan935"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "x9k01-8325l"
+   },
+   "b": {
+    "device": "9k01",
+    "port": "eth1"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-r",
+    "port": "x9k02-8325r"
+   },
+   "b": {
+    "device": "9k02",
+    "port": "eth1"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "ms120",
+    "port": "vlan1"
+   },
+   "b": {
+    "device": "generic-endpoint-light-10-80-transient",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan1"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "hwlab2960s",
+    "port": "vlan32"
+   },
+   "b": {
+    "device": "generic-endpoint-light-10-80-32-transient",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "mx-vlan32"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "generic-endpoint-heavy-10-80-34-core.0"
+   },
+   "b": {
+    "device": "generic-endpoint-heavy-10-80-34-core",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "web-tier-10-80-34-core01.0"
+   },
+   "b": {
+    "device": "web-tier-10-80-34-core01",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "web-tier-10-80-34-core02.0"
+   },
+   "b": {
+    "device": "web-tier-10-80-34-core02",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  },
+  {
+   "a": {
+    "device": "8325h-l",
+    "port": "web-tier-10-80-34-core03.0"
+   },
+   "b": {
+    "device": "web-tier-10-80-34-core03",
+    "port": "eth0"
+   },
+   "mode": "access",
+   "native": null,
+   "vlans": [
+    "vlan953"
+   ],
+   "state": null
+  }
+ ],
+ "taps": [
+  {
+   "path": "tap/default.yaml",
+   "remove": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "retarget": [
+    {
+     "index": 2,
+     "target": "mx-vlan20"
+    },
+    {
+     "index": 3,
+     "target": "mx-vlan1"
+    }
+   ],
+   "add_spans": [
+    {
+     "switch": "ms120",
+     "sources": [
+      {
+       "port": "sfp25",
+       "dir": "both"
+      },
+      {
+       "port": "sfp26",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-sgs5240",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-axeprod",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-cos",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-labsw",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-3850",
+       "dir": "both"
+      },
+      {
+       "port": "p17-hwlab2960s",
+       "dir": "both"
+      }
+     ],
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "mode": null
+    }
+   ]
+  },
+  {
+   "path": "tap/fanout-suricata.yaml",
+   "remove": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "retarget": [
+    {
+     "index": 2,
+     "target": "mx-vlan20"
+    },
+    {
+     "index": 3,
+     "target": "mx-vlan1"
+    }
+   ],
+   "add_spans": [
+    {
+     "switch": "ms120",
+     "sources": [
+      {
+       "port": "sfp25",
+       "dir": "both"
+      },
+      {
+       "port": "sfp26",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-sgs5240",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-axeprod",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-cos",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-labsw",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-3850",
+       "dir": "both"
+      },
+      {
+       "port": "p17-hwlab2960s",
+       "dir": "both"
+      }
+     ],
+     "sensors": [
+      "XPress-SW-A",
+      "o2-suricata"
+     ],
+     "mode": "fanout"
+    }
+   ]
+  },
+  {
+   "path": "tap/gate90.yaml",
+   "remove": [
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "retarget": [
+    {
+     "index": 2,
+     "target": "mx-vlan20"
+    },
+    {
+     "index": 3,
+     "target": "mx-vlan1"
+    }
+   ],
+   "add_spans": [
+    {
+     "switch": "ms120",
+     "sources": [
+      {
+       "port": "sfp25",
+       "dir": "both"
+      },
+      {
+       "port": "sfp26",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-sgs5240",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-axeprod",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-cos",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-labsw",
+       "dir": "both"
+      },
+      {
+       "port": "t-ms120-3850",
+       "dir": "both"
+      },
+      {
+       "port": "p17-hwlab2960s",
+       "dir": "both"
+      }
+     ],
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "mode": null
+    }
+   ]
+  },
+  {
+   "path": "tap/uplink-span.yaml",
+   "remove": [
+    2
+   ],
+   "retarget": [],
+   "add_spans": [
+    {
+     "switch": "ms120",
+     "sources": [
+      {
+       "port": "sfp25",
+       "dir": "both"
+      }
+     ],
+     "sensors": [
+      "XPress-SW-A"
+     ],
+     "mode": null
+    }
+   ]
+  }
+ ],
+ "notes": [
+  "'ms120' keeps its address 10.180.16.15 on 'mx-vlan20' as an addressed leg: a native switch has no SVI in v1, so it is not deployed (NSW-080, S2)",
+  "the tables' STP bridge priorities and port costs have no field on a native switch and are not carried",
+  "'mx-sw' <-> 'ms120' port 'sfp26' is the redundant link STP blocked (higher cost): written `state: blocked`; with `stp: rstp` on both switches it would fail over instead (but RSTP, not the table's cost, then picks the blocked port)",
+  "8 VM leg(s) would auto-attach to another switch (or tie between carriers, NSW-040): wired by explicit access links to the switch the table puts them on",
+  "tap/default.yaml: the binding on 'vlan20' now names 'mx-vlan20': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/default.yaml: the binding on 'vlan1' now names 'mx-vlan1': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/fanout-suricata.yaml: the binding on 'vlan20' now names 'mx-vlan20': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/fanout-suricata.yaml: the binding on 'vlan1' now names 'mx-vlan1': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/gate90.yaml: the binding on 'vlan20' now names 'mx-vlan20': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/gate90.yaml: the binding on 'vlan1' now names 'mx-vlan1': on a native switch a segment binding mirrors every VM port on the VLAN, across its switches (D8)",
+  "tap/uplink-span.yaml: ['sfp25'] joins ['ms120', 'mx-sw']; the SPAN session is put on 'ms120' (the deeper one -- a veth link mirrors the same frames at either end)",
+  "the planner assigns the VLAN tags (from 2 upward): a twin config has no field for the real VLAN IDs, so mirrored frames carry the planner's tags",
+  "comments in the files still describe the bridge VMs, and the recipe script is no longer installed by any node -- edit or delete them by hand"
+ ],
+ "problems": [
+  {
+   "rule_id": "NSW-080",
+   "severity": "warning",
+   "message": "Native switch 'ms120' has an address on 'mx-vlan20': a native switch has no SVI in v1, the address is not deployed",
+   "location": "layers.infra.nodes[3]"
+  }
+ ]
+}
