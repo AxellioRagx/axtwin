@@ -15,6 +15,7 @@ import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "
 import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
 import {
+  addSpan,
   addTap,
   attach,
   clearPersona,
@@ -37,6 +38,7 @@ import {
   setPersona,
   setSegmentField,
   setSensorsOnTaps,
+  setSpanSourcesOf,
   setTapSensorsOf,
   tapsWithoutSensor,
   type DocModel,
@@ -47,7 +49,7 @@ import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
 import { hostSwitch, insertSwitch } from "./edit/switches";
-import { selectorOf, tapsOn, type TapBinding, type TapSelector } from "./edit/tap";
+import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 
 export type Selection =
@@ -912,6 +914,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </Field>
         </>
       ) : null}
+      {n.kind === "switch" && !n.image ? <SpanPorts {...p} sw={n.name} /> : null}
       {tapsHere.length || n.kind !== "host" ? (
         <>
           <h4>Taps <span className="muted">· tap, live</span></h4>
@@ -1168,7 +1171,7 @@ function TapPanel(p: SidePanelProps & { index: number }) {
         Tap <span className="mono">{b.scope} {b.targets.join(" ↔ ")}{b.segment ? ` (${b.segment})` : ""}</span>
       </h3>
       <h4>Taps <span className="muted">· tap, live</span></h4>
-      <TapWhere {...p} b={b} />
+      {b.scope === "span" ? <SpanPorts {...p} sw={b.targets[0] ?? ""} /> : <TapWhere {...p} b={b} />}
       <TapSensors {...p} b={b} ro={ro} />
       <dl className="facts">
         <dt>Mode</dt>
@@ -1180,6 +1183,97 @@ function TapPanel(p: SidePanelProps & { index: number }) {
         Remove tap
       </button>
     </section>
+  );
+}
+
+/** A switch's ports for a SPAN session (docs/design/native-switches.md §6): one
+ *  row per port its links name (plus any automatic `<host>.<leg>` port already
+ *  in the session, or typed in), each with a direction -- off, rx (what the
+ *  switch receives on it), tx (what it sends), both -- and, on a trunk, the
+ *  VLANs to narrow to. Writes the switch's one `span` binding through the tap
+ *  plan: the first direction set adds it (once a sensor is named), the last one
+ *  cleared removes it. A `taps` change: live. */
+function SpanPorts(p: SidePanelProps & { sw: string }) {
+  const ro = p.locked;
+  const binding = spanOn(p.model.tap, p.sw);
+  const sources = binding?.sources ?? [];
+  const [sensors, setSensors] = useState("");
+  const [extra, setExtra] = useState("");
+  const known = knownSensors(p.model, p.sensors);
+  const chosen = sensors.split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
+  const linkPorts = p.model.te.links.flatMap((l) => {
+    const ends = [[l.a, l.b], [l.b, l.a]] as const;
+    return ends.filter(([e]) => e.device === p.sw).map(([e, far]) => ({ port: e.port, far: `${far.device}#${far.port}`, mode: l.mode, carried: [...new Set([...(l.native ? [l.native] : []), ...l.vlans])], state: l.state }));
+  });
+  const rows = [...linkPorts, ...sources.filter((x) => !linkPorts.some((l) => l.port === x.port)).map((x) => ({ port: x.port, far: "automatic port", mode: "access" as const, carried: [] as string[], state: "up" as const }))];
+  const write = (next: SpanSource[], label: string) => {
+    if (binding) return p.apply(`${label} (span on ${p.sw})`, (d, m) => setSpanSourcesOf(d, m, binding.index, next));
+    if (!next.length) return null;
+    return p.apply(`span on ${p.sw}`, (d, m) => addSpan(d, m, { switch: p.sw, sources: next, sensors: chosen, source: "authored" }));
+  };
+  const setDir = (port: string, dir: string) => {
+    const rest = sources.filter((x) => x.port !== port);
+    const cur = sources.find((x) => x.port === port);
+    const next = dir === "off" ? rest : [...rest, { ...(cur ?? { port }), port, dir: dir as SpanSource["dir"] }];
+    return write(next.sort((a, b) => a.port.localeCompare(b.port)), `${port} ${dir}`);
+  };
+  const toggleVlan = (port: string, carried: string[], vlan: string) => {
+    const cur = sources.find((x) => x.port === port);
+    if (!cur) return;
+    const have = new Set(cur.vlans ?? carried);
+    if (have.has(vlan)) have.delete(vlan);
+    else have.add(vlan);
+    const vlans = carried.filter((v) => have.has(v));
+    const entry: SpanSource = vlans.length === carried.length || vlans.length === 0 ? { port, dir: cur.dir } : { port, dir: cur.dir, vlans };
+    write(sources.map((x) => (x.port === port ? entry : x)), `${port} VLANs`);
+  };
+  const needSensor = !binding && chosen.length === 0;
+  return (
+    <div data-testid="span-ports">
+      <h4>SPAN <span className="muted">· tap, live</span></h4>
+      <p className="muted hint">a native switch's mirror session: set a port's direction to add it (rx = what the switch receives on it)</p>
+      {!binding ? (
+        <Field label="Sensors" hint="the tap tier refuses a session with no sensor">
+          <input type="text" aria-label="SPAN sensors" placeholder={known[0] ? `e.g. ${known[0]}` : "sensor names, comma-separated"} value={sensors} disabled={ro} onChange={(e) => setSensors(e.target.value)} list="cv-sensors" />
+        </Field>
+      ) : null}
+      <table className="cv-span-ports">
+        <tbody>
+          {rows.map((r) => {
+            const cur = sources.find((x) => x.port === r.port);
+            return (
+              <tr key={r.port} data-testid="span-port" data-port={r.port}>
+                <td className="mono">{r.port}</td>
+                <td className="muted">{r.far}{r.state !== "up" ? ` · ${r.state}` : ""}</td>
+                <td>
+                  <select aria-label={`SPAN direction ${r.port}`} value={cur?.dir ?? "off"} disabled={ro || (needSensor && !cur)} onChange={(e) => setDir(r.port, e.target.value)}>
+                    <option value="off">off</option>
+                    {SPAN_DIRS.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  {cur && r.mode === "trunk" && r.carried.length > 1
+                    ? r.carried.map((v) => (
+                        <label key={v} className="cv-inline">
+                          <input type="checkbox" aria-label={`SPAN VLAN ${v} on ${r.port}`} checked={(cur.vlans ?? r.carried).includes(v)} disabled={ro} onChange={() => toggleVlan(r.port, r.carried, v)} /> {v}
+                        </label>
+                      ))
+                    : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <span className="row cv-inline">
+        <input type="text" aria-label="SPAN automatic port" placeholder="automatic port, e.g. corp-workstation01.0" value={extra} disabled={ro} onChange={(e) => setExtra(e.target.value)} />
+        <button type="button" disabled={ro || !extra.trim() || (needSensor) || rows.some((r) => r.port === extra.trim())} onClick={() => { if (setDir(extra.trim(), "both") === null) setExtra(""); }}>
+          Add port
+        </button>
+      </span>
+    </div>
   );
 }
 

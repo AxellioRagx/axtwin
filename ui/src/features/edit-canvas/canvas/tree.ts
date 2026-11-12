@@ -85,7 +85,7 @@ export interface TreeOptions {
 export interface TreeTap {
   index: number;
   scope: string;
-  /** The segments (a `segment` / `boundary` tap) or the device (a `port` tap) it sits on. */
+  /** The segments (a `segment` / `boundary` tap), the device (a `port` tap) or the switch (a `span`) it sits on. */
   targets: string[];
   /** A `port` tap's segment: where the chip goes when the port is a host's (the chip rides the host's switch). */
   segment?: string | null;
@@ -801,6 +801,12 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     return a && !isFold(a) ? a : null;
   };
   for (const tap of options.taps ?? []) {
+    if (tap.scope === "span") {
+      // A SPAN session (native-switches §6) rides the switch it mirrors.
+      const sw = tap.targets[0];
+      if (sw && deviceNames.has(sw)) pushTap(tap, nodeIdOf(sw), sw, false);
+      continue;
+    }
     if (tap.scope === "boundary") {
       const router = boundaryRouter(graph.routers, tap.targets);
       if (router) {

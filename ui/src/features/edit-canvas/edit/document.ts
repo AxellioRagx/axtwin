@@ -15,7 +15,7 @@ import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { MANIFEST, readManifest, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
-import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector } from "./tap";
+import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
   addLink as teAddLink,
   addNode,
@@ -442,6 +442,29 @@ export function retargetTap(doc: WorkingDoc, model: DocModel, index: number, sel
 export function setTapSensorsOf(doc: WorkingDoc, model: DocModel, index: number, sensors: string[]): Files {
   if (!model.tapPath) return doc.files;
   return { ...doc.files, [model.tapPath]: setTapSensors(doc.files[model.tapPath]!, index, sensors) };
+}
+
+/** Add a SPAN session on a native switch (native-switches §6), creating the
+ *  tap plan when the bundle has none. A `taps` change: live. */
+export function addSpan(doc: WorkingDoc, model: DocModel, binding: Parameters<typeof addSpanBinding>[1]): Files {
+  const sw = model.te.nodes.find((n) => n.name === binding.switch);
+  if (!sw || sw.kind !== "switch") throw new Error(`no switch '${binding.switch}' in the twin`);
+  const files = { ...doc.files };
+  let path = model.tapPath;
+  if (!path) {
+    path = DEFAULT_TAP_PATH;
+    files[path] = emptyTap(doc.id);
+    if (files[MANIFEST] !== undefined) files[MANIFEST] = wireTapDefault(files[MANIFEST]!, path);
+  }
+  files[path] = addSpanBinding(files[path]!, binding);
+  return files;
+}
+
+/** Replace a SPAN session's sources; the last source removed removes the tap. */
+export function setSpanSourcesOf(doc: WorkingDoc, model: DocModel, index: number, sources: SpanSource[]): Files {
+  if (!model.tapPath) return doc.files;
+  if (!sources.length) return removeTap(doc, model, index);
+  return { ...doc.files, [model.tapPath]: setSpanSources(doc.files[model.tapPath]!, index, sources) };
 }
 
 /** The taps that name no sensor (a cast's caveat: "every binding omits sensors"). */

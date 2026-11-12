@@ -6,14 +6,31 @@
  * document's text and edited as line splices like the traffic profile
  * (`tfc.ts`), so every untouched line stays byte-for-byte. A tap change is
  * the `taps` kind: live, the tap playout replays.
+ *
+ * A `span` binding (docs/design/native-switches.md §6, 2026-11-12) is a SPAN
+ * session on a native switch: `{ switch, sources: [{ port, dir, vlans? }] }`.
+ * It reads as `scope: "span"` with the switch as its one target.
  */
 import type { TeModel } from "./te";
 import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, removeSpan, rewriteFlowMap, scalarText, toPlain, type YMap, type YSeq } from "./yaml";
 
+/** One source port of a SPAN session: switch-port directions (`rx` = what the switch receives on it). */
+export interface SpanSource {
+  port: string;
+  dir: "rx" | "tx" | "both";
+  /** Narrowing to these segments (a trunk port); absent = every VLAN the port carries. */
+  vlans?: string[];
+}
+
+export const SPAN_DIRS = ["rx", "tx", "both"] as const;
+
 export interface TapBinding {
   /** The list index, what a selection and an edit address. */
   index: number;
+  /** `segment | boundary | port | perimeter`, or `span` for a SPAN session on a native switch. */
   scope: string;
+  /** A `span` binding's sources (empty for every other scope). */
+  sources: SpanSource[];
   /** The selector's target(s): a segment, a boundary's two segments, a port's host. */
   targets: string[];
   /** A port selector's segment. */
@@ -45,6 +62,27 @@ export function readTap(text: string): TapModel {
   const bs = get(tp, "bindings");
   if (bs && bs.kind === "seq") {
     bs.items.forEach((it, index) => {
+      const span = get(it.value, "span");
+      if (span && span.kind === "map") {
+        const sw = scalarText(get(span, "switch"));
+        if (!sw) {
+          problems.push(`span binding at line ${it.line + 1} names no switch`);
+          return;
+        }
+        const sources: SpanSource[] = [];
+        const srcs = get(span, "sources");
+        if (srcs && srcs.kind === "seq")
+          for (const si of srcs.items) {
+            const port = scalarText(get(si.value, "port"));
+            if (!port) continue;
+            const d = scalarText(get(si.value, "dir")) ?? "both";
+            const dir = (SPAN_DIRS as readonly string[]).includes(d) ? (d as SpanSource["dir"]) : "both";
+            const vlans = strings(get(si.value, "vlans"));
+            sources.push(vlans.length ? { port, dir, vlans } : { port, dir });
+          }
+        bindings.push({ index, scope: "span", sources, targets: [sw], segment: null, sensors: strings(get(it.value, "sensors")), mode: scalarText(get(it.value, "mode")), source: scalarText(get(it.value, "source")) });
+        return;
+      }
       const sel = get(it.value, "selector");
       const scope = scalarText(get(sel, "scope"));
       if (!scope) {
@@ -54,6 +92,7 @@ export function readTap(text: string): TapModel {
       bindings.push({
         index,
         scope,
+        sources: [],
         targets: strings(get(sel, "target")),
         segment: scalarText(get(sel, "segment")),
         sensors: strings(get(it.value, "sensors")),
@@ -226,4 +265,70 @@ export function boundaryAt(te: TeModel, router: string): TapSelector | null {
   const n = te.nodes.find((x) => x.name === router);
   const segs = [...new Set(n?.nets.map((x) => x.segment) ?? [])];
   return n && n.kind === "router" && segs.length === 2 ? { scope: "boundary", target: [segs[0]!, segs[1]!] } : null;
+}
+
+// ---------------------------------------------------------------------------
+// SPAN sessions (native-switches §6): a binding's `span:` block is written
+// whole, so adding, re-directing or removing one source is one splice.
+// ---------------------------------------------------------------------------
+function sourceLine(s: SpanSource): string {
+  const v = s.vlans && s.vlans.length ? `, vlans: [${s.vlans.map((x) => encodeScalar(x)).join(", ")}]` : "";
+  return `{ port: ${encodeScalar(s.port)}, dir: ${s.dir}${v} }`;
+}
+
+function spanBlock(indent: number, sw: string, sources: SpanSource[]): string[] {
+  const pad = " ".repeat(indent);
+  return [`${pad}switch: ${encodeScalar(sw)}`, `${pad}sources:`, ...sources.map((x) => `${pad}  - ${sourceLine(x)}`)];
+}
+
+/** The SPAN binding on `sw`, if the plan has one (the canvas keeps one per switch). */
+export function spanOn(tap: TapModel | null, sw: string): TapBinding | null {
+  return tap?.bindings.find((b) => b.scope === "span" && b.targets[0] === sw) ?? null;
+}
+
+/** Append a SPAN binding on switch `sw`. */
+export function addSpanBinding(text: string, binding: { switch: string; sources: SpanSource[]; sensors: string[]; mode?: string | null; source?: string | null }): string {
+  if (!binding.sources.length) throw new Error("a SPAN session needs at least one source port");
+  const { lines, tp, seq, trailingNewline } = bindingsSeq(text);
+  const e = entry(tp, "bindings");
+  let at: number;
+  let dashIndent: number;
+  if (seq && seq.items.length) {
+    at = contentEnd(lines, seq.end);
+    dashIndent = seq.indent;
+  } else if (e) {
+    const raw = lines[e.line]!;
+    lines[e.line] = raw.slice(0, raw.indexOf("bindings") + "bindings:".length);
+    at = e.line + 1;
+    dashIndent = tp.indent + 2;
+  } else {
+    at = contentEnd(lines, tp.end);
+    insertLines(lines, at, [`${" ".repeat(tp.indent)}bindings:`]);
+    at++;
+    dashIndent = tp.indent + 2;
+  }
+  const pad = " ".repeat(dashIndent + 2);
+  const item = [`${" ".repeat(dashIndent)}- span:`, ...spanBlock(dashIndent + 4, binding.switch, binding.sources)];
+  if (binding.sensors.length) item.push(`${pad}sensors: [${binding.sensors.map((x) => encodeScalar(x)).join(", ")}]`);
+  item.push(`${pad}mode: ${binding.mode ?? "exclusive"}`);
+  if (binding.source) item.push(`${pad}source: ${binding.source}`);
+  insertLines(lines, at, item);
+  return joinLines(lines, trailingNewline);
+}
+
+/** Replace binding `index`'s SPAN sources (the `span:` block is rewritten; every other line stays). */
+export function setSpanSources(text: string, index: number, sources: SpanSource[]): string {
+  if (!sources.length) throw new Error("a SPAN session needs at least one source port: remove the tap instead");
+  const { lines, seq, trailingNewline } = bindingsSeq(text);
+  const it = seq?.items[index];
+  if (!it || it.value.kind !== "map") throw new Error(`no tap binding ${index}`);
+  const e = entry(it.value, "span");
+  const span = get(it.value, "span");
+  if (!e || !span || span.kind !== "map") throw new Error(`tap binding ${index} is not a SPAN session`);
+  const sw = scalarText(get(span, "switch"));
+  if (!sw) throw new Error(`span binding ${index} names no switch`);
+  const keyLine = lines[e.line]!;
+  const keyIndent = keyLine.indexOf("span");
+  lines.splice(e.line, contentEnd(lines, e.end) - e.line, `${keyLine.slice(0, keyIndent)}span:`, ...spanBlock(it.value.indent + 2, sw, sources));
+  return joinLines(lines, trailingNewline);
 }
