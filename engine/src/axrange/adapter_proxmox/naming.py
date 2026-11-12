@@ -379,6 +379,30 @@ def gre_key_for_bridge(bridge_name: str) -> int:
     return n or 1
 
 
+def switch_bridge_for(plan_id: str, switch_id: str) -> str:
+    """A native switch's OVS bridge (`docs/design/native-switches.md` §4.2):
+    `tesw_<8hex of "plan|switch">` (`te` tier, 13 chars <= IFNAMSIZ-1).
+    Disjoint from `tebr_` at character 3 and from `te<6hex>`/`tev<5hex>` by
+    length and the underscore."""
+    h = hashlib.sha256(f"{plan_id}|{switch_id}".encode()).hexdigest()[:8]
+    return f"tesw_{h}"
+
+
+def patch_port_for(plan_id: str, link_key: str, end: str) -> str:
+    """One end of a native-switch patch pair: `tepp_<8hex of
+    "plan|link|end">` (`te` tier, 13 chars). `end` is "a" or "b"."""
+    h = hashlib.sha256(f"{plan_id}|{link_key}|{end}".encode()).hexdigest()[:8]
+    return f"tepp_{h}"
+
+
+def span_mirror_for(plan_id: str, mirror_key: str) -> str:
+    """A SPAN session's OVS mirror (an OVSDB row name, not an ifname):
+    `tapsm_<8hex>` (`tap` tier). Disjoint from `tapm-<vmid>` and `tapg_` at
+    character 4."""
+    h = hashlib.sha256(f"{plan_id}|{mirror_key}".encode()).hexdigest()[:8]
+    return f"tapsm_{h}"
+
+
 def mirror_name_for_vmid(vmid: int) -> str:
     """The per-VM OVS mirror's internal name (`tap` tier tag). ARCHITECTURE
     §288 convention: `tapm-<vmid>`. Bounded by OVS's identifier length
@@ -580,6 +604,9 @@ _RE_TE_BRIDGE = re.compile(r"^tebr_[a-zA-Z0-9_]{1,10}$")     # underlay_bridge_f
 _RE_TE_VM_NAME = re.compile(r"^te-[0-9a-f]{6}-[a-zA-Z0-9-]+$")  # vm_name_for_host
 _RE_TAP_GRETAP = re.compile(r"^tapg_[0-9a-f]{6}$")           # gre_port_for_bridge[_sensor]
 _RE_TAP_MIRROR = re.compile(r"^tapm-[0-9]+$")                # mirror_name_for_vmid
+_RE_TE_SWITCH = re.compile(r"^tesw_[0-9a-f]{8}$")            # switch_bridge_for
+_RE_TE_PATCH = re.compile(r"^tepp_[0-9a-f]{8}$")             # patch_port_for
+_RE_TAP_SPAN = re.compile(r"^tapsm_[0-9a-f]{8}$")            # span_mirror_for
 _RE_O2_ZONE = re.compile(r"^o2z[0-9a-f]{5}$")                # o2_zone_id_for_component
 _RE_O2_VNET = re.compile(r"^o2v[0-9a-f]{5}$")                # o2_vnet_id_for_component
 _RE_O2_BRIDGE = re.compile(r"^o2br_[0-9a-f]{1,6}$")          # o2_bridge_name_for_component
@@ -626,6 +653,21 @@ def is_te_vmid(vmid: int) -> bool:
     determined by its NAME shape (`is_te_vm_name`/`is_o2_vm_name`), not by
     which numeric bucket its vmid falls in."""
     return _VMID_MIN <= vmid <= _VMID_MAX
+
+
+def is_te_switch_bridge(name: str) -> bool:
+    """True if `name` matches `switch_bridge_for` (`tesw_<8hex>`)."""
+    return bool(_RE_TE_SWITCH.match(name))
+
+
+def is_te_patch_port(name: str) -> bool:
+    """True if `name` matches `patch_port_for` (`tepp_<8hex>`)."""
+    return bool(_RE_TE_PATCH.match(name))
+
+
+def is_tap_span_mirror(name: str) -> bool:
+    """True if `name` matches `span_mirror_for` (`tapsm_<8hex>`)."""
+    return bool(_RE_TAP_SPAN.match(name))
 
 
 def is_tap_gretap(name: str) -> bool:
@@ -676,7 +718,7 @@ def is_te(name: str) -> bool:
     `is_exr`."""
     return (
         is_te_zone(name) or is_te_vnet(name) or is_te_bridge(name)
-        or is_te_vm_name(name)
+        or is_te_vm_name(name) or is_te_switch_bridge(name) or is_te_patch_port(name)
     )
 
 
@@ -684,7 +726,7 @@ def is_tap(name: str) -> bool:
     """True if `name` matches ANY `tap_*` shape (gretap or mirror) — the
     tier-generic aggregate predicate, mirroring `is_te`/`is_o2`/`is_tfc`/
     `is_exr`."""
-    return is_tap_gretap(name) or is_tap_mirror(name)
+    return is_tap_gretap(name) or is_tap_mirror(name) or is_tap_span_mirror(name)
 
 
 def is_tfc_zone(name: str) -> bool:

@@ -921,6 +921,39 @@ exit 0
         )
         return {"nic_attached": True}
 
+    def op_attach_vm_to_switch_port(
+        self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext
+    ) -> dict[str, Any]:
+        """Plug a VM NIC into a native switch's bridge as an access port
+        (OP-HOST-110, `docs/design/native-switches.md` §2.4, §8). The NIC
+        string carries the switch's VLAN `tag` (qemu-server sets it on the OVS
+        port when the VM starts), `firewall=0` so the OVS port is the tap
+        itself (no `fwbr`/`fwln` insertion: design §8), and `link_down=1` for
+        a `state: down` port (persistent, and the guest sees carrier loss).
+        A trunk to a VM carries only its native in v1 (NSW-060), so the tag
+        is the same in both modes. The PUT is idempotent -- the same string
+        re-asserts the same NIC, and the deterministic MAC keeps it stable."""
+        vmid = int(inp["vmid"])
+        target_node = ctx.cluster.default_node
+        nic_index = int(inp.get("nic_index", 0))
+        bridge = inp.get("bridge_name")
+        tag = inp.get("vlan_tag")
+        if not bridge or tag is None:
+            raise AdapterError(
+                "attach-vm-to-switch-port: bridge_name / vlan_tag missing",
+                error_class="adapter-input",
+            )
+        host_id = op.scope.get("host") or ""
+        mac = mac_for_nic(ctx.plan_id, host_id, nic_index)
+        nic_spec = f"virtio={mac},bridge={bridge},tag={int(tag)},firewall=0"
+        if inp.get("link_down"):
+            nic_spec += ",link_down=1"
+        self.client.request(
+            "PUT", f"/nodes/{target_node}/qemu/{vmid}/config",
+            body={f"net{nic_index}": nic_spec},
+        )
+        return {"nic_attached": True, "ovs_port": f"tap{vmid}i{nic_index}"}
+
     def op_start_vm(
         self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext
     ) -> dict[str, Any]:
@@ -1635,6 +1668,7 @@ _OP_TO_METHOD: dict[str, Any] = {
     "configure-vm-hardware": RestBackend.op_configure_vm_hardware,
     "configure-cloud-init": RestBackend.op_configure_cloud_init,
     "attach-vm-to-vnet": RestBackend.op_attach_vm_to_vnet,
+    "attach-vm-to-switch-port": RestBackend.op_attach_vm_to_switch_port,
     "start-vm": RestBackend.op_start_vm,
     "wait-guest-agent": RestBackend.op_wait_guest_agent,
     "wait-os-ready": RestBackend.op_wait_os_ready,

@@ -1080,9 +1080,11 @@ def test_slice_op_partition():
         "configure-cloud-init", "attach-vm-to-vnet", "start-vm",
         "wait-guest-agent", "attach-gre-tunnel", "install-ovs-mirror",
         "wait-os-ready", "configure-router", "configure-routing",
+        # native switches (docs/design/native-switches.md §5)
+        "attach-vm-to-switch-port", "create-switch", "link-switches", "set-port-state",
     }
-    assert len(_REST_OPS) == 13
-    assert len(_SSH_OPS) == 3  # +configure-routing (fabric slice)
+    assert len(_REST_OPS) == 14
+    assert len(_SSH_OPS) == 6  # +configure-routing (fabric slice); +3 native-switch ops
     assert len(_PROBE_OPS) == 0
 
 

@@ -202,3 +202,8 @@ class LibvirtTeardown:
             return "absent"
         self._remove_network(net)
         return "removed"
+
+    def delete_switch(self, host: str, bridge_name: str) -> str:
+        """libvirt does not declare `native-switch` (docs/design/
+        native-switches.md D10), so it never creates one: nothing to remove."""
+        return "absent"

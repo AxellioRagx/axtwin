@@ -403,3 +403,256 @@ def test_a_native_switch_error_refuses_the_plan():
     cfg["twin_config"]["links"][0]["vlans"] = ["office", "servers"]
     with pytest.raises(PlanBuildError, match="NSW-060"):
         _plan(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Adapter (mocked): names, OVS commands, REST attach, teardown
+# ---------------------------------------------------------------------------
+from types import SimpleNamespace
+
+from axrange.adapter_proxmox import naming
+from axrange.adapter_proxmox.switches import SwitchOps, vlan_port_args
+from axrange.planner.executor import AdapterError
+
+
+def test_new_names_fit_ifnamsiz_and_match_only_their_own_predicate():
+    names = {
+        "switch": naming.switch_bridge_for("switch-test-1a2b3c4d", "access-sw"),
+        "patch": naming.patch_port_for("switch-test-1a2b3c4d", "core#Po1|sw#Po1", "a"),
+        "span": naming.span_mirror_for("switch-test-1a2b3c4d", "sw:binding-0"),
+    }
+    own = {"switch": naming.is_te_switch_bridge, "patch": naming.is_te_patch_port,
+           "span": naming.is_tap_span_mirror}
+    preds = {n: getattr(naming, n) for n in dir(naming)
+             if n.startswith("is_") and n not in ("is_te", "is_tap", "is_o2", "is_tfc", "is_exr",
+                                                   "is_protected_external", "is_te_vmid",
+                                                   "is_managed_guest_handle")}
+    for kind, name in names.items():
+        assert len(name) <= 15, name
+        hits = sorted(p for p, fn in preds.items() if fn(name))
+        assert hits == [own[kind].__name__], (name, hits)
+    assert naming.is_te(names["switch"]) and naming.is_te(names["patch"])
+    assert naming.is_tap(names["span"]) and not naming.is_te(names["span"])
+
+
+class _Run:
+    def __init__(self, list_br: str = ""):
+        self.cmds: list[str] = []
+        self.list_br = list_br
+
+    def __call__(self, cmd, **kw):
+        self.cmds.append(cmd)
+        if cmd.startswith("ovs-vsctl list-br"):
+            return self.list_br
+        return ""
+
+
+def _ctx(plan_id="switch-test-1a2b3c4d"):
+    return SimpleNamespace(plan_id=plan_id, cluster=SimpleNamespace(default_node="dev45"))
+
+
+def _op(name, scope):
+    return SimpleNamespace(op_name=name, scope=scope, timeout_s=60)
+
+
+def test_create_switch_is_check_then_act_and_reasserts():
+    run = _Run()
+    ops = SwitchOps(run)
+    out1 = ops.create_switch(_op("create-switch", {"switch": "access-sw"}),
+                             {"switch_id": "access-sw", "stp": "off"}, _ctx())
+    out2 = ops.create_switch(_op("create-switch", {"switch": "access-sw"}),
+                             {"switch_id": "access-sw", "stp": "off"}, _ctx())
+    assert out1 == out2 == {"bridge_name": naming.switch_bridge_for("switch-test-1a2b3c4d", "access-sw")}
+    assert run.cmds[0] == run.cmds[1]  # the same idempotent command on re-run
+    cmd = run.cmds[0]
+    assert "--may-exist add-br tesw_" in cmd and "fail_mode=standalone" in cmd
+    assert "external_ids:axrange-tier=te" in cmd and "external_ids:axrange-switch=access-sw" in cmd
+
+
+def test_create_switch_refuses_rstp():
+    with pytest.raises(AdapterError, match="phase 3"):
+        SwitchOps(_Run()).create_switch(_op("create-switch", {"switch": "s"}),
+                                        {"switch_id": "s", "stp": "rstp"}, _ctx())
+
+
+def test_link_switches_builds_a_trunk_patch_pair_and_asserts_state():
+    run = _Run()
+    a = naming.switch_bridge_for("p", "core")
+    b = naming.switch_bridge_for("p", "sw")
+    out = SwitchOps(run).link_switches(
+        _op("link-switches", {"link": "core#Po1|sw#Po1"}),
+        {"link_key": "core#Po1|sw#Po1", "bridge_a": a, "bridge_b": b, "mode": "trunk",
+         "vlan_tags": [10, 20], "native_tag": None, "state": "down"}, _ctx("p"))
+    pa, pb = out["port_a"], out["port_b"]
+    assert naming.is_te_patch_port(pa) and naming.is_te_patch_port(pb) and pa != pb
+    pair = run.cmds[0]
+    assert f"add-port {a} {pa}" in pair and f"options:peer={pb}" in pair
+    assert f"set port {pa} vlan_mode=trunk trunks=10,20" in pair and f"clear port {pb} tag" in pair
+    assert run.cmds[1] == f"ovs-ofctl mod-port {a} {pa} down"
+    assert run.cmds[2] == f"ovs-ofctl mod-port {b} {pb} down"
+
+
+def test_vlan_port_args_native_and_access():
+    assert vlan_port_args("x", mode="trunk", vlan_tags=[20], native_tag=10) == \
+        " -- set port x vlan_mode=native-untagged tag=10 trunks=10,20"
+    assert vlan_port_args("x", mode="access", vlan_tags=[10], native_tag=None) == \
+        " -- set port x vlan_mode=access tag=10 -- clear port x trunks"
+
+
+def test_set_port_state_blocked_on_the_vm_tap():
+    run = _Run()
+    br = naming.switch_bridge_for("p", "sw")
+    out = SwitchOps(run).set_port_state(
+        _op("set-port-state", {"switch": "sw", "port": "P2"}),
+        {"bridge_name": br, "vmid": 600123, "nic_index": 0, "state": "blocked"}, _ctx("p"))
+    assert out == {"state_applied": "blocked", "ovs_port": "tap600123i0"}
+    assert run.cmds == [" && ".join(
+        f"ovs-ofctl mod-port {br} tap600123i0 {a}" for a in ("up", "no-receive", "no-forward", "no-flood"))]
+
+
+def test_switch_ops_refuse_a_foreign_bridge_name():
+    with pytest.raises(AdapterError, match="non-tesw"):
+        SwitchOps(_Run()).set_port_state(
+            _op("set-port-state", {}),
+            {"bridge_name": "vmbr0", "vmid": 1, "nic_index": 0, "state": "down"}, _ctx())
+
+
+def test_delete_switch_absent_removed_and_survivor():
+    br = naming.switch_bridge_for("p", "sw")
+    assert SwitchOps(_Run(list_br="vmbr0\n")).delete_switch(br) == "absent"
+
+    class _Gone(_Run):
+        def __call__(self, cmd, **kw):
+            self.cmds.append(cmd)
+            if cmd.startswith("ovs-vsctl list-br"):
+                return f"vmbr0\n{br}\n" if len(self.cmds) == 1 else "vmbr0\n"
+            return ""
+    gone = _Gone()
+    assert SwitchOps(gone).delete_switch(br) == "removed"
+    assert gone.cmds[1] == f"ovs-vsctl --if-exists clear bridge {br} mirrors -- --if-exists del-br {br}"
+    with pytest.raises(AdapterError, match="survived"):
+        SwitchOps(_Run(list_br=f"{br}\n")).delete_switch(br)
+
+
+def test_rest_attach_vm_to_switch_port_nic_string():
+    from axrange.adapter_proxmox.rest import RestBackend
+    calls = []
+    backend = RestBackend.__new__(RestBackend)
+    backend.client = SimpleNamespace(request=lambda *a, **kw: calls.append((a, kw)))
+    br = naming.switch_bridge_for("p", "sw")
+    out = backend.op_attach_vm_to_switch_port(
+        _op("attach-vm-to-switch-port", {"host": "ws01", "net": "office"}),
+        {"vmid": 600123, "nic_index": 0, "bridge_name": br, "vlan_tag": 10, "link_down": True},
+        _ctx("p"))
+    assert out == {"nic_attached": True, "ovs_port": "tap600123i0"}
+    (method, path), kw = calls[0]
+    assert (method, path) == ("PUT", "/nodes/dev45/qemu/600123/config")
+    nic = kw["body"]["net0"]
+    assert nic.startswith("virtio=") and f",bridge={br},tag=10,firewall=0,link_down=1" in nic
+
+
+def test_destroy_removes_the_plans_switch_bridges_only(tmp_path):
+    import json as _json
+    from axrange.planner.state import OpRow, OpStatus, StateStore
+    from axrange.planner.teardown import destroy_deploy
+
+    plan_id = "switch-test-1a2b3c4d"
+    good = naming.switch_bridge_for(plan_id, "access-sw")
+    foreign = naming.switch_bridge_for("other-plan", "access-sw")
+    store = StateStore(str(tmp_path / "s.db"))
+    store.create_deploy(deploy_id="d1", scenario_id="switch-test", scenario_version=1,
+                        scenario_schema_version=4, plan_id=plan_id, ir_hash="h",
+                        placement={"access-sw": "dev45"})
+
+    def row(op_id, scope, out):
+        return OpRow(op_id=op_id, deploy_id="d1", op_name="create-switch", op_catalog_id="OP-NET-060",
+                     kind="action", scope_json=_json.dumps(scope), inputs_resolved_json="{}",
+                     inputs_from_outputs_json="{}", outputs_json=_json.dumps(out),
+                     cleanup_strategy=None, idempotency_class=None, status=OpStatus.COMPLETED,
+                     started_at=1.0, completed_at=2.0)
+    store.insert_ops("d1", [row("a", {"switch": "access-sw"}, {"bridge_name": good}),
+                            row("b", {"switch": "core"}, {"bridge_name": foreign})])
+
+    calls = []
+
+    class _Backend:
+        def __getattr__(self, name):
+            def rec(*a):
+                calls.append((name, a))
+                return "removed"
+            return rec
+    try:
+        result = destroy_deploy(store, _Backend(), "d1")
+    finally:
+        store.close()
+    assert ("delete_switch", ("dev45", good)) in calls
+    assert not any(a and a[-1] == foreign for _n, a in calls)
+    assert any(x.kind == "switch" and x.status == "guard-violation" for x in result.actions)
+
+
+# ---------------------------------------------------------------------------
+# Inventory: switches[].ports[] and switch legs
+# ---------------------------------------------------------------------------
+class _FakeAdapter:
+    def __init__(self):
+        self._vmid = 600100
+
+    def run(self, op, inputs, ctx):
+        if op.op_name == "clone-vm":
+            self._vmid += 1
+            return {"vmid": self._vmid}
+        if op.op_name == "create-switch":
+            return {"bridge_name": naming.switch_bridge_for(ctx.plan_id, inputs["switch_id"])}
+        if op.op_name in ("create-ovs-bridge",):
+            return {"bridge_name": "tebr_x"}
+        if op.op_name == "create-vnet":
+            return {"vnet_id": f"vn-{inputs['net_id']}"[:8]}
+        return {}
+
+
+def _inventory(tmp_path, cfg):
+    from axrange.planner import Executor, StateStore
+    from axrange.planner.inventory import build_twin_inventory
+    plan = _plan(cfg)
+    store = StateStore(str(tmp_path / "inv.db"))
+    store.create_deploy(deploy_id="d1", scenario_id=plan.scenario_id, scenario_version=1,
+                        scenario_schema_version=4, plan_id=plan.plan_id, ir_hash=plan.ir_hash,
+                        placement=plan.placement, tier="te")
+    adapter = _FakeAdapter()
+    ctx = ClusterContext.single_node("px1", platform_caps=CAPS)
+    ex = Executor(plan, store, adapter, ctx, config_backend=adapter, deploy_id="d1",
+                  sleep_fn=lambda _: None)
+    ex.persist_plan()
+    assert ex.run().succeeded
+    try:
+        return build_twin_inventory(store, "d1")
+    finally:
+        store.close()
+
+
+def test_inventory_publishes_switch_ports_with_far_ends(tmp_path):
+    inv = _inventory(tmp_path, _cfg())
+    assert [s.name for s in inv.switches] == ["sw"]
+    sw = inv.switches[0]
+    assert sw.bridge and naming.is_te_switch_bridge(sw.bridge) and sw.pve_node == "px1"
+    ports = {p.port: p for p in sw.ports}
+    assert set(ports) == {"SFP1", "P1", "P2"}
+    assert ports["P1"].far == {"kind": "host", "device": "ws01", "port": "eth0", "leg": 0}
+    assert ports["SFP1"].mode == "trunk" and ports["SFP1"].native == "office"
+    hosts = {h.host_id: h for h in inv.hosts}
+    office = next(n for n in hosts["ws01"].nets if n.net_id == "office")
+    assert (office.switch, office.port, office.nic_index) == ("sw", "P1", 0)
+    servers = next(n for n in hosts["fs"].nets if n.net_id == "servers")
+    assert servers.switch is None
+    # a switch-hosted network has no SDN bridge
+    assert "office" not in inv.net_bridge and "servers" in inv.net_bridge
+    d = inv.to_dict()
+    assert d["switches"][0]["ports"][0]["port"] == "SFP1"
+
+
+def test_inventory_of_a_twin_without_native_switches_has_none(tmp_path):
+    cfg = _cfg()
+    cfg["twin_config"]["nodes"][2]["image"] = "debian-12-cloud@v1"
+    cfg["twin_config"]["nodes"][2]["requires"] = ["linux"]
+    inv = _inventory(tmp_path, cfg)
+    assert inv.switches == [] and inv.to_dict()["switches"] == []

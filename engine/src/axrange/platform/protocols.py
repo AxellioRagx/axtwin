@@ -378,3 +378,5 @@ class Teardown(Protocol):
     def apply_sdn(self) -> str: ...  # contract: kind `sdn-apply`
 
     def delete_ovs_bridge(self, host: str, bridge_name: str, /) -> str: ...  # contract: kind `ovs-bridge`
+
+    def delete_switch(self, host: str, bridge_name: str, /) -> str: ...  # kind `switch` (native switches, 2026-11-12)

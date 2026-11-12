@@ -324,6 +324,19 @@ def _make_op(
     )
 
 
+def _port_record(p: Any) -> dict[str, Any]:
+    """A native-switch port as `inventory.SwitchPortInfo` reads it back."""
+    far: dict[str, Any] = {"kind": p.far_kind, "device": p.far_device}
+    if p.far_port is not None:
+        far["port"] = p.far_port
+    if p.far_leg is not None:
+        far["leg"] = p.far_leg
+    return {
+        "port": p.port, "mode": p.mode, "vlans": list(p.vlans), "native": p.native,
+        "state": p.state, "source": p.source, "far": far,
+    }
+
+
 def _make_barrier(plan_id: str, name: str, scope: dict[str, str]) -> BarrierInstance:
     b_def = get_barrier(name)
     if b_def is None:
@@ -621,6 +634,10 @@ def emit_ops(
                     "switch_id": sw,
                     "stp": switch_model.stp.get(sw, "off"),
                     "target_node": ctx.default_node,
+                    # The port table the inventory publishes as
+                    # `switches[].ports[]` (native-switches §7); the adapter
+                    # does not read it.
+                    "ports": [_port_record(p) for p in switch_model.ports.get(sw, [])],
                 },
             )
         )

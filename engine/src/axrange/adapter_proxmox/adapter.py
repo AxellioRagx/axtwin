@@ -34,6 +34,7 @@ _REST_OPS = {
     "configure-vm-hardware",
     "configure-cloud-init",
     "attach-vm-to-vnet",
+    "attach-vm-to-switch-port",
     "start-vm",
     "wait-guest-agent",
     "wait-os-ready",
@@ -44,6 +45,10 @@ _SSH_OPS = {
     "attach-gre-tunnel",
     "install-ovs-mirror",
     "configure-routing",
+    # Native switches (docs/design/native-switches.md §5): OVS outside SDN.
+    "create-switch",
+    "link-switches",
+    "set-port-state",
 }
 
 _PROBE_OPS: set[str] = set()  # reserved for future ops the slice doesn't need

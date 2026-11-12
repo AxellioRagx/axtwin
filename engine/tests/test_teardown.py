@@ -17,6 +17,7 @@ from axrange.adapter_proxmox import AdapterError
 from axrange.adapter_proxmox.naming import (
     gre_port_for_bridge_sensor,
     img_vm_name_for_image,
+    switch_bridge_for,
     underlay_bridge_for_plan,
     vm_name_for_host,
     vmid_for_op,
@@ -59,6 +60,7 @@ class _RecordTeardown:
     def delete_sdn_zone(self, zone_id):         return self._rec("zone", zone_id)
     def apply_sdn(self):                        return self._rec("sdn-apply", "")
     def delete_ovs_bridge(self, node, b):       return self._rec("ovs-bridge", b)
+    def delete_switch(self, node, b):           return self._rec("switch", b)
 
 
 def _op(deploy_id, op_id, op_name, scope, outputs, *, status=OpStatus.COMPLETED):
@@ -1196,6 +1198,9 @@ def test_sweepable_op_names_matches_the_sweep_chain(tmp_path):
         "create-vnet": {"vnet_id": vnet},
         "create-sdn-zone": {"zone_id": zone},
         "create-ovs-bridge": {"bridge_name": bridge},
+        # the op rows here carry scope {"host": ...}, so the switch id the
+        # sweep reads from scope is "" and the expected bridge is its name
+        "create-switch": {"bridge_name": switch_bridge_for(plan_id, "")},
     }
     # This test covers every member of the constant, or it isn't proving
     # what it claims to.
@@ -1220,7 +1225,7 @@ def test_sweepable_op_names_matches_the_sweep_chain(tmp_path):
             store, backend, deploy_id, [f"op-{n}" for n in sweepable_outputs],
         )
         kinds = {kind for kind, _target in backend.calls}
-        assert kinds >= {"vm", "gretap", "vnet", "zone", "ovs-bridge"}
+        assert kinds >= {"vm", "gretap", "vnet", "zone", "ovs-bridge", "switch"}
     finally:
         store.close()
 

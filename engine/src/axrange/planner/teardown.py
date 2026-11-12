@@ -73,6 +73,7 @@ is_img = naming.is_img
 is_protected_external = naming.is_protected_external
 is_tap_gretap = naming.is_tap_gretap
 underlay_bridge_for_plan = naming.underlay_bridge_for_plan
+switch_bridge_for = naming.switch_bridge_for
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +225,7 @@ TeardownBackend = Teardown
 class TeardownAction:
     """One resource the teardown considered, and what happened to it."""
 
-    kind: str          # vm | mirror | gretap | vnet | zone | sdn-apply | ovs-bridge
+    kind: str          # vm | mirror | gretap | switch | vnet | zone | sdn-apply | ovs-bridge
     target: str        # the resource id (vmid / dev / vnet_id / ...)
     status: str        # removed | absent | guard-violation | error
     detail: str | None = None
@@ -287,7 +288,7 @@ def _scope(scope_json: str | None) -> dict[str, Any]:
 # drift apart.
 SWEEPABLE_OP_NAMES: frozenset[str] = frozenset({
     "clone-vm", "attach-gre-tunnel", "create-vnet", "create-sdn-zone",
-    "create-ovs-bridge",
+    "create-ovs-bridge", "create-switch",
 })
 
 
@@ -391,6 +392,7 @@ def _sweep(
     vnets: list[str] = []
     zones: list[str] = []
     bridges: list[str] = []
+    switches: list[tuple[str, str]] = []     # (bridge, switch id)
     for op in ops:
         out = _outputs(op.outputs_json)
         if op.op_name == "clone-vm" and out.get("vmid") is not None:
@@ -405,6 +407,9 @@ def _sweep(
             zones.append(str(out["zone_id"]))
         elif op.op_name == "create-ovs-bridge" and out.get("bridge_name"):
             bridges.append(str(out["bridge_name"]))
+        elif op.op_name == "create-switch" and out.get("bridge_name"):
+            switch_id = _scope(op.scope_json).get("switch") or ""
+            switches.append((str(out["bridge_name"]), str(switch_id)))
 
     # De-dup while preserving discovery order.
     def _uniq(seq):
@@ -563,6 +568,20 @@ def _sweep(
             _guard("gretap", dev)
             continue
         _run("gretap", dev, lambda d=dev: backend.delete_gretap(d))
+
+    # 3b. Native switches (docs/design/native-switches.md §4.3): after the VMs
+    #     (their taps are gone) and the gretaps. Gate HARD: only the exact
+    #     bridge this plan's naming produces for that switch, and only a te
+    #     deploy owns switches.
+    for bridge_name, switch_id in _uniq(switches):
+        if _protected("switch", bridge_name):
+            continue
+        expected = switch_bridge_for(deploy.plan_id, switch_id) if own_tier == "te" else None
+        if bridge_name != expected:
+            _guard("switch", bridge_name)
+            continue
+        _run("switch", bridge_name,
+             lambda b=bridge_name, n=primary_node or "": backend.delete_switch(n, b))
 
     # 4. SDN vnets (must go before the zone — a zone with vnets won't delete).
     for vnet_id in vnets:

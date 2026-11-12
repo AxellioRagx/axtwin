@@ -156,6 +156,16 @@ class ProxmoxTeardown:
             pass
         return "removed"
 
+    # ---- Native switches -------------------------------------------------
+    def delete_switch(self, node: str, bridge_name: str) -> str:
+        """Remove a native switch's OVS bridge (its mirrors, patch ports and
+        any leftover VM ports with it) and confirm it is gone
+        (`docs/design/native-switches.md` §4.3). Absent -> no-op. `node` is
+        accepted for the seam's shape; the SSH target is the adapter's node."""
+        from axrange.adapter_proxmox.switches import SwitchOps
+
+        return SwitchOps(lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw)).delete_switch(bridge_name)
+
     # ---- helpers ---------------------------------------------------------
     def _delete_tolerant(self, path: str) -> None:
         """DELETE, tolerating a 'does not exist'/404 race (idempotent teardown)."""

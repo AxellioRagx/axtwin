@@ -563,6 +563,16 @@ class SshBackend:
             return self._install_ovs_mirror(op, resolved_inputs, ctx)
         if op.op_name == "configure-routing":
             return self._configure_routing(op, resolved_inputs, ctx)
+        if op.op_name in ("create-switch", "link-switches", "set-port-state"):
+            from axrange.adapter_proxmox.switches import SwitchOps
+
+            ops = SwitchOps(lambda cmd, **kw: run_ssh(self.cfg, cmd, **kw))
+            fn = {
+                "create-switch": ops.create_switch,
+                "link-switches": ops.link_switches,
+                "set-port-state": ops.set_port_state,
+            }[op.op_name]
+            return fn(op, resolved_inputs, ctx)
         raise AdapterError(
             f"SSH backend has no implementation for {op.op_name!r}",
             error_class="adapter-unsupported",

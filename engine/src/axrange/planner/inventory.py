@@ -211,6 +211,38 @@ class HostNet:
     ip: Optional[str] = None
     nic_index: Optional[int] = None
     external: bool = False
+    # A leg on a switch-hosted network (`attach-vm-to-switch-port`,
+    # docs/design/native-switches.md §7): the native switch and its port.
+    # None on an SDN-hosted leg.
+    switch: Optional[str] = None
+    port: Optional[str] = None
+
+
+@dataclass
+class SwitchPortInfo:
+    """One port of a native switch (`switches[].ports[]`, design §7)."""
+
+    port: str
+    mode: str
+    vlans: list[str]
+    native: Optional[str] = None
+    state: str = "up"
+    source: str = "link"            # link | auto
+    far: dict[str, Any] = field(default_factory=dict)  # {kind, device, port?, nic_index?}
+
+
+@dataclass
+class SwitchInfo:
+    """One native switch as deployed (`create-switch`'s recorded inputs and
+    outputs)."""
+
+    name: str
+    resolved: str = "native"
+    bridge: Optional[str] = None
+    pve_node: Optional[str] = None
+    stp: str = "off"
+    status: Optional[str] = None
+    ports: list[SwitchPortInfo] = field(default_factory=list)
 
 
 @dataclass
@@ -307,12 +339,16 @@ class TwinInventory:
     # router -- the question nobody could answer during the 2026-09-21 live
     # run, which is how the breach went unnoticed.
     egress: Optional[EgressPosture] = None
+    # Native switches (docs/design/native-switches.md §7). Empty for a twin
+    # with none.
+    switches: list[SwitchInfo] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "deploy_id": self.deploy_id,
             "deploy_status": self.deploy_status,
             "hosts": [asdict(h) for h in self.hosts],
+            "switches": [asdict(s) for s in self.switches],
             "net_bridge": dict(self.net_bridge),
             "vlan_underlay": self.vlan_underlay,
             "egress": self.egress.to_dict() if self.egress is not None else None,
@@ -385,6 +421,7 @@ def build_twin_inventory(
     host_nets: dict[str, list[HostNet]] = {}
     net_bridge: dict[str, str] = {}
     vlan_underlay: Optional[str] = None
+    switches: list[SwitchInfo] = []
     all_net_ids: set[str] = set()   # EVERY declared network
     seen_hosts: dict[str, None] = {}  # insertion-ordered set
 
@@ -503,12 +540,19 @@ def build_twin_inventory(
                 nic_index = int(nic_index) if nic_index is not None else None
             except (TypeError, ValueError):
                 nic_index = None
+            on_switch = op_name == "attach-vm-to-switch-port"
             host_nets.setdefault(host, []).append(
                 HostNet(
                     net_id=str(net_id), ip=ip, nic_index=nic_index,
                     external=is_external,
+                    switch=str(inp["switch_id"]) if on_switch and inp.get("switch_id") else None,
+                    port=str(inp["port"]) if on_switch and inp.get("port") else None,
                 )
             )
+            if on_switch:
+                # A switch-hosted network has no SDN bridge: never backfilled
+                # with the VLAN underlay below (design §7).
+                continue
             if is_external:
                 # Fix round F3 (`docs/WORK_ORDER_tap_scopes.md`): the WAN
                 # attach op's OWN resolved input already names its real
@@ -528,6 +572,19 @@ def build_twin_inventory(
                     net_bridge.setdefault(str(net_id), str(vnet_id))
             else:
                 all_net_ids.add(str(net_id))
+
+        elif op_name == "create-switch":
+            sw = str(inp.get("switch_id") or scope.get("switch") or "")
+            if sw:
+                status = getattr(op, "status", None)
+                switches.append(SwitchInfo(
+                    name=sw,
+                    bridge=out.get("bridge_name"),
+                    pve_node=placement.get(sw) or inp.get("target_node"),
+                    stp=str(inp.get("stp") or "off"),
+                    status=getattr(status, "value", None) if status is not None else None,
+                    ports=[SwitchPortInfo(**p) for p in (inp.get("ports") or [])],
+                ))
 
         elif op_name == "create-ovs-bridge":
             bridge = out.get("bridge_name")
@@ -580,4 +637,5 @@ def build_twin_inventory(
         # surfaces call `egress_posture_from_ops` over the same `rows`, so
         # they can never disagree about whether a twin is contained.
         egress=egress_posture_from_ops(rows),
+        switches=sorted(switches, key=lambda s: s.name),
     )
