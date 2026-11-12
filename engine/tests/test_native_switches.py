@@ -25,12 +25,12 @@ def _cfg(**overrides) -> dict:
                 {"name": "servers", "cidr": "10.71.20.0/24", "zone_type": "vlan"},
             ],
             "nodes": [
-                {"name": "ws", "role": "corp-workstation", "image": "img@v1",
+                {"name": "ws", "role": "corp-workstation", "image": "debian-12-cloud@v1",
                  "requires": ["linux"], "count": 2, "net": "office"},
-                {"name": "fs", "role": "file-server", "image": "img@v1",
+                {"name": "fs", "role": "file-server", "image": "debian-12-cloud@v1",
                  "requires": ["linux"], "nets": [{"segment": "servers", "ip": "10.71.20.10"}]},
                 {"name": "sw", "kind": "switch", "role": "l2-switch"},
-                {"name": "gw", "kind": "router", "image": "img@v1", "requires": ["linux"],
+                {"name": "gw", "kind": "router", "image": "debian-12-cloud@v1", "requires": ["linux"],
                  "nets": [{"segment": "office"}, {"segment": "servers"}]},
             ],
             "links": [
@@ -111,3 +111,190 @@ def test_stp_shape_errors(node_index, stp, needle):
     cfg["twin_config"]["nodes"][node_index]["stp"] = stp
     with pytest.raises(TwinConfigShapeError, match=needle):
         expand_twin_config_raw(cfg)
+
+
+# ---------------------------------------------------------------------------
+# The switch model (axrange.switchmodel)
+# ---------------------------------------------------------------------------
+import tempfile
+from pathlib import Path
+
+from ruamel.yaml import YAML
+
+from axrange.ir.parser import parse_ir
+from axrange.switchmodel import NATIVE_SWITCH_CAP, resolve_switches
+
+CAPS = frozenset({NATIVE_SWITCH_CAP})
+
+
+def _ir(cfg: dict):
+    ir_dict, _ = expand_twin_config_raw(cfg)
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "ir.yaml"
+        with p.open("w") as f:
+            YAML(typ="safe").dump(ir_dict, f)
+        return parse_ir(path=str(p))
+
+
+def _model(cfg: dict, caps=CAPS):
+    return resolve_switches(_ir(cfg).ir, caps)
+
+
+def _rules(model) -> list[str]:
+    return [p.rule_id for p in model.problems]
+
+
+def _two_switch_cfg() -> dict:
+    """core <-> access over a trunk; office hosts on access, servers on core."""
+    cfg = _cfg()
+    tc = cfg["twin_config"]
+    tc["nodes"].append({"name": "core", "kind": "switch", "role": "l3-switch"})
+    tc["links"] = [
+        {"a": {"device": "gw", "port": "eth1"}, "b": {"device": "core", "port": "Te1"},
+         "mode": "trunk", "native": "office", "vlans": ["office"]},
+        {"a": {"device": "gw", "port": "eth2"}, "b": {"device": "core", "port": "Te2"},
+         "mode": "access", "vlans": ["servers"]},
+        {"a": {"device": "core", "port": "Po1"}, "b": {"device": "sw", "port": "Po1"},
+         "mode": "trunk", "vlans": ["office", "servers"]},
+    ]
+    return cfg
+
+
+def test_resolution_follows_image_and_capability():
+    cfg = _cfg()
+    cfg["twin_config"]["nodes"].append(
+        {"name": "vsw", "kind": "switch", "image": "debian-12-cloud@v1", "requires": ["linux"], "net": "servers"})
+    m = _model(cfg)
+    assert m.resolution == {"sw": "native", "vsw": "vm"}
+    assert m.native == ["sw"] and m.has_native
+    logical = _model(cfg, caps=frozenset())
+    assert logical.resolution["sw"] == "logical" and not logical.has_native
+    assert "NSW-020" in _rules(logical)
+    # unknown platform (bare validate): logical, and no NSW-020 noise
+    assert "NSW-020" not in _rules(_model(cfg, caps=None))
+
+
+def test_carriers_tags_and_explicit_member_ports():
+    m = _model(_cfg())
+    assert m.carriers == {"office": ["sw"]}          # servers stays SDN-hosted
+    assert m.is_switch_hosted("office") and not m.is_switch_hosted("servers")
+    assert m.vlan_tag == {"office": 10}  # the expander's zone_type: vlan allocation
+    ports = {p.port: p for p in m.ports["sw"]}
+    assert set(ports) == {"SFP1", "P1", "P2"}
+    assert ports["P1"].far_device == "ws01" and ports["P1"].far_leg == 0
+    assert ports["SFP1"].far_kind == "router" and ports["SFP1"].mode == "trunk"
+    assert m.leg_port[("gw", "office")].port == "SFP1"
+    assert m.problems == []
+
+
+def test_a_network_without_a_vlan_gets_the_lowest_free_tag():
+    parsed = _ir(_cfg())
+    parsed.ir.layers.infra.networks[0].vlan = None  # office: no VLAN in the IR
+    parsed.ir.layers.infra.networks[1].vlan = 2     # servers holds 2 (SDN-hosted)
+    assert resolve_switches(parsed.ir, CAPS).vlan_tag == {"office": 3}
+
+
+def test_unlinked_legs_get_auto_ports_on_the_deepest_carrier():
+    cfg = _two_switch_cfg()
+    m = _model(cfg)
+    assert m.depth == {"sw": 2, "core": 1}
+    assert m.carriers == {"office": ["sw", "core"], "servers": ["sw", "core"]}
+    # ws01/ws02 have no link of their own here: auto ports on access (deeper)
+    auto = {p.port: p for p in m.ports["sw"] if p.source == "auto"}
+    assert set(auto) == {"ws01.0", "ws02.0", "fs.0"}
+    # fs (servers) also lands on the deepest carrier of servers
+    assert m.leg_port[("fs", "servers")].switch == "sw"
+    assert m.leg_port[("gw", "servers")].port == "Te2"
+    assert [l.key for l in m.switch_links] == ["core#Po1|sw#Po1"]
+    assert m.problems == []
+
+
+def test_two_carriers_at_one_depth_are_ambiguous():
+    cfg = _two_switch_cfg()
+    tc = cfg["twin_config"]
+    # make access a sibling of core under gw instead of below it
+    tc["links"][2] = {"a": {"device": "gw", "port": "eth3"}, "b": {"device": "sw", "port": "Up"},
+                      "mode": "trunk", "vlans": ["office", "servers"]}
+    m = _model(cfg)
+    assert "NSW-040" in _rules(m)
+    assert any("Ambiguous carrier for 'ws01' on 'office'" in p.message for p in m.problems)
+
+
+def test_a_vm_trunk_beyond_its_native_is_refused():
+    cfg = _cfg()
+    cfg["twin_config"]["links"][0]["vlans"] = ["office", "servers"]
+    assert "NSW-060" in _rules(_model(cfg))
+
+
+def test_a_link_to_a_logical_switch_is_refused():
+    cfg = _cfg()
+    tc = cfg["twin_config"]
+    tc["nodes"].append({"name": "dumb", "kind": "switch"})
+    tc["links"].append({"a": {"device": "sw", "port": "P9"}, "b": {"device": "dumb", "port": "1"},
+                        "mode": "access", "vlans": ["office"]})
+    # both imageless -> both native: a patch link, fine
+    assert _model(cfg).problems == []
+    tc["nodes"][-1]["image"] = "debian-12-cloud@v1"
+    tc["nodes"][-1]["requires"] = ["linux"]
+    m = _model(cfg)  # an imaged switch is a VM: an ordinary VM port
+    assert m.port("sw", "P9").far_kind == "switch" and m.problems == []
+
+
+def test_egress_on_a_switch_hosted_network_is_refused():
+    parsed = _ir(_cfg())
+    parsed.ir.layers.infra.networks[0].egress = True
+    m = resolve_switches(parsed.ir, CAPS)
+    assert "NSW-030" in _rules(m)
+
+
+def test_stp_and_svi_problems():
+    cfg = _cfg()
+    sw = cfg["twin_config"]["nodes"][2]
+    sw["stp"] = "rstp"
+    sw["nets"] = [{"segment": "office", "ip": "10.71.10.250"}]
+    probs = {p.rule_id: p.severity for p in _model(cfg).problems}
+    assert probs == {"NSW-070": "error", "NSW-080": "warning"}
+    probs = {p.rule_id: p.severity for p in _model(cfg, caps=frozenset()).problems}
+    assert probs["NSW-070"] == "warning" and "NSW-080" not in probs
+
+
+def test_a_down_member_port_keeps_its_nic_and_state():
+    cfg = _cfg()
+    cfg["twin_config"]["links"][1]["state"] = "down"
+    p = _model(cfg).port("sw", "P1")
+    assert p.state == "down" and p.far_leg == 0  # ws01 keeps `net: office`
+
+
+def test_no_native_switch_gives_an_empty_model():
+    cfg = _cfg()
+    cfg["twin_config"]["nodes"][2]["image"] = "debian-12-cloud@v1"
+    cfg["twin_config"]["nodes"][2]["requires"] = ["linux"]
+    m = _model(cfg)
+    assert not m.has_native and m.carriers == {} and m.ports == {}
+
+
+# ---------------------------------------------------------------------------
+# Validator (NSW)
+# ---------------------------------------------------------------------------
+from axrange.validator.engine import validate_full
+
+
+def _validate(cfg: dict, caps):
+    from axrange.manifest.loader import load_registry
+    manifests = load_registry(root=Path(__file__).parent / "fixtures")
+    return validate_full(_ir(cfg), manifests=manifests, platform_caps=caps)
+
+
+def test_nsw_rules_fire_only_with_a_known_platform():
+    cfg = _cfg()
+    cfg["twin_config"]["links"][0]["vlans"] = ["office", "servers"]
+    assert not [f for f in _validate(cfg, None).findings if f.rule_id.startswith("NSW")]
+    ids = [f.rule_id for f in _validate(cfg, CAPS).findings]
+    assert "NSW-060" in ids
+
+
+def test_nsw_070_warning_half_is_a_warning_finding():
+    cfg = _cfg()
+    cfg["twin_config"]["nodes"][2]["stp"] = "rstp"
+    f = [f for f in _validate(cfg, frozenset()).findings if f.rule_id == "NSW-070"]
+    assert f and f[0].severity.value == "warning"

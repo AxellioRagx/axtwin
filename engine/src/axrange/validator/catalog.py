@@ -530,6 +530,40 @@ _RULES_LIST: list[Rule] = [
     _R("CLU-070", RuleCategory.CLUSTER, WARN, 4,
        "Cluster headroom after this deploy < 20%",
        message_template="Cluster headroom after this deploy < 20% on resource '{resource}'"),
+    # CLU-080: native switches are single-node in v1 (docs/design/
+    # native-switches.md §3, Authority: user, 2026-11-12). CLU 7 -> 8.
+    _R("CLU-080", RuleCategory.CLUSTER, ERR, 4,
+       "Every native switch and every VM attached to one is placeable on one Proxmox node",
+       message_template="{detail}"),
+
+    # -----------------------------------------------------------------------
+    # NSW -- Native switch (Pass 3, accumulate): docs/design/native-switches.md
+    # §9, Authority: user, 2026-11-12. Fires only when the platform's
+    # capability set is known (validate_full(platform_caps=...), or the
+    # planner's Pass 1); a bare `axrange validate` skips the category.
+    # No NSW-010: the resolution itself is not a violation.
+    # -----------------------------------------------------------------------
+    _R("NSW-020", RuleCategory.NATIVE_SWITCH, WARN, 3,
+       "An imageless switch on a platform without native-switch is logical (deploys as nothing)",
+       message_template="{detail}"),
+    _R("NSW-030", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "A network is SDN-hosted or switch-hosted, never both",
+       message_template="{detail}"),
+    _R("NSW-040", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "A leg that gets an automatic switch port has exactly one deepest native carrier",
+       message_template="{detail}"),
+    _R("NSW-050", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "Native-switch ports and VLANs exist; a native switch links only to VMs and native switches",
+       message_template="{detail}"),
+    _R("NSW-060", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "A link with a VM end carries exactly one network the VM has a leg on (no in-guest tagging in v1)",
+       message_template="{detail}"),
+    _R("NSW-070", RuleCategory.NATIVE_SWITCH, ERR, 3,
+       "stp: rstp on a native switch is phase 3 (a warning on a VM or logical switch)",
+       message_template="{detail}"),
+    _R("NSW-080", RuleCategory.NATIVE_SWITCH, WARN, 3,
+       "An addressed leg on a native switch is not deployed (no SVI in v1)",
+       message_template="{detail}"),
 
     # -----------------------------------------------------------------------
     # FAB — Fabric (Pass 3, accumulate) — dynamic routing + overlay on routers
@@ -735,7 +769,9 @@ def list_rules(pass_: int | None = None, category: RuleCategory | None = None) -
 #  links shape, STR-220 provenance) + REF 25->27 (REF-270/280 link refs) +
 #  NET 10->13 (NET-120 port reuse, NET-130 link ends + isolated anchor,
 #  NET-140 parked switch) / total 114->121 with the device tree,
-#  `docs/design/topology-layers.md` §10, Authority: user, 2026-11-07 — each
+#  `docs/design/topology-layers.md` §10, Authority: user, 2026-11-07; +NSW 7
+#  (NSW-020..080) + CLU 7->8 (CLU-080) / total 121->129 with native switches,
+#  `docs/design/native-switches.md` §9, Authority: user, 2026-11-12 — each
 #  bumped atomically with the assertions below.)
 # This implementation encodes what the §5 tables list (the actual contract); the
 # §1/§5 headline numbers are stale and to be corrected via CHANGELOG.
@@ -750,8 +786,9 @@ assert _BY_CAT[RuleCategory.OVERLAY] == 4, _BY_CAT
 assert _BY_CAT[RuleCategory.ACTIVITY] == 7, _BY_CAT  # +ACT-060/070, schedule executor 2026-07-10
 assert _BY_CAT[RuleCategory.DEFENSE] == 5, _BY_CAT
 assert _BY_CAT[RuleCategory.FABRIC] == 8, _BY_CAT  # fabric slice, 2026-06-29
-assert _BY_CAT[RuleCategory.CLUSTER] == 7, _BY_CAT
+assert _BY_CAT[RuleCategory.CLUSTER] == 8, _BY_CAT  # +CLU-080 native switches
+assert _BY_CAT[RuleCategory.NATIVE_SWITCH] == 7, _BY_CAT  # NSW-020..080, 2026-11-12
 # PSN-010..090 persona library 2026-07-24; +PSN-100/110 (transport +
 # peer_scope enums) with the high-volume persona wave, 2026-07-28.
 assert _BY_CAT[RuleCategory.PERSONA] == 11, _BY_CAT
-assert sum(_BY_CAT.values()) == 121  # 114 + the device tree's 7 (STR-210/220, REF-270/280, NET-120/130/140), 2026-11-07
+assert sum(_BY_CAT.values()) == 129  # 114 + the device tree's 7 (2026-11-07) + native switches' 8 (NSW-020..080, CLU-080, 2026-11-12)

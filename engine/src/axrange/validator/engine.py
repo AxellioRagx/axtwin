@@ -38,6 +38,7 @@ from axrange.validator.checks import (
     overlay as _overlay,
     references as _references,
     structural as _structural,
+    switches as _switches,
 )
 from axrange.validator.finding import Finding, RuleCategory, Severity
 
@@ -52,6 +53,7 @@ PASS_3_CHECKS: list[Check] = (
     + _activity.CHECKS
     + _defense.CHECKS
     + _fabric.CHECKS
+    + _switches.CHECKS
 )
 
 
@@ -123,6 +125,7 @@ def _build_context(
     manifests: ManifestRegistry,
     *,
     skip_unknown_image_lifecycle: bool = False,
+    platform_caps: Any = None,
 ) -> ValidatorContext:
     reproducible = bool(parse_result.ir.scenario and parse_result.ir.scenario.reproducible)
     return ValidatorContext(
@@ -132,6 +135,7 @@ def _build_context(
         parse_findings=parse_result.parse_findings,
         reproducible=reproducible,
         skip_unknown_image_lifecycle=skip_unknown_image_lifecycle,
+        platform_caps=frozenset(platform_caps) if platform_caps is not None else None,
     )
 
 
@@ -228,12 +232,16 @@ def validate_full(
     manifests: ManifestRegistry | None = None,
     *,
     text: str | None = None,
+    platform_caps: Any = None,
 ) -> ValidationResult:
-    """Run Passes 1–3. The standard `axrange validate` entry point."""
+    """Run Passes 1–3. The standard `axrange validate` entry point.
+
+    `platform_caps`: the target platform's capability set; the NSW rules
+    (native switches) fire only when it is given."""
     parse_result = _parse(scenario, text=text)
     if manifests is None:
         manifests = ManifestRegistry()
-    ctx = _build_context(parse_result, manifests)
+    ctx = _build_context(parse_result, manifests, platform_caps=platform_caps)
     result = ValidationResult(
         ir=parse_result.ir, source_files=parse_result.source_files
     )

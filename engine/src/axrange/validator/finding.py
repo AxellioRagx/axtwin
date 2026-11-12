@@ -39,6 +39,7 @@ class RuleCategory(str, Enum):
     ACTIVITY = "activity"
     DEFENSE = "defense"
     FABRIC = "fabric"
+    NATIVE_SWITCH = "native-switch"
     CLUSTER = "cluster"
     PERSONA = "persona"
 

@@ -29,6 +29,9 @@ class ValidatorContext:
     parse_findings: list[RawParseFinding]
     reproducible: bool = False
     skip_unknown_image_lifecycle: bool = False
+    # The target platform's capabilities (docs/design/native-switches.md §9):
+    # None == unknown (a bare `axrange validate`), and the NSW rules skip.
+    platform_caps: frozenset[str] | None = None
 
 
 Check = Callable[[ValidatorContext], list[Finding]]
