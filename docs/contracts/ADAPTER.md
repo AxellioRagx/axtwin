@@ -49,6 +49,13 @@ Every `infra`-class op in `docs/OP_CATALOG.md` maps to one adapter capability on
 | `wait-os-ready` (OP-HOST-080) | SSH/WinRM reachability probe (poll) | (probe; see note) |
 | `attach-gre-tunnel` (OP-MIR-010) | create keyed gretap netdev (`ip link … type gretap`) + assert a deep-FIFO qdisc on it | SSH |
 | `install-ovs-mirror` (OP-MIR-020) | write + register post-start/pre-stop hook (`tc` mirror rules) | SSH |
+| `create-switch` (OP-NET-060) | create/adopt a native switch's OVS bridge (`ovs-vsctl`, outside SDN) | SSH |
+| `link-switches` (OP-NET-070) | OVS patch-port pair with VLAN tag/trunks | SSH |
+| `set-port-state` (OP-NET-080) | OpenFlow port flags blocking a running VM's tap | SSH |
+| `attach-vm-to-switch-port` (OP-HOST-110) | set VM NIC → native-switch bridge with `tag`, `firewall=0`, and `link_down=1` for a down port | REST |
+| `install-span` (OP-MIR-060) | OVS mirror on a native switch's bridge → keyed gretap; selection mirrored into the post-start hook | SSH |
+
+**Capability `native-switch` (2026-11-12, `docs/design/native-switches.md`).** The platform bundle declares `capabilities: frozenset[str]`; Proxmox declares `{"native-switch"}` once the five rows above are live-verified, libvirt declares none until it implements them (D10). The planner resolves an imageless `kind: switch` native only when the capability is present (IR §3.2, `5`).
 
 **Note on `wait-os-ready`.** It is a `wait` op that probes the *guest* (SSH for Linux, WinRM for Windows) from the orchestrator — it is neither a Proxmox-REST nor an `ovs-vsctl`-SSH call. It uses the orchestrator's own network reachability to the guest's management IP, not the adapter's Proxmox SSH credentials. Treat it as a third, trivial "probe" path.
 
@@ -107,6 +114,9 @@ All v1 adapter ops use `cleanup_strategy: redo` — none of the slice ops are `e
 | SDN zone (standing) | `zone_id_for_plan(..., tier="o2")` | `o2z<5hex>` (8 chars) | `o2` |
 | source gretap netdev | `gre_port_for_bridge` / `gre_port_for_bridge_sensor` | `tapg_<6hex>` (≤15 chars) | `tap` |
 | per-tap OVS mirror | `mirror_name_for_vmid` | `tapm-<vmid>` | `tap` |
+| native-switch bridge | `switch_bridge_for` | `tesw_<8hex>` (13 chars) | `te` |
+| native-switch patch port | `patch_port_for` | `tepp_<8hex>` (13 chars) | `te` |
+| span mirror (OVSDB name) | `span_mirror_for` | `tapsm_<8hex>` | `tap` |
 | standing O2 vnet/bridge/VM | `o2_vnet_id_for_component` / `o2_bridge_name_for_component` / `o2_vm_name_for_component` (called via `tier="o2"`) | `o2v<5hex>` / `o2br_<6hex>` / `o2-<slug>` — **now called by `axrange/o2control/`'s standing-surface deploy (A1, BUILT 2026-07-11, `docs/design/05-o2-surface.md`)** | `o2` |
 | golden template VM name | `img_vm_name_for_image` (also used by `imagebuild/builder.py`) | `img-<image-slug>` (≤63 chars), e.g. `img-debian-12-cloud` | `img` |
 
@@ -194,3 +204,7 @@ Two routes were on the table:
 2. ~~**Ratify direct-bridge ownership as the permanent v1 model**~~ — rejected.
 
 **Decision (CHANGELOG 2026-06-03 "SDN-native networking ratified"):** **route 1.** The reconciliation uses PVE's zone types at the two natural points, auto-derived per `OP-NET-010`: a **Simple** zone gives one OVS bridge per network (vnet = bridge); a **VLAN** zone gives one underlay bridge per zone with networks as VLAN-vnets. `create-ovs-bridge` cardinality follows (per-network vs once-per-zone). Driver: logical multi-site twins on one host with high churn and eventual multi-node — exactly the "multi-node bridge-distribution need" route 2 named as its own expiry condition. The bypass is retired; reintroducing direct `/nodes/<node>/network` ownership would now itself be a CHANGELOG-able reversal.
+
+### 8.4 Native switches: adapter-owned OVS again, narrowly (2026-11-12)
+
+`docs/design/native-switches.md` (Authority: user, D2) reverses §8.3 for one thing only: a **native switch** is an OVS bridge the adapter owns directly, created with `ovs-vsctl` over SSH and living only in OVSDB (not in SDN, not in `/etc/network/interfaces`, so no `ifreload` is needed and running VMs on the node are not disturbed). Every network no native switch carries stays an SDN vnet exactly as §3 describes, and a scenario with no native switch is unaffected. The bridges are invisible to the SDN GUI and IPAM; pve-firewall does not act on their ports because the adapter writes `firewall=0` on every NIC it attaches to them (design §8). Teardown removes each `tesw_*` bridge a deploy's `create-switch` recorded, only when it is the exact name `switch_bridge_for(plan_id, switch)` produces, clears its mirrors first, and verifies it is gone (`Teardown.delete_switch`, a new resource kind `switch`). v1 is single-node (PLANNER §3.4, `CLU-080`); cross-node tunnels are phase 3.

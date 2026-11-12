@@ -84,7 +84,7 @@ Walk the IR and emit op instances per entity:
 
 - **Each `network` entry** → 1 op (`create-vnet[<net-id>]`) plus dependencies on cluster-level setup if needed.
 - **Each `host` node** → ~7-8 infrastructure ops (clone, configure hardware, configure cloud-init, attach NIC(s), install mirror, start, wait for guest agent, wait for OS) plus configuration ops per binding.
-- **Each `router` / `switch` node** → similar to host with kind-specific differences.
+- **Each `router` / `switch` node** → similar to host with kind-specific differences. An imageless switch emits no VM: resolved **native** (the platform declares `native-switch`, `docs/design/native-switches.md`) it emits `create-switch[<switch>]` and one `link-switches[<link>]` per link to another native switch (which also asserts that link's state); every VM leg on a network a native switch carries emits `attach-vm-to-switch-port[<host>@<net>]` in place of `attach-vm-to-vnet` (carrying `link_down` for a `down` port), plus `set-port-state[<switch>@<port>]` after `start-vm` for a `blocked` one; such a network emits no `create-vnet` and no `network-ready`. Resolved **logical** it emits nothing. The SDN zone, its underlay and `apply-sdn-config` are emitted only when at least one network is SDN-hosted, so a scenario with no native switch emits exactly what it did before.
 - **Each `app` binding** → 1 op per `install:` action (apps with multi-action installs produce multiple ops, strictly sequenced in IR order — see §3.2).
 - **Each `activity` binding** → 1 op (`start-activity[<activity-id>@<host-id>]`).
 - **Each `overlays.defense` entry** → 1-2 ops depending on binding mode (`observes:` and/or `installed_on:`).
@@ -93,7 +93,7 @@ Walk the IR and emit op instances per entity:
 
 Also emit **synthetic barriers** for each entity that downstream work depends on:
 
-- `network-ready[<net-id>]` — depends on all ops needed to make the network usable.
+- `network-ready[<net-id>]` — depends on all ops needed to make the network usable. Not emitted for a switch-hosted network: its attaches wait on `create-switch` (data flow) and every `link-switches` directly.
 - `host-ready[<host-id>]` — depends on clone, configure, start, waits, mirror install.
 - `domain-ready[<domain-fqdn>]` — depends on AD provision + DNS for that domain.
 
@@ -128,6 +128,8 @@ ir_node.requires (host:* keywords) ∪ binding.placement_constraints.requires_ho
 The union model: IR-author-declared `host:*` requirements and binding-declared `requires_host_caps:` are both authoritative; both contribute (see `docs/IMAGE_MANIFEST.md` §4).
 
 Among Proxmox nodes that satisfy the union and aren't in `binding.placement_constraints.avoid_nodes:`, the planner picks one using a stable heuristic — default: least-loaded (lowest count of VMs currently running). Ties broken by node name (alphabetic).
+
+**Native switches (v1 single-node, `docs/design/native-switches.md` §3, 2026-11-12).** Every native switch of a scenario and every VM attached to one are placed on ONE node (a switch under its own node id in `placement`, as every IR node is); `CLU-080` refuses a plan that splits them. Cross-node switches are phase 3.
 
 The choice is recorded in the state store on the host's first deploy and reused on every subsequent re-plan. Partial-redeploy lands the VM on the same Proxmox node it was on before, unless the constraint set has changed and the previous node no longer satisfies it.
 
@@ -480,7 +482,7 @@ Each op declares the resources it uses. Categories:
 |---|---|---|
 | `proxmox-cluster` | Cluster-wide | Proxmox API rate limits. |
 | `proxmox-node:<name>` | One Proxmox node | Local resource pressure (clones, disk I/O). |
-| `ovs:<name>` | One Proxmox node's OVS instance | OVS commands on the same OVS should serialize (avoid weird interactions). |
+| `ovs:<name>` | One Proxmox node's OVS instance | OVS commands on the same OVS should serialize (avoid weird interactions). Held by every native-switch op (`create-switch`, `link-switches`, `attach-vm-to-switch-port`, `set-port-state`, `install-span`). |
 | `vm:<vmid>` | One VM | Two ops mutating the same VM must serialize. |
 | `ansible-pool` | Across the orchestrator | Cap on Ansible playbook concurrency from the orchestrator. |
 | `gretap:<sensor>` | One sensor's gretap transport interface | Kernel netlink ops attaching/detaching GRE tunnels on a sensor's gretap iface serialize; concurrent mirror-plumbing ops to the same sensor would race kernel-side. (Added 2026-05-27 with the op catalog; used by `OP-MIR` ops.) |

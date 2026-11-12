@@ -41,6 +41,8 @@ _EXPECTED_IDS = {
     # consolidation (`docs/WORK_ORDER_twin_consolidation.md` Phase 2).
     "corpapcn-golden", "corpapcn-twin", "pit-395a61f04e-1780405200", "corp-twin",
     "corp-twin-devlab",
+    # The canvas / device-tree fixtures (topology-layers, native switches).
+    "canvas-test", "switch-test", "switch-trunk-test",
 }
 
 

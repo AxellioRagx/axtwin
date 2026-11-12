@@ -277,6 +277,108 @@ A scenario gets one Proxmox SDN Zone (`docs/ARCHITECTURE.md` §250). **Zone type
 
 **Barrier wiring.** `network-ready[<net-id>]` (§5.8) depends on `apply-sdn-config[$scenario]` — once the SDN config is applied, every vnet in the scenario is usable. Per-network granularity of the barrier is preserved for downstream clarity even though the apply is scenario-wide: a host on `corp` depends on `network-ready[corp]`, which depends on the single `apply-sdn-config`.
 
+**Native switches (Authority: user, 2026-11-12, `docs/design/native-switches.md`).** An imageless `kind: switch` the planner resolves **native** (the platform declares `native-switch`) is one adapter-owned OVS bridge, outside SDN; the networks it carries are VLANs on it and get no `create-vnet`. The SDN zone, its underlay and `apply-sdn-config` are emitted only when some network is SDN-hosted, so a scenario with no native switch emits exactly what it did before. All three ops below hold `ovs:$target_node` and follow Model C check-then-act (`ADAPTER.md` §4).
+
+```yaml
+- id: OP-NET-060
+  name: create-switch
+  kind: action
+  description: |
+    Create one native switch: a VLAN-aware OVS bridge (fail_mode standalone,
+    external_ids axrange-tier=te / axrange-deploy / axrange-switch) on the
+    switch's placed node. Check-then-act: an existing bridge with this name and
+    deploy id is adopted and its attributes re-asserted, including the OpenFlow
+    flags of its patch ports (set-port-state).
+  inputs:
+    switch_id: node-id:str              # the bridge name is derived by the adapter
+                                        # (tesw_<8hex>, naming.switch_bridge_for)
+    stp: str                            # "off" in v1 ("rstp" is phase 3)
+    target_node: proxmox-node:str
+    ports: list                         # the switch's port table, published as the
+                                        # inventory's switches[].ports[]; not read
+                                        # by the adapter
+  outputs:
+    bridge_name: ovs-bridge-name:str
+  after: []
+  cleanup_strategy: redo
+  idempotency_class: infra
+  resource_categories:
+    - ovs:$target_node
+  implementation: proxmox.ssh_create_switch
+  timeout: 60s
+  redo_on:
+    - nodes[*].kind
+    - nodes[*].stp
+    - links[*]
+
+- id: OP-NET-070
+  name: link-switches
+  kind: action
+  description: |
+    Wire two native switches: an OVS patch-port pair (tepp_<8hex> each end, named
+    by the adapter), each port carrying the link's VLANs -- access: tag=<vlan>;
+    trunk: trunks=<vlans>, plus tag=<native> vlan_mode=native-untagged when native
+    is set -- and asserts the link's state as OpenFlow port flags on both ends
+    (up: up,receive,forward,flood; down: down; blocked: up,no-receive,no-forward,
+    no-flood). Emitted for every link between two native switches, whatever its
+    state.
+  inputs:
+    link_key: str                       # "<devA>#<portA>|<devB>#<portB>", sorted
+    switch_a: node-id:str
+    switch_b: node-id:str
+    bridge_a: ovs-bridge-name:str       # from create-switch[a]
+    bridge_b: ovs-bridge-name:str       # from create-switch[b]
+    mode: str                           # access | trunk
+    vlan_tags: list                     # VLAN ids carried
+    native_tag: int                     # trunk native, optional
+    state: str                          # up | down | blocked
+    target_node: proxmox-node:str
+  outputs:
+    port_a: ovs-port-name:str
+    port_b: ovs-port-name:str
+  after: []                             # create-switch of both ends: data flow
+  cleanup_strategy: redo
+  idempotency_class: infra
+  resource_categories:
+    - ovs:$target_node
+  implementation: proxmox.ssh_link_switches
+  timeout: 60s
+  redo_on:
+    - links[*]
+
+- id: OP-NET-080
+  name: set-port-state
+  kind: action
+  description: |
+    Block a VM's native-switch port (`state: blocked` on its link): OpenFlow
+    flags up,no-receive,no-forward,no-flood on the VM's tap (tap<vmid>i<n>). The
+    tap exists only while the VM runs, so this follows start-vm; a VM stop/start
+    re-creates the tap without the flags (re-asserted by a redeploy in phase 1,
+    by the post-start hook from phase 2). `down` on a VM port is not this op:
+    attach-vm-to-switch-port writes link_down=1. A patch port's state is
+    link-switches'.
+  inputs:
+    switch_id: node-id:str
+    port: str                           # the link's port name on the switch
+    state: str                          # blocked
+    vmid: vmid:int
+    nic_index: int
+    bridge_name: ovs-bridge-name:str    # from create-switch
+    target_node: proxmox-node:str
+  outputs:
+    state_applied: str
+    ovs_port: ovs-port-name:str
+  after: []                             # start-vm[$host]: pass 3 (planner hint)
+  cleanup_strategy: redo
+  idempotency_class: infra
+  resource_categories:
+    - ovs:$target_node
+  implementation: proxmox.set_port_state
+  timeout: 60s
+  redo_on:
+    - links[*].state
+```
+
 ### 5.2 `OP-HOST` — Host lifecycle
 
 One node (`infra.nodes[]`, any `kind:`) becomes a running, OS-ready VM through this category. The spine is a serial chain (clone → hardware → cloud-init → attach → start → wait-agent → wait-os) with two deliberate parallelism points noted below.
@@ -510,6 +612,51 @@ One node (`infra.nodes[]`, any `kind:`) becomes a running, OS-ready VM through t
 
 **Barrier wiring.** `host-ready[<host-id>]` (§5.8) depends on `wait-os-ready[$host]` alone — a `te` deploy has no mirror concept of its own at all any more (`docs/WORK_ORDER_tap_eligibility.md`, 2026-07-28; `install-ovs-mirror` was already never a `te`-side predecessor of `host-ready` since the 2026-07-13 sensor-agnostic-te change — see §5.3). `configure-static-routes`, when present, is also a predecessor of `host-ready` (a router isn't "ready" until its routes are in). Downstream categories (apps, overlays, activities) depend only on `host-ready[<host>]`, never on the individual OP-HOST ops.
 
+**Native-switch attach (2026-11-12, `docs/design/native-switches.md` §2.4, §5).** A VM leg on a network a native switch carries emits `attach-vm-to-switch-port` **in place of** `attach-vm-to-vnet`; it publishes the same `hosts[].nets[]` record plus `switch` and `port`. `start-vm`'s `attach-*[$host@*]` predecessors take whichever form each leg has.
+
+```yaml
+- id: OP-HOST-110
+  name: attach-vm-to-switch-port
+  kind: action
+  description: |
+    Plug one VM NIC into a native switch's bridge as a switch port: tag=<vlan>
+    (a VM-end trunk carries only its native in v1, NSW-060, so access and trunk
+    take the same tag). Writes firewall=0 explicitly so the OVS port is the VM's
+    own tap (D9), and link_down=1 for a `state: down` port. One instance per
+    (host, network); the port is the link's port name or the automatic
+    `<instance>.<leg>`.
+  inputs:
+    vmid: vmid:int
+    bridge_name: ovs-bridge-name:str
+    switch_id: node-id:str
+    port: str
+    net_id: net-id:str
+    ip: ip:str
+    nic_index: int
+    mode: str                           # access | trunk (label; same tag either way)
+    vlan_tag: int                       # the network's VLAN on the switch
+    link_down: bool                     # state: down
+  outputs:
+    nic_attached: bool
+    ovs_port: ovs-port-name:str         # tap<vmid>i<n>
+  after:
+    - configure-cloud-init[$host]       # + create-switch[$switch] (data flow) and every
+                                        # link-switches (pass 3); a switch-hosted net has
+                                        # no network-ready barrier
+  cleanup_strategy: redo
+  idempotency_class: infra
+  resource_categories:
+    - proxmox-cluster
+    - vm:$vmid
+    - ovs:$target_node
+  implementation: proxmox.set_vm_net_switch
+  timeout: 60s
+  redo_on:
+    - nodes[*].net
+    - nodes[*].nets
+    - links[*]
+```
+
 ### 5.3 `OP-MIR` — Mirror plumbing
 
 Traffic capture for mirrored interfaces (`docs/ARCHITECTURE.md` §264–311). The architecture makes the mirror itself **not** a deploy-time op: per §288 the `tc` mirror rules (Option 1, 2026-06-04 — formerly `ovs-vsctl create mirror`) run inside a Proxmox `post-start`/`pre-stop` hook script, rebuilt from the plan on every VM boot (stateless, self-healing across reboots/restores). So the deploy-time side effects are (1) installing that hook on the VM and (2) creating the cross-node gretap netdev that carries mirrored frames to the sensor. A further op, **`verify-capture` (OP-MIR-040, dynamic-tap slice 2026-06-19)**, then proves a frame actually reaches the sensor (the capture heartbeat).
@@ -607,7 +754,8 @@ fan-out duplicates frames on the shared transport wire; not a hard cap.
     Each tapped_nics entry's direction (tap scopes, 2026-07-27) selects which
     mirred filter(s) the hook installs on that NIC: "rx" -> ingress only (exactly-
     once capture on a multi-port scope); "both" -> ingress + egress (unchanged
-    prior behavior, single-port scopes). An entry with no gretap targets in a
+    prior behavior, single-port scopes); "tx" -> egress only (2026-11-12,
+    native-switches §6.2). An entry with no gretap targets in a
     given direction omits that direction's filter add entirely rather than
     emitting an action-less one.
   inputs:
@@ -617,7 +765,7 @@ fan-out duplicates frames on the shared transport wire; not a hard cap.
     gre_port: ovs-port-name:str         # first tapped NIC's gretap (legacy single-NIC)
     tapped_nics: nic-index-list:list    # per-NIC {nic_index, net_id, sensor_id, direction} to
                                         # mirror, each into its own (net,sensor) gretap (dynamic
-                                        # taps); direction: "rx"|"both" is an ADDITIVE key (tap
+                                        # taps); direction: "rx"|"tx"|"both" is an ADDITIVE key (tap
                                         # scopes, 2026-07-27, docs/design/06-taps-sensors.md --
                                         # Authority: user, additive key within an existing input,
                                         # NO version bump). Absent direction defaults to "both",
@@ -708,6 +856,44 @@ zero predecessor ops and the gate resolves to a no-op for a `te`-only deploy). `
 `verify-capture` still feed a `mirror-ready[<sensor>]` barrier, but only **within A2's own composed
 playout plan** — the "sentinel provably traversed tap → gretap → sensor" upgrade this barrier expresses
 is now proven by `axrange tap deploy`, not by `axrange te deploy`.
+
+**SPAN on native switches (2026-11-12, `docs/design/native-switches.md` §6).** Composed by the A2 tap playout like the rest of OP-MIR, never by the `te` planner. A tap plan's `span` binding, and a `port` / `segment` / `perimeter` / `boundary` scope that resolves onto a switch-hosted network, compile to `install-span` on the carrier switch instead of a `tc` hook; SDN-hosted networks keep `install-ovs-mirror` unchanged. `verify-capture` accepts a span session as its bridge.
+
+```yaml
+- id: OP-MIR-060
+  name: install-span
+  kind: action
+  description: |
+    Create (or, with remove=true, delete) one OVS mirror on a native switch's
+    bridge: select_src_port = the rx/both ports, select_dst_port = the tx/both
+    ports, select_vlan = the narrowed VLAN ids, output_port = the keyed gretap of
+    attach-gre-tunnel (added to the bridge as a trunk port). Mirror selections on
+    VM ports are also written into each such VM's post-start hook by port name,
+    so a re-created tap rejoins the mirror. Check-then-act on the mirror name.
+  inputs:
+    bridge_name: ovs-bridge-name:str
+    mirror_key: str                     # the mirror is named tapsm_<8hex> by the adapter
+    src_ports: list                     # ovs port names
+    dst_ports: list
+    vlan_tags: list                     # optional
+    gre_port: ovs-port-name:str
+    remove: bool
+    target_node: proxmox-node:str
+    sensor_id: sensor-id:str
+  outputs:
+    mirror_installed: bool
+    mirror_name: str
+  after: []                             # attach-gre-tunnel of its (bridge, sensor): composed
+                                        # by the tap playout (phase 2)
+  cleanup_strategy: redo
+  idempotency_class: infra
+  resource_categories:
+    - ovs:$target_node
+    - gretap:$sensor_id
+  implementation: proxmox.ssh_install_span
+  timeout: 60s
+  redo_on: []
+```
 
 ### 5.4 `OP-APP` — App install dispatch
 
@@ -1402,6 +1588,9 @@ What the op catalog deliberately does **not** define:
 | OP-NET-030 | create-vnet | action | redo | infra | network |
 | OP-NET-040 | apply-sdn-config | action | redo | infra | scenario |
 | OP-NET-050 | create-subnet | action | redo | infra | network |
+| OP-NET-060 | create-switch | action | redo | infra | switch |
+| OP-NET-070 | link-switches | action | redo | infra | link |
+| OP-NET-080 | set-port-state | action | redo | infra | switch@port |
 | OP-HOST-010 | clone-vm | action | redo | infra | host |
 | OP-HOST-020 | configure-vm-hardware | action | redo | infra | host |
 | OP-HOST-030 | configure-cloud-init | action | redo | infra | host |
@@ -1412,10 +1601,12 @@ What the op catalog deliberately does **not** define:
 | OP-HOST-080 | wait-os-ready | wait | — | — | host |
 | OP-HOST-090 | configure-router | action | redo | infra | host |
 | OP-HOST-100 | configure-routing | action | redo | infra | host |
+| OP-HOST-110 | attach-vm-to-switch-port | action | redo | infra | host@net |
 | OP-MIR-010 | attach-gre-tunnel | action | redo | infra | net(bridge) |
 | OP-MIR-020 | install-ovs-mirror | action | redo | infra | host |
 | OP-MIR-040 | verify-capture | action | redo | config | bridge@sensor |
 | OP-MIR-050 | deploy-sensor | action | redo | config | sensor |
+| OP-MIR-060 | install-span | action | redo | infra | switch@binding |
 | OP-APP-010 | provision-app | action | redo | config | app |
 | OP-APP-020 | run-container | action | redo | config | app |
 | OP-APP-030 | run-script | action | **escalate** | config | app |
@@ -1438,7 +1629,7 @@ What the op catalog deliberately does **not** define:
 | OP-BAR-050 | overlay-ready | barrier | — | — | kind:id |
 | OP-BAR-060 | fabric-ready | barrier | — | — | scenario |
 
-**34 action/wait ops + 6 barriers = 40 op types** (OP-NET 5, OP-HOST 10, OP-MIR 4, OP-APP 3, OP-OVL 7, OP-ACT 3, OP-TFC 2, OP-BAR 6). *(Router slice, `docs/SLICE_ROUTER.md`: OP-NET-050 `create-subnet` — Phase 1 SDN SNAT egress, 2026-06-09; OP-HOST-090 `configure-router` — Phase 2 router-node egress NAT + inter-segment routing, 2026-06-10. Dynamic-tap slice, `docs/design/06-taps-sensors.md`: OP-MIR-040 `verify-capture` — the deploy-time capture heartbeat, 2026-06-19. Sensors design, `docs/design/06-taps-sensors.md` Phase B: OP-MIR-050 `deploy-sensor` — provision a typed capture sensor (tcpdump/suricata/zeek + in-guest flow-based gretap decap) inside its in-scenario VM over QGA, config-class, 2026-06-23; **emission is now `tier == "o2"`-gated (2026-07-13, `docs/WORK_ORDER_sensor_agnostic_te.md`) — a `te`-tier deploy with `sensors:` emits none of it (`REF-250` warns instead), only the O2 standing-surface deploy does.** Fabric slice, `docs/design/04-networking-capture.md`: OP-HOST-100 `configure-routing` — VyOS dynamic routing + overlay (OSPF/IS-IS/iBGP/eBGP/BGP-EVPN/VXLAN/redistribution/BFD), INFRA, after `host-ready` + `configure-router` (reuses its `wan_ip`); OP-BAR-060 `fabric-ready`, 2026-06-29. Sensor-agnostic te slice, `docs/WORK_ORDER_sensor_agnostic_te.md`: OP-MIR-005 `record-tap-intent` was added 2026-07-13 as the te planner's ENTIRE tap-emission surface (declarative, no adapter call), replacing `attach-gre-tunnel`/`install-ovs-mirror`/`verify-capture` in a `te` deploy's own DAG — those three stayed in the catalog, unchanged, emitted ONLY by the A2 tap playout. Full-topology tap eligibility, `docs/WORK_ORDER_tap_eligibility.md` (Authority: user): OP-MIR-005 itself is REMOVED 2026-07-28 (op count 40 → 39) — the `tap:` field it recorded is gone from the IR entirely, so a `te` deploy now emits NO OP-MIR op of any kind; A2 discovers what it may bind directly from the twin's published `attach-vm-to-vnet` topology instead. Traffic tier, `docs/WORK_ORDER_traffic_tier.md`: OP-TFC-010 `drive-persona` — (re)start one benign-persona instance on an already-deployed twin host via its driver, composed by hand by the standalone `tfc` playout (`axrange.o2control.traffic`), never emitted by the `te` planner, 2026-07-24. Exercise tier, `docs/WORK_ORDER_exercise_tier.md`: OP-ACT-010/020/030 (`deploy-behavior-agent`/`start-activity`/`wait-actor-ready`) and the adversary branch of OP-OVL-070 `install-agent` (`agent_kind=adversary`) are no longer emitted by a `te` deploy's own DAG — they stay in the catalog, unchanged, but are now composed by hand by the standalone `exr` playout (`axrange.o2control.exercise`), the same reuse pattern as `taps.py`/`traffic.py`; the exporter branch of `install-agent` (`agent_kind=exporter`, the default-agent sweep) is unaffected and stays `te`-emitted, 2026-07-24. Role/persona decoupling, `docs/WORK_ORDER_role_persona_tier.md` (Authority: user): OP-TFC-020 `assign-role` — record a host's tfc-owned semantic role as pure metadata, no adapter call and no `resource_categories` at all, so a role becomes re-assignable on a standing twin without re-cloning the node (op count 39 → 40), 2026-08-04.)* `run-script` is the only `escalate` op (opaque, non-idempotent). Five wait ops, all polling someone else's side effect. `infra`-class ops are the Proxmox/OVS/kernel/guest-OS-config ones (NET, HOST minus static-routes, MIR-010/020). Everything else in-guest is `config` — including `verify-capture`, whose sentinel inject rides QGA and sensor read rides mgmt-SSH (it holds only `vm:$vmid`, never the ansible-pool slot), and `drive-persona` (OP-TFC-010), which likewise holds only `vm:$vmid` alongside the `ansible-pool` slot its `config`-class QGA delivery needs.
+**39 action/wait ops + 6 barriers = 45 op types** (OP-NET 8, OP-HOST 11, OP-MIR 5, OP-APP 3, OP-OVL 7, OP-ACT 3, OP-TFC 2, OP-BAR 6). *(Router slice, `docs/SLICE_ROUTER.md`: OP-NET-050 `create-subnet` — Phase 1 SDN SNAT egress, 2026-06-09; OP-HOST-090 `configure-router` — Phase 2 router-node egress NAT + inter-segment routing, 2026-06-10. Dynamic-tap slice, `docs/design/06-taps-sensors.md`: OP-MIR-040 `verify-capture` — the deploy-time capture heartbeat, 2026-06-19. Sensors design, `docs/design/06-taps-sensors.md` Phase B: OP-MIR-050 `deploy-sensor` — provision a typed capture sensor (tcpdump/suricata/zeek + in-guest flow-based gretap decap) inside its in-scenario VM over QGA, config-class, 2026-06-23; **emission is now `tier == "o2"`-gated (2026-07-13, `docs/WORK_ORDER_sensor_agnostic_te.md`) — a `te`-tier deploy with `sensors:` emits none of it (`REF-250` warns instead), only the O2 standing-surface deploy does.** Fabric slice, `docs/design/04-networking-capture.md`: OP-HOST-100 `configure-routing` — VyOS dynamic routing + overlay (OSPF/IS-IS/iBGP/eBGP/BGP-EVPN/VXLAN/redistribution/BFD), INFRA, after `host-ready` + `configure-router` (reuses its `wan_ip`); OP-BAR-060 `fabric-ready`, 2026-06-29. Sensor-agnostic te slice, `docs/WORK_ORDER_sensor_agnostic_te.md`: OP-MIR-005 `record-tap-intent` was added 2026-07-13 as the te planner's ENTIRE tap-emission surface (declarative, no adapter call), replacing `attach-gre-tunnel`/`install-ovs-mirror`/`verify-capture` in a `te` deploy's own DAG — those three stayed in the catalog, unchanged, emitted ONLY by the A2 tap playout. Full-topology tap eligibility, `docs/WORK_ORDER_tap_eligibility.md` (Authority: user): OP-MIR-005 itself is REMOVED 2026-07-28 (op count 40 → 39) — the `tap:` field it recorded is gone from the IR entirely, so a `te` deploy now emits NO OP-MIR op of any kind; A2 discovers what it may bind directly from the twin's published `attach-vm-to-vnet` topology instead. Traffic tier, `docs/WORK_ORDER_traffic_tier.md`: OP-TFC-010 `drive-persona` — (re)start one benign-persona instance on an already-deployed twin host via its driver, composed by hand by the standalone `tfc` playout (`axrange.o2control.traffic`), never emitted by the `te` planner, 2026-07-24. Exercise tier, `docs/WORK_ORDER_exercise_tier.md`: OP-ACT-010/020/030 (`deploy-behavior-agent`/`start-activity`/`wait-actor-ready`) and the adversary branch of OP-OVL-070 `install-agent` (`agent_kind=adversary`) are no longer emitted by a `te` deploy's own DAG — they stay in the catalog, unchanged, but are now composed by hand by the standalone `exr` playout (`axrange.o2control.exercise`), the same reuse pattern as `taps.py`/`traffic.py`; the exporter branch of `install-agent` (`agent_kind=exporter`, the default-agent sweep) is unaffected and stays `te`-emitted, 2026-07-24. Role/persona decoupling, `docs/WORK_ORDER_role_persona_tier.md` (Authority: user): OP-TFC-020 `assign-role` — record a host's tfc-owned semantic role as pure metadata, no adapter call and no `resource_categories` at all, so a role becomes re-assignable on a standing twin without re-cloning the node (op count 39 → 40), 2026-08-04. Native switches, `docs/design/native-switches.md` (Authority: user, 2026-11-12): OP-NET-060 `create-switch`, OP-NET-070 `link-switches`, OP-NET-080 `set-port-state`, OP-HOST-110 `attach-vm-to-switch-port`, OP-MIR-060 `install-span` (op count 40 → 45); `install-ovs-mirror`'s `direction` admits `"tx"`.)* `run-script` is the only `escalate` op (opaque, non-idempotent). Five wait ops, all polling someone else's side effect. `infra`-class ops are the Proxmox/OVS/kernel/guest-OS-config ones (NET, HOST minus static-routes, MIR-010/020). Everything else in-guest is `config` — including `verify-capture`, whose sentinel inject rides QGA and sensor read rides mgmt-SSH (it holds only `vm:$vmid`, never the ansible-pool slot), and `drive-persona` (OP-TFC-010), which likewise holds only `vm:$vmid` alongside the `ansible-pool` slot its `config`-class QGA delivery needs.
 
 ## 9. Open follow-ups (deferred from v1)
 

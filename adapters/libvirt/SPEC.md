@@ -56,6 +56,7 @@ performs no platform call, the pattern ADAPTER.md §8 already used for SDN.
 | `configure-router`, `configure-routing` | unchanged (guest exec / SSH into the guest) | guest |
 | `attach-gre-tunnel` | the same `ip link … type gretap` + deep-FIFO qdisc on the KVM host | host |
 | `install-ovs-mirror` | the same per-tap `tc` mirror hook; the tap name comes from the domain's interface target | host |
+| `create-switch`, `link-switches`, `set-port-state`, `attach-vm-to-switch-port`, `install-span` | not implemented: libvirt does not declare `native-switch`, so the planner never emits them here and an imageless switch is logical (`docs/design/native-switches.md` D10, phase 3) | — |
 
 Multi-host is a later placement concern: a target may name one URI in v1;
 `qemu+ssh://` URIs make a second host a placement decision rather than an

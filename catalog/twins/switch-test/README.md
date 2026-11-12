@@ -26,6 +26,14 @@ axrange te deploy  --config switch-test --images $R --db $D --fresh
 axrange tfc deploy --twin switch-test --db $D
 ```
 
+## Deployed as a native switch (2026-11-12)
+
+`switch-test-c5f9de7d`: 47 ops COMPLETED, `access-sw` = `tesw_647ae73f` with
+the three VM taps on VLAN 10; both workstations ping `file-server` through `gw`
+(3/3). A scratch variant with P2 `state: down` cut ws02 (`link_down=1`, carrier
+0, unreachable) while ws01 kept working. Destroy removed the bridge and left
+no OVS state behind. Readings: `docs/design/native-switches.md` §11.1.
+
 ## Deployed and measured (2026-11-07, before the conversion: access-sw deployed as nothing)
 
 `switch-test-5c614b0e` (48 ops, COMPLETED), tap `…-1a070fcc`-style binding of

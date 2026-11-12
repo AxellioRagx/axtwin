@@ -1,12 +1,13 @@
 # Native switches and SPAN taps
 
 **Status:** decisions D1–D12 signed off by the user on 2026-11-12, in the task
-brief "native switches + SPAN taps". This document records them. Phase 0, the
-design and contract diff, is done; Phases 1–2 are being built on
-`wip/design-platforms-canvas`, which the user chose to continue on rather than
-open a second `wip/*` branch. Until Phase 1 lands, the contract edits it names
-(§10) stay in the working tree, uncommitted: `docs/contracts/README.md` requires
-a contract change to ship in the same commit as its code and tests.
+brief "native switches + SPAN taps"; §12 S1–S3 decided the same day (S1: a
+link may name a group member by instance id; S2 and S3 as proposed). Phase 0
+(design and contract diff) is done. Phase 1 (Proxmox single-node native
+switches) is built on `wip/design-platforms-canvas`, which the user chose to
+continue on rather than open a second `wip/*` branch; its contract edits (§10)
+land in the same commit as its last code (`docs/contracts/README.md`). Phase 2
+(SPAN) is next.
 
 **Loop step:** **deploy**, plus the **capture gate**. A switch drawn on the
 canvas becomes a switch on the node, and a SPAN session on its port feeds the
@@ -92,32 +93,38 @@ Every port on a native switch comes from one of two sources:
    attaches, gets an access port on that segment's **deepest carrier**. That is
    the native switch farthest from the router along `up` links that carries the
    segment: the same rule the canvas uses to hang hosts (`topology-layers.md`
-   §7.1 rule 1). The port is named `<instance>.<nic_index>` (for example
-   `corp-workstation01.0`). Port names are unique per switch (NET-120), and no
-   authored name contains a host name followed by a dot and a digit, so these
-   cannot collide. If two carriers tie at the deepest depth, NSW-040 refuses
-   and asks for an explicit link.
+   §7.1 rule 1); depth is the distance from a router over `up` links. The port
+   is named `<instance>.<leg>`, the leg being the network's position in the
+   node's `nets[]` (for example `corp-workstation01.0`); a collision with an
+   authored port name is refused (NSW-050). If two carriers tie at the deepest
+   depth, NSW-040 refuses and asks for an explicit link.
+
+A link end may name a group member by its instance id (`corp-workstation01`),
+so each member of a `count > 1` group can be wired to its own port (§12 S1).
+The group name itself is still refused as a link end.
 
 | link | on the native switch it becomes |
 |---|---|
 | `access`, far end a VM (host or router) | the VM's NIC for that segment, plugged into the bridge with `tag=<vlan>` |
 | `trunk`, far end a VM | the VM's NIC, `trunks=<vlans>`, with `tag=<native>` and `vlan_mode=native-untagged` when `native` is set. The guest has to handle the tags. In v1, NSW-060 refuses a VM-end trunk that carries anything beyond its native VLAN; see §12 S3 |
 | `access` or `trunk`, both ends native switches | an OVS patch-port pair, one port on each bridge, each with the same tag or trunk set |
-| far end a VM switch or a logical switch | refused (NSW-050): v1 does not bridge native switches to VM switches |
+| far end a switch with an image | a VM port like any other: that switch is a VM |
+| far end a logical switch | refused (NSW-050): there is nothing deployed to plug into |
 
 `state` on a link, on the native-switch side (D6):
 
 | `state` | effect |
 |---|---|
 | `up` (default) | forwarding |
-| `down` | the port is admin-down. On a VM port this is the NIC's `link_down=1` in the VM config: persistent, and the guest sees carrier loss. On a patch port it is the OpenFlow port flag `down` on both ends, re-asserted by `create-switch` on every run |
-| `blocked` | the port exists but does not forward. With `stp` off, it carries the OpenFlow flags `no-forward,no-flood,no-receive`. With `stp: rstp` (Phase 3), STP decides and the authored value is only advisory |
+| `down` | the port is admin-down. On a VM port this is the NIC's `link_down=1`, written by `attach-vm-to-switch-port` itself: persistent in the VM config, and the guest sees carrier loss. On a patch port it is the OpenFlow port flag `down` on both ends, asserted by `link-switches` on every run |
+| `blocked` | the port exists but does not forward: the OpenFlow flags `no-receive,no-forward,no-flood`. On a patch port `link-switches` asserts them; on a VM port `set-port-state` does, after `start-vm` (the tap exists only once the VM runs). With `stp: rstp` (Phase 3), STP decides and the authored value is only advisory |
 
 The OpenFlow flags do not survive a port being re-created: Proxmox removes and
-re-adds a VM's tap on every boot. So every OVS fact that is tied to a VM port
-(a `blocked` flag, a span selection) is re-asserted by the VM's post-start hook.
-This is the mechanism `install-ovs-mirror` already relies on (`OP_CATALOG.md`
-§5.3), extended in §6.3.
+re-adds a VM's tap when the VM stops and starts (a guest reboot keeps it). A
+`blocked` VM port is therefore re-asserted only by a redeploy in Phase 1; Phase
+2 moves it, with the span selections, into the VM's post-start hook (the
+mechanism `install-ovs-mirror` already relies on, `OP_CATALOG.md` §5.3; §6.3).
+`down` has no such gap: `link_down` lives in the VM config.
 
 ### 2.5 What a native switch does not do in v1
 
@@ -137,12 +144,12 @@ lands on one Proxmox node. Placement today is already one node per plan
 pin holds by construction. The rule still has to be written down and enforced
 for the day placement learns least-loaded (`PLANNER.md` §3.4):
 
-- Pass 4 places every switch-attached VM on the node it places the twin's native
-  switches on. It records that as `placement["switch:<name>"]`, the same way it
-  records hosts.
-- CLU-080 (new, planner-side) refuses the plan when that node cannot satisfy
-  every switch-attached VM's `host:*` requirements, or when a VM's recorded
-  prior placement is on another node. The message names the VM and both nodes.
+- Pass 4 places every native switch under its own node id in `placement`, as
+  it already places every IR node, beside the VMs attached to it.
+- CLU-080 (new, planner-side, `pass4_placement.py`) refuses the plan when a
+  native switch and a VM attached to one land on different nodes; the message
+  names both. Checking a VM's recorded prior placement against it is part of
+  the same rule once placement can move a VM (it cannot today).
 
 ## 4. Proxmox mapping (D2)
 
@@ -161,7 +168,8 @@ the node's `/etc/network/interfaces`:
   check-then-act and recreates it.
 
 The bridge carries `external_ids:axrange-tier=te`,
-`external_ids:axrange-deploy=<deploy_id>` and `external_ids:axrange-switch=<name>`.
+`external_ids:axrange-plan=<plan_id>` and `external_ids:axrange-switch=<name>`
+(labels for an operator; anything outside `[A-Za-z0-9._-]` becomes `_`).
 Its name, its fail mode (`standalone`: it learns MACs without a controller) and
 `mcast_snooping_enable=false` are set on create and re-asserted on adopt.
 
@@ -193,12 +201,12 @@ unchanged. A `te` destroy:
 
 1. removes every `tapsm_*` mirror whose bridge is one of the deploy's `tesw_*`
    bridges (a cascade to `tap`, as today);
-2. removes the deploy's `tesw_*` bridges, matched by name **and**
-   `external_ids:axrange-deploy`; `del-br` takes their patch ports and any
-   leftover VM taps with them;
-3. confirms that `ovs-vsctl list-br` shows none of them and that `list Mirror`
-   shows no `tapsm_*` on the node. A survivor is a teardown failure, not a
-   warning.
+2. removes each `tesw_*` bridge recorded by the deploy's `create-switch` ops,
+   only when it is exactly the name `switch_bridge_for(plan_id, switch)`
+   produces (anything else is a guard violation); it clears the bridge's
+   mirrors, then `del-br` takes the patch ports and any leftover VM taps;
+3. confirms that `ovs-vsctl list-br` no longer shows the bridge. A survivor is
+   a teardown failure, not a warning.
 
 ## 5. Ops (D2, D6, `OP_CATALOG.md`)
 
@@ -208,29 +216,29 @@ category. These are new ops, so the existing ops keep their signatures.
 | ID | name | per | after | backend |
 |---|---|---|---|---|
 | OP-NET-060 | `create-switch` | native switch | — | SSH |
-| OP-NET-070 | `link-switches` | switch↔switch link | `create-switch[a]`, `create-switch[b]` | SSH |
-| OP-HOST-110 | `attach-vm-to-switch-port` | host@net on a switch-hosted segment | `configure-cloud-init[$host]`, `create-switch[$switch]` | REST (NIC) + SSH (verify) |
-| OP-NET-080 | `set-port-state` | port with `state` other than `up` | the op that made the port | REST (`link_down`) / SSH (OpenFlow flags) |
-| OP-MIR-060 | `install-span` | span session (tap tier) | `attach-gre-tunnel[$bridge@$sensor]` | SSH |
+| OP-NET-070 | `link-switches` | switch↔switch link (any state; it asserts the state) | `create-switch` of both ends (data flow) | SSH |
+| OP-HOST-110 | `attach-vm-to-switch-port` | host@net on a switch-hosted segment (writes `link_down` for `down`) | `configure-cloud-init[$host]`, `create-switch[$switch]` (data flow), every `link-switches` | REST |
+| OP-NET-080 | `set-port-state` | VM port with `state: blocked` | `start-vm[$host]` | SSH (OpenFlow flags) |
+| OP-MIR-060 | `install-span` | span session (tap tier, Phase 2) | `attach-gre-tunnel` of its bridge and sensor | SSH |
 
-- `network-ready[$net]` for a switch-hosted net depends on every
-  `create-switch` and `link-switches` that carries it, in place of
-  `create-vnet` and `apply-sdn-config`.
+- A switch-hosted net gets no `create-vnet` and no `network-ready` barrier;
+  its attaches wait on the switch ops directly (above).
 - `attach-vm-to-switch-port` replaces `attach-vm-to-vnet` for that leg. It
   publishes the same `hosts[].nets[]` record (with `nic_index`), plus `switch`
   and `port`, so tap resolution and the inventory see one shape.
 - `start-vm` keeps `attach-*[$host@*]` as its predecessors, whichever form each
   one takes.
-- Idempotency (ADAPTER §4): every op checks before it acts:
-  - `create-switch`: `br-exists`, then adopt;
-  - `link-switches`: patch peers present and pointing at each other;
-  - `attach-vm-to-switch-port`: the NIC string matches, compared field by field
-    as `attach-vm-to-vnet` does today;
-  - `set-port-state`: the flag or `link_down` already matches;
-  - `install-span`: a mirror with that name and selection exists.
-
-  An adopted resource whose attributes drifted is corrected in place (the
-  gretap-qdisc pattern), not recreated.
+- Idempotency (ADAPTER §4): every op is safe to re-run and corrects drift in
+  place (the gretap-qdisc pattern), never by recreating:
+  - `create-switch`: `--may-exist add-br`, then `set bridge …` re-asserts its
+    attributes;
+  - `link-switches`: `--may-exist add-port` on both ends, then the peers, VLAN
+    role and state flags are re-asserted;
+  - `attach-vm-to-switch-port`: the same NIC string PUT again (deterministic
+    MAC), as `attach-vm-to-vnet` does;
+  - `set-port-state`: `ovs-ofctl mod-port` flags are absolute;
+  - `install-span`: a mirror with that name is replaced with the planned
+    selection (Phase 2).
 
 ## 6. SPAN taps (D7, D8)
 
@@ -331,6 +339,7 @@ switches:
     bridge: tesw_1a2b3c4d
     pve_node: dev45
     stp: off
+    status: completed
     ports:
       - port: SFP1
         mode: trunk
@@ -338,13 +347,13 @@ switches:
         vlans: [office]
         state: up
         source: link            # link | auto
-        far: { kind: router, device: gw, nic_index: 0 }
+        far: { kind: router, device: gw, port: eth1, leg: 0 }
       - port: corp-workstation01.0
         mode: access
         vlans: [office]
         state: up
         source: auto
-        far: { kind: host, device: corp-workstation01, nic_index: 0 }
+        far: { kind: host, device: corp-workstation01, leg: 0 }
 ```
 
 `hosts[].nets[]` keeps its shape and gains `switch` and `port` on switch-hosted
@@ -357,8 +366,8 @@ on several bridges.
 Native-switch bridges are outside the SDN view: they are not in the SDN GUI, and
 IPAM does not see them.
 
-**Finding (from the Proxmox source of `qemu-server` and `pve-firewall`; to be
-confirmed live in Phase 1):** pve-firewall acts on a VM NIC only when the NIC
+**Finding (from the Proxmox source of `qemu-server` and `pve-firewall`; the
+`firewall=0` half confirmed live on dev45, 2026-11-12):** pve-firewall acts on a VM NIC only when the NIC
 carries `firewall=1`. On an OVS bridge, `firewall=1` makes `qemu-server` insert a
 per-NIC Linux bridge (`fwbr<vmid>i<n>`) with a veth pair. The OVS port is then
 `fwln<vmid>o<n>`, not the tap, and the VLAN tag sits on that port. axRange never
@@ -366,7 +375,14 @@ sets `firewall=1`, so its VM NICs have none, and the tap is the OVS port.
 
 `attach-vm-to-switch-port` writes `firewall=0` explicitly, so the port the
 mirror, `blocked` and `link_down` act on is always the tap, even when a template
-default enables the firewall. v1 makes no firewall guarantee on a native
+default enables the firewall.
+
+Live (dev45, PVE 9.2.2, switch-test): `qm config` shows
+`net0: virtio=…,bridge=tesw_647ae73f,firewall=0,tag=10`; `ovs-vsctl show` lists
+`tap<vmid>i0` ports with `tag: 10` directly on the bridge; no `fw*` interface
+exists on the node. pve-firewall is `disabled/running` cluster-wide on dev45,
+so the `firewall=1` path (the `fwbr`/`fwln` insertion) could not be exercised
+there; it stays a source-reading finding. v1 makes no firewall guarantee on a native
 switch, and the cluster's datacenter firewall does not apply to traffic between
 two ports of one native switch.
 
@@ -375,16 +391,17 @@ two ports of one native switch.
 These are Pass 3 rules (`NSW`, a new category) unless noted. "Native" is the
 resolution of §2.1. The validator gains the adapter's capability set as an input
 (`validate_full(..., platform_caps=...)`). Without it (a bare `axrange
-validate`), the rules that depend on resolution assume no capabilities and do not
-fire, and the planner runs them again with the target known.
+validate`) the NSW rules do not fire; the planner's Pass 1 resolves the same
+model (`axrange.switchmodel`) with the target's capabilities and refuses any
+NSW error. There is no NSW-010: the resolution itself is not a violation, and
+NSW-020 reports the logical case.
 
 | ID | sev | rule |
 |---|---|---|
-| NSW-010 | error | A `kind: switch` without an image is resolved native only when the platform declares `native-switch` (a capability check, planner-side when no platform is given) |
 | NSW-020 | warning | A `kind: switch` without an image on a platform without `native-switch` is logical: it deploys as nothing, and its `state` and taps have no effect |
-| NSW-030 | error | A segment is SDN-hosted or switch-hosted, never both: no leg on a switch-hosted segment attaches outside a native switch (an `isolated` partner segment counts as its own segment) |
+| NSW-030 | error | A segment is SDN-hosted or switch-hosted, never both: a switch-hosted segment may not set `egress: true` or `transport: true`, which need an SDN vnet (every VM leg on it gets a switch port, explicit or automatic, so no leg can attach outside one) |
 | NSW-040 | error | A leg that gets an automatic port has exactly one deepest carrier. Otherwise: "ambiguous carrier for <host> on <segment>: <sw1>, <sw2>; add an explicit link" |
-| NSW-050 | error | Every port named in a link, a span source or `set-port-state` exists on its switch, and every `vlans[]` / `native` named on a native-switch port is a segment that port's link carries. A native switch links only to VMs and native switches |
+| NSW-050 | error | Every `vlans[]` / `native` on an up native-switch port is a segment the switch carries; a link to a VM names a segment the VM has a leg on; one VM NIC is plugged by at most one link; an automatic port name does not collide with an authored one; a native switch links only to VMs (including imaged switches) and native switches. Span sources naming unknown ports are refused at `tap plan` (Phase 2) |
 | NSW-060 | error | A link with a VM end carries exactly one segment the VM has a leg on (access, or trunk with only `native`). v1 does no in-guest VLAN tagging (§12 S3) |
 | NSW-070 | error | `stp: rstp` on a native switch: RSTP is Phase 3. A warning on a VM or logical switch: it has no effect |
 | NSW-080 | warning | An addressed leg on a native switch: the address is not deployed (§2.5) |
@@ -398,7 +415,7 @@ Edited in place in the working tree and committed with the Phase 1 code
 | file | change |
 |---|---|
 | `IR_SCHEMA.md` | `scenario_schema_version` 4→5 (additive): `stp` on a `kind: switch` node; §3.2 adds the native/logical/VM resolution and drops "an imageless switch deploys as nothing" as the only behaviour. §3.3 says a link `state` acts on a native switch's port. Declaring `5` is optional; the expander declares it only for a config that sets `stp` |
-| `VALIDATOR.md` | STR-020 adds `5`; a new NSW category (NSW-010…080); CLU-080; the counts paragraph |
+| `VALIDATOR.md` | STR-020 adds `5`; a new NSW category (NSW-020…080); CLU-080; the counts paragraph |
 | `PLANNER.md` | §3.1 emits the switch ops; §3.4 switch placement and the single-node pin; §8.1 the `ovs:` category on the new ops |
 | `OP_CATALOG.md` | OP-NET-060/070/080, OP-HOST-110, OP-MIR-060; `tx` in `install-ovs-mirror`'s `direction`; the summary table: 40 → 45 op types |
 | `ADAPTER.md` | the new rows in §3; §4's name table; a §8.4 note that native-switch bridges are adapter-owned OVS outside SDN (this design), with SDN-native unchanged for every other segment; the `native-switch` capability |
@@ -427,14 +444,30 @@ until D10 is implemented.
   5. `state: down` on a port cuts that host;
   6. destroy leaves no `tesw_*`, `tepp_*` or `tapsm_*` on the node.
 
+### 11.1 Phase 1 live run (dev45, PVE 9.2.2, 2026-11-12)
+
+State DB `~/.axrange/state.db`; logs beside it (`switch-test-native-*.log`,
+`switch-trunk-test-te-*.log`).
+
+| check | deploy | reading |
+|---|---|---|
+| switch-test deploys | `switch-test-c5f9de7d` | 47 ops COMPLETED; `tesw_647ae73f` with `tap<vmid>i0` ports, tag 10; `servers` stays an SDN vnet |
+| workstations reach `file-server` through `gw` | same | ws01 10.71.10.2 and ws02 10.71.10.3 → 10.71.20.10: 3/3, ~0.5 ms |
+| `state: down` cuts that host | `switch-test-bb995d07` (P2 down, scratch copy) | ws02 `net0 … link_down=1`, carrier 0, "Network is unreachable"; ws01 on the same switch 3/3 to gw and file-server |
+| two-switch trunk | `switch-trunk-test-8307e956` | 44 ops, no SDN zone; `tepp_ad831698`↔`tepp_5dae7406` trunks [10, 20]; ws01, ws02 ↔ file-server across VLANs through gw on core: 3/3 each way |
+| destroy leaves nothing | all three | each switch "removed"; `ovs-vsctl list-br` empty, 0 mirrors, no `tepp_` or VM taps on the node |
+
+SPAN capture (`XPress-SW-A` counters, the `rx`-only reading) is Phase 2.
+
 ## 12. Risks and the items not signed off
 
 **Risks**, each checked live in Phase 1 before it is relied on:
 
-- **R1, bridge persistence.** An OVSDB-only bridge survives `ifreload -a`
-  (another twin's SDN apply) on PVE 9.2. If it does not, the fallback is the
-  REST node-network API, which costs the tap-detach disturbance of ADAPTER
-  §8.1.
+- **R1, bridge persistence.** Verified on dev45 (PVE 9.2.2, 2026-11-12):
+  `create-switch` finished before the same deploy's `apply-sdn-config` (a
+  cluster SDN apply, which reloads node networking), and `tesw_647ae73f`
+  survived it with its three ports and tags. It does not survive a node
+  reboot; a redeploy recreates it.
 - **R2, IFNAMSIZ.** Every new name is 14 characters or fewer by construction
   (§4.2). The risk is a future producer, which the round-trip test guards.
 - **R3, tagged SPAN output.** The mirror emits 802.1Q-tagged frames on trunk
@@ -449,8 +482,8 @@ until D10 is implemented.
   are lost when a VM reboots; the post-start hook re-asserts them (§2.4,
   §6.3). This is verified by a VM restart in the live run.
 
-**Not covered by D1–D12.** The engine work in Phase 1 does not depend on these,
-but the fixture and the edge cases do:
+**Not covered by D1–D12; decided by the user on 2026-11-12** (S1: option (a);
+S2 and S3 as proposed below):
 
 - **S1, links to group members.** A link cannot name a `count > 1` group or one
   of its members today (`topology-layers.md` §3.2: the expander refuses it; the

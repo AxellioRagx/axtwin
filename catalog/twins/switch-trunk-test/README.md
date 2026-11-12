@@ -15,3 +15,9 @@ Phase 2 adds the tap tier: a `span` session on `access-sw` Po1, a trunk port.
 R=/home/rocky/axr-product/deploy-dev45; D=~/.axrange/state.db
 axrange te deploy --config switch-trunk-test --images $R --db $D --fresh
 ```
+
+## Deployed (2026-11-12)
+
+`switch-trunk-test-8307e956`: 44 ops COMPLETED, no SDN zone; the patch pair
+carries trunks [10, 20]; every host reaches every other across VLANs through
+`gw` (3/3). Destroy left no bridges, patch ports or taps.

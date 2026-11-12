@@ -215,7 +215,8 @@ A `kind: switch` with no image is a **native switch** on a platform that
 declares `native-switch`: one adapter-owned OVS bridge per switch, VM NICs as
 tagged access or trunk ports, patch ports between switches, single-node in v1.
 The segments it carries leave SDN and become VLANs on its bridge
-(`docs/design/native-switches.md`; being built, 2026-11-12).
+(`docs/design/native-switches.md`; Proxmox, live-verified on dev45 2026-11-12;
+SPAN on native switches is phase 2).
 
 Capture is a SPAN session: a per-tap `tc` mirror on the VM's own tap interface
 sends frames into a keyed gretap over a dedicated transport vnet to the sensor,

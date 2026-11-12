@@ -112,6 +112,14 @@ The validator rejects an IR whose `scenario_schema_version` it does not recogniz
 > fields, so every shipped twin config still expands to a byte-identical `scenario_schema_version: 1`
 > IR. Per-instance `members[]` overrides are a **twin-config** field (expanded before the IR exists),
 > enforced in `twinconfig/expand.py` like `listen:` (§4), not an IR field.
+>
+> **`scenario_schema_version` widened 4→5 (Authority: user, 2026-11-12, `docs/design/native-switches.md`).**
+> Additive. A `kind: switch` node may carry `stp` (§3.2). An imageless switch is **resolved by the
+> planner** against the target platform: native (an adapter-owned switch) when the platform declares
+> the `native-switch` capability, logical (deploys as nothing) otherwise; the IR records only what the
+> author wrote. A link's `state` acts on a native switch's port (§3.3). Declaring `5` is optional;
+> STR-020 recognises `{1, 2, 3, 4, 5}`; the expander declares `5` only for a config that sets `stp`, so
+> every shipped twin config's IR is unchanged.
 
 ---
 
@@ -240,7 +248,8 @@ A multi-homed node uses `nets:` (a list) instead of `net:` (a single id):
 | `default_agents_off` | no | list[string] | **Additive, A3 Stage A** (`docs/design/08-exercise-measurement.md`). Opt THIS node out of one or more baked-in default agents when `scenario.default_agents` is not `false` (§2). Values: `"defense"` \| `"exporter"`. `"adversary"` is accepted too, but only matters if this node is also listed in an `overlays.adversary[].targets:` — it is never a blanket default, so listing it here just drops the node from that entry's fan-out. |
 | `role` | no | string | **Additive** (`docs/WORK_ORDER_traffic_tier.md`, `docs/design/02-twin-model.md`; Authority: user, 2026-07-24; parsed regardless of the declared `scenario_schema_version` — a `version: 1` IR with `role:` gets it too, it is not gated on v2). A **persona-assignable role tag** (e.g. `corp-workstation`, `domain-controller`) — what the Traffic tier (`tfc`) binds a persona onto. Sourced from `clone-vm`'s `node_role` input into `hosts[].role` in the published twin inventory (`axrange.planner.inventory.build_twin_inventory`); `None`/absent when undeclared, never fabricated. Unrelated to `kind` (a topology-shape tag: host/router/switch) or to any identity/overlay role. A twin config's `nodes[].role` (`docs/design/02-twin-model.md`) is the same tag, propagated by the expander. |
 | `source`, `confidence`, `vantage` | no | | **Additive, `4`** (`docs/design/topology-layers.md`). Provenance, §3.6. |
-| `image` on `kind: switch` | no | string | **`4`.** A switch may omit `image:`; it then deploys as nothing (its networks' vnets exist on their own) and the planner emits no VM for it. A host or router still requires one. |
+| `image` on `kind: switch` | no | string | **`4`.** A switch may omit `image:`; the planner then emits no VM for it and resolves it native or logical (**`5`**, below). A host or router still requires one. |
+| `stp` | no | enum | **`5`**, `kind: switch` only. `rstp` enables RSTP on a native switch (phase 3; refused until then by NSW-070); absent means off. No effect on a VM or logical switch (NSW-070 warns). `docs/design/native-switches.md` §2.2. |
 
 **Router/switch specifics:**
 
@@ -262,7 +271,7 @@ A multi-homed node uses `nets:` (a list) instead of `net:` (a single id):
 | `static_routes` | no | list[obj] | Router-only. `[{to: <cidr>, via: <ip>}, ...]`. |
 | `joins` | no | str | AD domain FQDN this (Windows) host joins — the explicit host→domain join field (W2; emits `join-host-to-domain`, superseding the inferred `I1`). Requires a `role: adds` DC providing the domain. `docs/SLICE_WINDOWS_AD.md` §6.3. |
 
-A `kind: switch` node is a device wired by `links[]` (§3.3; `docs/design/topology-layers.md` §2, Authority: user, 2026-11-07). Its `nets[]` entries carry no address (an L2 port; a management SVI with an address is the exception), and the twin-config expander derives them from the switch's links. With an `image` it is deployed as a VM with one L2 NIC per network its links carry; without one it is deployed as nothing: the networks its links carry exist on their own, and the switch is topology for the operator. The older `nets: [<id>, ...]` string-list spelling is accepted and read as one address-less leg per network.
+A `kind: switch` node is a device wired by `links[]` (§3.3; `docs/design/topology-layers.md` §2, Authority: user, 2026-11-07). Its `nets[]` entries carry no address (an L2 port; a management SVI with an address is the exception), and the twin-config expander derives them from the switch's links. With an `image` it is deployed as a VM with one L2 NIC per network its links carry. Without one (**`5`**, `docs/design/native-switches.md` §2.1) it is **native** when the target platform declares `native-switch`: one adapter-owned switch whose links become access, trunk and patch ports, and every network it carries is hosted on it instead of in SDN (§2.3 there; never both, NSW-030). Otherwise it is **logical**: deployed as nothing, the networks its links carry exist on their own, and the switch is topology for the operator (NSW-020 warns). The older `nets: [<id>, ...]` string-list spelling is accepted and read as one address-less leg per network.
 
 ### 3.3 Links
 
@@ -288,10 +297,10 @@ infra:
 | `mode` | yes | enum | `trunk` \| `access` (STR-210). |
 | `native` | no | string | Network id; trunk only (STR-210, REF-280). |
 | `vlans` | yes | list[string] | Network ids (REF-280); an access link lists exactly one (STR-210). |
-| `state` | no | enum | `up` (default) \| `down` \| `blocked`. The planner emits nothing for a link; one that is not `up` carries nothing, so the switch gets no leg for it. |
+| `state` | no | enum | `up` (default) \| `down` \| `blocked`. On a native switch (**`5`**) `down` is the port admin-down and `blocked` the port present but not forwarding (`set-port-state`, `docs/design/native-switches.md` §2.4). Elsewhere the planner emits nothing for a link; one that is not `up` carries nothing, so the switch gets no leg for it. |
 | `source`, `confidence`, `vantage` | no | | §3.6. |
 
-A link whose one end is a `kind: host` node is that host's attachment to the link's one network, equivalent to a `net:` / `nets[]` entry; the host keeps its address there. A link deploys nothing of its own: it is the reason a switch VM has a NIC on a network.
+A link whose one end is a `kind: host` node is that host's attachment to the link's one network, equivalent to a `net:` / `nets[]` entry; the host keeps its address there. On a VM or logical switch a link deploys nothing of its own: it is the reason a switch VM has a NIC on a network. On a native switch it is a port: a VM NIC tagged on the switch's bridge, or an OVS patch-port pair between two native switches (**`5`**). A host or router leg on a switch-hosted network that no link attaches gets an automatic access port `<instance>.<nic_index>` on the network's deepest carrier (NSW-040 refuses a tie).
 
 ### 3.4 `fabric:` — dynamic routing + overlay (fabric slice)
 
