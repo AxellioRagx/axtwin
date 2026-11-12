@@ -73,20 +73,35 @@ def vlan_port_args(port: str, *, mode: str, vlan_tags: list[int], native_tag: Op
             f" -- clear port {port} tag")
 
 
-def patch_pair_cmd(bridge_a: str, port_a: str, bridge_b: str, port_b: str, *,
-                   mode: str, vlan_tags: list[int], native_tag: Optional[int]) -> str:
+def veth_pair_cmd(bridge_a: str, port_a: str, bridge_b: str, port_b: str, *,
+                  mode: str, vlan_tags: list[int], native_tag: Optional[int]) -> str:
+    """A switch<->switch link as a kernel veth pair, one end a port on each
+    bridge (docs/design/native-switches.md §4, R6). Not an OVS patch pair: OVS
+    translates a frame across a patch port inside one datapath flow and drops
+    the mirror selection on the way, so a SPAN on a trunk never fired (dev45,
+    2026-11-12). With a veth each bridge sees a real ingress port. Idempotent:
+    the pair is created only when absent; a port left over as `type=patch`
+    from the earlier wiring is re-added; offloads go off on both ends (a
+    mirrored super-frame cannot fit the gretap); the VLAN role is re-asserted."""
     for b in (bridge_a, bridge_b):
         _check_bridge(b)
     for p in (port_a, port_b):
         if not is_te_patch_port(p):
-            raise AdapterError(f"refusing non-tepp patch port {p!r}", error_class="adapter-input")
+            raise AdapterError(f"refusing non-tepp link port {p!r}", error_class="adapter-input")
     vlan_a = vlan_port_args(port_a, mode=mode, vlan_tags=vlan_tags, native_tag=native_tag)
     vlan_b = vlan_port_args(port_b, mode=mode, vlan_tags=vlan_tags, native_tag=native_tag)
+    stale = " ; ".join(
+        f'[ "$(ovs-vsctl --if-exists get interface {p} type 2>/dev/null)" = patch ] && ovs-vsctl del-port {p}'
+        for p in (port_a, port_b)
+    )
     return (
-        f"ovs-vsctl --may-exist add-port {bridge_a} {port_a}"
-        f" -- set interface {port_a} type=patch options:peer={port_b}"
+        f"{stale} ; "
+        f"(ip link show {port_a} >/dev/null 2>&1 || ip link add {port_a} type veth peer name {port_b})"
+        f" && ip link set {port_a} up && ip link set {port_b} up"
+        f" && (ethtool -K {port_a} gso off tso off gro off >/dev/null 2>&1;"
+        f" ethtool -K {port_b} gso off tso off gro off >/dev/null 2>&1; true)"
+        f" && ovs-vsctl --may-exist add-port {bridge_a} {port_a}"
         f" -- --may-exist add-port {bridge_b} {port_b}"
-        f" -- set interface {port_b} type=patch options:peer={port_a}"
         f"{vlan_a}{vlan_b}"
     )
 
@@ -151,8 +166,9 @@ def create_mirror_cmd(bridge: str, mirror: str, gre: str, *, src: list[str], dst
 
 
 def delete_bridge_cmd(bridge: str) -> str:
-    """Remove every mirror on the bridge, then the bridge (its patch ports and
-    any leftover VM tap ports go with it)."""
+    """Remove every mirror on the bridge, then the bridge (its link ports and
+    any leftover VM tap ports leave OVS with it; `delete_switch` removes the
+    veth pairs themselves first)."""
     _check_bridge(bridge)
     return (f"ovs-vsctl --if-exists clear bridge {bridge} mirrors"
             f" -- --if-exists del-br {bridge}")
@@ -198,7 +214,7 @@ class SwitchOps:
         port_a = patch_port_for(ctx.plan_id, str(key), "a")
         port_b = patch_port_for(ctx.plan_id, str(key), "b")
         native = inp.get("native_tag")
-        self.run(patch_pair_cmd(bridge_a, port_a, bridge_b, port_b,
+        self.run(veth_pair_cmd(bridge_a, port_a, bridge_b, port_b,
                                 mode=str(inp.get("mode") or "trunk"),
                                 vlan_tags=_ints(inp.get("vlan_tags") or []),
                                 native_tag=int(native) if native else None),
@@ -252,6 +268,13 @@ class SwitchOps:
     def delete_switch(self, bridge: str) -> str:
         if not self.bridge_exists(bridge):
             return "absent"
+        # The bridge's link ports are veth ends (R6): `del-br` drops them from
+        # OVS but not from the kernel, so delete each pair first (deleting one
+        # end takes its peer; the other bridge's turn finds it gone).
+        ports = self.run(f"ovs-vsctl list-ports {bridge}", timeout_s=15).split()
+        for p in ports:
+            if is_te_patch_port(p):
+                self.run(f"ip link del {p} 2>/dev/null || true", timeout_s=15)
         self.run(delete_bridge_cmd(bridge), timeout_s=60)
         if self.bridge_exists(bridge):
             raise AdapterError(f"switch bridge {bridge} survived del-br",

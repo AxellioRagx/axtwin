@@ -475,7 +475,7 @@ def test_create_switch_refuses_rstp():
                                         {"switch_id": "s", "stp": "rstp"}, _ctx())
 
 
-def test_link_switches_builds_a_trunk_patch_pair_and_asserts_state():
+def test_link_switches_builds_a_trunk_veth_pair_and_asserts_state():
     run = _Run()
     a = naming.switch_bridge_for("p", "core")
     b = naming.switch_bridge_for("p", "sw")
@@ -486,7 +486,11 @@ def test_link_switches_builds_a_trunk_patch_pair_and_asserts_state():
     pa, pb = out["port_a"], out["port_b"]
     assert naming.is_te_patch_port(pa) and naming.is_te_patch_port(pb) and pa != pb
     pair = run.cmds[0]
-    assert f"add-port {a} {pa}" in pair and f"options:peer={pb}" in pair
+    # a kernel veth pair, not an OVS patch pair (R6: OVS does not mirror on patch ports)
+    assert f"ip link add {pa} type veth peer name {pb}" in pair and "type=patch" not in pair
+    assert f'get interface {pa} type 2>/dev/null)" = patch ] && ovs-vsctl del-port {pa}' in pair
+    assert f"add-port {a} {pa}" in pair and f"add-port {b} {pb}" in pair
+    assert f"ethtool -K {pa} gso off tso off gro off" in pair
     assert f"set port {pa} vlan_mode=trunk trunks=10,20" in pair and f"clear port {pb} tag" in pair
     assert run.cmds[1] == f"ovs-ofctl mod-port {a} {pa} down"
     assert run.cmds[2] == f"ovs-ofctl mod-port {b} {pb} down"
@@ -521,15 +525,21 @@ def test_delete_switch_absent_removed_and_survivor():
     br = naming.switch_bridge_for("p", "sw")
     assert SwitchOps(_Run(list_br="vmbr0\n")).delete_switch(br) == "absent"
 
+    link_port = naming.patch_port_for("p", "a#1|b#1", "a")
+
     class _Gone(_Run):
         def __call__(self, cmd, **kw):
             self.cmds.append(cmd)
             if cmd.startswith("ovs-vsctl list-br"):
                 return f"vmbr0\n{br}\n" if len(self.cmds) == 1 else "vmbr0\n"
+            if cmd.startswith("ovs-vsctl list-ports"):
+                return f"tap1i0\n{link_port}\n"
             return ""
     gone = _Gone()
     assert SwitchOps(gone).delete_switch(br) == "removed"
-    assert gone.cmds[1] == f"ovs-vsctl --if-exists clear bridge {br} mirrors -- --if-exists del-br {br}"
+    assert gone.cmds[1] == f"ovs-vsctl list-ports {br}"
+    assert gone.cmds[2] == f"ip link del {link_port} 2>/dev/null || true"   # the veth, not the VM tap
+    assert gone.cmds[3] == f"ovs-vsctl --if-exists clear bridge {br} mirrors -- --if-exists del-br {br}"
     with pytest.raises(AdapterError, match="survived"):
         SwitchOps(_Run(list_br=f"{br}\n")).delete_switch(br)
 

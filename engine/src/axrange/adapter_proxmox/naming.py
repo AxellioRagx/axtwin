@@ -389,8 +389,10 @@ def switch_bridge_for(plan_id: str, switch_id: str) -> str:
 
 
 def patch_port_for(plan_id: str, link_key: str, end: str) -> str:
-    """One end of a native-switch patch pair: `tepp_<8hex of
-    "plan|link|end">` (`te` tier, 13 chars). `end` is "a" or "b"."""
+    """One end of a native-switch link -- a veth pair since R6
+    (docs/design/native-switches.md; the name kept from the patch-pair first
+    cut): `tepp_<8hex of "plan|link|end">` (`te` tier, 13 chars <= IFNAMSIZ-1).
+    `end` is "a" or "b"."""
     h = hashlib.sha256(f"{plan_id}|{link_key}|{end}".encode()).hexdigest()[:8]
     return f"tepp_{h}"
 
