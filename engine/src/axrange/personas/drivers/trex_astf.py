@@ -354,7 +354,20 @@ def build_astf_profile(spec, api, base_dir):
     template. A pcap template is `ASTFCapInfo` (TCP or UDP, TRex reads the
     flow off the capture); a program template is a client/server
     `ASTFProgram` pair: the client's sends are the server's recvs, mirrored."""
+    import copy
     import os
+
+    # TRex v3.08 bug: the template scheduler's weighted pick
+    # (`KxuNuRand::init`, called from `CAstfTemplatesRW::init_scheduler`)
+    # aborts the daemon (`assert aIdx < p.size()`) for some EXACT cps ratios --
+    # trex-test's 20/40/10/5 (4:8:2:1) at any scale, found live on dev45 and
+    # reproduced with the release's own astf-sim, 2026-11-16. A proportional
+    # nudge still fails; a distinct ~1e-6 relative nudge per template does not
+    # (and changed the outcome of no other mix tried). The rate effect is
+    # under 1e-5 relative.
+    spec = copy.deepcopy(spec)
+    for i, t in enumerate(spec["templates"]):
+        t["cps"] = t["cps"] * (1 + 1e-6 * (i + 1))
 
     gen = api.ASTFIPGen(
         dist_client=api.ASTFIPGenDist(ip_range=list(spec["client_range"]), distribution="seq"),

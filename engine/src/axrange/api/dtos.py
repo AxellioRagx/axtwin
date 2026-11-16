@@ -2243,6 +2243,10 @@ class HealthPersonaDTO(BaseModel):
     unit: Optional[str] = None
     checked_at: Optional[float] = None
     reason: Optional[str] = None
+    # What a traffic-counting driver reports alongside liveness (trex-astf:
+    # per-template cps / accepts / drops / bytes, the multiplier in force);
+    # absent for every other driver.
+    stats: Optional[dict[str, Any]] = None
 
 
 class HealthHostDetailDTO(BaseModel):

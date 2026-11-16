@@ -171,6 +171,19 @@ class _FakeApi:
         return lambda *a, **kw: _Rec(name, *a, **kw)
 
 
+def test_build_profile_breaks_exact_cps_ratios_without_moving_the_rates():
+    """The v3.08 KxuNuRand abort on exact ratios (4:8:2:1 is trex-test's mix):
+    every template's cps is nudged by a DISTINCT tiny factor, so no two keep
+    their exact ratio, and no rate moves by more than 1e-5."""
+    spec = profile_spec({**KNOBS, "templates": [
+        {"name": n, "pcap": f"{n}.pcap", "cps": c} for n, c in (("a", 20), ("b", 40), ("c", 10), ("d", 5))]})
+    caps = build_astf_profile(spec, _FakeApi(), "/x").kw["cap_list"]
+    got = [c.kw["cps"] for c in caps]
+    assert got == pytest.approx([20, 40, 10, 5], rel=1e-5)
+    assert got[1] / got[0] != 2 and got[0] / got[3] != 4
+    assert spec["templates"][0]["cps"] == 20  # the caller's spec is untouched
+
+
 def test_build_profile_one_group_per_template_and_mirrored_programs():
     prof = build_astf_profile(profile_spec(KNOBS), _FakeApi(), "/opt/trex/current")
     assert prof.name == "ASTFProfile"
@@ -183,7 +196,7 @@ def test_build_profile_one_group_per_template_and_mirrored_programs():
     (tpl,) = prof.kw["templates"]
     assert tpl.kw["tg_name"] == "smb"
     client, server = tpl.kw["client_template"], tpl.kw["server_template"]
-    assert client.kw["port"] == 445 and client.kw["cps"] == 5
+    assert client.kw["port"] == 445 and client.kw["cps"] == pytest.approx(5, rel=1e-5)
     assert client.kw["program"].calls == [("send", bytes.fromhex("00000045fe534d42")), ("recv", 120)]
     assert server.kw["program"].calls == [("recv", 8), ("send", b"\x00" * 120)]
     assert server.kw["assoc"].kw["port"] == 445
