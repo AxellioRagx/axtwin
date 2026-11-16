@@ -4,98 +4,84 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. Earlier handoffs: docs/handoffs/<YYYY-MM>.md. -->
 
-**Last updated:** 2026-11-11 (targets and the O2 lab, pushed) · **Branch:**
-`wip/design-platforms-canvas` at `7397107`, pushed; `master` fast-forwarded to the same commit
-and pushed (local `master` too). `wip/api-discovery-runs` was NOT moved this time (still
-`1f3bb08`). Rule: commit each piece as it lands, staged by path; never `git add -A`; push only
-when the user asks.
+**Last updated:** 2026-11-16 (TRex crowd, Phase A done; Phase B note awaiting sign-off) ·
+**Branch:** `wip/trex-crowd`, cut from `wip/design-platforms-canvas` at `083d78c` (the user's
+choice: the repo has no `main`; `master` and `wip/api-discovery-runs` are older). Local commits
+only, not pushed. Rule: commit each piece as it lands, staged by path; push only when asked.
 
 ## What this session did
 
-Implemented the design record "axtwin design: targets and the O2 lab" (claude.ai doc
-https://claude.ai/artifact/D7NNQhdjQ6ak7isN85j3Nx), following its §5 build order with a browser
-review stop after each step. One commit per step: `b46e911` the lab block (engine
-`platform/lab.py`, lab sensors merged into EXTERNAL_SENSORS), `19e3d97` API (targets carry
-`lab`, `GET /api/targets/{name}/health`, `?target=` preflight on validate/plan, rules
-TARGET-SENSOR / TARGET-IMAGE), `c19acb5` the Targets page, `b757605` the Deploy dialog (target
-select, preflight rows with Remap, canvas Deploy… and target chip, plus the carry-alongs: tap
-drag test and the Destroy wording for applied-but-unpersisted), `7397107` canvas tap Sensors
-picked from the target's lab and the Lab overlay. Then moved all three dev45 sensors out of
-adapter.conf into the lab block in `~/.axrange/targets.yaml` (host files only, no commit).
+Earlier the same day, on `wip/design-platforms-canvas` (pushed): investigated a corp-twin-native
+destroy that looked stuck (it was clean; the canvas then read the twin invalid), fixed the
+canvas checks (CV-040 group-member link ends, parked-through-hosts) and added live destroy
+progress (`GET /api/deploys/{id}/destroy-progress`), commit `083d78c`.
 
-## Current state
+Then the TRex crowd brief, Phase A, on `wip/trex-crowd`:
+- `614784f` the `trex-astf` persona driver (`personas/drivers/trex_astf.py`), pinned to TRex
+  **v3.08** after reading the release's own `trex.astf.api`; DRIVE_KINDS/PSN-030 widened.
+- `a930d7d`, `b41ff98` the `catalog/twins/trex-test` bundle (gateways declared on segments).
+- `7225247` the cps-ratio nudge (a TRex v3.08 `KxuNuRand` abort, reproduced with astf-sim)
+  and `stats` carried through `GET /api/deploys/{id}/health?host=`.
+- Golden template `trex-astf` (manifest and binding in `~/axr-product/deploy-dev45/images/`,
+  untracked there; recipe restated in the twin README), built on dev45 as template **102**.
+- `docs/design/crowd-node.md`: the Phase B0 design note. **Stop here for sign-off.**
 
-- **Tests:** ui 551/551 at `7397107` (one `canvas.subtree` flake seen once under load). Engine:
-  the new suites `test_targets_lab.py` (24) and `test_targets_api.py` pass. The full suite has
-  about 60 failures that are also on clean HEAD, all from the untracked `catalog/twins/*`
-  folders (list: `fail_base.txt` in the old session's scratchpad). No new failures.
-- **Serve:** :8080 pid 1712222, started 2026-11-09 19:16 with `AXRANGE_TARGETS=~/.axrange/targets.yaml`
-  (recipe in memory `axrange-serve-restart-recipe.md`). `ui/dist` built at `7397107`.
-- **Live (dev45):** `/api/targets` reports sensors XPress-SW-A, Tcpdump-SW-A, o2-suricata, all
-  from the lab, all `protected: true`. Health: XPress-SW-A up; Tcpdump-SW-A (vmid 260) and
-  o2-suricata (vmid 883610) unknown, because Proxmox doesn't resolve those VMs and their
-  transport IPs aren't routable from the API host. Grafana/Prometheus/Loki/Caldera/Wazuh are
-  down because the O2 stack isn't running here. switch-test preflight on dev45 is clean.
-  Nothing is deployed by this session.
-- **Host files changed:** `config/adapter.conf` has no EXTERNAL_SENSORS line any more (backups
-  `~/.axrange/adapter.conf.bak-20261109-pre-lab`, `...-pre-lab2`); `~/.axrange/targets.yaml`
-  (backup `targets.yaml.bak-20261109`).
-- Untracked, the user's: the `catalog/twins/*` folders (including a new `e2e-disc/`, origin
-  unknown to this session), `ui/dist.old/`; mine: `ui/dist.prev/`.
+## Verified, and how
+
+- **Live on dev45, deploy `trex-test-9df9ca02`:** acceptance 1, 2, 4 and 5 pass. Acceptance 3
+  passes for every template on established cps (TCP) and on sends (UDP), at both ×1 and ×2,
+  and the schedule step shows within 10 s. DNS at ×2 loses about 20% of queries before the
+  server (50.4 of 79.5/s arrive). Numbers are in `catalog/twins/trex-test/README.md`; raw data
+  is in `~/.axrange/trex-test-acceptance/`.
+- **Seen directly:** the sink's `gre-cap` counter, the dev45 GRE capture (two keys, one per
+  tap), and the guests after the tfc destroy (no units, NIC restored). The discovery round
+  trip ran on that capture.
+- **Engine:** `test_trex_astf.py` 40 pass (the real-release check needs `TREX_HOME`). The full
+  suite is 4443 pass and 3 fail, all from the user's untracked `catalog/twins/*`; with those
+  set aside, the catalog suites pass 42/42. **UI:** not touched; no rebuild needed.
+- **Serve:** :8080 restarted twice for engine changes, now pid 2202820 (recipe in memory).
+- **dev45 now:** trex-test destroyed and swept clean. Template 102 `img-trex-astf` kept on
+  purpose.
 
 ## Work in progress
 
-Nothing half-edited; the tree is clean apart from the untracked folders above.
+None half-edited. Phase B is not started, by the brief's rule.
 
 ## Next steps (ordered)
 
-1. User's commit `7055ba4` (`docs/design/targets-and-lab.md` + api/ui Spec lines) is not on the
-   remote. This session deliberately didn't create those files, so it should merge cleanly.
-2. Browser review of step 5 (tap Sensors checkboxes, Lab overlay via the rail's `rail-lab`
-   button) was not signed off.
-3. Live acceptance run, if the user approves (it creates VMs): deploy switch-test from the
-   Deploy dialog on dev45, move its tap in the inspector, Apply, Destroy.
-4. Find out whether VMs 260 and 883610 exist on dev45; bring them up or drop them from the lab.
-5. Multi-target gap: the canvas, the Twins page and `/api/taps` read only the default target's
-   deploys and store. Harmless with dev45 alone; needed before a second target is real.
+1. The user signs off (or amends) `docs/design/crowd-node.md` D1–D7 before any Phase B code.
+2. Locate the DNS loss at ×2: capture at ×2 and compare the lan-a and lan-b tap counts of
+   UDP/53 (server low_end core or af_packet RX, router, or bridge).
+3. Open items carried in the note: TRex EMU for on-link ranges; the image build's smoke test
+   (its exporter op is config-class, and the build executor has no config backend); the
+   Debian `configure-router` static-route handler.
 
 ## Open questions / decisions pending
 
-- Tcpdump-SW-A / o2-suricata: keep in the lab or remove (step 4 above).
-- When to drop the one-release adapter.conf EXTERNAL_SENSORS fallback (the Lab overlay still
-  draws such sensors tagged "adapter.conf").
+- Phase B sign-off (above). Merge or push of `wip/trex-crowd`: the user's call.
 - Carried forward: the serve's auth mode (`none` on 0.0.0.0); corp-apcn-reader-20261028 is
-  still invalid (IPv6 /64, CV-012) with no twin.yaml.
+  still invalid, with no twin.yaml.
 
 ## Mental model / gotchas
 
-- A serve or CLI run **without `AXRANGE_TARGETS`** now sees no external sensors at all on
-  dev45, since adapter.conf no longer lists them. `cli/main.py` registers labs from that env
-  var; `create_app` registers them from the parsed targets.
-- Sensor health is ssh :22 on the platform-resolved VM IP, else transport_ip, else unknown with
-  the reason. There is no tap metrics route, and transport IPs aren't routable from the API host,
-  so "unknown" there is normal. Health is cached for 15 s server-side.
-- Lab sensor ids may not also appear in EXTERNAL_SENSORS (`merge_lab_sensors` raises).
-- `api/preflight.py` uses `check_platform`, not DEFAULT_PLATFORM: the layering test forbids it.
-- `imprint_deploy` refuses an unclean preflight with 409 `{code: "preflight"}` before any write.
-- Restarting :8080: find the pid with `ps -eo pid,args | grep '[a]xrange serve --host 0.0.0.0'`
-  and kill it by number in a separate command; `kill $(pgrep -f …)` killed the calling shell once.
-- React Flow drags can't run in jsdom: drop logic lives in the pure `tapDropSelector`
-  (`Canvas.tsx`) and is tested there. `onNodeDragStop` must handle pin-key-less kinds before
-  the `pinKeyOf` early return.
-- Carried forward: the follow-on chain runs in the serve's thread (a restart mid-chain leaves a
-  tier pending in `~/.axrange/state.db.follow-on.json`; delete it by hand); a cast's tap chips
-  render only on drawn pills; Start tap / Start tfc never clicked live; corp-twin segments share
-  CIDRs (never map host→pill by CIDR); `edit/provenance.ts` stamps `authored` on any shape
-  change; a subagent worktree comes from an old base (39fa362), make one by hand.
-- UI-only change: build to `ui/dist.new` and swap (never build into the served `ui/dist`);
-  engine change needs the restart. `ui/`: `npm ci` only.
+- **Router legs:** a pinned router-leg `ip:` records NO segment gateway, so hosts get no
+  default route. Declare `gateway:` on the segment and leave the router legs unpinned.
+- **Capability vocabulary:** `requires:` keywords are a closed set (STR-110); an image may
+  `provides:` anything.
+- **Image build:** it fails at its smoke test for every image (leaving a VM, zone, vnet and
+  bridge; clean with `axrange te destroy <id> --db /tmp/axr-imgsmoke-*/smoke-state.db
+  --allow-destroy`). Build with `--skip-smoke`.
+- **TRex in the guest:** the daemon and the controller are two transient units per side, and
+  the NIC is flushed for TRex and restored on stop. The persona schedule lives in knobs,
+  because assignment `schedule:` takes only 24x7 / business-hours.
+- **Tap GRE:** full-size mirrored frames travel as two outer IPv4 fragments. Decapsulate a dev45
+  capture with reassembly (the session's scratchpad `gre_decap.py`; restate it if needed).
+- Carried forward: build `ui/` to `dist.new` and swap; engine changes need the serve restart;
+  find the serve pid with `pgrep -af 'axrange serve' | grep -v bash`.
 
 ## Environment
 
 One venv at `.venv/` (engine + discovery editable), node 22 for `ui/`, live state in
-`~/.axrange/` (targets file `~/.axrange/targets.yaml`, schema in
-`config/adapter.targets.example.yaml`). Playwright at
-`/home/rocky/fx-cap/mgmtui/node_modules/playwright`. dev45 API 10.80.76.108:8006. The serve env
-file lives in a session scratchpad and holds secrets; rebuild it from the live env plus
-`AXRANGE_TARGETS` and `AXRANGE_IMAGES_ROOT=~/axr-product/deploy-dev45`.
+`~/.axrange/` (targets file `~/.axrange/targets.yaml`). Images root
+`~/axr-product/deploy-dev45`. TRex v3.08 tarball sha256 `d2ac7362…4972b5f`. dev45 API
+10.80.76.108:8006; sink XPress-SW-A management 10.80.72.43 (`fxadmin`).
