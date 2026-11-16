@@ -93,8 +93,11 @@ def test_every_entry_is_an_emit_the_catalog_names_on_the_schemas_own_transport()
     # test is the place to decide which side it listens on. `browser`
     # (2026-09-21) was decided here: it DIALS (it is a client engine, like
     # `scripted`/`command`), so its emit's `peer_role` is the listener.
+    # `trex-astf` (2026-11-16) was decided here too: its traffic comes from
+    # `knobs`, not `emits[]`, and its personas are twin-local, so it adds no
+    # row to this shared-catalog table either way.
     assert set(DRIVE_KINDS) == {
-        "scripted", "replay", "real-service", "command", "browser",
+        "scripted", "replay", "real-service", "command", "browser", "trex-astf",
     }
 
     expected: dict[str, set[tuple[int, str]]] = {}

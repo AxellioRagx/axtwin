@@ -404,7 +404,7 @@ its own test suite), not the IR engine's Pass 1–4 dispatch. That module reads 
 |---|---|---|
 | `PSN-010` | error | Persona `id` is present and non-empty |
 | `PSN-020` | error | Persona `os_family` is `windows` or `linux` |
-| `PSN-030` | error | Persona `drive` is `scripted`, `replay`, `real-service`, `command`, or `browser` (`command` added 2026-09-02, `browser` 2026-09-21 — both purely additive enum widenings: no previously valid persona becomes invalid and the rule **count is unchanged**) |
+| `PSN-030` | error | Persona `drive` is `scripted`, `replay`, `real-service`, `command`, `browser`, or `trex-astf` (`command` added 2026-09-02, `browser` 2026-09-21, `trex-astf` 2026-11-16 — all purely additive enum widenings: no previously valid persona becomes invalid and the rule **count is unchanged**) |
 | `PSN-040` | error | Every `emits[]` entry names a known `proto` |
 | `PSN-050` | error | Every `emits[]` entry has a `peer_role` set (non-empty) |
 | `PSN-060` | error | Every `emits[]` `cadence` is well-formed (`diurnal`/`24x7`/`cyclic:<duration>`/`burst:<duration>`) |

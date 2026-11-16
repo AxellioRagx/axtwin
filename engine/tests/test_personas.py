@@ -3196,7 +3196,8 @@ def test_windows_command_engine_adds_no_drive_kind_and_no_psn_rule():
     114-rule catalog are all untouched."""
     from axrange.personas.schema import DRIVE_KINDS
 
-    assert DRIVE_KINDS == ("scripted", "replay", "real-service", "command", "browser")
+    # `trex-astf` (2026-11-16) is a separate, later widening; E6 still minted no kind.
+    assert DRIVE_KINDS == ("scripted", "replay", "real-service", "command", "browser", "trex-astf")
     assert len(list_rules()) == 130  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12); the PSN count is what these tests pin
     # A windows `drive: command` persona is VALID against the catalog rules --
     # nothing in the validator had to learn about this engine.

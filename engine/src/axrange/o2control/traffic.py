@@ -2344,6 +2344,10 @@ def _heartbeat_record(fn: Callable[[], Any]) -> dict[str, Any]:
     }
     if res.get("unit"):
         rec["unit"] = res["unit"]
+    # A driver that reports traffic counters (trex-astf's per-template
+    # stats) passes them through as-is; every other driver returns none.
+    if res.get("stats") is not None:
+        rec["stats"] = res["stats"]
     return rec
 
 
