@@ -40,8 +40,10 @@ Then the TRex crowd brief, Phase A, on `wip/trex-crowd`:
   suite is 4443 pass and 3 fail, all from the user's untracked `catalog/twins/*`; with those
   set aside, the catalog suites pass 42/42. **UI:** not touched; no rebuild needed.
 - **Serve:** :8080 restarted twice for engine changes, now pid 2202820 (recipe in memory).
-- **dev45 now:** trex-test destroyed and swept clean. Template 102 `img-trex-astf` kept on
-  purpose.
+- **dev45 now: trex-test is STANDING** (the user asked to keep it up, 2026-11-16 ~20:05 UTC):
+  deploy `trex-test-7758a202`, te/tap/tfc completed, feeding XPress-SW-A (`gre-cap` +3,133
+  pps / 25 Mbit/s, both tap GRE keys seen). It is not a leftover. Template 102 `img-trex-astf`
+  is kept on purpose. The acceptance deploy `trex-test-9df9ca02` was destroyed and swept clean.
 
 ## Work in progress
 
