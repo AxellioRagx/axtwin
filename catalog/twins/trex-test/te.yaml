@@ -1,0 +1,60 @@
+# Twin config: trex-test (catalog/twins/trex-test/README.md)
+#
+# The smallest twin that proves one TRex ASTF generator pair can stand in for a
+# crowd: lan-a holds the client generator, lan-b the server generator, one
+# Debian router joins them. Existing schema only (kind: host, role, image,
+# nets, install) -- the crowd itself (templates, ranges, cadence) is traffic,
+# so it lives in the tfc tier's twin-local personas, not here.
+#
+# Addressing:
+#   lan-a 10.70.1.0/24   router .1, trex-client .10 (its TRex port IP)
+#   lan-b 10.70.2.0/24   router .1, trex-server .10
+#   crowd clients 10.250.1.1-.50   (10.250.1.0/24, NOT on-link)
+#   crowd servers 10.250.2.1-.14   (10.250.2.0/28, NOT on-link)
+# The emulated ranges are reached through the router's static routes to the
+# generators' port IPs (scripts/serve-crowd-routes.sh, a router `install:`
+# recipe -- the engine's Debian configure-router installs no static routes).
+# The generators' IPs are pinned because those routes name them.
+twin_config:
+  id: trex-test
+  description: |
+    TRex ASTF crowd proof: client generator on lan-a (50 emulated clients),
+    server generator on lan-b, one Debian router with a static route per crowd
+    prefix. The traffic (templates, cps, schedule) is the tfc tier's
+    personas/trex-crowd-*.yaml.
+
+  segments:
+    - { name: lan-a, cidr: 10.70.1.0/24 }
+    - { name: lan-b, cidr: 10.70.2.0/24 }
+
+  nodes:
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: lan-a, ip: 10.70.1.1 }
+        - { segment: lan-b, ip: 10.70.2.1 }
+      install:
+        - { script: scripts/serve-crowd-routes.sh }
+
+    - name: trex-client
+      role: trex-client
+      image: trex-astf@v1
+      requires: [linux]   # the image also provides traffic:trex-astf (not a requires keyword: STR-110's vocabulary is closed)
+      resources: { cpu: 2, ram: 4Gi, disk: 12Gi }
+      nets:
+        - { segment: lan-a, ip: 10.70.1.10 }
+
+    - name: trex-server
+      role: trex-server
+      image: trex-astf@v1
+      requires: [linux]   # the image also provides traffic:trex-astf (not a requires keyword: STR-110's vocabulary is closed)
+      resources: { cpu: 2, ram: 4Gi, disk: 12Gi }
+      nets:
+        - { segment: lan-b, ip: 10.70.2.10 }
+
+  conduits:
+    - { from: lan-a, to: lan-b }

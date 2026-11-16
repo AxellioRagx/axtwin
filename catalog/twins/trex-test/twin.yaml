@@ -1,0 +1,19 @@
+# trex-test -- the root manifest. A standalone proof of the `trex-astf`
+# persona driver (Phase A of the crowd work; README.md): two segments behind
+# one router, a TRex ASTF client generator emulating a 50-host crowd on lan-a
+# and a TRex server generator on lan-b, both segments tapped.
+twin:
+  id: trex-test
+  description: >
+    TRex ASTF crowd proof: a client generator (50 emulated clients,
+    10.250.1.0/24) on lan-a and a server generator (10.250.2.0/28) on lan-b
+    behind one Debian router with a static route per crowd prefix; HTTP, DNS,
+    TLS and an SMB-ish TCP template; segment taps on both LANs.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

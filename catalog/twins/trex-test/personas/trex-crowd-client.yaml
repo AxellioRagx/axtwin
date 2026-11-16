@@ -1,0 +1,49 @@
+# trex-test -- the crowd's client side (drive: trex-astf,
+# engine/src/axrange/personas/drivers/trex_astf.py). One TRex ASTF client on
+# trex-client emulates 50 hosts (10.250.1.1-.50) opening four kinds of flows to
+# the server range (10.250.2.1-.14) behind trex-server. Its traffic is the
+# `knobs` block; `emits` only names the peer it talks to (so the peer resolves
+# to trex-server's IP, the server range's default when `servers` is unset).
+#
+# Template provenance (all bundled in TRex v3.08 under /opt/trex/current/avl,
+# Cisco's own sample captures, shipped with every release):
+#   http  avl/delay_10_http_browsing_0.pcap  one HTTP browsing exchange, TCP/80
+#   dns   avl/delay_10_dns_0.pcap            one DNS query/response, UDP/53
+#   tls   avl/delay_10_https_0.pcap          one HTTPS session (TLS records
+#                                            replayed byte for byte), TCP/443
+#   smb   L7 program (no SMB capture exists in the repo or the release): an
+#         SMB2 NEGOTIATE-sized request (NetBIOS session header + 'FE SMB'
+#         magic + 64-byte header + 36-byte negotiate body) and a 248-byte
+#         reply, TCP/445. SMB-shaped on the wire (port, sizes, magic), not a
+#         real SMB exchange.
+persona:
+  id: trex-crowd-client
+  os_family: linux
+  drive: trex-astf
+  emits:
+    - { proto: tcp, ports: [80, 443, 445], peer_role: trex-server, optional: true, direction: EW }
+    - { proto: dns, ports: [53], peer_role: trex-server, optional: true, direction: EW }
+  requires: []
+  knobs:
+    side: client
+    crowd: { range: 10.250.1.0/24, count: 50 }
+    servers: { range: 10.250.2.0/28 }
+    peer_role: trex-server
+    mult: 1.0
+    templates:
+      - { name: http, pcap: avl/delay_10_http_browsing_0.pcap, cps: 20 }
+      - { name: dns, pcap: avl/delay_10_dns_0.pcap, cps: 40 }
+      - { name: tls, pcap: avl/delay_10_https_0.pcap, cps: 10 }
+      - name: smb
+        port: 445
+        cps: 5
+        program:
+          # NetBIOS session (len 0x64 = 100) + SMB2 header (FE 53 4D 42, 64 bytes,
+          # command 0 = NEGOTIATE) + 36-byte negotiate request, zero-padded.
+          - send: "00000064fe534d42400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000240001000000000000000000000000000000000000000000000000000000000000000000"
+          - recv: 248
+    # Acceptance cadence: flat x1 for 10 minutes, then x2 (the step the
+    # acceptance run times), then back to x1 after 20 minutes.
+    schedule:
+      - { at: 10m, mult: 2 }
+      - { at: 20m, mult: 1 }

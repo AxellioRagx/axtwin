@@ -1,0 +1,11 @@
+# Tap plan: trex-test / default -- both LANs to the XPress-SW-A sink (dev45's
+# lab sensor). A `segment` tap is every port on the net, rx only, so a crowd
+# flow is captured once per segment it crosses: on lan-a (client generator and
+# router legs) and again on lan-b (router and server generator legs).
+tap-plan:
+  target: trex-test
+  bindings:
+    - selector: { scope: segment, target: lan-a }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lan-b }
+      sensors: [XPress-SW-A]
