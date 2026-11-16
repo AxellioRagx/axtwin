@@ -981,6 +981,32 @@ def test_destroy_teardown(tmp_path):
     assert j["deploy"]["status"] == "destroyed"
 
 
+def test_destroy_progress_reads_the_running_sweep(tmp_path):
+    """`GET /api/deploys/{id}/destroy-progress` (2026-11-16): not running
+    before and after; mid-sweep (read from inside the backend's VM destroy)
+    it answers the te sweep's step and VM count."""
+    from tests.test_teardown import _RecordTeardown, seed_deploy
+
+    settings = _settings(tmp_path)
+    info = seed_deploy(settings.db_path, deploy_id="sc-feedface")
+    mid: dict = {}
+
+    class _Peek(_RecordTeardown):
+        def destroy_vm(self, node, vmid):
+            mid.update(c.get(f"/api/deploys/{info['deploy_id']}/destroy-progress").json())
+            return super().destroy_vm(node, vmid)
+
+    c = _client(settings, teardown=_Peek())
+    before = c.get(f"/api/deploys/{info['deploy_id']}/destroy-progress").json()
+    assert before == {"deploy_id": info["deploy_id"], "running": False, "step": None,
+                      "done": 0, "total": 0, "elapsed_s": None}
+    r = c.request("DELETE", f"/api/deploys/{info['deploy_id']}?allow_destroy=true")
+    assert r.status_code == 200 and r.json()["destroyed"] is True
+    assert mid["running"] is True
+    assert (mid["step"], mid["done"], mid["total"]) == ("vms", 0, 1)
+    assert c.get(f"/api/deploys/{info['deploy_id']}/destroy-progress").json()["running"] is False
+
+
 def test_destroy_heartbeats_the_lease(tmp_path, monkeypatch):
     """Finding #2 (2026-07-07): destroy wraps the teardown call in a
     `Heartbeat`, same as the deploy path, so a long sweep can't outrun the

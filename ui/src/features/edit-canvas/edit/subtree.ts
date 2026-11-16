@@ -17,7 +17,7 @@ import { allocateHostAddresses, nextFreeSlash24, takenAddresses } from "./alloca
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
-import { addLink, addNode, addSegment, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
+import { addLink, addNode, addSegment, nodeOfEnd, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
 
 export interface Subtree {
   root: string;
@@ -372,10 +372,15 @@ export function attachDevices(doc: WorkingDoc, model: DocModel, from: string, to
 
 /**
  * The switches no router reaches (R3-2): a parked duplicate, or a switch just placed. Reached
- * means a chain of up links from a router, or a segment the switch has a port on (or a link of
- * its carries) that a router has a leg on. A twin with no router parks nothing (there is nothing
- * to attach to). While any switch is parked the page holds the document locally: no API
- * validate, no working-copy sync, every exit blocked with the reason.
+ * means a chain of `up` links from a router, or a segment the switch has a port on (or a link of
+ * its carries) that a router has a leg on -- and the chain may run through HOSTS: a host is
+ * reached when one of its legs is on a reached segment or an `up` link joins it to a reached
+ * node, and a reached host's legs are reached segments too. So a switch behind an L3 host pair
+ * (corp-twin-native's 8325h VSX pair, linked only to the 9K01/9K02 VRRP hosts that sit on a
+ * router leg) is attached, as the engine deploys it. A link end may name a group member
+ * (`web01`), resolved to its group. A twin with no router parks nothing (there is nothing to
+ * attach to). While any switch is parked the page holds the document locally: no API validate,
+ * no working-copy sync, every exit blocked with the reason.
  */
 export function parkedDevices(te: TeModel): string[] {
   const routers = te.nodes.filter((n) => n.kind === "router");
@@ -383,21 +388,19 @@ export function parkedDevices(te: TeModel): string[] {
   const switches = te.nodes.filter((n) => n.kind === "switch");
   const reached = new Set(routers.map((r) => r.name));
   const routed = new Set(routers.flatMap((r) => r.nets.map((l) => l.segment)));
-  const segsOf = (name: string): string[] => {
-    const own = te.nodes.find((n) => n.name === name)?.nets.map((l) => l.segment) ?? [];
-    // A down or blocked link deploys nothing (topology-layers §2.5): it carries no segment here either.
-    const carried = te.links.filter((l) => l.state === "up" && (l.a.device === name || l.b.device === name)).flatMap((l) => [...(l.native ? [l.native] : []), ...l.vlans]);
-    return [...own, ...carried];
-  };
+  // A down or blocked link deploys nothing (topology-layers §2.5): it carries no segment and joins nothing here either.
+  const up = te.links.filter((l) => l.state === "up").map((l) => ({ a: nodeOfEnd(te, l.a.device)?.node.name ?? l.a.device, b: nodeOfEnd(te, l.b.device)?.node.name ?? l.b.device, segs: [...(l.native ? [l.native] : []), ...l.vlans] }));
+  const segsOf = (n: TeNode): string[] => [...n.nets.map((l) => l.segment), ...(n.kind === "switch" ? up.filter((l) => l.a === n.name || l.b === n.name).flatMap((l) => l.segs) : [])];
+  const candidates = te.nodes.filter((n) => n.kind !== "router");
   for (let changed = true; changed; ) {
     changed = false;
-    for (const s of switches) {
-      if (reached.has(s.name)) continue;
-      const linked = te.links.some((l) => l.state === "up" && ((l.a.device === s.name && reached.has(l.b.device)) || (l.b.device === s.name && reached.has(l.a.device))));
-      if (linked || segsOf(s.name).some((seg) => routed.has(seg))) {
-        reached.add(s.name);
-        changed = true;
-      }
+    for (const n of candidates) {
+      if (reached.has(n.name)) continue;
+      const linked = up.some((l) => (l.a === n.name && reached.has(l.b)) || (l.b === n.name && reached.has(l.a)));
+      if (!linked && !segsOf(n).some((seg) => routed.has(seg))) continue;
+      reached.add(n.name);
+      if (n.kind !== "switch") for (const l of n.nets) routed.add(l.segment);
+      changed = true;
     }
   }
   return switches.filter((s) => !reached.has(s.name)).map((s) => s.name);

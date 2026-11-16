@@ -143,6 +143,40 @@ def test_full_teardown_reverse_order(tmp_path):
         store.close()
 
 
+def test_sweep_reports_progress_per_vm_then_by_phase(tmp_path):
+    """The `progress` hook (the console's destroy dialog, 2026-11-16): one
+    `vms` report per VM with the count, then the `snippets` and `network`
+    phases; a sink that raises never fails the teardown."""
+    db = str(tmp_path / "s.db")
+    info = seed_deploy(db)
+    store = StateStore(db)
+    extra = vmid_for_op(info["plan_id"], "clone-h-b")
+    store.insert_ops(info["deploy_id"], [
+        _op(info["deploy_id"], "op7", "clone-vm", {"host": "h-a"}, {"vmid": extra}),
+    ])
+    seen: list[tuple[str, int, int]] = []
+    try:
+        result = destroy_deploy(store, _RecordTeardown(), info["deploy_id"],
+                                progress=lambda *a: seen.append(a))
+        assert result.destroyed is True
+        assert seen == [("vms", 0, 2), ("vms", 1, 2), ("vms", 2, 2),
+                        ("snippets", 0, 0), ("network", 0, 0)]
+    finally:
+        store.close()
+
+    info2 = seed_deploy(str(tmp_path / "t.db"))
+    store2 = StateStore(str(tmp_path / "t.db"))
+
+    def _boom(*_a):
+        raise RuntimeError("sink down")
+
+    try:
+        assert destroy_deploy(store2, _RecordTeardown(), info2["deploy_id"],
+                              progress=_boom).destroyed is True
+    finally:
+        store2.close()
+
+
 def test_teardown_removes_recorded_pre_fix_vnet_name_verbatim(tmp_path):
     """Migration safety pin (2026-07-27 `vnet_id_for_net` plan-scoping fix,
     CLAUDE.md task narrative): `destroy_deploy` deletes vnets from the

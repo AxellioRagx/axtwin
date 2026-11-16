@@ -34,6 +34,14 @@ describe("the pure parts", () => {
     expect(destroyWord({ ...run, down: ["tfc", "tap"] })).toBe("destroying… te · 12 s");
     expect(destroyWord({ ...run, phase: "done" })).toBeNull();
   });
+  it("once the te is coming down the word carries the sweep's step: the VM count, then the phases", () => {
+    const run: DestroyRun = { deployId: "dep-1", tiers: ["te", "tfc"], down: ["tfc"], elapsed: 230.2, phase: "running", error: null, result: null };
+    expect(destroyWord({ ...run, sweep: { step: "vms", done: 42, total: 96 } })).toBe("destroying… te · 42/96 VMs removed · 230 s");
+    expect(destroyWord({ ...run, sweep: { step: "snippets", done: 0, total: 0 } })).toBe("destroying… te · clearing hook snippets · 230 s");
+    expect(destroyWord({ ...run, sweep: { step: "network", done: 0, total: 0 } })).toBe("destroying… te · removing networks · 230 s");
+    // A child still coming down never shows the te's count.
+    expect(destroyWord({ ...run, down: [], sweep: { step: "vms", done: 1, total: 96 } })).toBe("destroying… tfc · 230 s");
+  });
 });
 
 describe("the Twins list", () => {
@@ -113,6 +121,20 @@ describe("the twin page", () => {
 });
 
 describe("the canvas bar", () => {
+  it("a big te sweep shows its VM count from the API while the DELETE runs", async () => {
+    let release: () => void = () => undefined;
+    const { api, state } = seeded({ deploys: [DEPLOY] });
+    state.destroyHold = new Promise<void>((r) => (release = r));
+    renderAt(api, "/twins/corp-live/canvas");
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
+    fireEvent.click(dialog().getByTestId("destroy-confirm"));
+    state.destroyProgress = { "dep-1": { deploy_id: "dep-1", running: true, step: "vms", done: 42, total: 96, elapsed_s: 200 } };
+    await waitFor(() => expect(screen.getByTestId("destroy-progress").textContent).toMatch(/destroying… te · 42\/96 VMs removed · \d+ s/), { timeout: 3000 });
+    await act(async () => release());
+    await waitFor(() => expect(screen.queryByTestId("destroy-dialog")).toBeNull());
+  });
+
   it("Destroy… sits in the exits; in flight it disables the exits, shows progress and ticks tiers; done, the canvas is the undeployed edit mode", async () => {
     let release: () => void = () => undefined;
     const { api, state } = seeded({ deploys: [DEPLOY, TFC, TAP] });

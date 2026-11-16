@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 
 import { useApi } from "../../api/context";
 import type { Api } from "../../api/discovery";
-import type { DeploySummary, DestroyResult } from "../../api/types";
+import type { DeploySummary, DestroyProgress, DestroyResult } from "../../api/types";
 import { ErrorLine } from "./parts";
 
 // Destroy (2026-11-08): bring a twin's standing deploy down from the console, the engine's own
@@ -36,6 +36,9 @@ export type DestroyRun = {
   phase: "running" | "done" | "failed";
   error: unknown;
   result: DestroyResult | null;
+  /** The te sweep as the API reports it while the DELETE runs (`GET .../destroy-progress`): the
+   *  VM count on a big twin is minutes of the destroy, so the word shows it instead of a bare `te`. */
+  sweep?: Pick<DestroyProgress, "step" | "done" | "total"> | null;
 };
 
 /** The tier coming down now: the children first (tfc, then tap), the te last. */
@@ -44,10 +47,22 @@ export function currentTier(run: DestroyRun): string | null {
   return null;
 }
 
-/** The bar's progress word, as Apply's: `destroying… te · 12 s`. */
+/** What the te sweep is doing, in words: `42/96 VMs removed`, `clearing hook snippets`, `removing networks`. */
+export function sweepWord(sweep: DestroyRun["sweep"]): string | null {
+  if (!sweep) return null;
+  if (sweep.step === "vms" && sweep.total > 0) return `${sweep.done}/${sweep.total} VMs removed`;
+  if (sweep.step === "snippets") return "clearing hook snippets";
+  if (sweep.step === "network") return "removing networks";
+  return null;
+}
+
+/** The bar's progress word, as Apply's: `destroying… te · 12 s`, with the sweep's step once the te
+ *  is coming down: `destroying… te · 42/96 VMs removed · 230 s`. */
 export function destroyWord(run: DestroyRun | null): string | null {
   if (!run || run.phase !== "running") return null;
-  return `destroying… ${currentTier(run) ?? "te"} · ${Math.round(run.elapsed)} s`;
+  const tier = currentTier(run) ?? "te";
+  const step = tier === "te" ? sweepWord(run.sweep) : null;
+  return `destroying… ${tier}${step ? ` · ${step}` : ""} · ${Math.round(run.elapsed)} s`;
 }
 
 /** The reasons a finished destroy left something standing, in the API's words. */
@@ -85,6 +100,15 @@ export function useDestroy(api: Api, onDone: (r: DestroyResult) => void) {
             const down = r.tiers.filter((t) => (t === "te" ? teDown : !standing.includes(t)));
             return down.length === r.down.length ? r : { ...r, down };
           });
+        },
+        () => undefined,
+      );
+      // The te sweep's own progress (a server without the route, or a destroy another process
+      // runs, answers nothing useful: the word stays the bare tier).
+      api.getDestroyProgress(deployId).then(
+        (p) => {
+          const sweep = p.running && p.step && p.step !== "cascade" ? { step: p.step, done: p.done, total: p.total } : null;
+          setRun((r) => (!r || r.phase !== "running" || (r.sweep?.step === sweep?.step && r.sweep?.done === sweep?.done && r.sweep?.total === sweep?.total) ? r : { ...r, sweep }));
         },
         () => undefined,
       );

@@ -531,6 +531,21 @@ class DestroyTierDTO(BaseModel):
     released: list[str] = []
 
 
+class DestroyProgressDTO(BaseModel):
+    """`GET /api/deploys/{id}/destroy-progress`: what a destroy THIS API
+    process is running has done so far (`api/destroy_progress.py`).
+    `running: false` (and no step) when none is running here."""
+
+    deploy_id: str
+    running: bool
+    # `cascade` (the tfc/tap siblings), `vms`, `snippets` or `network`.
+    step: Optional[str] = None
+    # The te sweep's VM count on the `vms` step; 0 otherwise.
+    done: int = 0
+    total: int = 0
+    elapsed_s: Optional[float] = None
+
+
 class DestroyResponse(BaseModel):
     deploy_id: str
     # True iff a clean sweep transitioned the deploy to `destroyed`.

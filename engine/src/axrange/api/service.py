@@ -2629,6 +2629,11 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
             settings.db_path, deploy_id=deploy_id, scenario_id=d.scenario_id
         )
         heartbeat.start()
+        # Live progress for the console's destroy dialog (`api/destroy_progress.py`):
+        # the DELETE is synchronous and a big twin's sweep runs for minutes.
+        from axrange.api import destroy_progress
+
+        destroy_progress.begin(deploy_id)
         try:
             # Sibling-tier cascades run BEFORE the twin's own sweep:
             # `exr` → `tfc` → `tap` → `te`. Every sibling binds into the twin's
@@ -2669,8 +2674,12 @@ def destroy_deploy(settings: ApiSettings, deploy_id: str,
                 store, backend, deploy_id,
                 protected_names=cfg.protected_external_names,
                 protected_vmids=cfg.protected_external_vmids,
+                progress=lambda step, done, total: destroy_progress.update(
+                    deploy_id, step, done, total
+                ),
             )
         finally:
+            destroy_progress.end(deploy_id)
             heartbeat.stop()
             # Belt-and-suspenders (finding #5): `run_teardown` releases the
             # lease at its own tail UNCONDITIONALLY on the success path, but

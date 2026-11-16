@@ -103,6 +103,25 @@ export interface TeModel {
   problems: string[];
 }
 
+/**
+ * The node a link end names: the node itself, or -- as the engine's expansion resolves it
+ * (`twinconfig/expand.py` `instance_ids`, `{name}{index:02d}`) -- one member of a `×N` group.
+ * `member` is the 1-based index when the end names an instance, else null. An exact node name
+ * always wins over an instance reading of it.
+ */
+export function nodeOfEnd(te: Pick<TeModel, "nodes">, device: string): { node: TeNode; member: number | null } | null {
+  const exact = te.nodes.find((n) => n.name === device);
+  if (exact) return { node: exact, member: null };
+  for (const n of te.nodes) {
+    if (n.countValue < 2 || !device.startsWith(n.name)) continue;
+    const suffix = device.slice(n.name.length);
+    if (!/^\d{2,}$/.test(suffix)) continue;
+    const i = Number(suffix);
+    if (i >= 1 && i <= n.countValue && `${n.name}${String(i).padStart(2, "0")}` === device) return { node: n, member: i };
+  }
+  return null;
+}
+
 const NODE_KEY_ORDER = ["name", "role", "kind", "image", "requires", "resources", "count", "net", "nets", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
 const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources", "members", "source", "confidence", "vantage"]);
 const SOURCES = new Set(["discovered", "asserted", "authored", "unconfirmed"]);

@@ -612,7 +612,7 @@ export function CanvasPage() {
     if (foldState.current && foldState.current !== folds) settled.current = {};
     foldState.current = folds;
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
-    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource });
+    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource, parked: design ? parked : undefined });
     if (design && !p.overBudget) {
       // The tree's own positions settle for the session (an implied switch, a
       // device, a router, a host): a later mutation places only what has no
@@ -631,7 +631,7 @@ export function CanvasPage() {
       }
     }
     return p;
-  }, [built, pins, expanded, fan, model?.tap, defaultSource]);
+  }, [built, pins, expanded, fan, model?.tap, defaultSource, parkedKey]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? withoutFold(xs, siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(

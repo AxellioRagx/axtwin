@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 from axrange.platform.protocols import Teardown
 
@@ -292,6 +292,11 @@ SWEEPABLE_OP_NAMES: frozenset[str] = frozenset({
 })
 
 
+#: `(step, done, total)`: `step` is `vms` (per VM, `done`/`total` counted),
+#: then `snippets` and `network` (phases, counts 0). See `_sweep`.
+SweepProgress = Callable[[str, int, int], None]
+
+
 def _sweep(
     deploy: DeployRow,
     ops: list[OpRow],
@@ -301,6 +306,7 @@ def _sweep(
     log: Callable[[str], None],
     protected_names: Iterable[str],
     protected_vmids: Iterable[int],
+    progress: Optional[SweepProgress] = None,
 ) -> TeardownResult:
     """The reverse-of-create resource sweep (steps 1-7: VM -> mirror ->
     gretap -> vnet -> zone -> sdn-apply -> ovs-bridge), scoped to exactly
@@ -427,6 +433,17 @@ def _sweep(
     seen_vm: set[int] = set()
     vms = [(v, n) for (v, n) in vms if not (v in seen_vm or seen_vm.add(v))]
 
+    # Live progress for a caller that shows it (the API's destroy dialog): the
+    # VM step is nearly all of a big teardown's wall-clock (~4 s a VM), so it
+    # reports per VM; the network steps after it report once, as a phase.
+    def _progress(step: str, done: int, total: int) -> None:
+        if progress is None:
+            return
+        try:
+            progress(step, done, total)
+        except Exception:  # noqa: BLE001 -- a progress sink never fails a teardown
+            pass
+
     def _run(kind: str, target: str, fn: Callable[[], str]) -> None:
         try:
             status = fn()
@@ -524,7 +541,10 @@ def _sweep(
     #    lookup.
     _protected_vmid_set = set(protected_vmids)
     guarded_vmids: set[int] = set()
-    for vmid, vm_node in vms:
+    _progress("vms", 0, len(vms))
+    for vm_done, (vmid, vm_node) in enumerate(vms, start=1):
+        if vm_done > 1:
+            _progress("vms", vm_done - 1, len(vms))
         if vmid in _protected_vmid_set:
             _record_guard("vm", str(vmid),
                           "vmid is a protected external/sink node; refusing to touch")
@@ -548,6 +568,9 @@ def _sweep(
             continue
         _run("vm", str(vmid), lambda v=vmid, n=vm_node: backend.destroy_vm(n, v))
 
+    _progress("vms", len(vms), len(vms))
+    _progress("snippets", 0, 0)
+
     # 2. Mirror plane — the per-VM hook + cloud-init snippets (keyed by vmid).
     #    The VM destroy above already removed the hookscript *registration*; the
     #    snippet FILES persist in /var/lib/vz/snippets, so remove them here.
@@ -559,6 +582,8 @@ def _sweep(
             continue
         _run("mirror", str(vmid),
              lambda v=vmid, n=vm_node: backend.delete_mirror_snippets(n, v))
+
+    _progress("network", 0, 0)
 
     # 3. Mirror plane — keyed gretap netdevs.
     for dev in gretaps:
@@ -642,6 +667,7 @@ def destroy_deploy(
     log: Callable[[str], None] = lambda _m: None,
     protected_names: Iterable[str] = (),
     protected_vmids: Iterable[int] = (),
+    progress: Optional[SweepProgress] = None,
 ) -> TeardownResult:
     """Tear down every `te`/`tap`-tier resource of `deploy_id`, reverse order.
 
@@ -661,6 +687,7 @@ def destroy_deploy(
     result = _sweep(
         deploy, ops, backend, node=node, log=log,
         protected_names=protected_names, protected_vmids=protected_vmids,
+        progress=progress,
     )
 
     # State transition — only on a clean sweep.

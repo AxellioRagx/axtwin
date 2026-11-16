@@ -7,6 +7,7 @@ import type {
   ConfigExitCancel,
   CreateDeployResponse,
   DeployConfig,
+  DestroyProgress,
   DestroyResult,
   DeployConfigApply,
   DeployConfigReset,
@@ -134,6 +135,8 @@ export interface Api {
   deployTwin(id: string, body: TwinDeployRequest, target?: string): Promise<CreateDeployResponse>;
   /** Destroy: bring the standing deploy down, its tfc / tap / exr children first (`axrange te destroy`). */
   destroyDeploy(deployId: string): Promise<DestroyResult>;
+  /** A running destroy's progress (the te sweep's VM count), polled while the DELETE runs. */
+  getDestroyProgress(deployId: string, signal?: AbortSignal): Promise<DestroyProgress>;
 }
 
 const enc = encodeURIComponent;
@@ -194,5 +197,6 @@ export function makeApi(request: Requester): Api {
     deployTwin: (id, body, target) => request("POST", `/api/twins/${enc(id)}/deploy${target ? `?target=${enc(target)}` : ""}`, { body }),
     // The confirmation rides the query: some proxies drop a DELETE's body (the route takes either).
     destroyDeploy: (deployId) => request("DELETE", `/api/deploys/${enc(deployId)}?allow_destroy=true`, {}),
+    getDestroyProgress: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/destroy-progress`, { signal }),
   };
 }

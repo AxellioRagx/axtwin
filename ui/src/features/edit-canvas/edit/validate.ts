@@ -10,7 +10,7 @@
 import type { ValidationFinding } from "../../../api/types";
 import { isIpv4 } from "../model/keys";
 import { addressInSegment, isNetworkAddress } from "./allocate";
-import type { TeModel } from "./te";
+import { nodeOfEnd, type TeModel } from "./te";
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -75,9 +75,11 @@ export function validateTe(model: TeModel): ValidationFinding[] {
   model.links.forEach((l, i) => {
     const loc = `twin_config.links[${i}]`;
     for (const end of [l.a, l.b]) {
-      const node = model.nodes.find((x) => x.name === end.device);
+      // An end may name one member of a `×N` group (`web01`), as the engine resolves it; naming the group itself is CV-041.
+      const hit = nodeOfEnd(model, end.device);
+      const node = hit?.node;
       if (!node) err("CV-040", `link ${i}: '${end.device}' is not a node of this twin`, loc);
-      else if (node.countValue > 1) err("CV-041", `link ${i}: '${end.device}' is a group of ${node.countValue}; a link names one device`, loc);
+      else if (hit.member === null && node.countValue > 1) err("CV-041", `link ${i}: '${end.device}' is a group of ${node.countValue}; a link names one device`, loc);
       const key = `${end.device}#${end.port}`;
       const first = ports.get(key);
       if (first !== undefined && first !== i) err("CV-042", `link ${i}: port '${end.port}' on '${end.device}' is already used by link ${first}`, loc);

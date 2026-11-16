@@ -762,6 +762,18 @@ export interface DestroyResult {
   tiers?: DestroyTier[];
 }
 
+/** `GET /api/deploys/{id}/destroy-progress`: what a destroy the API process is running has done
+ *  so far -- the tfc/tap `cascade`, then the te sweep's `vms` (counted), `snippets`, `network`.
+ *  `running: false` when no destroy of that deploy runs there. */
+export interface DestroyProgress {
+  deploy_id: string;
+  running: boolean;
+  step: "cascade" | "vms" | "snippets" | "network" | null;
+  done: number;
+  total: number;
+  elapsed_s: number | null;
+}
+
 export interface DeployList {
   deploys: DeploySummary[];
   warnings: string[];

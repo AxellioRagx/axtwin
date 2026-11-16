@@ -80,6 +80,11 @@ export interface TreeOptions {
   /** What a missing `source` means (review R3-1): `discovered` on a twin cast from an imprint
    *  (a cast older than track 3 wrote none), `authored` on a hand-authored twin. */
   defaultSource?: Source;
+  /** The editor's verdict on which switches are parked (`edit/subtree.ts` `parkedDevices`, which
+   *  walks links and hosts the bipartite graph does not carry). When given it is the one source of
+   *  the "not attached" badge, so the badge and the page's parked hold never disagree; absent (a
+   *  read-only cast view) the tree falls back to its own router-reach test. */
+  parked?: readonly string[];
 }
 
 export interface TreeTap {
@@ -720,7 +725,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
       source: source(d.name),
       confidence: confidence(d.name),
       // No router reaches it -- by links, or by a segment it shares with a router's legs (`edit/subtree.ts` `parkedDevices`).
-      parked: d.kind === "switch" && graph.routers.length > 0 && depths.get(d.name)?.root == null && ![...d.legs, ...carriedBy(d.name)].some((seg) => graph.routers.some((r) => r.segments.includes(seg))),
+      parked: options.parked ? d.kind === "switch" && options.parked.includes(d.name) : d.kind === "switch" && graph.routers.length > 0 && depths.get(d.name)?.root == null && ![...d.legs, ...carriedBy(d.name)].some((seg) => graph.routers.some((r) => r.segments.includes(seg))),
     };
     // R3-7: a switch is its own node type, so the DOM (and a test) can tell it from any other device.
     nodes.push({ id, type: d.kind === "switch" ? "switch" : "device", position: abs, width: DEVICE_W, height: DEVICE_H, zIndex: 2, ...common, data });

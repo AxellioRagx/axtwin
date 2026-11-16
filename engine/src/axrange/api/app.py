@@ -850,6 +850,23 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     ) -> dtos.DeployListDTO:
         return service.list_deploys(_for(target), limit=limit, status=status)
 
+    @app.get("/api/deploys/{deploy_id}/destroy-progress", response_model=dtos.DestroyProgressDTO)
+    @_ro
+    def destroy_progress(deploy_id: str) -> dtos.DestroyProgressDTO:
+        # In-memory, this process only: the console's destroy dialog polls it
+        # while its (synchronous) DELETE runs. No store read, so no target.
+        import time as _time
+
+        from axrange.api import destroy_progress as _progress
+
+        p = _progress.get(deploy_id)
+        if p is None:
+            return dtos.DestroyProgressDTO(deploy_id=deploy_id, running=False)
+        return dtos.DestroyProgressDTO(
+            deploy_id=deploy_id, running=True, step=p.step, done=p.done,
+            total=p.total, elapsed_s=round(_time.time() - p.started_at, 1),
+        )
+
     @app.get("/api/deploys/{deploy_id}", response_model=dtos.DeployDetailDTO)
     @_ro
     def deploy(deploy_id: str, target: Optional[str] = _TARGET_QUERY) -> dtos.DeployDetailDTO:

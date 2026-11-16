@@ -351,6 +351,81 @@ describe("parkedDevices (R3-2)", () => {
     const attached = attachDevices({ ...d, files: out.files }, readDoc({ ...d, files: out.files }), "gw", "access-sw-2");
     expect(parkedDevices(readDoc({ ...d, files: attached }).te)).toEqual([]);
   });
+
+  /** corp-twin-native's shape (2026-11-16): the 8325h VSX pair is linked only to the 9K01/9K02
+   *  VRRP hosts, which sit on a router leg (`mx-vlan935`) and carry `vlan953` down to the pair;
+   *  the pair's host links name members of a `×3` group. The engine deploys it; it is attached. */
+  const L3_PAIR_TE = `twin_config:
+  id: l3-pair
+  segments:
+    - { name: mx-vlan935, cidr: 10.180.93.0/24 }
+    - { name: vlan953, cidr: 10.180.34.0/25 }
+  nodes:
+    - name: hq-mx
+      kind: router
+      image: vyos@v1
+      nets:
+        - { segment: mx-vlan935 }
+    - name: 9k01
+      role: l3-switch
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: mx-vlan935, ip: 10.180.93.2 }
+        - { segment: vlan953, ip: 10.180.34.2 }
+    - name: web
+      role: web-tier
+      image: ubuntu-server-22@v5
+      net: vlan953
+      count: 3
+    - name: sw-l
+      role: l2-switch
+      kind: switch
+    - name: sw-r
+      role: l2-switch
+      kind: switch
+    - name: orphan
+      role: l2-switch
+      kind: switch
+  links:
+    - a: { device: sw-l, port: up }
+      b: { device: 9k01, port: eth1 }
+      mode: access
+      vlans: [vlan953]
+    - a: { device: sw-l, port: isl }
+      b: { device: sw-r, port: isl }
+      mode: access
+      vlans: [vlan953]
+    - a: { device: sw-l, port: web01.0 }
+      b: { device: web01, port: eth0 }
+      mode: access
+      vlans: [vlan953]
+`;
+
+  it("a switch reached through a host on a router leg (an L3 pair) is attached; one wired to nothing still parks", async () => {
+    const { parkedDevices } = await import("../src/features/edit-canvas/edit/subtree");
+    const m = readDoc({ id: "p", teFile: "te.yaml", files: { "te.yaml": L3_PAIR_TE } });
+    expect(parkedDevices(m.te)).toEqual(["orphan"]);
+    // By the link alone (the host has no leg on the pair's segment): attached while the link is
+    // up; a down link joins nothing, so the pair parks.
+    const linkOnly = L3_PAIR_TE.replace("        - { segment: vlan953, ip: 10.180.34.2 }\n", "");
+    expect(parkedDevices(readDoc({ id: "p", teFile: "te.yaml", files: { "te.yaml": linkOnly } }).te)).toEqual(["orphan"]);
+    const down = linkOnly.replace("      b: { device: 9k01, port: eth1 }\n      mode: access\n      vlans: [vlan953]", "      b: { device: 9k01, port: eth1 }\n      mode: access\n      vlans: [vlan953]\n      state: down");
+    expect(down).not.toBe(linkOnly);
+    expect(parkedDevices(readDoc({ id: "p", teFile: "te.yaml", files: { "te.yaml": down } }).te)).toEqual(["sw-l", "sw-r", "orphan"]);
+  });
+
+  it("validate: a link end naming a group member (web01) is a node; the group name itself is CV-041; past the count is CV-040", async () => {
+    const { validateTe } = await import("../src/features/edit-canvas/edit/validate");
+    const { readTe, nodeOfEnd } = await import("../src/features/edit-canvas/edit/te");
+    const te = readTe(L3_PAIR_TE);
+    expect(validateTe(te).filter((f) => f.severity === "error")).toEqual([]);
+    expect(nodeOfEnd(te, "web03")).toMatchObject({ node: { name: "web" }, member: 3 });
+    expect(nodeOfEnd(te, "web04")).toBeNull();
+    expect(nodeOfEnd(te, "web1")).toBeNull();
+    const ids = (text: string) => validateTe(readTe(text)).map((f) => f.rule_id);
+    expect(ids(L3_PAIR_TE.replace("b: { device: web01, port: eth0 }", "b: { device: web, port: eth0 }"))).toContain("CV-041");
+    expect(ids(L3_PAIR_TE.replace("b: { device: web01, port: eth0 }", "b: { device: web04, port: eth0 }"))).toContain("CV-040");
+  });
 });
 
 /** switch-test's te.yaml as the catalog ships it (R4-3, 2026-11-08). */

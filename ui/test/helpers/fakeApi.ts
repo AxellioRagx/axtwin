@@ -13,6 +13,7 @@ import type {
   AssertionsDoc,
   DeployConfig,
   DeploySummary,
+  DestroyProgress,
   Target,
   TargetHealth,
   TapStatus,
@@ -171,6 +172,8 @@ export interface FakeState {
   preflightImages: Record<string, { bound: number; total: number; unbound?: Array<{ image: string; location: string }> }>;
   /** When set, `destroyDeploy` waits on it before answering (a destroy in flight). */
   destroyHold?: Promise<void>;
+  /** `GET /api/deploys/{id}/destroy-progress` by deploy id; absent answers not running. */
+  destroyProgress?: Record<string, DestroyProgress>;
 }
 
 export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeState } {
@@ -670,6 +673,9 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       delete state.workingCopies[deployId];
       tiers.push({ tier: "te", deploy_id: deployId, destroyed: true, removed: 3, errors: 0, released: [] });
       return { deploy_id: deployId, destroyed: true, removed: 3, errors: 0, actions: [], cascade_errors: [], tiers };
+    },
+    async getDestroyProgress(deployId) {
+      return state.destroyProgress?.[deployId] ?? { deploy_id: deployId, running: false, step: null, done: 0, total: 0, elapsed_s: null };
     },
     async fabricConversion(document, teFile) {
       state.writes.push({ op: "fabric-conversion", id: document.id, body: { document, te_file: teFile } });
