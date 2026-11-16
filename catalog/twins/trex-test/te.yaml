@@ -23,9 +23,15 @@ twin_config:
     prefix. The traffic (templates, cps, schedule) is the tfc tier's
     personas/trex-crowd-*.yaml.
 
+  # The gateway is DECLARED on the segment and the router legs are left
+  # unpinned, so the router takes it AND the segment records it (the hosts'
+  # default route). Pinning the router leg's `ip:` instead records no segment
+  # gateway at all (`expand.py`: only an unset router leg is bound to it), and
+  # the generators come up with no default route -- seen on the first deploy,
+  # 2026-11-16.
   segments:
-    - { name: lan-a, cidr: 10.70.1.0/24 }
-    - { name: lan-b, cidr: 10.70.2.0/24 }
+    - { name: lan-a, cidr: 10.70.1.0/24, gateway: 10.70.1.1 }
+    - { name: lan-b, cidr: 10.70.2.0/24, gateway: 10.70.2.1 }
 
   nodes:
     - name: gw
@@ -35,8 +41,8 @@ twin_config:
       requires: [linux]
       resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
       nets:
-        - { segment: lan-a, ip: 10.70.1.1 }
-        - { segment: lan-b, ip: 10.70.2.1 }
+        - { segment: lan-a }
+        - { segment: lan-b }
       install:
         - { script: scripts/serve-crowd-routes.sh }
 
