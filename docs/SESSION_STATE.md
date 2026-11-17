@@ -4,7 +4,7 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. Earlier handoffs: docs/handoffs/<YYYY-MM>.md. -->
 
-**Last updated:** 2026-11-16 (TRex crowd, Phase A done; Phase B note awaiting sign-off) ·
+**Last updated:** 2026-11-17 (trex-test v2: SMB file transfers, AD, internal/external boundary; live on dev45; Phase B note still awaiting sign-off) ·
 **Branch:** `wip/trex-crowd`, cut from `wip/design-platforms-canvas` at `083d78c` (the user's
 choice: the repo has no `main`; `master` and `wip/api-discovery-runs` are older). Local commits
 only, not pushed. Rule: commit each piece as it lands, staged by path; push only when asked.
@@ -26,24 +26,33 @@ Then the TRex crowd brief, Phase A, on `wip/trex-crowd`:
   untracked there; recipe restated in the twin README), built on dev45 as template **102**.
 - `docs/design/crowd-node.md`: the Phase B0 design note. **Stop here for sign-off.**
 
+2026-11-17, the user's request (SMB as multi-packet sessions with file transfer, add AD, SMB
+server on lan-b, HTTP/TLS/DNS answered by a separate external node behind a boundary):
+- `15b074c` driver: per-template `servers:` ranges (port+range association), `reply:` steps
+  (server-sent bytes), `size`/`fill` padding on send/reply.
+- `506dbcc` twin: `scripts/gen-smb-sessions.py` generates SMB 3.1.1 sessions (NTLMv2/SPNEGO
+  login as CROWD\alice / CROWD\bob, tree connect, create, 64 KiB reads or writes, close,
+  logoff) into the client persona; new node trex-ext on segment `inet` (192.0.2.0/24, TEST-NET
+  ranges behind it); dc01 (Windows 2022, AD DS crowd.axr.lab, users via `identity:`,
+  `prepare-dc.ps1` adds fs01/fs02 A records); gw nftables rule drops new connections from inet.
+  The boundary is topology + addressing + router policy (no schema field; no schema change).
+- Replaced the standing deploy at the user's choice: `trex-test-7758a202` destroyed clean.
+
 ## Verified, and how
 
-- **Live on dev45, deploy `trex-test-9df9ca02`:** acceptance 1, 2, 4 and 5 pass. Acceptance 3
-  passes for every template on established cps (TCP) and on sends (UDP), at both ×1 and ×2,
-  and the schedule step shows within 10 s. DNS at ×2 loses about 20% of queries before the
-  server (50.4 of 79.5/s arrive). Numbers are in `catalog/twins/trex-test/README.md`; raw data
-  is in `~/.axrange/trex-test-acceptance/`.
-- **Seen directly:** the sink's `gre-cap` counter, the dev45 GRE capture (two keys, one per
-  tap), and the guests after the tfc destroy (no units, NIC restored). The discovery round
-  trip ran on that capture.
-- **Engine:** `test_trex_astf.py` 40 pass (the real-release check needs `TREX_HOME`). The full
+- **Live on dev45, deploy `trex-test-cba811f5` (2026-11-17):** 70/70 ops; every template
+  answered by the intended side (SMB only by trex-server, web/DNS only by trex-ext); sink
+  `gre-cap` +5,150 pps / 44 Mbit/s; dev45 capture shows three GRE keys (lan-a all, lan-b SMB
+  only, perimeter web/DNS only), 0 malformed; SMB read and write sessions decoded end to end;
+  no inbound SYN at the perimeter; DC records and users read back by `qm guest exec`.
+  Details in `catalog/twins/trex-test/README.md` (Live acceptance). The first topology's
+  acceptance (`trex-test-9df9ca02`) is kept there too.
+- **Engine:** `test_trex_astf.py` 48 pass, 1 skip (the real-release check needs `TREX_HOME`; it passed with v3.08 for the SMB profile). The full
   suite is 4443 pass and 3 fail, all from the user's untracked `catalog/twins/*`; with those
   set aside, the catalog suites pass 42/42. **UI:** not touched; no rebuild needed.
-- **Serve:** :8080 restarted twice for engine changes, now pid 2202820 (recipe in memory).
-- **dev45 now: trex-test is STANDING** (the user asked to keep it up, 2026-11-16 ~20:05 UTC):
-  deploy `trex-test-7758a202`, te/tap/tfc completed, feeding XPress-SW-A (`gre-cap` +3,133
-  pps / 25 Mbit/s, both tap GRE keys seen). It is not a leftover. Template 102 `img-trex-astf`
-  is kept on purpose. The acceptance deploy `trex-test-9df9ca02` was destroyed and swept clean.
+- **Serve:** :8080 restarted for the driver change, now pid 2285416 (recipe in memory).
+- **dev45 now: trex-test is STANDING** as `trex-test-cba811f5` (te/tap/tfc completed),
+  feeding XPress-SW-A. It is not a leftover. Template 102 `img-trex-astf` is kept on purpose.
 
 ## Work in progress
 
@@ -52,8 +61,9 @@ None half-edited. Phase B is not started, by the brief's rule.
 ## Next steps (ordered)
 
 1. The user signs off (or amends) `docs/design/crowd-node.md` D1–D7 before any Phase B code.
-2. Locate the DNS loss at ×2: capture at ×2 and compare the lan-a and lan-b tap counts of
-   UDP/53 (server low_end core or af_packet RX, router, or bridge).
+2. Locate the DNS loss at ×2 (seen again on v2: 16,353 of 108,655 unanswered): capture during
+   ×2 and compare the lan-a and perimeter tap counts of UDP/53.
+   Also: gw's `axr-crowd-routes.service` is enabled but `inactive` (script ran routes.sh directly).
 3. Open items carried in the note: TRex EMU for on-link ranges; the image build's smoke test
    (its exporter op is config-class, and the build executor has no config backend); the
    Debian `configure-router` static-route handler.
@@ -77,7 +87,9 @@ None half-edited. Phase B is not started, by the brief's rule.
   the NIC is flushed for TRex and restored on stop. The persona schedule lives in knobs,
   because assignment `schedule:` takes only 24x7 / business-hours.
 - **Tap GRE:** full-size mirrored frames travel as two outer IPv4 fragments. Decapsulate a dev45
-  capture with reassembly (the session's scratchpad `gre_decap.py`; restate it if needed).
+  capture with reassembly (the session's scratchpad `gre_decap.py`, now with a per-key split; restate it if needed).
+- **ASTF:** two server templates on one port need an association by port+IP range (else
+  "Two server template with port 445"); the NetBIOS length must include the fill bytes.
 - Carried forward: build `ui/` to `dist.new` and swap; engine changes need the serve restart;
   find the serve pid with `pgrep -af 'axrange serve' | grep -v bash`.
 
