@@ -1,37 +1,52 @@
 # Twin config: trex-test (catalog/twins/trex-test/README.md)
 #
-# The smallest twin that proves one TRex ASTF generator pair can stand in for a
-# crowd: lan-a holds the client generator, lan-b the server generator, one
-# Debian router joins them. Existing schema only (kind: host, role, image,
-# nets, install) -- the crowd itself (templates, ranges, cadence) is traffic,
-# so it lives in the tfc tier's twin-local personas, not here.
+# One TRex ASTF client generator stands in for a 50-host internal crowd. Its
+# flows go to an INTERNAL file service (SMB, answered by trex-server next to a
+# real AD domain controller) and to EXTERNAL web and DNS services (answered by
+# trex-ext beyond the boundary). Existing schema only (kind, role, image, nets,
+# install, provides, identity) -- the crowd itself (templates, ranges,
+# cadence) is traffic, so it lives in the tfc tier's personas.
+#
+# THE BOUNDARY. The schema has no internal/external flag on a segment, so the
+# boundary is stated by topology, addressing and the router's policy:
+#   INTERNAL  lan-a, lan-b: RFC 1918 (10.70.0.0/16, crowd 10.250.0.0/16)
+#   EXTERNAL  inet: documentation (TEST-NET) space only -- 192.0.2.0/24 on
+#             the wire, 198.51.100.0/24 and 203.0.113.0/24 emulated behind it
+#   gw is the perimeter: its inet leg is the one edge between the two, and
+#   scripts/serve-crowd-routes.sh installs the boundary rule there (nothing
+#   from inet may open a connection inward; replies pass). The tap plan taps
+#   that edge as `perimeter` and the internal LANs as `segment`.
 #
 # Addressing:
-#   lan-a 10.70.1.0/24   router .1, trex-client .10 (its TRex port IP)
-#   lan-b 10.70.2.0/24   router .1, trex-server .10
-#   crowd clients 10.250.1.1-.50   (10.250.1.0/24, NOT on-link)
-#   crowd servers 10.250.2.1-.14   (10.250.2.0/28, NOT on-link)
+#   lan-a 10.70.1.0/24   gw .1, trex-client .10
+#   lan-b 10.70.2.0/24   gw .1, trex-server .10, dc01 .20
+#   inet  192.0.2.0/24   gw .1, trex-ext .10
+#   crowd clients        10.250.1.1-.50     behind trex-client (internal)
+#   file servers         fs01 10.250.2.1, fs02 10.250.2.2   behind trex-server (internal)
+#   web servers          198.51.100.1-.14   behind trex-ext (external)
+#   DNS resolvers        203.0.113.1-.2     behind trex-ext (external)
 # The emulated ranges are reached through the router's static routes to the
-# generators' port IPs (scripts/serve-crowd-routes.sh, a router `install:`
-# recipe -- the engine's Debian configure-router installs no static routes).
-# The generators' IPs are pinned because those routes name them.
+# generators' port IPs, so the generators' IPs are pinned.
 twin_config:
   id: trex-test
   description: |
-    TRex ASTF crowd proof: client generator on lan-a (50 emulated clients),
-    server generator on lan-b, one Debian router with a static route per crowd
-    prefix. The traffic (templates, cps, schedule) is the tfc tier's
-    personas/trex-crowd-*.yaml.
+    TRex ASTF crowd: 50 emulated internal clients on lan-a open SMB 3.1.1
+    file transfers to two internal file servers (trex-server, lan-b, beside a
+    real AD DS domain controller for crowd.axr.lab) and HTTP, TLS and DNS to
+    external servers beyond the boundary (trex-ext, inet). One Debian router
+    is the perimeter. The traffic (templates, cps, schedule) is the tfc
+    tier's personas/trex-crowd-*.yaml.
 
-  # The gateway is DECLARED on the segment and the router legs are left
+  # The gateway is DECLARED on each segment and the router legs are left
   # unpinned, so the router takes it AND the segment records it (the hosts'
   # default route). Pinning the router leg's `ip:` instead records no segment
   # gateway at all (`expand.py`: only an unset router leg is bound to it), and
   # the generators come up with no default route -- seen on the first deploy,
   # 2026-11-16.
   segments:
-    - { name: lan-a, cidr: 10.70.1.0/24, gateway: 10.70.1.1 }
-    - { name: lan-b, cidr: 10.70.2.0/24, gateway: 10.70.2.1 }
+    - { name: lan-a, cidr: 10.70.1.0/24, gateway: 10.70.1.1 }   # internal: the crowd's clients
+    - { name: lan-b, cidr: 10.70.2.0/24, gateway: 10.70.2.1 }   # internal: servers (file service, AD)
+    - { name: inet, cidr: 192.0.2.0/24, gateway: 192.0.2.1 }    # EXTERNAL: the internet side of gw
 
   nodes:
     - name: gw
@@ -43,6 +58,7 @@ twin_config:
       nets:
         - { segment: lan-a }
         - { segment: lan-b }
+        - { segment: inet }
       install:
         - { script: scripts/serve-crowd-routes.sh }
 
@@ -54,13 +70,60 @@ twin_config:
       nets:
         - { segment: lan-a, ip: 10.70.1.10 }
 
+    # Internal file service: answers the SMB templates for fs01/fs02.
     - name: trex-server
       role: trex-server
       image: trex-astf@v1
-      requires: [linux]   # the image also provides traffic:trex-astf (not a requires keyword: STR-110's vocabulary is closed)
+      requires: [linux]
       resources: { cpu: 2, ram: 4Gi, disk: 12Gi }
       nets:
         - { segment: lan-b, ip: 10.70.2.10 }
 
+    # The domain controller (a real AD DS forest, crowd.axr.lab). The SMB
+    # sessions log in to its domain (CROWD\alice, CROWD\bob, below) and name
+    # its file servers; prepare-dc.ps1 registers fs01/fs02 in its DNS. The
+    # crowd never talks to it directly: a Kerberos or LDAP exchange needs a
+    # real client stack, which TRex's emulated hosts do not have.
+    - name: dc01
+      role: domain-controller
+      image: windows-server-2022@v1
+      requires: [windows, kernel:powershell-5plus, kernel:dotnet-clr]
+      resources: { cpu: 2, ram: 4Gi, disk: 60Gi }
+      nets:
+        - { segment: lan-b, ip: 10.70.2.20 }
+      install:
+        - { role: adds }
+        - { script: scripts/prepare-dc.ps1 }
+      provides: [{ domain: crowd.axr.lab }]
+      listen:
+        - { port: 53, proto: tcp }
+        - { port: 53, proto: udp }
+        - { port: 88, proto: tcp }
+        - { port: 88, proto: udp }
+        - { port: 123, proto: udp }
+        - { port: 135, proto: tcp }
+        - { port: 389, proto: tcp }
+        - { port: 389, proto: udp }
+        - { port: 445, proto: tcp }
+        - { port: 3268, proto: tcp }
+
+    # External services: answers HTTP, TLS and DNS for the web and resolver
+    # ranges, beyond the boundary.
+    - name: trex-ext
+      role: trex-ext
+      image: trex-astf@v1
+      requires: [linux]
+      resources: { cpu: 2, ram: 4Gi, disk: 12Gi }
+      nets:
+        - { segment: inet, ip: 192.0.2.10 }
+
+  # The domain's accounts: the users the SMB sessions authenticate as.
+  identity:
+    domain: crowd.axr.lab
+    users:
+      - { id: alice, groups: [Domain Users], ou: Finance }
+      - { id: bob, groups: [Domain Users], ou: Engineering }
+
   conduits:
     - { from: lan-a, to: lan-b }
+    - { from: lan-a, to: inet }

@@ -1,11 +1,14 @@
-# Traffic profile: trex-test / default -- the two TRex generator sides.
+# Traffic profile: trex-test / default -- the three TRex generator sides.
 # Their templates, crowd ranges and cadence are the personas' `knobs`
 # (personas/trex-crowd-*.yaml), not assignment fields: an assignment's
-# `schedule:` takes only 24x7 / business-hours.
+# `schedule:` takes only 24x7 / business-hours. The two server sides start
+# first so the client's first flows find them listening.
 traffic-profile:
   target: trex-test
   assignments:
     - role: trex-server
       persona: trex-crowd-server
+    - role: trex-ext
+      persona: trex-crowd-ext
     - role: trex-client
       persona: trex-crowd-client

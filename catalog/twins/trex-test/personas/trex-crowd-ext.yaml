@@ -1,0 +1,14 @@
+# trex-test -- the crowd's EXTERNAL server side (drive: trex-astf). One TRex
+# ASTF server on trex-ext (inet, beyond the boundary) answers HTTP and TLS for
+# the web servers (198.51.100.1-.14) and DNS for the resolvers (203.0.113.1-.2).
+# Same profile as the client (`profile_from`, ASTF split mode); the router's
+# routes decide that only the external flows reach it.
+persona:
+  id: trex-crowd-ext
+  os_family: linux
+  drive: trex-astf
+  emits: []
+  requires: []
+  knobs:
+    side: server
+    profile_from: trex-crowd-client
