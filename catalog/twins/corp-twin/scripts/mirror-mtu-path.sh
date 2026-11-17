@@ -1,4 +1,7 @@
 #!/bin/sh
+# SUPERSEDED 2026-11-17: the engine now sizes every mirror transport at 1600 (o2 zone `mtu`, plus
+# attach-gre-tunnel's runtime assert, adapter_proxmox/ssh.py MIRROR_TRANSPORT_MTU). Kept for the
+# record of the capture-rate ladder; do not apply it on top.
 # corp-twin -- the unfragmented mirror path to XPress-SW-A (capture-rate ladder, 2026-10-01;
 # docs/reference/capture-rate/2026-10-01-corp-twin-ladder.md, rung R2).
 #

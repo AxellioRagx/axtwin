@@ -223,6 +223,20 @@ sends frames into a keyed gretap over a dedicated transport vnet to the sensor,
 which decaps by flow. It works identically in either zone type because it
 mirrors at the VM interface, not the bridge.
 
+The transport is sized so a full-size mirrored frame travels as ONE outer
+packet: 1514 B (+4 per 802.1Q tag) + 28 B of GRE and IPv4 is up to 1550 B, so
+the transport runs at **1600** (`MIRROR_TRANSPORT_MTU`,
+`adapter_proxmox/ssh.py`). An o2 zone that holds only transport networks is
+created with `mtu 1600`. PVE gives every VM leg its bridge's MTU at VM start,
+so the bridge, the sensor legs and the virtio guests all come up at 1600.
+`attach-gre-tunnel` also asserts it at run time on every tap apply. If the
+bridge toward the sensor has only virtual ports, it raises the ports first and
+then the bridge, which heals a transport built before this. It never touches
+a bridge with a physical or PVE-firewall port. Where the path cannot be
+raised, the gretap's `nopmtudisc ignore-df` still fragments rather than drops.
+Fragmenting costs fidelity: the sensor reassembles, and small frames overtake
+the big ones, so 5-6 % of TCP segments were captured out of order.
+
 ## 7. O2: the standing surface
 
 O2 is stood up once and shared by every twin. Its components sort into

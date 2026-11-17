@@ -70,6 +70,11 @@ None half-edited. Phase B is not started, by the brief's rule.
 
 ## Open questions / decisions pending
 
+- **Persist MTU 1600 on dev45's o2 zone `o2zbe2d1`** (`pvesh set /cluster/sdn/zones/o2zbe2d1 --mtu 1600
+  && pvesh set /cluster/sdn`; the legs are already 1600, so this order is safe). The auto-mode classifier
+  refused it as a shared-infra change, so it is the user's call. Until then the next SDN apply resets
+  o2v7dc98 to 1500, and the mirror fragments again until a tap apply.
+
 - Phase B sign-off (above). Merge or push of `wip/trex-crowd`: the user's call.
 - Carried forward: the serve's auth mode (`none` on 0.0.0.0); corp-apcn-reader-20261028 is
   still invalid, with no twin.yaml.
@@ -86,7 +91,7 @@ None half-edited. Phase B is not started, by the brief's rule.
 - **TRex in the guest:** the daemon and the controller are two transient units per side, and
   the NIC is flushed for TRex and restored on stop. The persona schedule lives in knobs,
   because assignment `schedule:` takes only 24x7 / business-hours.
-- **Tap GRE:** full-size mirrored frames travel as two outer IPv4 fragments. Decapsulate a dev45
+- **Tap GRE:** since 2026-11-17 the transport runs at MTU 1600 and full-size mirrored frames are ONE outer packet (o2 zone `mtu`, plus the attach-gre-tunnel runtime assert). On dev45's older o2 zone the raise is runtime only, so any SDN apply puts it back to fragmenting until the next tap apply (OPERATIONS.md). Older captures have two outer IPv4 fragments per full-size frame. Decapsulate a dev45
   capture with reassembly (the session's scratchpad `gre_decap.py`, now with a per-key split; restate it if needed).
 - **ASTF:** two server templates on one port need an association by port+IP range (else
   "Two server template with port 445"); the NetBIOS length must include the fill bytes.

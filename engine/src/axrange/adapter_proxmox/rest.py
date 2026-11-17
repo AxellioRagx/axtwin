@@ -26,6 +26,7 @@ import urllib.request
 from typing import Any
 
 from axrange.adapter_proxmox.config import AdapterConfig
+from axrange.adapter_proxmox.ssh import MIRROR_TRANSPORT_MTU
 from axrange.adapter_proxmox.naming import (
     bridge_name_for_net,
     mac_for_nic,
@@ -469,9 +470,21 @@ class RestBackend:
         """
         zone_id = zone_id_for_plan(ctx.plan_id, tier=ctx.tier)
         zone_type = (inp.get("zone_type") or "simple").lower()
+        # A transport-only zone (the o2 plan's sensor transport) carries the mirror path MTU, so
+        # its vnet bridge, every VM leg on it (PVE sets a tap to its bridge's MTU at VM start)
+        # and the virtio guests all come up able to carry a full-size mirrored frame plus GRE in
+        # one packet (adapter_proxmox/ssh.py MIRROR_TRANSPORT_MTU).
+        mtu = MIRROR_TRANSPORT_MTU if inp.get("transport_only") else None
         if self._zone_exists(zone_id):
+            # An EXISTING zone is deliberately not changed. Raising its MTU makes the next SDN
+            # apply raise the vnet bridge while the running VMs' legs are still at 1500, and a
+            # bridge above one of its ports DROPS what the port cannot forward -- worse than the
+            # fragmenting it replaces. attach-gre-tunnel's runtime assert raises the ports first,
+            # then the bridge, on every tap apply (ssh.py mirror_path_mtu_cmd).
             return {"zone_id": zone_id, "zone_type": zone_type}
         body: dict[str, Any] = {"type": zone_type, "zone": zone_id}
+        if mtu:
+            body["mtu"] = mtu
         if zone_type == "vlan":
             body["bridge"] = (
                 inp.get("bridge_name")

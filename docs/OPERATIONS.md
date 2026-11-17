@@ -179,11 +179,19 @@ Durable gotchas from real runs. Delete one when the cause is fixed.
 
 - **A `te deploy` may retry an app op once** on the Debian apt-daily race
   (`dpkg` lock held by unattended-upgrades); attempt 2 passes. Expect it.
-- **The mirror-MTU path is runtime only.**
-  `catalog/twins/corp-twin/scripts/mirror-mtu-path.sh apply` must be re-applied
-  after a reboot, a NIC replug or a gretap re-create. Never run its `revert`
-  after a `tap destroy` (it exits on the first missing gretap); remove the rule,
-  table and MTU by hand.
+- **The mirror transport MTU (1600) lives in the o2 zone.** New o2 transport
+  zones get `mtu 1600` at creation. On a zone created before 2026-11-17, every
+  tap apply raises the transport bridge and its VM legs at run time, but the
+  next SDN apply (any te deploy) resets the bridge to 1500 and the mirror
+  fragments again: safe, but out of order at the sensor. To persist it on such
+  a zone, first run a tap apply (so the legs are already 1600), then
+  `pvesh set /cluster/sdn/zones/<o2 zone> --mtu 1600 && pvesh set /cluster/sdn`.
+  Never in the other order: a bridge above a 1500 leg drops full-size
+  mirrored frames outright. Check with `nstat -az IpFragCreates` on the node
+  (it should stay flat) and `ens19` rx against `gre-cap` rx on the sensor
+  (1.00 outer packet per frame). The sensor needs GRO off on both
+  (o2/tcpdump-sensor/README.md). corp-twin's `mirror-mtu-path.sh` is
+  superseded.
 - **Judge a persona at the application layer**, by heartbeat and message
   success, not by wire bytes: SMB can look alive on the wire while every send is
   reset.

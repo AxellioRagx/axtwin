@@ -84,7 +84,8 @@ _LIBVIRT_TO_PROXMOX: dict[str, dict[str, tuple[str, ...]]] = {
         "fabric_render": ("render_routing",),
         "rest": ("ROUTER_NAT_SCRIPT", "WINDOWS_OSREADY_MARKER", "_render_userdata", "_render_windows_userdata"),
         "ssh": ("SshBackend", "_tc_mirror_cmd", "apply_vyos_sets", "gretap_add_cmd", "gretap_heal_cmd",
-                "gretap_offload_cmd", "gretap_qdisc_cmd", "gretap_show_cmd", "gretap_up_cmd", "run_ssh_guest"),
+                "gretap_offload_cmd", "gretap_qdisc_cmd", "gretap_show_cmd", "gretap_up_cmd", "mirror_path_mtu_cmd",
+                "run_ssh_guest"),
         # the native-switch OVS commands, run on the KVM host the same as on a
         # Proxmox node (docs/design/native-switches.md D10)
         "switches": ("SwitchOps",),

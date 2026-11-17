@@ -86,6 +86,7 @@ from axrange.adapter_proxmox.ssh import (
     gretap_qdisc_cmd,
     gretap_show_cmd,
     gretap_up_cmd,
+    mirror_path_mtu_cmd,
     run_ssh_guest,
 )
 from axrange.planner.dag import OpInstance
@@ -860,7 +861,12 @@ class LibvirtAdapter:
         if qlen:
             self.host.run(gretap_qdisc_cmd(dev, qlen), timeout_s=t)
         self.host.run(gretap_offload_cmd(dev), timeout_s=t)
-        return {"gre_port": dev}
+        # The transport path at MIRROR_TRANSPORT_MTU (adapter_proxmox/ssh.py); never fatal.
+        try:
+            path = self.host.run(mirror_path_mtu_cmd(sensor_ip), timeout_s=t)
+        except (AdapterError, AdapterTimeout) as e:
+            path = f"axr-mirror-mtu: not asserted ({e})"
+        return {"gre_port": dev, "mirror_path": (path or "").strip()}
 
     def op_install_ovs_mirror(self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext) -> dict[str, Any]:
         guest = self._uuid(inp)

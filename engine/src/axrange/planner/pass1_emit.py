@@ -583,13 +583,20 @@ def emit_ops(
             _op_id(plan_id, "create-ovs-bridge", scenario_scope),
             "bridge_name",
         )
+    zone_inputs: dict[str, Any] = {"scenario_id": scenario_id, "zone_type": zone_type}
+    # A zone of ONLY sensor-transport networks (the o2 plan's transport vnet) is sized for the
+    # mirror's GRE so full-size mirrored frames are not fragmented (the adapter picks the MTU;
+    # adapter_proxmox/ssh.py MIRROR_TRANSPORT_MTU). A zone that also carries twin networks is
+    # left at the default: its MTU would become the twin guests' own MTU.
+    if sdn_networks and all(n.transport for n in sdn_networks):
+        zone_inputs["transport_only"] = True
     if emit_sdn:
         plan.add_op(
             _make_op(
                 plan_id,
                 "create-sdn-zone",
                 scenario_scope,
-                inputs_resolved={"scenario_id": scenario_id, "zone_type": zone_type},
+                inputs_resolved=zone_inputs,
                 inputs_from_outputs=zone_from_outputs,
             )
         )
