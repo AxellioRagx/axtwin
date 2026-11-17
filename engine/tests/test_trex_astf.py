@@ -148,6 +148,13 @@ def test_server_range_defaults_to_the_peer_and_a_server_shares_its_clients_profi
     {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"send": "zz"}]}]},
     {"templates": [{"name": "a", "cps": 1, "pcap": "x.pcap"}, {"name": "a", "cps": 1, "pcap": "y.pcap"}]},
     {"vlan": 5000},
+    {"templates": [{"name": "a", "cps": 1, "pcap": "x.pcap", "servers": {}}]},       # servers without range
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"send": "00", "recv": 1}]}]},  # two ops
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"send": "0000", "size": 1}]}]},  # size < bytes
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"reply": "00", "size": 9}]}]},   # size without fill
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"send": "00", "fill": "ab"}]}]}, # fill without size
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"recv": 4, "size": 9}]}]},
+    {"templates": [{"name": "a", "cps": 1, "port": 1, "program": [{"send": "00", "bogus": 1}]}]},
 ])
 def test_profile_spec_refuses_bad_knobs(change):
     with pytest.raises(PersonaDriverError):
@@ -159,8 +166,8 @@ class _Rec:
     def __init__(self, name, *a, **kw):
         self.name, self.a, self.kw, self.calls = name, a, kw, []
 
-    def send(self, b):
-        self.calls.append(("send", b))
+    def send(self, b, size=0, fill=None):
+        self.calls.append(("send", b) if not size else ("send", b, size, fill))
 
     def recv(self, n):
         self.calls.append(("recv", n))
@@ -200,6 +207,58 @@ def test_build_profile_one_group_per_template_and_mirrored_programs():
     assert client.kw["program"].calls == [("send", bytes.fromhex("00000045fe534d42")), ("recv", 120)]
     assert server.kw["program"].calls == [("recv", 8), ("send", b"\x00" * 120)]
     assert server.kw["assoc"].kw["port"] == 445
+
+
+def test_build_profile_per_template_servers_replies_fill_and_range_association():
+    """trex-test's internal/external split: a template may name its own server
+    range (one ip_gen per distinct range, shared by templates that name none);
+    `reply` steps are server-sent bytes; size/fill pads a step to a file body;
+    a program with its own range is associated by port AND range, so two
+    sessions on port 445 (two file servers) stay distinct."""
+    knobs = {**KNOBS, "templates": [
+        {"name": "http", "pcap": "avl/h.pcap", "cps": 20},
+        {"name": "dns", "pcap": "avl/d.pcap", "cps": 40, "servers": {"range": "203.0.113.0/29", "count": 2}},
+        {"name": "rd", "port": 445, "cps": 3, "servers": {"range": "10.250.2.1/32"},
+         "program": [{"send": "0011"}, {"reply": "aabb", "size": 10, "fill": "ff"}]},
+        {"name": "wr", "port": 445, "cps": 2, "servers": {"range": "10.250.2.2/32"},
+         "program": [{"send": "01", "size": 5, "fill": "00ee"}, {"recv": 3}]},
+    ]}
+    spec = profile_spec(knobs)
+    assert spec["templates"][1]["server_range"] == ["203.0.113.1", "203.0.113.2"]
+    assert "server_range" not in spec["templates"][0]
+    prof = build_astf_profile(spec, _FakeApi(), "/t")
+    http, dns = prof.kw["cap_list"]
+    assert "ip_gen" not in http.kw                      # the profile-wide generator
+    assert dns.kw["ip_gen"].kw["dist_server"].kw["ip_range"] == ["203.0.113.1", "203.0.113.2"]
+    rd, wr = prof.kw["templates"]
+    c, sv = rd.kw["client_template"], rd.kw["server_template"]
+    assert c.kw["ip_gen"].kw["dist_server"].kw["ip_range"] == ["10.250.2.1", "10.250.2.1"]
+    assert c.kw["program"].calls == [("send", b"\x00\x11"), ("recv", 10)]
+    assert sv.kw["program"].calls == [("recv", 2), ("send", b"\xaa\xbb", 10, b"\xff")]
+    assert sv.kw["assoc"].kw == {"port": 445, "ip_start": "10.250.2.1", "ip_end": "10.250.2.1"}
+    c, sv = wr.kw["client_template"], wr.kw["server_template"]
+    assert c.kw["program"].calls == [("send", b"\x01", 5, b"\x00\xee"), ("recv", 3)]
+    assert sv.kw["program"].calls == [("recv", 5), ("send", b"\x00" * 3)]
+    assert sv.kw["assoc"].kw["ip_start"] == "10.250.2.2"
+
+
+def test_trex_test_persona_builds():
+    """The shipped client persona (with its generated SMB sessions) passes the
+    spec checks, and its SMB frames carry consistent NetBIOS lengths."""
+    import yaml  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    root = Path(__file__).resolve().parents[2]
+    doc = yaml.safe_load((root / "catalog/twins/trex-test/personas/trex-crowd-client.yaml").read_text())
+    spec = profile_spec(doc["persona"]["knobs"])
+    smb = [t for t in spec["templates"] if t["name"].startswith("smb-")]
+    assert [t["server_range"] for t in smb] == [["10.250.2.1"] * 2, ["10.250.2.2"] * 2]
+    for t in smb:
+        for st in t["program"]:
+            (op,) = [k for k in st if k in ("send", "reply")]
+            b = bytes.fromhex(st[op])
+            assert b[4:8] == b"\xfeSMB"
+            assert int.from_bytes(b[1:4], "big") + 4 == st.get("size", len(b))
 
 
 @pytest.mark.skipif(not os.environ.get("TREX_HOME"), reason="TREX_HOME (a v3.08 release dir) not set")

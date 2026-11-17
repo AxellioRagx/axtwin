@@ -252,6 +252,59 @@ def _range_hosts(cidr: str, count: Any, *, context: str) -> tuple[str, str]:
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
+#: Program step directions: `send` client -> server, `reply` server -> client
+#: (exact bytes), `recv` server -> client (that many zero bytes, the original
+#: shape-only step).
+_STEP_OPS = ("send", "reply", "recv")
+
+
+def _hex(val: Any, ctx: str) -> str:
+    s = str(val).replace(" ", "").lower()
+    try:
+        bytes.fromhex(s)
+    except ValueError as e:
+        raise PersonaDriverError(f"{ctx} must be hex") from e
+    return s
+
+
+def _program_step(st: Any, ctx: str) -> dict[str, Any]:
+    """One L7 program step. `send`/`reply` carry hex and may name a total
+    `size` larger than it, padded by repeating the hex `fill` (TRex's own
+    `ASTFProgram.send(buf, size, fill)`): a file body is a header plus N
+    bytes of fill, so a 256 KiB read costs ~600 hex characters, not 512 K."""
+    if not isinstance(st, dict):
+        raise PersonaDriverError(f"{ctx} must be a mapping")
+    ops = [k for k in st if k in _STEP_OPS]
+    extra = set(st) - set(_STEP_OPS) - {"size", "fill"}
+    if len(ops) != 1 or extra:
+        raise PersonaDriverError(
+            f"{ctx} must be {{send: <hex>}}, {{reply: <hex>}} (each with optional size/fill) "
+            f"or {{recv: <bytes>}}")
+    op = ops[0]
+    if op == "recv":
+        if "size" in st or "fill" in st:
+            raise PersonaDriverError(f"{ctx}: recv takes no size/fill")
+        n = int(st["recv"])
+        if n < 1:
+            raise PersonaDriverError(f"{ctx}: recv must be >= 1")
+        return {"recv": n}
+    out: dict[str, Any] = {op: _hex(st[op], f"{ctx}.{op}")}
+    blen = len(out[op]) // 2
+    if "size" in st:
+        size = st["size"]
+        if not isinstance(size, int) or size < blen:
+            raise PersonaDriverError(f"{ctx}: size must be an int >= the {op} bytes ({blen})")
+        if size > blen:
+            fill = _hex(st.get("fill") or "", f"{ctx}.fill")
+            if not fill:
+                raise PersonaDriverError(f"{ctx}: size > the {op} bytes needs a non-empty hex fill")
+            out["size"], out["fill"] = size, fill
+    elif "fill" in st:
+        raise PersonaDriverError(f"{ctx}: fill needs size")
+    if blen == 0 and "size" not in out:
+        raise PersonaDriverError(f"{ctx}: {op} is empty")
+    return out
+
 
 def profile_spec(knobs: dict[str, Any], *, peers: dict[str, str] | None = None,
                  shared: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -307,6 +360,15 @@ def profile_spec(knobs: dict[str, Any], *, peers: dict[str, str] | None = None,
         if ("pcap" in t) == ("program" in t):
             raise PersonaDriverError(f"{ctx} needs exactly one of pcap / program")
         entry: dict[str, Any] = {"name": name, "cps": cps, "port": port}
+        # A template may name its own server range (an internal file server
+        # vs. external web servers behind a different generator); unset, it
+        # uses the profile-wide one. Routing decides which generator answers.
+        t_servers = t.get("servers")
+        if t_servers is not None:
+            if not isinstance(t_servers, dict) or not t_servers.get("range"):
+                raise PersonaDriverError(f"{ctx}.servers needs range")
+            entry["server_range"] = list(_range_hosts(
+                t_servers["range"], t_servers.get("count"), context=f"{ctx}.servers"))
         if "pcap" in t:
             pcap = str(t["pcap"])
             if ".." in pcap.split("/") or not pcap.endswith((".pcap", ".pcapng")):
@@ -318,20 +380,7 @@ def profile_spec(knobs: dict[str, Any], *, peers: dict[str, str] | None = None,
             steps = t["program"]
             if not isinstance(steps, list) or not steps:
                 raise PersonaDriverError(f"{ctx}.program must be a non-empty list")
-            prog = []
-            for j, st in enumerate(steps):
-                if not isinstance(st, dict) or len(st) != 1 or next(iter(st)) not in ("send", "recv"):
-                    raise PersonaDriverError(f"{ctx}.program[{j}] must be {{send: <hex>}} or {{recv: <bytes>}}")
-                op, val = next(iter(st.items()))
-                if op == "send":
-                    try:
-                        bytes.fromhex(str(val))
-                    except ValueError as e:
-                        raise PersonaDriverError(f"{ctx}.program[{j}].send must be hex") from e
-                    prog.append({"send": str(val).replace(" ", "").lower()})
-                else:
-                    prog.append({"recv": int(val)})
-            entry["program"] = prog
+            entry["program"] = [_program_step(st, f"{ctx}.program[{j}]") for j, st in enumerate(steps)]
         out_t.append(entry)
     vlan = k.get("vlan")
     if vlan is not None and not (isinstance(vlan, int) and 1 <= vlan <= 4094):
@@ -369,32 +418,62 @@ def build_astf_profile(spec, api, base_dir):
     for i, t in enumerate(spec["templates"]):
         t["cps"] = t["cps"] * (1 + 1e-6 * (i + 1))
 
-    gen = api.ASTFIPGen(
-        dist_client=api.ASTFIPGenDist(ip_range=list(spec["client_range"]), distribution="seq"),
-        dist_server=api.ASTFIPGenDist(ip_range=list(spec["server_range"]), distribution="seq"),
-        glob=api.ASTFIPGenGlobal(ip_offset="1.0.0.0"),
-    )
+    gens = {}
+
+    def ip_gen(server_range):
+        # One generator per distinct server range (templates sharing a range
+        # share its pool, as every template did before per-template ranges).
+        key = tuple(server_range)
+        if key not in gens:
+            gens[key] = api.ASTFIPGen(
+                dist_client=api.ASTFIPGenDist(ip_range=list(spec["client_range"]), distribution="seq"),
+                dist_server=api.ASTFIPGenDist(ip_range=list(server_range), distribution="seq"),
+                glob=api.ASTFIPGenGlobal(ip_offset="1.0.0.0"),
+            )
+        return gens[key]
+
+    def tx(prog, st, op):
+        # send `op`'s bytes, padded to `size` with `fill` when given; returns
+        # the byte count the peer must wait for.
+        data = bytes.fromhex(st[op])
+        size = int(st.get("size") or 0)
+        if size > len(data):
+            prog.send(data, size=size, fill=bytes.fromhex(st["fill"]))
+            return size
+        prog.send(data)
+        return len(data)
+
+    gen = ip_gen(spec["server_range"])
     caps, templates = [], []
     for t in spec["templates"]:
+        t_gen = ip_gen(t["server_range"]) if t.get("server_range") else gen
         if "pcap" in t:
             path = t["pcap"] if t["pcap"].startswith("/") else os.path.join(base_dir, t["pcap"])
             kw = {"file": path, "cps": t["cps"], "tg_name": t["name"]}
             if t.get("port"):
                 kw["port"] = t["port"]
+            if t_gen is not gen:
+                kw["ip_gen"] = t_gen
             caps.append(api.ASTFCapInfo(**kw))
             continue
         prog_c, prog_s = api.ASTFProgram(side="c"), api.ASTFProgram(side="s")
         for st in t["program"]:
             if "send" in st:
-                data = bytes.fromhex(st["send"])
-                prog_c.send(data)
-                prog_s.recv(len(data))
+                prog_s.recv(tx(prog_c, st, "send"))
+            elif "reply" in st:
+                prog_c.recv(tx(prog_s, st, "reply"))
             else:
                 n = int(st["recv"])
                 prog_c.recv(n)
                 prog_s.send(b"\x00" * n)
-        client = api.ASTFTCPClientTemplate(program=prog_c, ip_gen=gen, port=t["port"], cps=t["cps"])
-        server = api.ASTFTCPServerTemplate(program=prog_s, assoc=api.ASTFAssociationRule(port=t["port"]))
+        client = api.ASTFTCPClientTemplate(program=prog_c, ip_gen=t_gen, port=t["port"], cps=t["cps"])
+        # A template with its own server range is associated by port AND that
+        # range: two templates on one port (two SMB sessions, one per file
+        # server) are then distinct to the server side, which ASTF requires.
+        rule = {"port": t["port"]}
+        if t.get("server_range"):
+            rule.update(ip_start=t["server_range"][0], ip_end=t["server_range"][1])
+        server = api.ASTFTCPServerTemplate(program=prog_s, assoc=api.ASTFAssociationRule(**rule))
         templates.append(api.ASTFTemplate(client_template=client, server_template=server, tg_name=t["name"]))
     kw = {"default_ip_gen": gen}
     if caps:
