@@ -191,7 +191,7 @@ Durable gotchas from real runs. Delete one when the cause is fixed.
   (it should stay flat) and `ens19` rx against `gre-cap` rx on the sensor
   (1.00 outer packet per frame). The sensor needs GRO off on both
   (o2/tcpdump-sensor/README.md). corp-twin's `mirror-mtu-path.sh` is
-  superseded.
+  superseded. dev45's `o2zbe2d1` was persisted this way on 2026-11-18.
 - **Judge a persona at the application layer**, by heartbeat and message
   success, not by wire bytes: SMB can look alive on the wire while every send is
   reset.

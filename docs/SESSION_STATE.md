@@ -50,7 +50,7 @@ server on lan-b, HTTP/TLS/DNS answered by a separate external node behind a boun
 - **Engine:** `test_trex_astf.py` 48 pass, 1 skip (the real-release check needs `TREX_HOME`; it passed with v3.08 for the SMB profile). The full
   suite is 4443 pass and 3 fail, all from the user's untracked `catalog/twins/*`; with those
   set aside, the catalog suites pass 42/42. **UI:** not touched; no rebuild needed.
-- **Serve:** :8080 restarted for the driver change, now pid 2285416 (recipe in memory).
+- **Serve:** :8080 restarted (user-asked, 2026-11-18) for the MTU change, now pid 2378767 (recipe in memory).
 - **dev45 now: trex-test is STANDING** as `trex-test-cba811f5` (te/tap/tfc completed),
   feeding XPress-SW-A. It is not a leftover. Template 102 `img-trex-astf` is kept on purpose.
 
@@ -70,10 +70,6 @@ None half-edited. Phase B is not started, by the brief's rule.
 
 ## Open questions / decisions pending
 
-- **Persist MTU 1600 on dev45's o2 zone `o2zbe2d1`** (`pvesh set /cluster/sdn/zones/o2zbe2d1 --mtu 1600
-  && pvesh set /cluster/sdn`; the legs are already 1600, so this order is safe). The auto-mode classifier
-  refused it as a shared-infra change, so it is the user's call. Until then the next SDN apply resets
-  o2v7dc98 to 1500, and the mirror fragments again until a tap apply.
 
 - Phase B sign-off (above). Merge or push of `wip/trex-crowd`: the user's call.
 - Carried forward: the serve's auth mode (`none` on 0.0.0.0); corp-apcn-reader-20261028 is
@@ -91,7 +87,7 @@ None half-edited. Phase B is not started, by the brief's rule.
 - **TRex in the guest:** the daemon and the controller are two transient units per side, and
   the NIC is flushed for TRex and restored on stop. The persona schedule lives in knobs,
   because assignment `schedule:` takes only 24x7 / business-hours.
-- **Tap GRE:** since 2026-11-17 the transport runs at MTU 1600 and full-size mirrored frames are ONE outer packet (o2 zone `mtu`, plus the attach-gre-tunnel runtime assert). On dev45's older o2 zone the raise is runtime only, so any SDN apply puts it back to fragmenting until the next tap apply (OPERATIONS.md). Older captures have two outer IPv4 fragments per full-size frame. Decapsulate a dev45
+- **Tap GRE:** since 2026-11-17 the transport runs at MTU 1600 and full-size mirrored frames are ONE outer packet (o2 zone `mtu`, plus the attach-gre-tunnel runtime assert). dev45's o2 zone `o2zbe2d1` was set to `mtu 1600` on 2026-11-18 at the user's go-ahead (legs first, then the zone), so `o2v7dc98` keeps 1600 through SDN reloads. Older captures have two outer IPv4 fragments per full-size frame. Decapsulate a dev45
   capture with reassembly (the session's scratchpad `gre_decap.py`, now with a per-key split; restate it if needed).
 - **ASTF:** two server templates on one port need an association by port+IP range (else
   "Two server template with port 445"); the NetBIOS length must include the fill bytes.
