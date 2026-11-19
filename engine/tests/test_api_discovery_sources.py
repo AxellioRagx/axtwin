@@ -860,3 +860,47 @@ def test_tls_verify_must_be_a_boolean_and_old_records_verify(tmp_path):
 def test_tls_env_name_matches_the_aximprint_transport():
     # `discovery/src/aximprint/ingest/siem/http.py` spells the same name.
     assert ds.ENV_TLS_VERIFY == "AXIMPRINT_SOURCE_TLS_VERIFY"
+
+
+# ---------------------------------------------------------------------------
+# run defaults are legacy on a source (2026-11-19); a run returns its options
+# ---------------------------------------------------------------------------
+def _no_defaults_source(**over):
+    body = _tunnel_source(**over)
+    body.pop("defaults")
+    return body
+
+
+def test_a_source_without_run_defaults_creates_and_updates(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    r = c.post("/api/discovery/sources", json=_no_defaults_source())
+    assert r.status_code == 201, r.text
+    assert r.json()["defaults"] == {}
+    sid = r.json()["id"]
+    body = _no_defaults_source(endpoint="http://127.0.0.1:9091")
+    u = c.put(f"/api/discovery/sources/{sid}", json=body)
+    assert u.status_code == 200 and u.json()["endpoint"] == "http://127.0.0.1:9091"
+    assert u.json()["defaults"] == {}
+
+
+def test_an_old_style_payload_with_run_defaults_is_still_accepted_and_kept(tmp_path):
+    settings = _settings(tmp_path)
+    c = _client(settings, backend=_FakeDiscovery())
+    sid = c.post("/api/discovery/sources", json=_tunnel_source(
+        defaults={"days": 3, "network": "corp-apcn", "sensors": ["XPress-SW-A"]})).json()["id"]
+    # An update that leaves defaults out (the console's) keeps the stored ones.
+    c.put(f"/api/discovery/sources/{sid}", json=_no_defaults_source(name="renamed"))
+    # And a fresh app over the same store loads them.
+    again = _client(settings, backend=_FakeDiscovery()).get(f"/api/discovery/sources/{sid}").json()
+    assert again["name"] == "renamed"
+    assert again["defaults"] == {"days": 3, "network": "corp-apcn", "sensors": ["XPress-SW-A"]}
+
+
+def test_a_run_record_returns_the_options_it_ran_with(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    sid = c.post("/api/discovery/sources", json=_no_defaults_source()).json()["id"]
+    run = c.post(f"/api/discovery/sources/{sid}/runs",
+                 json={"name": "opt", "days": 1, "network": "corp", "vantage": "v:1", "window": 60}).json()
+    assert run["options"] == {"network": "corp", "vantage": "v:1", "window": 60}
+    listed = [r for r in c.get("/api/discovery/runs").json()["runs"] if r["id"] == run["id"]]
+    assert listed[0]["options"] == run["options"] and listed[0]["source_id"] == sid

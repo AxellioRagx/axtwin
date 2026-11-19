@@ -3616,6 +3616,8 @@ def _discovery_run_dto(run: Any) -> dtos.DiscoveryRunDTO:
         created_at=_iso(run.created_at) or "", finished_at=_iso(run.finished_at),
         source_id=run.source_id, started_at=_iso(run.started_at),
         ts_from=run.ts_from, ts_to=run.ts_to, via=run.via,
+        options={k: v for k, v in (run.config or {}).items()
+                 if k not in ("source", "ts_from", "ts_to")},
         progress_ts=run.progress_ts, progress_at=_iso(run.progress_at),
         cancel_requested_at=_iso(run.cancel_requested_at),
     )

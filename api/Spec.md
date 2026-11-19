@@ -285,8 +285,11 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   `tls_verify` (default `true`; `false` skips certificate + hostname checks for
   an https endpoint -- a sensor appliance's self-signed certificate -- reaching
   `aximprint` as `AXIMPRINT_SOURCE_TLS_VERIFY=0`, and named in `via`).
-  `defaults` pre-fill a run: `days`, `network`, `vantage`, `window`,
-  `subbuckets`, `sensors`.
+  `defaults` (`days`, `network`, `vantage`, `window`, `subbuckets`,
+  `sensors`) is **legacy** since 2026-11-19: the console no longer writes it
+  (run settings live on the run form, pre-filled from the source's last run,
+  whose options a run record now returns as `options`); it is still accepted,
+  stored, and read as a run's fallback. A later cleanup can remove it.
 - Store: one SQLite file, `AXRANGE_DISCOVERY_DB` (default
   `~/.axrange/discovery.db`, mode 0600, outside the checkout, **not** a table
   in the planner's `state.db`). **A read never returns a secret** — only

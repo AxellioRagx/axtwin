@@ -710,6 +710,10 @@ class DiscoveryRunDTO(BaseModel):
     ts_from: Optional[float] = None
     ts_to: Optional[float] = None
     via: Optional[str] = None
+    # The run options it ran with (network, vantage, window, subbuckets) -- the
+    # config minus `source` and the bounds. The run form pre-fills from a source's
+    # last run with these (2026-11-19).
+    options: dict[str, Any] = {}
     # Source time the ingest has reached (epoch seconds; the end of the last window it
     # closed) and when it last said so. Null until the first window closes; the stage
     # list says when ingest is over.
@@ -847,8 +851,13 @@ class DiscoverySourceWrite(BaseModel):
     access: SourceAccessDTO = SourceAccessDTO()
     password: Optional[str] = None
     api_key: Optional[str] = None
-    # Run options the console pre-fills: days, network, vantage, window,
-    # subbuckets, sensors.
+    # LEGACY (2026-11-19): run options a source used to carry (days, network,
+    # vantage, window, subbuckets, sensors). The console no longer writes them --
+    # a source is the sensor and how to reach it; run settings live on the run
+    # form, pre-filled from the source's last run. Still accepted, validated and
+    # stored, and still read as a run's fallback and the run form's second-tier
+    # pre-fill. A later cleanup can drop the field (and `defaults_json`) once
+    # nothing reads it.
     defaults: dict[str, Any] = {}
     # The answer of a test of THIS config just run in the editor, stored as the
     # record's `last_probe` (so a new source does not start "Not tested yet").
@@ -864,6 +873,7 @@ class DiscoverySourceUpdate(BaseModel):
     access: Optional[SourceAccessDTO] = None
     password: Optional[str] = None
     api_key: Optional[str] = None
+    # LEGACY, see `DiscoverySourceWrite.defaults`: not sent -> the stored value stays.
     defaults: Optional[dict[str, Any]] = None
     last_probe: Optional[DiscoveryProbeDTO] = None
 
