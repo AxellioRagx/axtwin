@@ -550,13 +550,22 @@ export function renameNode(text: string, from: string, to: string): string {
 
 /** The `twin_config.id` line, rewritten for a Save-As. */
 export function setTwinId(text: string, id: string): string {
+  return setTwinScalar(text, "id", id);
+}
+
+/** The `twin_config.description` line, rewritten (or added) for a Save-As that names one. */
+export function setTwinDescription(text: string, description: string): string {
+  return setTwinScalar(text, "description", description);
+}
+
+function setTwinScalar(text: string, key: "id" | "description", value: string): string {
   const t = new TeText(text);
-  const e = entry(t.tc, "id");
+  const e = entry(t.tc, key);
   if (!e) {
-    insertLines(t.lines, t.tc.start, [`${" ".repeat(t.tc.indent)}id: ${encodeScalar(id)}`]);
+    insertLines(t.lines, t.tc.start, [`${" ".repeat(t.tc.indent)}${key}: ${encodeScalar(value)}`]);
     return t.out();
   }
-  replaceValueOnLine(t.lines, e, encodeScalar(id));
+  replaceValueOnLine(t.lines, e, encodeScalar(value));
   return t.out();
 }
 

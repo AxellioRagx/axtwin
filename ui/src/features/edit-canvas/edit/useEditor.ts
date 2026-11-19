@@ -41,7 +41,7 @@ export interface Editor {
   /** Undo until the working files equal `files` (a refused sync reverts to what the server holds), or the stack is empty. */
   undoUntil(files: Files): void;
   /** Adopt a document from the server (a load, a reset, a sync from another console). */
-  load(doc: { id: string; teFile: string; files: Files }, options?: { keepStack?: boolean }): void;
+  load(doc: { id: string; teFile: string; files: Files }, options?: { keepStack?: boolean; saved?: Files }): void;
   /** The files were written: they are now the saved text. */
   markSaved(files?: Files): void;
   /** The command stack as it stands (persisted per working copy by the page). */
@@ -116,7 +116,9 @@ export function useEditor(): Editor {
 
   const load = useCallback<Editor["load"]>((d, options) => {
     setIdent({ id: d.id, teFile: d.teFile });
-    const s = { files: { ...d.files }, saved: { ...d.files }, stack: options?.keepStack ? stateRef.current.stack : EMPTY_STACK };
+    // `saved`: the text the files are measured against when it is not theirs (an untitled design
+    // restored from this browser is unsaved against its blank start).
+    const s = { files: { ...d.files }, saved: { ...(options?.saved ?? d.files) }, stack: options?.keepStack ? stateRef.current.stack : EMPTY_STACK };
     stateRef.current = s;
     setState(s);
   }, []);

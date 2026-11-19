@@ -19,6 +19,12 @@
  * refusal reverts the edit and is shown verbatim. A cast twin's role change
  * or segment merge can be promoted to an assertion through the imprint's
  * seam, which re-casts and re-opens the working copy.
+ *
+ * `/canvas/new` is the same page over an UNTITLED design: a blank document
+ * held in this browser (its undo stack and layout draft survive a reload),
+ * no server read of a stored twin, no deploy. Its first Save is a Save-As
+ * that names it in the catalog and moves the page to `/canvas/<id>`; until
+ * it has a segment Save is held with the reason, as a parked copy holds it.
  */
 import type { Viewport } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +38,9 @@ import type { Target } from "../../api/types";
 import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
+import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
+import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
+import { useLeaveGuard } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
 import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -49,17 +58,18 @@ import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
-import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor, type ApplyOptions } from "./edit/useEditor";
 import { adoptBaselineProvenance } from "./edit/provenance";
-import { layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
+import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
 import { Palette } from "./Palette";
+import { SaveAsDialog } from "./SaveAsDialog";
 import { moveMember } from "./edit/members";
 import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
 import { Checks, SidePanel, checksBadge, knownSensors, type FabricResult, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
@@ -211,6 +221,68 @@ export function writeStoredStack(scope: string, stack: Stack): void {
   }
 }
 
+/** The untitled design's browser scope: its files and stack (it has no server copy to fit a stack to). */
+export const UNTITLED_SCOPE = "twin:__untitled__";
+
+function untitledLayoutKey(): string {
+  return `axr-canvas-layout:${UNTITLED_SCOPE}`;
+}
+
+/** The untitled design as this browser last held it: the files and the stack that ends at them. */
+export function readUntitled(): { files: Files; stack: Stack } | null {
+  try {
+    const raw = localStorage.getItem(undoKey(UNTITLED_SCOPE));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { files?: Files; stack?: Partial<Stack> };
+    if (!v.files || !v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
+    const stack = { done: v.stack.done, undone: v.stack.undone };
+    return stackFits(stack, v.files) ? { files: v.files, stack } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeUntitled(files: Files, stack: Stack): void {
+  try {
+    if (stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
+    else localStorage.setItem(undoKey(UNTITLED_SCOPE), JSON.stringify({ files, stack }));
+  } catch {
+    // no storage: the untitled design lives for the page only
+  }
+}
+
+/** The untitled design's layout draft, as a layout document nobody has saved. */
+function readUntitledLayout(): LayoutDoc {
+  const empty: LayoutDoc = { imprint_id: UNTITLED_ID, path: "", exists: false, etag: null, schema: LAYOUT_SCHEMA, imprint: UNTITLED_ID, pins: {}, plane: CANVAS_PLANE, annotations: [] };
+  try {
+    const raw = localStorage.getItem(untitledLayoutKey());
+    if (!raw) return empty;
+    const v = JSON.parse(raw) as { pins?: LayoutDoc["pins"]; annotations?: LayoutAnnotation[] };
+    return { ...empty, pins: v.pins ?? {}, annotations: Array.isArray(v.annotations) ? v.annotations : [] };
+  } catch {
+    return empty;
+  }
+}
+
+function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[]): void {
+  try {
+    if (Object.keys(pins).length === 0 && annotations.length === 0) localStorage.removeItem(untitledLayoutKey());
+    else localStorage.setItem(untitledLayoutKey(), JSON.stringify({ pins, annotations }));
+  } catch {
+    // no storage
+  }
+}
+
+/** Forget the untitled design: after its Save-As, or when the operator lets it go. */
+export function clearUntitled(): void {
+  try {
+    localStorage.removeItem(undoKey(UNTITLED_SCOPE));
+    localStorage.removeItem(untitledLayoutKey());
+  } catch {
+    // no storage
+  }
+}
+
 function readViewport(id: string): Viewport | null {
   try {
     const raw = sessionStorage.getItem(viewportKey(id));
@@ -225,12 +297,19 @@ function readViewport(id: string): Viewport | null {
 
 type View = "design" | "evidence";
 
-export function CanvasPage() {
+export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const api = useApi();
   const whoami = useWhoami();
   const navigate = useNavigate();
-  const { id = "" } = useParams();
+  const params = useParams();
+  const id = untitled ? UNTITLED_ID : (params.id ?? "");
+  // The browser-side scope for what is kept per design (the viewport): the untitled one has its own.
+  const scopeId = untitled ? UNTITLED_SCOPE : id;
+  // The untitled design's blank start: what its edits are measured against (dirty) until Save-As.
+  const untitledSeed = useMemo(() => (untitled ? { id: UNTITLED_ID, te_file: "te.yaml", files: blankDesignFiles({ id: UNTITLED_ID }) } : null), [untitled]);
   const { data, error, loading, reload } = useLoad<Loaded>(async (signal) => {
+    // Untitled: nothing is stored on the server yet, so nothing is read.
+    if (untitled) return { twin: { id, as_of: "", hosts: 0, segments: 0, services: 0, personas: 0, mean_confidence: 0 }, tree: null, exportData: null, topology: null, cast: null, deploy: null, deploys: [], config: null, detail: null };
     const twin = await api.getTwin(id, signal);
     const tree = await api.getTwinTree(id, signal).catch(() => null);
     let exportData: TopologyExport | null = null;
@@ -253,7 +332,7 @@ export function CanvasPage() {
       if (!(e instanceof ApiError && e.kind === "not-found")) throw e;
     }
     return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail };
-  }, [id]);
+  }, [id, untitled]);
   // The palette's catalog -- every other twin's config -- loads when the palette is first
   // opened, not with the page (R3-6). It loaded beside the drawing: one listing (4 s server
   // side, every catalog YAML parsed) and a read of every config, a dozen requests holding the
@@ -277,7 +356,7 @@ export function CanvasPage() {
   const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(catalogLoad.data?.others ?? [])], [data?.detail, catalogLoad.data]);
   const personas = personaLoad.data?.personas ?? [];
   const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
-  const layout = useLoad<LayoutDoc>((signal) => api.getLayout(id, signal), [id]);
+  const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : api.getLayout(id, signal)), [id, untitled]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
   // overlay and the deployed bar's target chip. A refusal leaves them empty.
@@ -316,8 +395,14 @@ export function CanvasPage() {
   pinsRef.current = pins;
   const layoutChanges = draft.changes;
   const saveLayout = draft.save;
+  // The untitled design's layout draft is kept in this browser as it changes (it has no side-car to save to).
+  const leavingLayout = useRef(false);
+  useEffect(() => {
+    if (!untitled || leavingLayout.current || draft.changes === 0) return;
+    writeUntitledLayout(pins, annotations.map(toLayout));
+  }, [untitled, pins, annotations, draft.changes]);
   const [expanded, setExpanded] = useState<string[]>([]);
-  const [initialViewport] = useState(() => readViewport(id));
+  const [initialViewport] = useState(() => readViewport(scopeId));
 
   // ---- the editor (Phase 2) ----
   const editor = useEditor();
@@ -339,6 +424,9 @@ export function CanvasPage() {
   const [destroyOpen, setDestroyOpen] = useState(false);
   // The bar's Deploy (an undeployed design): the deploy dialog (docs/design/targets-and-lab.md §2.3).
   const [deployOpen, setDeployOpen] = useState(false);
+  // Open (the bar's button, Ctrl+O) and the untitled design's first-Save prompt.
+  const [openDialog, setOpenDialog] = useState(false);
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -363,8 +451,13 @@ export function CanvasPage() {
     setConfig(data.config);
     setDetail(data.detail);
     setDeployRows(data.deploys);
-    const document = data.config?.document ?? data.detail?.document ?? null;
-    if (document) {
+    const document = data.config?.document ?? data.detail?.document ?? untitledSeed;
+    if (untitled && untitledSeed) {
+      // The untitled design as this browser left it (a reload), else its blank start.
+      const kept = readUntitled();
+      editor.load({ id: untitledSeed.id, teFile: untitledSeed.te_file, files: kept?.files ?? untitledSeed.files }, { saved: untitledSeed.files });
+      if (kept) editor.restoreStack(kept.stack);
+    } else if (document) {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
       synced.current = { ...document.files };
       // The same text as this browser last edited: its Undo comes back.
@@ -381,20 +474,22 @@ export function CanvasPage() {
   // unsaved changes, for the next "Save layout") and is cleared from the browser.
   const migrated = useRef<string | null>(null);
   useEffect(() => {
-    if (!layout.data || migrated.current === id) return;
+    if (!layout.data || migrated.current === id || untitled) return;
     migrated.current = id;
     const legacy = readLegacyAnnotations(id);
     if (!legacy.length) return;
     const merged = [...fromLayoutList(layout.data.annotations), ...legacy.filter((a) => !layout.data!.annotations.some((x) => x.id === a.id))];
     setAnnotations(merged);
     clearLegacyAnnotations(id);
-  }, [layout.data, id, setAnnotations]);
+  }, [layout.data, id, untitled, setAnnotations]);
 
   // R3-2: a switch wired to nothing (a parked duplicate, a switch just placed) is held HERE: the
   // document is neither validated by the API nor synced to a working copy until it is attached,
   // and every exit says why. The copy is one undo step like any edit.
   const parked = useMemo(() => (editor.model ? parkedDevices(editor.model.te) : []), [editor.model]);
   const parkedKey = parked.join(",");
+  // An untitled design with no segment is not yet a document the engine accepts: Save waits, with the reason.
+  const emptyReason = untitled && editor.model && editor.model.te.segments.length === 0 ? NO_SEGMENT_REASON : null;
   const parkedReason = parked.length ? `${parked.join(", ")} ${parked.length === 1 ? "is" : "are"} parked, not attached: drop ${parked.length === 1 ? "it" : "them"} on a switch or router, or wire ${parked.length === 1 ? "it" : "them"} with the attach tool, before Apply or Save` : null;
 
   // Every mutation is validated by the API through the document route after a
@@ -402,7 +497,7 @@ export function CanvasPage() {
   // files as they stand. The structural check stays the instant hint.
   useEffect(() => {
     if (!editor.files || !editor.doc) return;
-    if (parkedKey) {
+    if (parkedKey || emptyReason) {
       setValidation(null);
       setValidating(false);
       return;
@@ -429,7 +524,7 @@ export function CanvasPage() {
       clearTimeout(t);
       ctl.abort();
     };
-  }, [editor.files, editor.doc, api, parkedKey]);
+  }, [editor.files, editor.doc, api, parkedKey, emptyReason]);
 
   // R3-9: a banner about a refused or blocked edit clears on the next change that lands (an
   // edit, an Undo, a Redo, a reload): it described a document that is no longer on screen.
@@ -537,11 +632,18 @@ export function CanvasPage() {
   // the working copy, or saved to the catalog -- so the stored stack describes
   // exactly the text a reload will get.
   useEffect(() => {
-    if (!editor.files) return;
+    if (!editor.files || untitled) return;
     const atRest = deployed ? Boolean(synced.current && sameFiles(editor.files, synced.current)) : !editor.dirty;
     if (!atRest) return;
     writeStoredStack(deployId ?? `twin:${id}`, editor.stack);
-  }, [deployed, deployId, id, editor.files, editor.dirty, editor.stack]);
+  }, [deployed, deployId, id, untitled, editor.files, editor.dirty, editor.stack]);
+  // The untitled design has no server text to be at rest on: every change is kept in this browser.
+  // `leaving` stops the writes once a Save-As (or a let-go) has dropped it.
+  const leaving = useRef(false);
+  useEffect(() => {
+    if (!untitled || !editor.files || leaving.current) return;
+    writeUntitled(editor.files, editor.stack);
+  }, [untitled, editor.files, editor.stack]);
 
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {
@@ -550,7 +652,10 @@ export function CanvasPage() {
       const target = e.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       const k = e.key.toLowerCase();
-      if (k === "z" && !e.shiftKey) {
+      if (k === "o") {
+        e.preventDefault();
+        setOpenDialog(true);
+      } else if (k === "z" && !e.shiftKey) {
         e.preventDefault();
         editor.undo();
       } else if (k === "y" || (k === "z" && e.shiftKey)) {
@@ -637,12 +742,12 @@ export function CanvasPage() {
   const onViewport = useCallback(
     (v: Viewport) => {
       try {
-        sessionStorage.setItem(viewportKey(id), JSON.stringify(v));
+        sessionStorage.setItem(viewportKey(scopeId), JSON.stringify(v));
       } catch {
         // storage unavailable: the viewport is not restored, nothing else changes
       }
     },
-    [id],
+    [scopeId],
   );
 
   // ---- the palette's placement ----
@@ -725,7 +830,7 @@ export function CanvasPage() {
   const structurallyValid = model ? !model.findings.some((f) => f.severity === "error") : false;
   // The gate: the API's latest answer, for exactly the files on screen, with no error.
   const apiValid = Boolean(files && validation && validation.result && validation.result.errors === 0 && sameFiles(validation.files, files));
-  const valid = structurallyValid && apiValid && !parkedReason;
+  const valid = structurallyValid && apiValid && !parkedReason && !emptyReason;
   const unsynced = deployed && Boolean(files && synced.current && !sameFiles(files, synced.current));
   const topologyPending = (config?.changes ?? []).some((c) => c.kind === "topology");
   const run = useCallback(
@@ -773,6 +878,36 @@ export function CanvasPage() {
       setSaveAsId("");
       navigate(`/canvas/${encodeURIComponent(newId)}`);
       return `saved as ${newId}${layoutChanges > 0 ? (carried ? ", layout draft carried over" : "; the layout draft could not be written there") : ""}`;
+    });
+  // The untitled design's first Save: a Save-As under the id the prompt took, its layout draft and its
+  // undo stack carried to the new id, then the named canvas -- clean, its Save a plain Save from now on.
+  const saveUntitled = (newId: string, description: string) =>
+    run("save-as", async () => {
+      if (!editor.doc || !files) return null;
+      const written = saveAsFiles(editor.doc, newId, { description });
+      await api.createTwinConfig({ id: newId, files: written });
+      let carried = true;
+      const hasLayout = Object.keys(pins).length > 0 || annotations.length > 0;
+      if (hasLayout) {
+        try {
+          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout)));
+        } catch {
+          carried = false;
+        }
+      }
+      // The stack under the new id, every command's text renamed as the files were, so Undo still fits.
+      const rename = <T extends string | undefined>(f: Record<string, T>) => renamedFiles(f, editor.doc!.teFile, newId, { description });
+      writeStoredStack(`twin:${newId}`, {
+        done: editor.stack.done.map((c) => ({ ...c, before: rename(c.before), after: rename(c.after) })),
+        undone: editor.stack.undone.map((c) => ({ ...c, before: rename(c.before), after: rename(c.after) })),
+      });
+      leaving.current = true;
+      leavingLayout.current = true;
+      clearUntitled();
+      editor.markSaved(files);
+      setSaveAsOpen(false);
+      navigate(`/canvas/${encodeURIComponent(newId)}`, { replace: true });
+      return `saved as ${newId}${hasLayout && !carried ? "; the layout draft could not be written there" : ""}`;
     });
   const applyExit = () =>
     run("apply", async () => {
@@ -1043,7 +1178,7 @@ export function CanvasPage() {
     if (layout.error) out.push(`positions are not saved for this twin: ${errorText(layout.error)}`);
     else if (draft.doc && draft.doc.exists && draft.doc.plane !== CANVAS_PLANE) out.push(`the saved positions were drawn on another plane (${draft.doc.plane ?? "unstamped"}) and are not applied; the next Save layout saves on this one`);
     if (built?.kind === "authored") out.push("authored twin: no observed evidence, no traffic to overlay");
-    if (built?.kind === "design") out.push(deployed ? "design view: the working copy" : "design view: the twin config");
+    if (built?.kind === "design") out.push(untitled ? "design view: an untitled design, kept in this browser until its first Save" : deployed ? "design view: the working copy" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push(whoami.can_write ? "read-only: the catalog serves no document for this twin" : "read-only: the API serves this twin's document only to a caller that may write; sign in to edit it");
     if (placement?.unplaced) out.push(`${placement.unplaced} local entit${placement.unplaced === 1 ? "y" : "ies"} in no segment: observed on this network but bound to no subnet the cast could place`);
@@ -1051,7 +1186,7 @@ export function CanvasPage() {
     const legacy = editor.doc && model ? legacyLayout(editor.doc, model) : [];
     if (legacy.length) out.push(`legacy cast layout: read through ${legacy.join(", ")} (a re-cast files it as te.yaml, tfc/default.yaml, tap/default.yaml)`);
     return out;
-  }, [layout.error, draft.doc, built, data, designAvailable, deployed, annotations.length, whoami.can_write, placement?.unplaced, editor.doc, model]);
+  }, [layout.error, draft.doc, built, data, designAvailable, deployed, untitled, annotations.length, whoami.can_write, placement?.unplaced, editor.doc, model]);
 
   const editProps = useMemo<CanvasEditProps | undefined>(() => {
     if (!model || built?.kind !== "design") return undefined;
@@ -1111,6 +1246,21 @@ export function CanvasPage() {
   const state = docState(config, editor.dirty, unsynced);
   const exit = config?.exit ?? null;
   const exitWord = destroying ? destroyWord(destroyRun) : exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
+  // Unsaved work asks before it is left: an untitled design with anything on it (it exists only in this
+  // browser), or an undeployed design with unsaved changes. A deployed twin's edits are already on its working copy.
+  const untitledWork = untitled && (editor.dirty || Object.keys(pins).length > 0 || annotations.length > 0);
+  useLeaveGuard(
+    untitledWork || (!untitled && !deployed && editor.dirty),
+    untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : "The design has unsaved changes. Leave without saving them?",
+    untitled
+      ? () => {
+          leaving.current = true;
+          leavingLayout.current = true;
+          clearUntitled();
+        }
+      : undefined,
+  );
+
   // The layout group floats on the canvas, not in the twin bar (SPEC.md "Shell and chrome"): the bar holds the document's exits only.
   const layoutBar = layout.data ? (
     <span className="row cv-layout cv-float" role="group" aria-label="Layout" data-testid="layout-bar">
@@ -1118,6 +1268,8 @@ export function CanvasPage() {
         <span className="cv-dirty" data-testid="layout-dirty" title="moves and annotations are written only by Save layout">
           ● layout: {layoutChanges} unsaved {layoutChanges === 1 ? "change" : "changes"}
         </span>
+      ) : untitled ? (
+        <span className="muted">layout: written with the design's first Save</span>
       ) : draft.savedAt ? (
         <span className="muted" role="status">
           layout saved
@@ -1125,12 +1277,16 @@ export function CanvasPage() {
       ) : (
         <span className="muted">layout</span>
       )}
-      <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
-        {draft.saving ? "Saving…" : "Save layout"}
-      </button>
-      <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
-        Discard
-      </button>
+      {untitled ? null : (
+        <>
+          <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
+            {draft.saving ? "Saving…" : "Save layout"}
+          </button>
+          <button type="button" onClick={draft.discard} disabled={layoutChanges === 0 || draft.saving} title="back to the layout as last saved">
+            Discard
+          </button>
+        </>
+      )}
       <button
         type="button"
         data-testid="relayout"
@@ -1153,15 +1309,22 @@ export function CanvasPage() {
     <div className={`canvas-page${editProps ? " editing" : ""}${overBudget ? " fallback" : ""}`}>
       <TopbarPortal>
         <h1 className="cv-title">
-          <Link to={`/twins/${encodeURIComponent(id)}`} title={`Twin ${id}: the summary page`}>
-            {id}
-          </Link>
+          {untitled ? (
+            <span title="not saved to the catalog yet: the first Save names it">Untitled</span>
+          ) : (
+            <Link to={`/twins/${encodeURIComponent(id)}`} title={`Twin ${id}: the summary page`}>
+              {id}
+            </Link>
+          )}
         </h1>
+        <button type="button" className="cv-open" onClick={() => setOpenDialog(true)} title="open a design from the catalog (Ctrl+O)">
+          Open…
+        </button>
         {/* One pill: the origin, the mode and the deploy's state PER TIER (te / tfc / tap), red when a tier failed
             -- the te tier alone read "completed" over a failed traffic playout. The bar must not wrap at 1622 px. */}
         {built || data ? (
           <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={teRow ? `deploy ${teRow.deploy_id}: te ${teRow.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}${tierReason(deployRows, teRow.deploy_id, t) ? ` (${tierReason(deployRows, teRow.deploy_id, t)})` : ""}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
-            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : deployed ? "working copy" : "twin config"}</span> : null}
+            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : untitled ? "untitled design" : deployed ? "working copy" : "twin config"}</span> : null}
             {built && data ? " · " : null}
             {data ? (
               <span data-testid="mode">
@@ -1175,6 +1338,8 @@ export function CanvasPage() {
                       <span key={t} className={`cv-tier${st === "failed" ? " failed" : ""}${destroyRun?.down.includes(t) ? " down" : ""}`} data-testid={`tier-${t}`} data-status={st} data-down={destroyRun?.down.includes(t) || undefined} title={`${t} ${st}${tierReason(deployRows, teRow!.deploy_id, t) ? `: ${tierReason(deployRows, teRow!.deploy_id, t)}` : ""}`}> · {t} {destroyRun?.down.includes(t) ? "✓ down" : tierWord(st)}</span>
                     ))}
                   </>
+                ) : untitled ? (
+                  " · not saved yet"
                 ) : (
                   " · undeployed"
                 )}
@@ -1211,7 +1376,7 @@ export function CanvasPage() {
               </span>
             ) : (
               <span className="cv-clean" data-testid="clean-marker" data-state="clean">
-                {deployed ? "working copy equals the baseline" : "saved"}
+                {untitled ? "not saved yet" : deployed ? "working copy equals the baseline" : "saved"}
               </span>
             )}
             <span className="cv-exit-group" role="group" aria-label="History">
@@ -1224,10 +1389,19 @@ export function CanvasPage() {
             </span>
             {!deployed ? (
               <span className="cv-exit-group" role="group" aria-label="Twin config">
-                <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null} title={parkedReason ?? undefined}>
-                  Save
-                </button>
-                {whoami.can_write ? (
+                {untitled ? (
+                  <button type="button" className="primary" onClick={() => {
+                      setExitError(null);
+                      setSaveAsOpen(true);
+                    }} disabled={!valid || busy !== null} title={emptyReason ?? parkedReason ?? "name the design and write it to the catalog"} data-testid="save-untitled">
+                    Save
+                  </button>
+                ) : (
+                  <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null} title={parkedReason ?? undefined}>
+                    Save
+                  </button>
+                )}
+                {whoami.can_write && !untitled ? (
                   <button type="button" onClick={() => setDeployOpen(true)} disabled={busy !== null} data-testid="deploy-open" title="plan and deploy the saved twin on a target">
                     Deploy…
                   </button>
@@ -1267,6 +1441,7 @@ export function CanvasPage() {
                 ) : null}
               </span>
             )}
+            {untitled ? null : (
             <form
               className="cv-saveas cv-exit-group"
               aria-label="Save as"
@@ -1280,6 +1455,7 @@ export function CanvasPage() {
                 Save as
               </button>
             </form>
+            )}
             {exitWord ? (
               <span className="cv-progress" role="status" data-testid="exit-progress">
                 <span className="cv-spinner" aria-hidden="true" />
@@ -1319,6 +1495,15 @@ export function CanvasPage() {
           </div>
         </div>
       ) : null}
+      {openDialog ? <OpenDesignDialog onClose={() => setOpenDialog(false)} /> : null}
+      {saveAsOpen && untitled ? (
+        <SaveAsDialog
+          busy={busy === "save-as"}
+          error={exitError ? exitErrorText(exitError) : null}
+          onSave={(newId, description) => void saveUntitled(newId, description)}
+          onClose={() => setSaveAsOpen(false)}
+        />
+      ) : null}
       {destroyOpen && data?.deploy ? (
         <DestroyDialog
           twinId={id}
@@ -1350,6 +1535,11 @@ export function CanvasPage() {
         {editProps && parkedReason ? (
           <p className="notice" role="status" data-testid="parked-reason">
             {parkedReason}
+          </p>
+        ) : null}
+        {editProps && emptyReason ? (
+          <p className="notice" role="status" data-testid="empty-reason">
+            {emptyReason}
           </p>
         ) : null}
         {editProps && blocked ? (

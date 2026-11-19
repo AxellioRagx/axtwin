@@ -15,7 +15,7 @@ import { useLoad } from "./useLoad";
  *
  *  Two kinds of route (ui/Spec.md "Shell"): list and detail pages live in the
  *  centred `.main` column under the bar and a sub-bar; a canvas route
- *  (`/canvas/:id`, `/twins/:id/canvas`) is the page -- it fills the window
+ *  (`/canvas/:id`, `/canvas/new`, `/twins/:id/canvas`) is the page -- it fills the window
  *  under the one bar and renders its title, pills and exits INTO the bar
  *  through `TopbarPortal`. */
 export function AppFrame() {
@@ -29,8 +29,8 @@ export function AppFrame() {
   const inDiscovery = pathname === "/discovery" || pathname.startsWith("/discovery/");
   const inCanvas = pathname === "/canvas" || pathname.startsWith("/canvas/") || /^\/twins\/[^/]+\/canvas$/.test(pathname);
   const openDesign = /^\/canvas\/([^/]+)$/.exec(pathname)?.[1] ?? /^\/twins\/([^/]+)\/canvas$/.exec(pathname)?.[1] ?? null;
-  const designId = openDesign && openDesign !== "new" ? decodeURIComponent(openDesign) : null;
-  const isCanvas = designId !== null;
+  // `/canvas/new` is a canvas too: the untitled design.
+  const isCanvas = openDesign !== null;
   const signin = signinHref(whoami.signin_url);
   return (
     <WhoamiContext.Provider value={whoami}>

@@ -29,9 +29,9 @@ separate, later feature over the expanded IR and are not this canvas.
 A consumer of the control-plane API only (`ui/Spec.md`); it defines no
 endpoint and holds no orchestration logic. Mounted as `/canvas/:id` in the
 console's **Canvas** area (`ui/src/areas/canvas/`: the top-menu entry whose
-drop-down lists the catalog's twins, the `/canvas` designs page, and
-`/canvas/new`, which writes a blank or copied twin-config through A3 and opens
-it); `/twins/:id/canvas` reaches the same page from a twin's page.
+drop-down lists the catalog's twins with New design and Open…, and the
+`/canvas` designs page); `/canvas/new` is this page over an untitled design;
+`/twins/:id/canvas` reaches the same page from a twin's page.
 
 | Reads | Route |
 |---|---|
@@ -43,6 +43,7 @@ it); `/twins/:id/canvas` reaches the same page from a twin's page.
 | Writes | Route |
 |---|---|
 | undeployed config: Save / Save-As | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
+| untitled design: first Save (a Save-As), its layout draft | A3 `POST /api/twin-configs`, `PUT /api/twins/{id}/layout` |
 | deployed twin: working copy, Apply / Reset / Persist | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
 | every mutation, before Apply or Save is enabled | `POST /api/validate` |
 | positions and annotations | `PUT` of the layout document, ETag-guarded, on an explicit **Save layout** (or with a document Save / Persist) -- never a write per drag |
@@ -83,9 +84,9 @@ two segments that are one VLAN — the edit is offered a **promote to
 assertion** action that writes it through the imprint's assertions seam,
 re-casts, and re-opens the working copy; the canvas never writes assertions
 directly and never edits the imprint in place. A twin designed from scratch
-starts from the blank twin-config `/canvas/new` writes -- one empty segment
-and no nodes, since the engine refuses a config with no segment at all -- and
-has no imprint and no promote action.
+starts as an untitled design at `/canvas/new` -- no segment and no nodes,
+held in the browser -- and has no imprint and no promote action. The engine
+refuses a config with no segment, so Save waits for one (with the reason).
 
 ## Feature set
 
@@ -181,6 +182,25 @@ criteria of its own beyond them.
   *re-plan* and Apply is disabled while Persist and Save-As stay enabled;
   promote-to-assertion on a cast twin re-opens a working copy whose
   baseline carries the change.
+- **Automated, New / Open (2026-11-19, *`canvas.untitled.test.tsx`*):**
+  - New: `/canvas/new` is an editable, blank, untitled canvas -- no form, no
+    read of a stored twin (twin, tree, topology, cast, deploys, twin-config,
+    layout), no Deploy. Its files, undo stack and layout draft are kept in this
+    browser (`twin:__untitled__`) and survive a reload.
+  - Segment gate: with no segment, Save is disabled with "add at least one
+    segment before saving" and the document is not sent to the validator; the
+    engine's rule is not relaxed and no segment is added behind the operator.
+  - Save-As on first save: Save asks for an id (the API's id rule and the
+    catalog's ids checked before any request) and an optional description
+    (`twin_config.description`, `twin.description`); A3 writes it, the layout
+    draft and the undo stack move to the new id, the browser copy is dropped,
+    and the page is `/canvas/<id>`, clean. A named design's Save is unchanged.
+  - Open (the bar's Open…, Ctrl+O, the Canvas menu's Open…): a searchable list
+    of the catalog's twins with origin and a *deployed* mark; a pick opens it.
+  - Unsaved guard: a non-blank untitled design, or an undeployed design with
+    unsaved changes, asks before a reload/close or an in-app link (New, Open,
+    the menu) leaves it; letting an untitled design go drops its browser copy.
+    The browser's Back is not guarded (no data router).
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 

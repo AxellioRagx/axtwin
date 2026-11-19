@@ -4,15 +4,18 @@ import { Link, NavLink } from "react-router";
 import { useApi } from "../../api/context";
 import { errorText } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { OpenDesignDialog } from "./OpenDesignDialog";
 
 /**
  * The Canvas entry of the top menu: the area link, and beside it a drop-down
  * that lists every twin in the catalog -- cast from an imprint or authored --
- * to open on the canvas, and the way to a new design. The list is read when
- * the menu opens, so the header costs nothing while it stays closed.
+ * to open on the canvas, New design (an untitled canvas) and Open… (the
+ * searchable list). The list is read when the menu opens, so the header costs
+ * nothing while it stays closed.
  */
 export function CanvasMenu({ active }: { active: boolean }) {
   const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -37,12 +40,21 @@ export function CanvasMenu({ active }: { active: boolean }) {
       <button type="button" className="caret" aria-label="Open a design" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         ▾
       </button>
-      {open ? <DesignList close={() => setOpen(false)} /> : null}
+      {open ? (
+        <DesignList
+          close={() => setOpen(false)}
+          openDialog={() => {
+            setOpen(false);
+            setDialog(true);
+          }}
+        />
+      ) : null}
+      {dialog ? <OpenDesignDialog onClose={() => setDialog(false)} /> : null}
     </div>
   );
 }
 
-function DesignList({ close }: { close: () => void }) {
+function DesignList({ close, openDialog }: { close: () => void; openDialog: () => void }) {
   const api = useApi();
   const twins = useLoad((signal) => api.listTwins(signal), []);
   const rows = twins.data?.imprints ?? [];
@@ -50,8 +62,13 @@ function DesignList({ close }: { close: () => void }) {
     <ul role="menu" aria-label="Designs" className="dropdown">
       <li role="none">
         <Link role="menuitem" to="/canvas/new" onClick={close}>
-          New design…
+          New design
         </Link>
+      </li>
+      <li role="none">
+        <button type="button" role="menuitem" onClick={openDialog}>
+          Open…
+        </button>
       </li>
       <li role="separator" className="sep" />
       {twins.loading && !twins.data ? (

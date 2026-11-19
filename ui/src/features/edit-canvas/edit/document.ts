@@ -14,7 +14,7 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
   addLink as teAddLink,
@@ -34,6 +34,7 @@ import {
   setNodeField as teSetNodeField,
   setNodeNets,
   setSegmentField as teSetSegmentField,
+  setTwinDescription,
   setTwinId,
   type NewNode,
   type TeModel,
@@ -480,9 +481,31 @@ export function setSensorsOnTaps(doc: WorkingDoc, model: DocModel, indices: numb
   return { ...doc.files, [model.tapPath]: text };
 }
 
-/** The files a Save-As writes: the same document under a new id. */
-export function saveAsFiles(doc: WorkingDoc, newId: string): Files {
-  const files = withTe(doc, (t) => setTwinId(t, newId));
-  if (files[MANIFEST] !== undefined) files[MANIFEST] = setManifestId(files[MANIFEST]!, newId);
-  return files;
+export interface SaveAsOptions {
+  /** Written into `twin_config.description` and `twin.description` when given (non-blank). */
+  description?: string;
+}
+
+/** The files a Save-As writes: the same document under a new id (and, when given, a new description). */
+export function saveAsFiles(doc: WorkingDoc, newId: string, options: SaveAsOptions = {}): Files {
+  if (doc.files[doc.teFile] === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
+  return renamedFiles(doc.files, doc.teFile, newId, options) as Files;
+}
+
+/** The same rewrite over a partial file set (a command's before/after text): the te file and the
+ *  manifest take the new id and description, every other path is carried as it is. */
+export function renamedFiles<T extends string | undefined>(files: Record<string, T>, teFile: string, newId: string, options: SaveAsOptions = {}): Record<string, T> {
+  const description = options.description?.trim() || null;
+  const out: Record<string, T> = { ...files };
+  const te = files[teFile];
+  if (te !== undefined) {
+    const withId = setTwinId(te, newId);
+    out[teFile] = (description ? setTwinDescription(withId, description) : withId) as T;
+  }
+  const manifest = files[MANIFEST];
+  if (manifest !== undefined) {
+    const withId = setManifestId(manifest, newId);
+    out[MANIFEST] = (description ? setManifestDescription(withId, description) : withId) as T;
+  }
+  return out;
 }
