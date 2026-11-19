@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../src/api/client";
-import type { DiscoveryRun, Imprint, TwinSummary, TwinTree } from "../src/api/types";
+import type { DiscoveryRun, Imprint, ImprintLineage, TwinSummary, TwinTree } from "../src/api/types";
 import { fakeApi } from "./helpers/fakeApi";
 import { renderAt } from "./helpers/render";
 
@@ -320,5 +320,54 @@ describe("the twins page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete twin" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm delete test2" }));
     await screen.findByText(/No twin in the catalog/);
+  });
+});
+
+describe("an imprint's versions", () => {
+  const base = { derived_from: null, has_assertions: false, twins: [] };
+  const lin = (over: Partial<ImprintLineage> & Pick<ImprintLineage, "version" | "parent">): ImprintLineage => ({
+    root: "pit-a", network: "net-8d560f14", window_seconds: 3600, subbuckets: 12, extendable: true, reason: null, next_name: "x", runs: [], ...over,
+  });
+  const imprints: Imprint[] = [
+    { ...base, pit_id: "pit-a", name: "corp-apcn", lineage: lin({ version: 1, parent: null }) } as Imprint,
+    { ...base, pit_id: "pit-b", name: "corp-apcn-v2", lineage: lin({ version: 2, parent: "pit-a" }) } as Imprint,
+    {
+      ...base, pit_id: "pit-c", name: "corp-apcn-v3",
+      lineage: lin({
+        version: 3, parent: "pit-b",
+        runs: [
+          { run_id: "disc-1", source_id: "src-1", plugin: "axquery", vantage: "hq/rdr1:12", ts_from: 1791300000, ts_to: 1791321600 },
+          { run_id: "disc-3", source_id: "src-2", plugin: "axquery", vantage: null, ts_from: 1791310000, ts_to: 1791331600 },
+        ],
+      }),
+    } as Imprint,
+  ];
+
+  it("shows the chain by id, the runs it holds and the accumulation trade-off", async () => {
+    const { api } = fakeApi({ imprints });
+    renderAt(api, "/imprints/pit-c");
+    const chain = await screen.findByTestId("lineage-chain");
+    await waitFor(() => expect(chain.textContent).toBe("corp-apcn (v1) → corp-apcn-v2 (v2) → corp-apcn-v3 (v3)"));
+    expect(within(chain).getByRole("link", { name: "corp-apcn (v1)" }).getAttribute("href")).toBe("/imprints/pit-a");
+    const table = screen.getByRole("table", { name: "Runs in this imprint" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByText("not reported")).toBeTruthy();
+    expect(within(table).getByRole("link", { name: "disc-3" }).getAttribute("href")).toBe("/discovery/runs/disc-3");
+    expect(screen.getByTestId("lineage-tradeoff").textContent).toMatch(/^Adding runs accumulates: overlapping ranges count twice/);
+    expect(screen.getByTestId("imprint-lineage").textContent).toContain("Measurement interval 1 h · burst resolution 5 min");
+  });
+
+  it("a first version lists the versions added onto it", async () => {
+    const { api } = fakeApi({ imprints });
+    renderAt(api, "/imprints/pit-a");
+    const chain = await screen.findByTestId("lineage-chain");
+    await waitFor(() => expect(chain.textContent).toBe("corp-apcn (v1) → corp-apcn-v2 (v2)"));
+  });
+
+  it("an imprint without lineage shows no versions panel", async () => {
+    const { api } = fakeApi({ imprints: [{ ...base, pit_id: "pit-z", name: "old" }] });
+    renderAt(api, "/imprints/pit-z");
+    await screen.findByRole("heading", { name: "Imprint old" });
+    expect(screen.queryByTestId("imprint-lineage")).toBeNull();
   });
 });

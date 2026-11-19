@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
 import type { AssertionsDoc, CastResponse, Imprint } from "../../api/types";
+import { formatSpan } from "../../model/timeRange";
 import { formatCount } from "../../model/sources";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { ErrorLine, When } from "../shell/parts";
@@ -91,10 +92,94 @@ export function ImprintPage() {
             </dl>
             <SaveAs imprint={data} />
           </div>
+          {data.lineage ? <LineagePanel imprint={data} /> : null}
           <AssertionsEditor imprint={data} onSaved={() => setImprint({ ...data, has_assertions: true })} />
         </>
       ) : null}
     </>
+  );
+}
+
+/** The accumulation trade-off, said where the versions are shown. */
+export const ACCUMULATION_NOTE =
+  "Adding runs accumulates: overlapping ranges count twice in totals and active-window counts; per-window medians and hour/day shares are largely unaffected.";
+
+/** Versions: the chain this imprint was added along (first version → … → this one, and any
+ *  version added onto it), and every run whose evidence it holds. Parents are resolved by id
+ *  through the imprint list, so a rename never breaks the chain. */
+function LineagePanel({ imprint }: { imprint: Imprint }) {
+  const api = useApi();
+  const all = useLoad((signal) => api.listImprints(signal), [imprint.pit_id]);
+  const lineage = imprint.lineage!;
+  const byId = new Map((all.data?.pits ?? []).map((p) => [p.pit_id, p]));
+  const chain: Array<{ pit_id: string; name: string; version: number | null }> = [];
+  const seen = new Set<string>([imprint.pit_id]);
+  for (let id = lineage.parent; id && !seen.has(id); ) {
+    seen.add(id);
+    const p = byId.get(id);
+    chain.unshift({ pit_id: id, name: p?.name ?? id, version: p?.lineage?.version ?? null });
+    id = p?.lineage?.parent ?? null;
+  }
+  const children = (all.data?.pits ?? []).filter((p) => p.lineage?.parent === imprint.pit_id);
+  const label = (name: string, version: number | null) => (version ? `${name} (v${version})` : name);
+  return (
+    <div className="panel" data-testid="imprint-lineage">
+      <h2 style={{ marginTop: 0 }}>Versions</h2>
+      <p data-testid="lineage-chain">
+        {chain.map((c) => (
+          <span key={c.pit_id}>
+            <Link className="navlink" to={`/imprints/${encodeURIComponent(c.pit_id)}`}>{label(c.name, c.version)}</Link>
+            {" → "}
+          </span>
+        ))}
+        <strong>{label(imprint.name, lineage.version)}</strong>
+        {children.map((c) => (
+          <span key={c.pit_id}>
+            {" → "}
+            <Link className="navlink" to={`/imprints/${encodeURIComponent(c.pit_id)}`}>{label(c.name, c.lineage?.version ?? null)}</Link>
+          </span>
+        ))}
+      </p>
+      <p className="hint">
+        Measurement interval {formatSpan(lineage.window_seconds)} · burst resolution{" "}
+        {formatSpan(lineage.window_seconds / lineage.subbuckets)}
+        {lineage.network ? <> · network <code>{lineage.network}</code></> : null}.{" "}
+        {lineage.extendable ? "A run can add to it as its next version." : `Can't be extended: ${lineage.reason ?? "no belief store"}.`}
+      </p>
+      {lineage.runs.length ? (
+        <table className="list" aria-label="Runs in this imprint">
+          <thead>
+            <tr>
+              <th>Run</th>
+              <th>Source</th>
+              <th>Plugin</th>
+              <th>Vantage</th>
+              <th>Range</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lineage.runs.map((r, k) => (
+              <tr key={r.run_id ?? k}>
+                <td>{r.run_id ? <Link className="navlink" to={`/discovery/runs/${encodeURIComponent(r.run_id)}`}>{r.run_id}</Link> : "—"}</td>
+                <td>{r.source_id ? <Link className="navlink" to={`/discovery/sources/${encodeURIComponent(r.source_id)}`}>{r.source_id}</Link> : "—"}</td>
+                <td>{r.plugin ?? "—"}</td>
+                <td className="mono">{r.vantage ?? "not reported"}</td>
+                <td className="muted">
+                  {r.ts_from != null && r.ts_to != null ? (
+                    <>
+                      <When value={r.ts_from} /> → <When value={r.ts_to} />
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      <p className="hint" data-testid="lineage-tradeoff">{ACCUMULATION_NOTE}</p>
+    </div>
   );
 }
 
