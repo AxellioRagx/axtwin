@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from "react-router";
+import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 
 import { ApiContext } from "./api/context";
 import type { Api } from "./api/discovery";
@@ -14,6 +14,7 @@ import { TwinsPage } from "./areas/twins/TwinsPage";
 import { TargetsPage } from "./areas/targets/TargetsPage";
 import { AppFrame } from "./areas/shell/AppFrame";
 import { CanvasPage } from "./features/edit-canvas/CanvasPage";
+import { DuplicateTwin } from "./features/edit-canvas/DuplicateTwin";
 
 /** The routes. The router itself is supplied by the caller (`BrowserRouter` in
  *  `main.tsx`, `MemoryRouter` in tests). */
@@ -50,5 +51,9 @@ export function App({ api }: { api: Api }) {
  *  a Save-As's move to `/canvas/<id>` mounts the named canvas afresh. */
 function NewCanvas() {
   const { key } = useLocation();
+  // `?from=<id>`: Open's Duplicate -- the twin becomes the untitled design, then this route without it.
+  const [params] = useSearchParams();
+  const from = params.get("from");
+  if (from) return <DuplicateTwin key={key} from={from} />;
   return <CanvasPage key={key} untitled />;
 }

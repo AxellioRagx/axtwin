@@ -9,14 +9,15 @@ import { useLoad } from "../../areas/shell/useLoad";
  * (the API's id rule, and not one the catalog already holds -- both checked
  * here, before any request) and an optional description.
  */
-export function SaveAsDialog({ busy, error, onSave, onClose }: { busy: boolean; error: string | null; onSave: (id: string, description: string) => void; onClose: () => void }) {
+export function SaveAsDialog({ suggestedId = "", busy, error, onSave, onClose }: { suggestedId?: string; busy: boolean; error: string | null; onSave: (id: string, description: string) => void; onClose: () => void }) {
   const api = useApi();
   // The ids in the catalog: the twin-configs and the twins (a cast twin's folder is an id too).
   const catalog = useLoad(async (signal) => {
     const [configs, twins] = await Promise.all([api.listTwinConfigs(signal).catch(() => ({ twin_configs: [] })), api.listTwins(signal).catch(() => ({ imprints: [], skipped: [] }))]);
     return new Set([...configs.twin_configs.map((c) => c.id), ...twins.imprints.map((t) => t.id)]);
   }, []);
-  const [id, setId] = useState("");
+  // A duplicate suggests `<source>-copy`; the operator may take it or type another.
+  const [id, setId] = useState(suggestedId);
   const [description, setDescription] = useState("");
   const taken = useMemo(() => catalog.data ?? new Set<string>(), [catalog.data]);
   const problem = designIdProblem(id.trim(), taken);
@@ -36,7 +37,7 @@ export function SaveAsDialog({ busy, error, onSave, onClose }: { busy: boolean; 
     <div className="modal-backdrop" data-testid="saveas-backdrop">
       <form className="modal panel" role="dialog" aria-modal="true" aria-label="Save design" data-testid="saveas-dialog" onSubmit={submit}>
         <h2 style={{ marginTop: 0 }}>Save the design</h2>
-        <p className="muted">It is untitled: name it, and it is written to the catalog under that id.</p>
+        <p className="muted">It is untitled: name it, and it is written to the catalog under that id{suggestedId ? " (the twin it was duplicated from is not changed)" : ""}.</p>
         <div className="field">
           <label htmlFor="sa-id">Id</label>
           <input id="sa-id" type="text" value={id} onChange={(e) => setId(e.target.value)} placeholder="my-lab" autoComplete="off" autoFocus />

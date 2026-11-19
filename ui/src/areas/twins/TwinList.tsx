@@ -16,8 +16,8 @@ import { useLoad } from "../shell/useLoad";
  * - `manage` (the Twins page): a row opens the twin's page; the actions are
  *   Canvas, Deploy / Destroy… (state-aware, never both) and Delete…, and the
  *   catalog folders the listing could not read are listed beneath.
- * - `pick` (the canvas's Open…): searchable, no actions; a row opens the twin on
- *   the canvas. A row's move is a click on its link, so the canvas's
+ * - `pick` (the canvas's Open…): searchable; a row opens the twin on the canvas,
+ *   and its one action, Duplicate, starts an untitled design from a copy of it. A row's move is a click on its link, so the canvas's
  *   unsaved-work guard sees it. A deployed twin opens on its working copy
  *   (Apply / Reset / Persist), which the Deploy column says.
  */
@@ -64,7 +64,7 @@ export function TwinList(props: TwinListProps) {
               <th>Hosts</th>
               <th>Segments</th>
               <th>Last changed</th>
-              {pick ? null : <th></th>}
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -119,7 +119,19 @@ export function TwinList(props: TwinListProps) {
                   <td>
                     <When value={t.modified_at ?? ""} />
                   </td>
-                  {pick ? null : (
+                  {pick ? (
+                    <td>
+                      <Link
+                        className="linkbutton"
+                        to={`/canvas/new?from=${enc}`}
+                        onClick={props.onPick}
+                        aria-label={`Duplicate ${t.id}`}
+                        title={`a new untitled design with ${t.id}'s saved twin config and layout, to edit and Save as a new twin (${t.id} is not changed${standing ? "; its deploy's unpersisted working-copy changes are not included" : ""})`}
+                      >
+                        Duplicate
+                      </Link>
+                    </td>
+                  ) : (
                     <td>
                       <span className="row-actions">
                         <Link className="linkbutton" to={`/canvas/${enc}`}>

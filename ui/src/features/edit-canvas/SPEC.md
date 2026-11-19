@@ -196,8 +196,14 @@ criteria of its own beyond them.
     draft and the undo stack move to the new id, the browser copy is dropped,
     and the page is `/canvas/<id>`, clean. A named design's Save is unchanged.
   - Open (the bar's Open…, Ctrl+O): the Twins page's list as a searchable
-    picker -- origin, deploy state per tier, no actions; a pick (its link or
-    the row) opens it on the canvas.
+    picker -- origin, deploy state per tier; a pick (its link or the row)
+    opens it on the canvas.
+  - Duplicate (Open's one row action, `/canvas/new?from=<id>`): the twin's
+    saved twin-config (the catalog baseline, not a deploy's working copy) and
+    its layout become the untitled design, ids renamed, nothing written; it is
+    unsaved from the start (the guard applies, a reload keeps it), the pill
+    says "copy of <id>", and the first Save suggests `<id>-copy`. The source
+    twin is never written.
   - Unsaved guard: a non-blank untitled design, or an undeployed design with
     unsaved changes, asks before a reload/close or an in-app link (XTwin, Open,
     the top menu) leaves it; letting an untitled design go drops its browser copy.

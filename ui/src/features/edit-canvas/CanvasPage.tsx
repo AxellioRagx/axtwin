@@ -228,24 +228,41 @@ function untitledLayoutKey(): string {
   return `axr-canvas-layout:${UNTITLED_SCOPE}`;
 }
 
-/** The untitled design as this browser last held it: the files and the stack that ends at them. */
-export function readUntitled(): { files: Files; stack: Stack } | null {
+/** What an untitled design was started from: blank (no source), or a duplicate of a catalog twin. */
+export interface UntitledOrigin {
+  /** The te file's path (a duplicate keeps its source's). */
+  teFile: string;
+  /** The twin it duplicates, or null for a blank design. */
+  source: string | null;
+}
+
+export interface UntitledKept extends UntitledOrigin {
+  files: Files;
+  stack: Stack;
+}
+
+/** The untitled design as this browser last held it: the files, the stack that ends at them (empty
+ *  for a duplicate not yet edited), and where it started. */
+export function readUntitled(): UntitledKept | null {
   try {
     const raw = localStorage.getItem(undoKey(UNTITLED_SCOPE));
     if (!raw) return null;
-    const v = JSON.parse(raw) as { files?: Files; stack?: Partial<Stack> };
+    const v = JSON.parse(raw) as { files?: Files; stack?: Partial<Stack>; teFile?: string; source?: string | null };
     if (!v.files || !v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
     const stack = { done: v.stack.done, undone: v.stack.undone };
-    return stackFits(stack, v.files) ? { files: v.files, stack } : null;
+    const empty = stack.done.length === 0 && stack.undone.length === 0;
+    if (!empty && !stackFits(stack, v.files)) return null;
+    return { files: v.files, stack, teFile: typeof v.teFile === "string" ? v.teFile : "te.yaml", source: typeof v.source === "string" ? v.source : null };
   } catch {
     return null;
   }
 }
 
-function writeUntitled(files: Files, stack: Stack): void {
+/** Keep the untitled design: a blank one with nothing done is not kept; a duplicate always is. */
+export function writeUntitled(files: Files, stack: Stack, origin: UntitledOrigin): void {
   try {
-    if (stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
-    else localStorage.setItem(undoKey(UNTITLED_SCOPE), JSON.stringify({ files, stack }));
+    if (!origin.source && stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
+    else localStorage.setItem(undoKey(UNTITLED_SCOPE), JSON.stringify({ files, stack, teFile: origin.teFile, source: origin.source }));
   } catch {
     // no storage: the untitled design lives for the page only
   }
@@ -264,7 +281,7 @@ function readUntitledLayout(): LayoutDoc {
   }
 }
 
-function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[]): void {
+export function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[]): void {
   try {
     if (Object.keys(pins).length === 0 && annotations.length === 0) localStorage.removeItem(untitledLayoutKey());
     else localStorage.setItem(untitledLayoutKey(), JSON.stringify({ pins, annotations }));
@@ -307,6 +324,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const scopeId = untitled ? UNTITLED_SCOPE : id;
   // The untitled design's blank start: what its edits are measured against (dirty) until Save-As.
   const untitledSeed = useMemo(() => (untitled ? { id: UNTITLED_ID, te_file: "te.yaml", files: blankDesignFiles({ id: UNTITLED_ID }) } : null), [untitled]);
+  // Where the untitled design started (blank, or a duplicate of a catalog twin): read with it, kept with it.
+  const [origin, setOrigin] = useState<UntitledOrigin>({ teFile: "te.yaml", source: null });
   const { data, error, loading, reload } = useLoad<Loaded>(async (signal) => {
     // Untitled: nothing is stored on the server yet, so nothing is read.
     if (untitled) return { twin: { id, as_of: "", hosts: 0, segments: 0, services: 0, personas: 0, mean_confidence: 0 }, tree: null, exportData: null, topology: null, cast: null, deploy: null, deploys: [], config: null, detail: null };
@@ -455,7 +474,9 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     if (untitled && untitledSeed) {
       // The untitled design as this browser left it (a reload), else its blank start.
       const kept = readUntitled();
-      editor.load({ id: untitledSeed.id, teFile: untitledSeed.te_file, files: kept?.files ?? untitledSeed.files }, { saved: untitledSeed.files });
+      setOrigin({ teFile: kept?.teFile ?? untitledSeed.te_file, source: kept?.source ?? null });
+      // Measured against the blank start: a duplicate is unsaved work from its first moment.
+      editor.load({ id: untitledSeed.id, teFile: kept?.teFile ?? untitledSeed.te_file, files: kept?.files ?? untitledSeed.files }, { saved: untitledSeed.files });
       if (kept) editor.restoreStack(kept.stack);
     } else if (document) {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
@@ -642,8 +663,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const leaving = useRef(false);
   useEffect(() => {
     if (!untitled || !editor.files || leaving.current) return;
-    writeUntitled(editor.files, editor.stack);
-  }, [untitled, editor.files, editor.stack]);
+    writeUntitled(editor.files, editor.stack, origin);
+  }, [untitled, editor.files, editor.stack, origin]);
 
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {
@@ -1310,7 +1331,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       <TopbarPortal>
         <h1 className="cv-title">
           {untitled ? (
-            <span title="not saved to the catalog yet: the first Save names it">Untitled</span>
+            <span title={origin.source ? `a copy of ${origin.source}, not saved to the catalog yet: the first Save names it (${origin.source} is not changed)` : "not saved to the catalog yet: the first Save names it"}>Untitled</span>
           ) : (
             <Link to={`/twins/${encodeURIComponent(id)}`} title={`Twin ${id}: the summary page`}>
               {id}
@@ -1324,7 +1345,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             -- the te tier alone read "completed" over a failed traffic playout. The bar must not wrap at 1622 px. */}
         {built || data ? (
           <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={teRow ? `deploy ${teRow.deploy_id}: te ${teRow.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}${tierReason(deployRows, teRow.deploy_id, t) ? ` (${tierReason(deployRows, teRow.deploy_id, t)})` : ""}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
-            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : untitled ? "untitled design" : deployed ? "working copy" : "twin config"}</span> : null}
+            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : untitled ? (origin.source ? `untitled · copy of ${origin.source}` : "untitled design") : deployed ? "working copy" : "twin config"}</span> : null}
             {built && data ? " · " : null}
             {data ? (
               <span data-testid="mode">
@@ -1498,6 +1519,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       {openDialog ? <OpenDesignDialog onClose={() => setOpenDialog(false)} /> : null}
       {saveAsOpen && untitled ? (
         <SaveAsDialog
+          suggestedId={origin.source ? `${origin.source}-copy` : ""}
           busy={busy === "save-as"}
           error={exitError ? exitErrorText(exitError) : null}
           onSave={(newId, description) => void saveUntitled(newId, description)}

@@ -192,8 +192,8 @@ describe("Open", () => {
     const dialog = await openDialog();
     const rows = await within(dialog).findAllByTestId("open-row");
     expect(rows.map((r) => within(r).getAllByRole("link")[0]!.textContent)).toEqual(["corp-auth", "corp-live", "corp-cast"]);
-    // One link per row (the canvas), no actions: the picker view of the Twins list.
-    expect(rows.map((r) => within(r).getAllByRole("link").length)).toEqual([1, 1, 1]);
+    // The picker view of the Twins list: the twin's link (the canvas) and Duplicate, nothing else.
+    expect(rows.map((r) => within(r).getAllByRole("link").map((a) => a.textContent))).toEqual([["corp-auth", "Duplicate"], ["corp-live", "Duplicate"], ["corp-cast", "Duplicate"]]);
     expect(within(dialog).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(rows.map((r) => r.dataset["deployed"] ?? "")).toEqual(["", "true", ""]);
     await waitFor(() => expect(within(rows[1]!).getByTestId("twin-deploy").textContent).toContain("te ✓"));
@@ -234,5 +234,69 @@ describe("Open", () => {
     fireEvent.click(within(dialog).getAllByTestId("open-row")[2]!.querySelectorAll("td")[3]!);
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("heading", { name: "corp-auth" })).toBeTruthy();
+  });
+});
+
+describe("Duplicate (Open's action)", () => {
+  it("starts an untitled copy of a twin, edited and saved as a new twin; the source is untouched", async () => {
+    const { api, state } = seeded();
+    const before = state.documents["corp-auth"]!.files["te.yaml"]!;
+    renderAt(api, "/");
+    await screen.findByTestId("rail-add");
+    fireEvent.click(screen.getByRole("button", { name: "Open…" }));
+    const dialog = await openDialog();
+    await within(dialog).findAllByTestId("open-row");
+    fireEvent.click(within(dialog).getByRole("link", { name: "Duplicate corp-auth" }));
+
+    // The untitled canvas, drawing corp-auth's design; unsaved from the start, nothing written.
+    await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan"]));
+    expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
+    expect(screen.getByTestId("state-pill").textContent).toContain("copy of corp-auth");
+    expect(screen.getByTestId("dirty-marker").textContent).toContain("unsaved changes");
+    expect(state.writes.filter((w) => w.op !== "validate")).toEqual([]);
+
+    // Edit it, then Save: the id is suggested as <source>-copy.
+    fireEvent.click(item("segment", "segment"));
+    await waitFor(() => expect(segments().length).toBe(3));
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    const save = await screen.findByRole("dialog", { name: "Save design" });
+    expect((within(save).getByLabelText("Id") as HTMLInputElement).value).toBe("corp-auth-copy");
+    const submit = within(save).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    fireEvent.click(submit);
+
+    await screen.findByRole("heading", { name: "corp-auth-copy" });
+    const files = (state.writes.find((w) => w.op === "create-twin-config")!.body as { files: Record<string, string> }).files;
+    const te = readTe(files["te.yaml"]!);
+    expect(te.id).toBe("corp-auth-copy");
+    expect(te.segments.length).toBe(3);
+    expect(te.nodes.map((n) => n.name).sort()).toEqual(["gw", "web01", "ws01"]);
+    expect(files["te.yaml"]).not.toContain("untitled");
+    // corp-auth itself: not written, not changed.
+    expect(state.writes.some((w) => w.id === "corp-auth" && w.op !== "validate")).toBe(false);
+    expect(state.documents["corp-auth"]!.files["te.yaml"]).toBe(before);
+  });
+
+  it("survives a reload, and asks before the copy is left", async () => {
+    const { api } = seeded();
+    const first = renderAt(api, "/canvas/new?from=corp-auth");
+    await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan"]));
+    first.unmount();
+    renderAt(api, "/canvas/new");
+    await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan"]));
+    expect(screen.getByTestId("state-pill").textContent).toContain("copy of corp-auth");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("link", { name: "Twins" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
+  });
+
+  it("says why when the twin cannot be read, with the way to a blank design", async () => {
+    const { api } = seeded();
+    renderAt(api, "/canvas/new?from=nope");
+    const box = await screen.findByTestId("duplicate-twin");
+    await waitFor(() => expect(box.textContent).toContain("could not duplicate nope"));
+    expect(within(box).getByRole("link", { name: "Start a blank design" }).getAttribute("href")).toBe("/");
   });
 });
