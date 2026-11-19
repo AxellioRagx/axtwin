@@ -387,29 +387,22 @@ export function probeKey(form: SourceForm): string {
   });
 }
 
-/** The run form's built-in window when nothing else says: the last 10 days. */
+/** The run form's built-in range when nothing else says: the last 10 days of data. */
 export const BUILTIN_RUN_DAYS = 10;
 
 export interface RunPrefill {
-  /** The window as "last <amount> <unit>". */
-  amount: string;
-  unit: "days" | "hours";
-  /** Run options by key (network, vantage, window, subbuckets). */
+  /** The starting range: always relative (the last N seconds of data), re-resolved at run start. */
+  seconds: number;
+  /** Run options by key: `window`, `subbuckets` and any other the plugin's schema offers.
+   *  Never `network` / `vantage` (the sensor reports the vantage; the network comes from the
+   *  imprint), never sensors (a cast-time choice). */
   values: Record<string, string>;
-  sensors: string;
   /** Where the values came from, for the hint: the most specific tier that supplied any. */
   from: { kind: "run"; runId: string } | { kind: "source" } | { kind: "builtin" };
 }
 
-const RUN_OPTION_KEYS = ["network", "vantage", "window", "subbuckets"] as const;
-
-/** A window length in seconds as "last N days" (whole-ish days) or "last N hours". */
-function windowAmount(seconds: number): { amount: string; unit: "days" | "hours" } {
-  const days = seconds / 86400;
-  const tidy = (n: number) => String(Number(n.toFixed(2)));
-  if (days >= 1 && Math.abs(days - Math.round(days)) < 0.01) return { amount: tidy(Math.round(days)), unit: "days" };
-  return { amount: tidy(seconds / 3600), unit: "hours" };
-}
+/** Options a run no longer takes from the operator. */
+const NOT_RUN_OPTIONS = new Set(["network", "vantage", "sensors", "source", "ts_from", "ts_to"]);
 
 /** The source's most recent run (any status: what the operator last chose is the point). */
 export function lastRunOf(runs: DiscoveryRun[] | undefined, sourceId: string): DiscoveryRun | undefined {
@@ -420,53 +413,51 @@ export function lastRunOf(runs: DiscoveryRun[] | undefined, sourceId: string): D
 
 /**
  * What the run form starts with, field by field: (a) the source's most recent run -- its
- * window length and options -- then (b) the source's LEGACY stored defaults, then (c) the
- * built-ins (last 10 days). A run record carries no sensors (they are a cast-time choice), so
- * those come from (b) only. `probeExtras` (what the last test reported for vantage / window /
- * subbuckets) fill what (a) and (b) leave empty, below them.
+ * range length and options -- then (b) the source's LEGACY stored defaults, then (c) the
+ * built-ins (last 10 days of data). `probeExtras` (window / subbuckets the last test's census
+ * reported) fill what (a) and (b) leave empty, below them.
  */
 export function runPrefill(
   source: DiscoverySource,
   lastRun: DiscoveryRun | undefined,
   probeExtras: Record<string, string> = {},
 ): RunPrefill {
-  const legacy = source.defaults ?? {};
+  const legacy = (source.defaults ?? {}) as Record<string, unknown>;
   const opts = lastRun?.options ?? {};
   let usedRun = false;
   let usedSource = false;
   const values: Record<string, string> = {};
-  for (const k of RUN_OPTION_KEYS) {
+  const keys = new Set([...Object.keys(opts), "window", "subbuckets", ...Object.keys(probeExtras)]);
+  for (const k of keys) {
+    if (NOT_RUN_OPTIONS.has(k)) continue;
     const fromRun = opts[k];
     const fromSource = legacy[k];
     if (fromRun !== undefined && fromRun !== null && fromRun !== "") {
       values[k] = String(fromRun);
       usedRun = true;
-    } else if (fromSource !== undefined && fromSource !== "") {
+    } else if ((k === "window" || k === "subbuckets") && fromSource !== undefined && fromSource !== null && fromSource !== "") {
       values[k] = String(fromSource);
       usedSource = true;
     } else if (probeExtras[k] !== undefined) {
       values[k] = probeExtras[k];
     }
   }
-  let amount = String(BUILTIN_RUN_DAYS);
-  let unit: "days" | "hours" = "days";
+  let seconds = BUILTIN_RUN_DAYS * 86400;
   if (lastRun && lastRun.ts_from !== null && lastRun.ts_to !== null && lastRun.ts_to > lastRun.ts_from) {
-    ({ amount, unit } = windowAmount(lastRun.ts_to - lastRun.ts_from));
+    seconds = lastRun.ts_to - lastRun.ts_from;
     usedRun = true;
   } else if (typeof legacy.days === "number" && legacy.days > 0) {
-    amount = String(legacy.days);
+    seconds = legacy.days * 86400;
     usedSource = true;
   }
-  const sensorList = legacy.sensors ?? [];
-  if (sensorList.length) usedSource = true;
   const from: RunPrefill["from"] =
     usedRun && lastRun ? { kind: "run", runId: lastRun.id } : usedSource ? { kind: "source" } : { kind: "builtin" };
-  return { amount, unit, values, sensors: sensorList.join(", "), from };
+  return { seconds, values, from };
 }
 
 /** The hint under the run form naming where its starting values came from. */
 export function prefillHint(from: RunPrefill["from"]): string {
   if (from.kind === "run") return `Filled from run ${from.runId}, the last one from this source.`;
   if (from.kind === "source") return "Filled from this source's saved run defaults (from before sources stopped carrying them).";
-  return `Built-in defaults: the last ${BUILTIN_RUN_DAYS} days.`;
+  return `Built-in defaults: the last ${BUILTIN_RUN_DAYS} days of data.`;
 }

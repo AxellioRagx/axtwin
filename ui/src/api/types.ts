@@ -132,13 +132,19 @@ export interface SourceRunRequest {
   [k: string]: unknown;
   /** The imprint's name: what the bake labels the PIT. */
   name: string;
+  /** Relative: the last N days of what the source holds, re-resolved when the run starts. */
   days?: number;
+  /** Absolute bounds, sent as-is. */
   ts_from?: number;
   ts_to?: number;
-  network?: string;
-  vantage?: string;
+  /** Measurement interval (seconds) and burst resolution (slices per interval). */
   window?: number;
   subbuckets?: number;
+  /** Add to this imprint (pit id) as its next version instead of creating a new one. */
+  base_imprint?: string;
+  /** Still accepted by the API; ignored for source runs and no longer sent by the console. */
+  network?: string;
+  vantage?: string;
   sensors?: string[];
 }
 
@@ -232,6 +238,34 @@ export interface Imprint {
   entities?: number | null;
   segments?: number | null;
   merge_axis?: string | null;
+  /** Versions: where this imprint came from and what runs built it; null when unknown. */
+  lineage?: ImprintLineage | null;
+}
+
+/** One run that contributed evidence to an imprint version. */
+export interface LineageRun {
+  run_id: string | null;
+  source_id: string | null;
+  plugin: string | null;
+  vantage: string | null;
+  ts_from: number | null;
+  ts_to: number | null;
+}
+
+export interface ImprintLineage {
+  version: number;
+  /** The pit id this version was added onto; null for a first version. */
+  parent: string | null;
+  root: string;
+  network: string | null;
+  window_seconds: number;
+  subbuckets: number;
+  /** Whether a run can add to it (it has a belief store); `reason` says why not. */
+  extendable: boolean;
+  reason: string | null;
+  /** The name the next version would get. */
+  next_name: string;
+  runs: LineageRun[];
 }
 
 export interface ImprintList {

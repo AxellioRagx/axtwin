@@ -149,39 +149,33 @@ describe("the run form's pre-fill: last run, then legacy source defaults, then b
     stages_done: [], stages: [], pit_id: null, error: null, created_at: "2026-11-19T10:00:00Z",
     finished_at: null, source_id: "src-1", started_at: null, ts_from: 1791311437, ts_to: 1791315037,
     via: null, progress_ts: null, progress_at: null, cancel_requested_at: null,
-    options: { network: "corp-apcn", window: 120 }, ...over,
+    options: { network: "corp-apcn", window: 900, vantage: "v:run" }, ...over,
   });
 
-  it("takes the window length and options from the last run, and names it", () => {
-    const p = runPrefill(tunnelSource({ defaults: { days: 3, network: "legacy", vantage: "v:legacy" } }), run());
+  it("takes the range length and options from the last run, never network or vantage", () => {
+    const p = runPrefill(tunnelSource({ defaults: { days: 3, network: "legacy", subbuckets: 6 } as never }), run());
     expect(p.from).toEqual({ kind: "run", runId: "disc-8d560f14" });
-    expect([p.amount, p.unit]).toEqual(["1", "hours"]);
-    // The run's options win; what it did not set falls through to the legacy defaults.
-    expect(p.values).toEqual({ network: "corp-apcn", window: "120", vantage: "v:legacy" });
+    expect(p.seconds).toBe(3600);
+    expect(p.values).toEqual({ window: "900", subbuckets: "6" });
     expect(prefillHint(p.from)).toBe("Filled from run disc-8d560f14, the last one from this source.");
   });
 
-  it("reads a whole-day window as days", () => {
-    const p = runPrefill(tunnelSource({ defaults: {} }), run({ ts_from: 0, ts_to: 3 * 86400 }));
-    expect([p.amount, p.unit]).toEqual(["3", "days"]);
-  });
-
-  it("falls back to the source's legacy defaults, sensors included", () => {
+  it("falls back to the source's legacy days", () => {
     const p = runPrefill(tunnelSource({ defaults: { days: 2, network: "corp-apcn", sensors: ["XPress-SW-A"] } }), undefined);
     expect(p.from).toEqual({ kind: "source" });
-    expect([p.amount, p.unit, p.values.network, p.sensors]).toEqual(["2", "days", "corp-apcn", "XPress-SW-A"]);
+    expect(p.seconds).toBe(2 * 86400);
+    expect(p.values).toEqual({});
   });
 
-  it("falls back to the built-ins: the last 10 days, nothing else", () => {
+  it("falls back to the built-ins: the last 10 days of data, nothing else", () => {
     const p = runPrefill(tunnelSource({ defaults: {} }), undefined);
-    expect(p).toEqual({ amount: "10", unit: "days", values: {}, sensors: "", from: { kind: "builtin" } });
-    expect(prefillHint(p.from)).toBe("Built-in defaults: the last 10 days.");
+    expect(p).toEqual({ seconds: 10 * 86400, values: {}, from: { kind: "builtin" } });
+    expect(prefillHint(p.from)).toBe("Built-in defaults: the last 10 days of data.");
   });
 
-  it("what the last test reported sits below the run and the source, above nothing", () => {
-    const extras = { vantage: "v:probe", window: "60" };
-    expect(runPrefill(tunnelSource({ defaults: {} }), undefined, extras).values).toEqual(extras);
-    expect(runPrefill(tunnelSource({ defaults: {} }), run(), extras).values).toEqual({ network: "corp-apcn", window: "120", vantage: "v:probe" });
+  it("what the last test's census reported sits below the run and the source", () => {
+    expect(runPrefill(tunnelSource({ defaults: {} }), undefined, { window: "60" }).values).toEqual({ window: "60" });
+    expect(runPrefill(tunnelSource({ defaults: {} }), run(), { window: "60", subbuckets: "4" }).values).toEqual({ window: "900", subbuckets: "4" });
   });
 
   it("the last run is the newest from THIS source, whatever its status", () => {

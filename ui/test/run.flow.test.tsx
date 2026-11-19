@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../src/api/client";
@@ -15,9 +15,9 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(state.writes).toEqual([{ op: "probe", id: "src-1" }]);
     expect(screen.getByText("axellio-hq/corp-apcn-rdr1:12")).toBeTruthy();
     expect(screen.getByText("16.9 G (16,893,421,675)")).toBeTruthy();
-    expect(screen.getByText(/2026-09-06 19:30 UTC → 2026-10-06 19:30 UTC \(30\.0 days\)/)).toBeTruthy();
-    // The run form previews the window the server will resolve.
-    expect(screen.getByText(/Resolves to 2026-09-26 19:30 UTC → 2026-10-06 19:30 UTC/)).toBeTruthy();
+    expect(within(screen.getByTestId("probe-panel")).getByText(/2026-09-06 19:30 UTC → 2026-10-06 19:30 UTC \(30\.0 days\)/)).toBeTruthy();
+    // The run form previews the range the server will resolve, from the end of the data.
+    expect(screen.getByTestId("range-selected").textContent).toMatch(/^Last 10 d of data: 2026-09-26 19:30 UTC → 2026-10-06 19:30 UTC/);
   });
 
   it("starts a 10-day run, polls it to completion and opens the imprint", async () => {
@@ -37,7 +37,7 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(state.writes.at(-1)).toEqual({
       op: "run",
       id: "src-1",
-      body: { name: "corp-apcn-10d", days: 10, network: "corp-apcn", sensors: [] },
+      body: { name: "corp-apcn-10d", days: 10, window: 3600, subbuckets: 12 },
     });
     // First poll: running, ingest done, window resolved.
     await waitFor(() => expect(screen.getByText("ingest").className).toBe("done"));
@@ -51,12 +51,11 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(screen.getByRole("button", { name: "Cast into a twin" }).className).toContain("primary");
   }, 10000);
 
-  it("the window can be given in hours, sent to the API as fractional days", async () => {
+  it("a quick range is sent as fractional days, re-resolved when the run starts", async () => {
     const { api, state } = fakeApi({ sources: [tunnelSource()] });
     renderAt(api, "/discovery/sources/src-1");
     await screen.findByRole("button", { name: "Start discovery" });
-    fireEvent.change(screen.getByLabelText("Unit"), { target: { value: "hours" } });
-    fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Last 6 h of data" }));
     fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
     await waitFor(() => expect(state.writes.some((w) => w.op === "run")).toBe(true));
     expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ days: 0.25 });
@@ -74,21 +73,24 @@ describe("C1.2 -- test, run, poll, open", () => {
     expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ days: 2, shard: 3 });
   });
 
-  it("vantage, window and subbuckets sit under a collapsed Advanced, defaulted from the probe, and the run starts without opening it", async () => {
-    const probe = { source_id: "src-1", probed_at: "2026-10-27T16:00:00Z", reachable: true, error: null, ...SPAN, vantage: "axellio-hq/corp-apcn-rdr1:12", extra: { window: 60 }, via: null };
+  it("interval and burst resolution sit under a collapsed Advanced, defaulted from the probe; no network or vantage anywhere", async () => {
+    const probe = { source_id: "src-1", probed_at: "2026-10-27T16:00:00Z", reachable: true, error: null, ...SPAN, vantage: "axellio-hq/corp-apcn-rdr1:12", extra: { window: 900 }, via: null };
     const { api, state } = fakeApi({ sources: [tunnelSource({ last_probe: probe })] });
     renderAt(api, "/discovery/sources/src-1");
     await screen.findByRole("button", { name: "Start discovery" });
     const advanced = screen.getByText(/^Advanced/).closest("details")!;
     expect(advanced.open).toBe(false);
-    for (const k of ["vantage", "window", "subbuckets"]) expect(advanced.contains(screen.getByLabelText(k))).toBe(true);
-    expect(advanced.contains(screen.getByLabelText("network"))).toBe(false);
-    expect((screen.getByLabelText("vantage") as HTMLInputElement).value).toBe("axellio-hq/corp-apcn-rdr1:12");
-    expect((screen.getByLabelText("window") as HTMLInputElement).value).toBe("60");
-    expect((screen.getByLabelText("subbuckets") as HTMLInputElement).value).toBe("");
+    const interval = screen.getByLabelText("Measurement interval") as HTMLSelectElement;
+    const burst = screen.getByLabelText("Burst resolution") as HTMLSelectElement;
+    expect(advanced.contains(interval) && advanced.contains(burst)).toBe(true);
+    expect(interval.selectedOptions[0]!.textContent).toBe("15 min");
+    expect(burst.selectedOptions[0]!.textContent).toBe("75 s");
+    for (const k of ["network", "vantage", "Sensors"]) expect(screen.queryByLabelText(k)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
     await waitFor(() => expect(state.writes.some((w) => w.op === "run")).toBe(true));
-    expect(state.writes.find((w) => w.op === "run")?.body).toMatchObject({ vantage: "axellio-hq/corp-apcn-rdr1:12", window: 60 });
+    const body = state.writes.find((w) => w.op === "run")!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ window: 900, subbuckets: 12 });
+    for (const k of ["network", "vantage", "sensors"]) expect(body).not.toHaveProperty(k);
   });
 
   it("a source page deletes the source behind a confirmation", async () => {
