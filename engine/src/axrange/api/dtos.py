@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_serializer
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, StrictBool, model_serializer
 
 
 # --------------------------------------------------------------------------
@@ -811,6 +811,8 @@ class SourceAccessDTO(BaseModel):
     auth: str = "none"  # none | basic | api_key
     user: Optional[str] = None  # basic auth only
     ssh: Optional[SshAccessDTO] = None  # ssh_tunnel only
+    # False: do not verify an https endpoint's certificate (a self-signed sensor).
+    tls_verify: StrictBool = True
 
 
 class ProbeStepDTO(BaseModel):

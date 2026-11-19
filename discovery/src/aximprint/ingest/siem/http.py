@@ -36,6 +36,7 @@ import heapq
 import json
 import math
 import os
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -47,7 +48,7 @@ from aximprint.events import Event, SensorHealthEvent
 from aximprint.ingest.base import IngestPlugin
 
 __all__ = [
-    "ENV_API_KEY", "ENV_PASSWORD", "ENV_USER", "CREDENTIAL_OPTION_KEYS", "LEAF_ROWS_MAX",
+    "ENV_API_KEY", "ENV_PASSWORD", "ENV_TLS_VERIFY", "ENV_USER", "CREDENTIAL_OPTION_KEYS", "LEAF_ROWS_MAX",
     "MIN_BISECT_SECONDS", "PAGE_ROWS", "TIMEOUT_SECONDS", "HttpPullPlugin", "HttpSourceError",
     "Locator", "auth_headers", "bisected_rows", "coverage_event", "fetch", "fetch_json",
     "parse_locator", "request", "second_bounds",
@@ -59,6 +60,10 @@ __all__ = [
 ENV_USER = "AXIMPRINT_SOURCE_USER"
 ENV_PASSWORD = "AXIMPRINT_SOURCE_PASSWORD"
 ENV_API_KEY = "AXIMPRINT_SOURCE_API_KEY"
+#: `0` turns OFF certificate and hostname verification for an https source -- a sensor
+#: appliance with a self-signed certificate (no SAN for the address it is reached by). Set
+#: per source by the control plane, never globally; unset or anything else verifies.
+ENV_TLS_VERIFY = "AXIMPRINT_SOURCE_TLS_VERIFY"
 
 #: Locator option keys that LOOK like a credential. Refused by name whatever the plugin's own
 #: option table says, so no vendor module can admit one by accident.
@@ -90,6 +95,18 @@ TIMEOUT_SECONDS = 120
 class HttpSourceError(RuntimeError):
     """The server was unreachable, refused the pull, or answered with something this build
     cannot read. Each vendor module subclasses it so a caller can still name the vendor."""
+
+
+def tls_context(env: Optional[dict] = None) -> Optional[ssl.SSLContext]:
+    """The SSL context for an unverified source (`ENV_TLS_VERIFY=0`), else `None` -- which
+    leaves `urlopen` on Python's default, verifying context."""
+    env = os.environ if env is None else env
+    if (env.get(ENV_TLS_VERIFY) or "").strip() != "0":
+        return None
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 
 def auth_headers(env: Optional[dict] = None, *, key_scheme: str = "Bearer") -> dict[str, str]:
@@ -199,7 +216,10 @@ def fetch(request: urllib.request.Request, *, label: str, base: str,
     """
     url = request.full_url
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
+        ctx = tls_context() if url.lower().startswith("https:") else None
+        # `context` only when it says something: the default call stays the default call.
+        kw = {"context": ctx} if ctx is not None else {}
+        with urllib.request.urlopen(request, timeout=timeout, **kw) as resp:
             return resp.read()
     except urllib.error.HTTPError as exc:
         hint = ""
@@ -216,7 +236,12 @@ def fetch(request: urllib.request.Request, *, label: str, base: str,
     except TimeoutError as exc:
         raise error(f"{label} timed out after {timeout}s — narrow the time window") from exc
     except OSError as exc:
-        raise error(f"{label} unreachable at {base}: {exc}") from exc
+        hint = ""
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            hint = (" -- the server's TLS certificate is not trusted here; for a sensor with "
+                    f"a self-signed certificate, turn verification off for this source "
+                    f"({ENV_TLS_VERIFY}=0)")
+        raise error(f"{label} unreachable at {base}: {exc}{hint}") from exc
 
 
 def fetch_json(request: urllib.request.Request, *, label: str, base: str,

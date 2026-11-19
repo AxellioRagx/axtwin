@@ -281,7 +281,10 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   (`http://127.0.0.1:9090` for an appliance's loopback behind a tunnel).
   `access` is `transport` (`direct` | `ssh_tunnel`, the latter with
   `ssh {host, port, user, key_path}` — a private-key *path* on the API host,
-  never key material) × `auth` (`none` | `basic` + `user` | `api_key`).
+  never key material) × `auth` (`none` | `basic` + `user` | `api_key`), plus
+  `tls_verify` (default `true`; `false` skips certificate + hostname checks for
+  an https endpoint -- a sensor appliance's self-signed certificate -- reaching
+  `aximprint` as `AXIMPRINT_SOURCE_TLS_VERIFY=0`, and named in `via`).
   `defaults` pre-fill a run: `days`, `network`, `vantage`, `window`,
   `subbuckets`, `sensors`.
 - Store: one SQLite file, `AXRANGE_DISCOVERY_DB` (default

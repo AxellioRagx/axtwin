@@ -153,7 +153,7 @@ def test_create_lists_and_reads_back_without_the_secret(tmp_path):
     doc = r.json()
     assert doc["id"].startswith("src-") and doc["name"] == "corp-apcn-reader"
     assert doc["endpoint"] == "https://sensor.example:9443"  # trailing slash trimmed
-    assert doc["access"] == {"transport": "direct", "auth": "basic", "user": "ro", "ssh": None}
+    assert doc["access"] == {"transport": "direct", "auth": "basic", "user": "ro", "ssh": None, "tls_verify": True}
     assert doc["has_password"] is True and doc["has_api_key"] is False
     assert "s3cret" not in r.text
     listed = c.get("/api/discovery/sources").json()["sources"]
@@ -811,3 +811,52 @@ def test_create_and_update_store_a_probe_just_run_in_the_editor(tmp_path):
     assert upd["last_probe"]["stage"] == "api_http"
     # Without one, an update leaves the stored probe as it was.
     assert c.put(f"/api/discovery/sources/{rec['id']}", json={"name": "renamed"}).json()["last_probe"]["stage"] == "api_http"
+
+
+# ---------------------------------------------------------------------------
+# access.tls_verify -- a sensor with a self-signed certificate
+# ---------------------------------------------------------------------------
+def _https_source(**access):
+    return _tunnel_source(endpoint="https://10.80.72.40/axquery/api",
+                          access={"transport": "direct", "auth": "none", **access})
+
+
+def test_tls_verify_defaults_on_and_adds_nothing_to_the_env(tmp_path):
+    be = _FakeDiscovery()
+    c = _client(_settings(tmp_path), backend=be)
+    rec = c.post("/api/discovery/sources", json=_https_source()).json()
+    assert rec["access"]["tls_verify"] is True
+    doc = c.post(PROBE, json=_https_source()).json()
+    assert doc["via"] == "direct" and be.probes[-1][2] == {}
+
+
+def test_tls_verify_off_reaches_the_plugin_env_on_probe_and_run_and_says_so(tmp_path):
+    be = _FakeDiscovery()
+    c = _client(_settings(tmp_path), backend=be)
+    body = _https_source(auth="api_key", tls_verify=False)
+    body["api_key"] = "k"
+    doc = c.post(PROBE, json=body).json()
+    assert doc["via"] == "direct, TLS certificate not verified"
+    assert be.probes[-1][2] == {ds.ENV_API_KEY: "k", ds.ENV_TLS_VERIFY: "0"}
+    sid = c.post("/api/discovery/sources", json=body).json()["id"]
+    rec = c.get(f"/api/discovery/sources/{sid}").json()
+    assert rec["access"]["tls_verify"] is False
+    run = c.post(f"/api/discovery/sources/{sid}/runs", json={"name": "tls", "days": 1}).json()
+    assert run["status"] == "completed", run
+    assert be.requests[-1].env[ds.ENV_TLS_VERIFY] == "0"
+    # Turned back on by an update.
+    c.put(f"/api/discovery/sources/{sid}", json={"access": {"transport": "direct", "auth": "api_key"}})
+    assert c.get(f"/api/discovery/sources/{sid}").json()["access"]["tls_verify"] is True
+
+
+def test_tls_verify_must_be_a_boolean_and_old_records_verify(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    r = c.post(PROBE, json=_https_source(tls_verify="no"))
+    assert r.status_code in (400, 422)
+    assert ds.validate_access({"transport": "direct"}).tls_verify is True  # no key: a pre-field record
+    assert ds.env_for(ds.validate_access({"tls_verify": False}), {}) == {ds.ENV_TLS_VERIFY: "0"}
+
+
+def test_tls_env_name_matches_the_aximprint_transport():
+    # `discovery/src/aximprint/ingest/siem/http.py` spells the same name.
+    assert ds.ENV_TLS_VERIFY == "AXIMPRINT_SOURCE_TLS_VERIFY"

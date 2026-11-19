@@ -4020,6 +4020,7 @@ def _source_dto(rec: Any) -> dtos.DiscoverySourceDTO:
         access=dtos.SourceAccessDTO(
             transport=acc.transport, auth=acc.auth, user=acc.user,
             ssh=dtos.SshAccessDTO(**acc.ssh.to_json()) if acc.ssh else None,
+            tls_verify=acc.tls_verify,
         ),
         has_password=rec.has_password, has_api_key=rec.has_api_key,
         defaults=dict(rec.defaults), last_probe=rec.last_probe,

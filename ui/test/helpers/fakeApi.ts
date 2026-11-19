@@ -271,6 +271,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
           auth: body.access.auth,
           user: body.access.user ?? null,
           ssh: body.access.ssh ?? null,
+          ...(body.access.tls_verify === false ? { tls_verify: false } : {}),
         },
         has_password: Boolean(body.password),
         has_api_key: Boolean(body.api_key),

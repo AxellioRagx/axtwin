@@ -50,6 +50,8 @@ export interface SourceAccess {
   auth: Auth;
   user: string | null;
   ssh: SshAccess | null;
+  /** false: an https endpoint's certificate is not verified (a self-signed sensor). Absent on older APIs: verified. */
+  tls_verify?: boolean;
 }
 
 export interface SourceDefaults {
@@ -84,7 +86,7 @@ export interface SourceWrite {
   name: string;
   plugin: string;
   endpoint: string;
-  access: { transport: Transport; auth: Auth; user?: string | null; ssh?: SshAccess | null };
+  access: { transport: Transport; auth: Auth; user?: string | null; ssh?: SshAccess | null; tls_verify?: boolean };
   password?: string;
   api_key?: string;
   defaults: SourceDefaults;

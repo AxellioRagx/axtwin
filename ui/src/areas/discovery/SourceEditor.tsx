@@ -162,6 +162,22 @@ export function SourceEditor() {
             host or IP is refused; give the scheme and port.
           </span>
         </div>
+        {form.endpoint.trim().toLowerCase().startsWith("https:") || !form.tlsVerify ? (
+          <div className="field">
+            <label>
+              <input
+                type="checkbox"
+                checked={form.tlsVerify}
+                onChange={(e) => set("tlsVerify", e.target.checked)}
+              />{" "}
+              Verify the TLS certificate
+            </label>
+            <span className="hint">
+              Turn off for a sensor with a self-signed certificate. This source then accepts any
+              certificate the endpoint presents, so only do it on a network you trust.
+            </span>
+          </div>
+        ) : null}
 
         <fieldset>
           <legend>Access</legend>

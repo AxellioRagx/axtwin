@@ -79,6 +79,8 @@ SECRET_KEYS = ("password", "api_key")
 ENV_USER = "AXIMPRINT_SOURCE_USER"
 ENV_PASSWORD = "AXIMPRINT_SOURCE_PASSWORD"
 ENV_API_KEY = "AXIMPRINT_SOURCE_API_KEY"
+#: `0` = do not verify an https source's certificate (`access.tls_verify: false`).
+ENV_TLS_VERIFY = "AXIMPRINT_SOURCE_TLS_VERIFY"
 
 
 def default_discovery_db_path() -> str:
@@ -126,11 +128,14 @@ class Access:
     auth: str = "none"
     user: Optional[str] = None
     ssh: Optional[SshSpec] = None
+    #: False: an https endpoint's certificate is NOT verified (a sensor appliance's
+    #: self-signed one). Per source; a record saved before the field existed verifies.
+    tls_verify: bool = True
 
     def to_json(self) -> dict[str, Any]:
         return {
             "transport": self.transport, "auth": self.auth, "user": self.user,
-            "ssh": self.ssh.to_json() if self.ssh else None,
+            "ssh": self.ssh.to_json() if self.ssh else None, "tls_verify": self.tls_verify,
         }
 
 
@@ -191,7 +196,12 @@ def validate_access(obj: Any) -> Access:
         )
     elif obj.get("ssh") not in (None, {}):
         raise SourceError("access.ssh is only used with the ssh_tunnel transport")
-    return Access(transport=transport, auth=auth, user=user, ssh=ssh)
+    tls_verify = obj.get("tls_verify", True)
+    if tls_verify is None:
+        tls_verify = True
+    if not isinstance(tls_verify, bool):
+        raise SourceError(f"access.tls_verify must be true or false, got {tls_verify!r}")
+    return Access(transport=transport, auth=auth, user=user, ssh=ssh, tls_verify=tls_verify)
 
 
 def validate_defaults(obj: Any) -> dict[str, Any]:
@@ -432,11 +442,14 @@ class OpenedAccess:
 
 
 def env_for(access: Access, secrets: dict[str, str]) -> dict[str, str]:
+    env: dict[str, str] = {}
     if access.auth == "basic":
-        return {ENV_USER: access.user or "", ENV_PASSWORD: secrets.get("password", "")}
-    if access.auth == "api_key":
-        return {ENV_API_KEY: secrets.get("api_key", "")}
-    return {}
+        env = {ENV_USER: access.user or "", ENV_PASSWORD: secrets.get("password", "")}
+    elif access.auth == "api_key":
+        env = {ENV_API_KEY: secrets.get("api_key", "")}
+    if not access.tls_verify:
+        env[ENV_TLS_VERIFY] = "0"
+    return env
 
 
 def free_port() -> int:
@@ -585,8 +598,10 @@ def open_access(spec: AccessSpec, *, tunnel_factory: Optional[TunnelFactory] = N
     """`on_tunnel(tunnel)` is called with the tunnel object BEFORE it is entered, so a
     caller on another thread can `kill()` a connect that outlives its deadline."""
     env = env_for(spec.access, spec.secrets)
+    unverified = (", TLS certificate not verified"
+                  if not spec.access.tls_verify and spec.endpoint.lower().startswith("https:") else "")
     if spec.access.transport == "direct":
-        yield OpenedAccess(base_url=spec.endpoint, env=env, via="direct")
+        yield OpenedAccess(base_url=spec.endpoint, env=env, via=f"direct{unverified}")
         return
     assert spec.access.ssh is not None  # validate_access guarantees it
     factory = tunnel_factory or SshTunnel
@@ -599,7 +614,7 @@ def open_access(spec: AccessSpec, *, tunnel_factory: Optional[TunnelFactory] = N
         yield OpenedAccess(
             base_url=rewrite_endpoint(spec.endpoint, port), env=env,
             via=f"ssh {spec.access.ssh.user}@{spec.access.ssh.host}:{spec.access.ssh.port} "
-                f"-> {target[0]}:{target[1]} via 127.0.0.1:{port}",
+                f"-> {target[0]}:{target[1]} via 127.0.0.1:{port}{unverified}",
             local_port=port,
         )
 

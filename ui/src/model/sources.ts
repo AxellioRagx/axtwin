@@ -33,6 +33,8 @@ export interface SourceForm {
   apiKey: string;
   tunnelAuth: TunnelAuth;
   ssh: { host: string; port: string; user: string; keyPath: string };
+  /** Verify the endpoint's TLS certificate (https only). Off for a sensor's self-signed one. */
+  tlsVerify: boolean;
   defaults: { days: string; network: string; vantage: string; window: string; subbuckets: string; sensors: string };
 }
 
@@ -54,6 +56,7 @@ export function emptyForm(plugin = ""): SourceForm {
     apiKey: "",
     tunnelAuth: "none",
     ssh: { host: "", port: "22", user: "", keyPath: "" },
+    tlsVerify: true,
     defaults: { days: "10", network: "", vantage: "", window: "", subbuckets: "", sensors: "" },
   };
 }
@@ -77,6 +80,7 @@ export function fromSource(src: DiscoverySource): SourceForm {
     f.access = auth;
   }
   f.user = src.access.user ?? "";
+  f.tlsVerify = src.access.tls_verify !== false;
   const d = src.defaults;
   f.defaults = {
     days: d.days === undefined ? "" : String(d.days),
@@ -139,6 +143,8 @@ export function toWrite(form: SourceForm, editing = false): SourceWrite {
     },
     defaults: defaultsFromForm(form.defaults),
   };
+  // Sent only when off: an absent field verifies, so a PUT without it turns it back on.
+  if (!form.tlsVerify) body.access.tls_verify = false;
   if (auth === "basic" && (form.password || !editing)) body.password = form.password;
   if (auth === "api_key" && (form.apiKey || !editing)) body.api_key = form.apiKey;
   return body;
@@ -302,11 +308,12 @@ export function describeAccess(src: DiscoverySource): string {
           ? "API key stored"
           : "API key not stored"
         : "no credential";
+  const tls = src.access.tls_verify === false ? ", TLS certificate not verified" : "";
   if (src.access.transport === "ssh_tunnel" && src.access.ssh) {
     const s = src.access.ssh;
-    return `SSH tunnel via ${s.user}@${s.host}:${s.port}, ${auth}`;
+    return `SSH tunnel via ${s.user}@${s.host}:${s.port}, ${auth}${tls}`;
   }
-  return `direct, ${auth}`;
+  return `direct, ${auth}${tls}`;
 }
 
 export interface RunProgress {
@@ -361,5 +368,6 @@ export function probeKey(form: SourceForm): string {
     password: auth === "basic" ? form.password : "",
     apiKey: auth === "api_key" ? form.apiKey : "",
     ssh: form.access === "ssh_tunnel" ? form.ssh : null,
+    tlsVerify: form.tlsVerify,
   });
 }

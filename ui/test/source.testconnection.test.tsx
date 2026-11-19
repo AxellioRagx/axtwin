@@ -197,3 +197,47 @@ describe("the source page reads a failed test the same way", () => {
     expect((await screen.findByTestId("probe-steps")).textContent).toBe("SSH ✓ · login ✓ · tunnel ✓ · API ✗");
   });
 });
+
+describe("a sensor with a self-signed certificate", () => {
+  async function fillHttpsSource() {
+    await screen.findByLabelText("Plugin");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "xpress-sw-a" } });
+    fireEvent.change(screen.getByLabelText("Endpoint"), { target: { value: "https://10.80.72.40/axquery/api" } });
+  }
+
+  it("offers the verify checkbox for an https endpoint only, on by default", async () => {
+    const { api } = fakeApi();
+    renderAt(api, "/discovery/sources/new");
+    await screen.findByLabelText("Plugin");
+    fireEvent.change(screen.getByLabelText("Endpoint"), { target: { value: "http://127.0.0.1:9090" } });
+    expect(screen.queryByLabelText("Verify the TLS certificate")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Endpoint"), { target: { value: "https://10.80.72.40/axquery/api" } });
+    expect((screen.getByLabelText("Verify the TLS certificate") as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("turning it off is sent with the test and the save, outdates an earlier test, and shows on the page", async () => {
+    const { api, state } = fakeApi();
+    state.probeConfigAnswer = {
+      ...FAILED_AT_API,
+      error: "axquery /api/info unreachable at https://10.80.72.40/axquery/api: CERTIFICATE_VERIFY_FAILED self-signed certificate",
+      steps: [{ stage: "api_http", ok: false }],
+    };
+    renderAt(api, "/discovery/sources/new");
+    await fillHttpsSource();
+    fireEvent.click(testButton());
+    await screen.findByTestId("probe-steps");
+    expect((state.writes[0]!.body as { access: Record<string, unknown> }).access).not.toHaveProperty("tls_verify");
+
+    fireEvent.click(screen.getByLabelText("Verify the TLS certificate"));
+    expect(screen.getByTestId("test-stale")).toBeTruthy();
+    state.probeConfigAnswer = { via: "direct, TLS certificate not verified" };
+    fireEvent.click(testButton());
+    await screen.findByText(/^Reachable \(/);
+    expect((state.writes[1]!.body as { access: Record<string, unknown> }).access.tls_verify).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save source" }));
+    await screen.findByText("direct, no credential, TLS certificate not verified");
+    const created = state.writes.find((w) => w.op === "create")!.body as { access: Record<string, unknown> };
+    expect(created.access.tls_verify).toBe(false);
+  });
+});
