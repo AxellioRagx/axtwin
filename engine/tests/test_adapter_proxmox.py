@@ -378,6 +378,70 @@ def test_attach_gre_tunnel_heals_df_policy_on_adopted_netdev(monkeypatch):
     assert calls.index(heal) < up, calls
 
 
+def test_mirror_path_mtu_cmd_raises_ports_before_the_bridge_and_skips_unsafe_paths():
+    """The transport to the sensor is raised to MIRROR_TRANSPORT_MTU so a full-size mirrored
+    frame (1514 B + 4 per tag + 28 B GRE/IPv4) is one outer packet, not two fragments. Ports go
+    first (a bridge above a port drops what the port cannot forward); a physical port or a PVE
+    firewall veth means hands off, leaving the old fragmenting path."""
+    from axrange.adapter_proxmox.ssh import MIRROR_TRANSPORT_MTU, mirror_path_mtu_cmd
+
+    assert MIRROR_TRANSPORT_MTU >= 20 + 8 + 14 + 8 + 1500
+    cmd = mirror_path_mtu_cmd("10.255.251.21")
+    assert "ip -o route get 10.255.251.21" in cmd
+    port_set = cmd.index('ip link set "$n" mtu 1600')
+    bridge_set = cmd.index('ip link set "$dev" mtu 1600')
+    assert port_set < bridge_set
+    assert cmd.index("/device") < port_set and cmd.index("fwpr*") < port_set
+    assert "skip $dev is not a bridge" in cmd and "skip no route" in cmd
+    assert cmd.rstrip().endswith("true")          # never fails the op
+    assert '"$dev" mtu 9000' in mirror_path_mtu_cmd("10.0.0.1", 9000)
+
+
+def _gre_op():
+    return OpInstance(
+        op_id="p1:attach-gre-tunnel[corp@s1]", op_name="attach-gre-tunnel",
+        op_catalog_id="OP-MIR-010", kind=OpKind.ACTION,
+        scope={"net": "corp", "sensor": "s1"},
+        cleanup_strategy=None, idempotency_class=IdempotencyClass.INFRA,
+    )
+
+
+def test_attach_gre_tunnel_asserts_the_mirror_path_mtu_last(monkeypatch):
+    from axrange.adapter_proxmox import ssh as ssh_mod
+
+    calls: list[str] = []
+
+    def fake_run_ssh(cfg, cmd, **kw):
+        calls.append(cmd)
+        return "axr-mirror-mtu: o2v1 1600 tap104i1=1600\n" if "route get" in cmd else ""
+
+    monkeypatch.setattr(ssh_mod, "run_ssh", fake_run_ssh)
+    backend = ssh_mod.SshBackend(AdapterConfig(ovs_ssh_host="h"))
+    ctx = ExecutionContext(plan_id="p1", deploy_id="d1",
+                           cluster=ClusterContext(default_node="n"), placement={})
+    out = backend.dispatch(_gre_op(), {"bridge_name": "vbr_corp", "sensor_id": "s1",
+                                       "sensor_transport_ip": "10.255.251.21"}, ctx)
+    assert calls[-1] == ssh_mod.mirror_path_mtu_cmd("10.255.251.21")
+    assert out["mirror_path"] == "axr-mirror-mtu: o2v1 1600 tap104i1=1600"
+
+
+def test_attach_gre_tunnel_mirror_path_failure_is_not_fatal(monkeypatch):
+    from axrange.adapter_proxmox import ssh as ssh_mod
+
+    def fake_run_ssh(cfg, cmd, **kw):
+        if "route get" in cmd:
+            raise AdapterError("ssh: connection reset", error_class="ssh")
+        return ""
+
+    monkeypatch.setattr(ssh_mod, "run_ssh", fake_run_ssh)
+    backend = ssh_mod.SshBackend(AdapterConfig(ovs_ssh_host="h"))
+    ctx = ExecutionContext(plan_id="p1", deploy_id="d1",
+                           cluster=ClusterContext(default_node="n"), placement={})
+    out = backend.dispatch(_gre_op(), {"bridge_name": "vbr_corp", "sensor_id": "s1",
+                                       "sensor_transport_ip": "10.255.251.21"}, ctx)
+    assert out["gre_port"] and out["mirror_path"].startswith("axr-mirror-mtu: not asserted")
+
+
 def test_install_mirror_hook_uses_tc_into_gretap(monkeypatch):
     """install-ovs-mirror writes a post-start/pre-stop hook that installs the
     per-tap tc mirror (clsact + matchall mirred, both directions) into the
@@ -1400,6 +1464,37 @@ def test_create_sdn_zone_idempotent_when_zone_exists():
     backend.op_create_sdn_zone(op, op.inputs_resolved, _net_ctx())
     # Already present -> no POST.
     assert client.posts_to("/cluster/sdn/zones") == []
+
+
+def test_create_sdn_zone_transport_only_carries_the_mirror_mtu():
+    from axrange.adapter_proxmox.ssh import MIRROR_TRANSPORT_MTU
+
+    client = _RecordingRest()
+    backend = RestBackend(AdapterConfig(), client=client)
+    op = _net_op("create-sdn-zone", {"scenario": "o2"},
+                 {"scenario_id": "o2", "zone_type": "simple", "transport_only": True})
+    backend.op_create_sdn_zone(op, op.inputs_resolved, _net_ctx())
+    assert client.posts_to("/cluster/sdn/zones")[0]["mtu"] == MIRROR_TRANSPORT_MTU
+
+
+def test_create_sdn_zone_twin_zone_keeps_the_default_mtu():
+    client = _RecordingRest()
+    backend = RestBackend(AdapterConfig(), client=client)
+    op = _net_op("create-sdn-zone", {"scenario": "demo"},
+                 {"scenario_id": "demo", "zone_type": "simple"})
+    backend.op_create_sdn_zone(op, op.inputs_resolved, _net_ctx())
+    assert "mtu" not in client.posts_to("/cluster/sdn/zones")[0]
+
+
+def test_create_sdn_zone_never_changes_an_existing_transport_zone():
+    """Raising a live zone's MTU would put the bridge above the running VMs' 1500 legs (frames
+    dropped, not fragmented); the runtime assert in attach-gre-tunnel handles existing ones."""
+    zone_id = zone_id_for_plan("p1")
+    client = _RecordingRest(exists=[f"/cluster/sdn/zones/{zone_id}"])
+    op = _net_op("create-sdn-zone", {"scenario": "o2"},
+                 {"scenario_id": "o2", "zone_type": "simple", "transport_only": True})
+    RestBackend(AdapterConfig(), client=client).op_create_sdn_zone(op, op.inputs_resolved, _net_ctx())
+    assert [m for m, _p, _b in client.calls if m != "GET"] == []
 
 
 def test_apply_sdn_config_waits_for_reload_task(monkeypatch):

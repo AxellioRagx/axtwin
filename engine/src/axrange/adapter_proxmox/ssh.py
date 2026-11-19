@@ -46,9 +46,10 @@ from axrange.planner.executor import AdapterError, AdapterTimeout, ExecutionCont
 # gretap netdev MTU. The mirror carries full scenario Ethernet frames (up to
 # 1500 B of L3 payload), so the gretap must accept 1500. The ENCAPSULATED frame
 # is 20 (outer IPv4) + 8 (GRE + key) + 14 (inner Ethernet) [+ 4 per 802.1Q tag]
-# + 1500 = 1542 / 1546 B -- larger than a 1500-MTU transport vnet, which is what
-# every transport on dev45 is. `_GRETAP_PMTU_OPTS` makes the tunnel fragment the
-# outer packet instead of dropping it (docs/ARCHITECTURE.md §3 MTU math).
+# + 1500 = 1542 / 1546 B -- larger than a 1500-MTU transport. The transport is
+# therefore raised to MIRROR_TRANSPORT_MTU (below); where it cannot be,
+# `_GRETAP_PMTU_OPTS` makes the tunnel fragment the outer packet instead of
+# dropping it (docs/ARCHITECTURE.md, capture).
 _GRETAP_MTU = 1500
 
 # Outer-IP DF policy for the mirror gretap: never set DF on the outer header and
@@ -67,6 +68,27 @@ _GRETAP_MTU = 1500
 # 150/150 full-size mirrored frames lost without these flags, 0 lost with them.
 # `ignore-df` requires `nopmtudisc` (the kernel rejects it alongside outer DF).
 _GRETAP_PMTU_OPTS = "nopmtudisc ignore-df"
+
+# The MTU the mirror's TRANSPORT path is raised to, so a full-size mirrored
+# frame crosses it as ONE outer packet. Largest encapsulation: 20 (outer IPv4)
+# + 8 (GRE + key) + 14 (inner Ethernet) + 8 (two 802.1Q tags) + 1500 = 1550 B;
+# 1600 leaves headroom. `_GRETAP_PMTU_OPTS` stays as the fallback: where the
+# path cannot be raised (below) the tunnel still fragments instead of dropping.
+#
+# Why not fragment: the sensor reassembles, and small frames overtake the
+# reassembled big ones -- 5-6 % of TCP segments captured out of wire order and
+# ~1.6 outer packets per frame, against 0 % and 1.0 on a 1600 path (capture-rate
+# ladder 2026-10-01, o2/tcpdump-sensor/README.md). Seen again on trex-test
+# (dev45, 2026-11-17): 80 % of the transport's outer packets were fragments.
+#
+# The earlier fix (catalog/twins/corp-twin/scripts/mirror-mtu-path.sh) raised
+# only the sensor's tap leg and was runtime-only: PVE resets a VM's tap to its
+# BRIDGE's MTU at every VM start (PVE::Network tap_plug) and refuses a NIC MTU
+# above the bridge's, so the bridge has to carry the MTU. Persistence is the
+# transport zone's `mtu` (adapter_proxmox/rest.py create-sdn-zone); this
+# runtime assert heals a transport built before that and covers the libvirt
+# host.
+MIRROR_TRANSPORT_MTU = 1600
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +137,40 @@ def gretap_qdisc_cmd(dev: str, qlen: int) -> str:
 def gretap_offload_cmd(dev: str) -> str:
     """Segmentation offload off on the tunnel (never fatal)."""
     return f"ethtool -K {shlex.quote(dev)} gso off tso off gro off || true"
+
+
+def mirror_path_mtu_cmd(sensor_ip: str, mtu: int = MIRROR_TRANSPORT_MTU) -> str:
+    """Raise the mirror's transport path to the sensor to `mtu` (never fatal).
+
+    The outer packets leave through whatever device `ip route get <sensor>`
+    names. When that is a Linux bridge whose ports are ALL virtual (VM taps,
+    veths; no `device` link in sysfs) -- an SDN transport vnet -- every port
+    below `mtu` is raised FIRST, then the bridge. That order matters: a bridge
+    above one of its ports drops the frames that port cannot forward
+    (`is_skb_forwardable`), while ports above the bridge only mean the outer
+    packet is fragmented as before. So every failure leaves the old
+    fragmenting path, never a lossy one.
+
+    Left alone (prints `skip`): a sensor reached through a physical NIC or a
+    bridge with a physical port -- changing that MTU flaps the link, and the
+    network beyond it is not ours to size. Also a bridge with a PVE firewall
+    port (`fwpr*`): the frame would still meet the 1500-MTU `fwln`/tap behind
+    that veth pair. Also left alone: a path already at or above `mtu`. Prints one `axr-mirror-mtu:` line for the op log."""
+    ip = shlex.quote(sensor_ip)
+    m = int(mtu)
+    return (
+        f"dev=$(ip -o route get {ip} 2>/dev/null | sed -n 's/.* dev \\([^ ]*\\).*/\\1/p'); "
+        f'[ -n "$dev" ] || {{ echo "axr-mirror-mtu: skip no route to {sensor_ip}"; exit 0; }}; '
+        f'[ -d "/sys/class/net/$dev/bridge" ] || {{ echo "axr-mirror-mtu: skip $dev is not a bridge"; exit 0; }}; '
+        f'for p in /sys/class/net/$dev/brif/*; do [ -e "$p" ] || continue; '
+        f'[ -e "/sys/class/net/${{p##*/}}/device" ] && {{ echo "axr-mirror-mtu: skip $dev has physical port ${{p##*/}}"; exit 0; }}; '
+        f'case ${{p##*/}} in fwpr*) echo "axr-mirror-mtu: skip $dev has firewall port ${{p##*/}}"; exit 0;; esac; done; '
+        f'for p in /sys/class/net/$dev/brif/*; do [ -e "$p" ] || continue; n=${{p##*/}}; '
+        f'[ "$(cat /sys/class/net/$n/mtu)" -ge {m} ] || ip link set "$n" mtu {m} || true; done; '
+        f'[ "$(cat /sys/class/net/$dev/mtu)" -ge {m} ] || ip link set "$dev" mtu {m} || true; '
+        f'echo "axr-mirror-mtu: $dev $(cat /sys/class/net/$dev/mtu)" '
+        f'$(for p in /sys/class/net/$dev/brif/*; do [ -e "$p" ] && echo "${{p##*/}}=$(cat /sys/class/net/${{p##*/}}/mtu)"; done); true'
+    )
 
 
 def gretap_del_cmd(dev: str) -> str:
@@ -802,7 +858,15 @@ class SshBackend:
         # Failure here is not fatal: a kernel or device that rejects the request should not fail
         # an otherwise good tunnel, and the drops it prevents are a fidelity loss, not an outage.
         run_ssh(self.cfg, gretap_offload_cmd(dev), timeout_s=op.timeout_s or 60)
-        return {"gre_port": dev}
+        # The transport path to the sensor at MIRROR_TRANSPORT_MTU, so a full-size mirrored frame
+        # is one outer packet, not two fragments (see the constant). Asserted on every run, like
+        # the qdisc: a transport built before this, or reset by a node network reload, heals on
+        # the next tap apply. Never fatal -- the fallback is the old fragmenting path.
+        try:
+            path = run_ssh(self.cfg, mirror_path_mtu_cmd(sensor_ip), timeout_s=op.timeout_s or 60)
+        except (AdapterError, AdapterTimeout) as e:
+            path = f"axr-mirror-mtu: not asserted ({e})"
+        return {"gre_port": dev, "mirror_path": (path or "").strip()}
 
     def _install_ovs_mirror(
         self, op: OpInstance, inp: dict[str, Any], ctx: ExecutionContext

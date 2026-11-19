@@ -214,6 +214,25 @@ def test_build_plan_o2_tier_emits_sensor_lifecycle_ops(manifests):
     assert "attach-gre-tunnel" not in op_names
 
 
+def test_o2_transport_zone_is_flagged_transport_only_and_a_mixed_zone_is_not(manifests):
+    """The o2 plan's zone holds only the sensor transport, so it is sized for the mirror's GRE
+    (the adapter sets the zone MTU). A zone that also carries twin networks keeps the default:
+    its MTU would become the twin guests' own MTU."""
+    ctx = ClusterContext.single_node("pxtest1")
+
+    def zone_inputs(raw):
+        parsed = parse_ir(text=_dump(raw))
+        plan = build_plan(parsed.ir, manifests, ctx, raw_ir=parsed.raw, tier="o2")
+        return next(o.inputs_resolved for o in plan.ops.values() if o.op_name == "create-sdn-zone")
+
+    raw = compose_surface_ir(default_surface_manifest())
+    assert zone_inputs(raw).get("transport_only") is True
+
+    mixed = compose_surface_ir(default_surface_manifest())
+    mixed["layers"]["infra"]["networks"].append({"id": "corp", "cidr": "10.1.0.0/24", "gateway": "10.1.0.1"})
+    assert "transport_only" not in zone_inputs(mixed)
+
+
 def test_build_plan_default_tier_is_te(manifests):
     raw = compose_surface_ir(default_surface_manifest())
     parsed = parse_ir(text=_dump(raw))

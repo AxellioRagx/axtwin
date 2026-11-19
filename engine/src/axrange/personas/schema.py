@@ -44,7 +44,10 @@ OS_FAMILIES = ("windows", "linux")
 # driver produces DNS + a real TLS handshake (real SNI, real JA3/JA4) +
 # HTTP/1.1 + HTTP/2 + QUIC/HTTP-3. Additive on the same terms -- PSN-030's
 # enum widened again, rule COUNT still 114.
-DRIVE_KINDS = ("scripted", "replay", "real-service", "command", "browser")
+# `trex-astf` (2026-11-16, catalog/twins/trex-test): a TRex ASTF generator
+# standing in for a crowd of similar hosts; its traffic comes from `knobs`
+# (templates, crowd range, schedule), not `emits[]`. Additive, as above.
+DRIVE_KINDS = ("scripted", "replay", "real-service", "command", "browser", "trex-astf")
 CADENCE_KINDS = ("diurnal", "24x7")  # + "cyclic:<duration>" / "burst:<duration>"
 # `bulk` (2026-07-28) is the elephant-flow tier above `high` — see
 # `drivers.scripted._VOLUME_PROFILE`, where a volume level now resolves to

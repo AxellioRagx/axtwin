@@ -28,6 +28,7 @@ from axrange.personas.drivers.command import CommandDriver
 from axrange.personas.drivers.real_service import RealServiceDriver
 from axrange.personas.drivers.replay import ReplayDriver
 from axrange.personas.drivers.scripted import ScriptedDriver
+from axrange.personas.drivers.trex_astf import TrexAstfDriver
 
 _DRIVERS: dict[str, PersonaDriver] = {
     "scripted": ScriptedDriver(),
@@ -43,6 +44,9 @@ _DRIVERS: dict[str, PersonaDriver] = {
     # HTTP/1.1 + HTTP/2 + QUIC through a real headless Chromium. Adding this
     # entry is again the ENTIRE execution-side wiring change.
     "browser": BrowserDriver(),
+    # 2026-11-16, catalog/twins/trex-test: one TRex ASTF generator standing in
+    # for a crowd of similar hosts (`drivers/trex_astf.py`).
+    "trex-astf": TrexAstfDriver(),
 }
 
 
@@ -67,6 +71,7 @@ __all__ = [
     "ReplayDriver",
     "RealServiceDriver",
     "CommandDriver",
+    "TrexAstfDriver",
     "get_driver",
     "effective_seed",
     "heartbeat_scheduled_task",

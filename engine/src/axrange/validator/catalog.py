@@ -630,7 +630,7 @@ _RULES_LIST: list[Rule] = [
     # echo of it and must be kept in step.
     _R("PSN-030", RuleCategory.PERSONA, ERR, 4,
        "Persona drive is scripted, replay, real-service, command, or browser",
-       message_template="Persona '{persona_id}' drive '{drive}' is not one of scripted, replay, real-service, command, browser"),
+       message_template="Persona '{persona_id}' drive '{drive}' is not one of scripted, replay, real-service, command, browser, trex-astf"),
     _R("PSN-040", RuleCategory.PERSONA, ERR, 4,
        "Every emits[] entry names a known proto",
        description=(

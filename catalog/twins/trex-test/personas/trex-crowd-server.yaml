@@ -1,0 +1,15 @@
+# trex-test -- the crowd's INTERNAL server side (drive: trex-astf). One TRex
+# ASTF server on trex-server (lan-b) answers the SMB sessions for the file
+# servers fs01/fs02 (10.250.2.1-.2). ASTF's split mode needs every side to
+# load the same profile, so this persona takes the client's templates and
+# ranges (`profile_from`) and only says which side it is; the router's routes
+# decide that only the file-server flows reach it.
+persona:
+  id: trex-crowd-server
+  os_family: linux
+  drive: trex-astf
+  emits: []
+  requires: []
+  knobs:
+    side: server
+    profile_from: trex-crowd-client

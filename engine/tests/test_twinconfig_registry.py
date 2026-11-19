@@ -43,6 +43,8 @@ _EXPECTED_IDS = {
     "corp-twin-devlab",
     # The canvas / device-tree fixtures (topology-layers, native switches).
     "canvas-test", "switch-test", "switch-trunk-test",
+    # The TRex ASTF crowd proof (catalog/twins/trex-test, 2026-11-16).
+    "trex-test",
 }
 
 

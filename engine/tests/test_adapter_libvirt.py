@@ -1225,14 +1225,15 @@ def test_configure_routing_without_wan_ip_fails_loud():
 
 
 def test_attach_gre_tunnel_runs_the_same_commands_as_proxmox():
-    from axrange.adapter_proxmox.ssh import gretap_add_cmd, gretap_offload_cmd, gretap_qdisc_cmd, gretap_up_cmd
+    from axrange.adapter_proxmox.ssh import (
+        gretap_add_cmd, gretap_offload_cmd, gretap_qdisc_cmd, gretap_up_cmd, mirror_path_mtu_cmd)
 
     rig = Rig()
     out = rig.run("attach-gre-tunnel", {"net": "corp", "sensor": "s1"},
                   {"bridge_name": _vnet(), "sensor_id": "s1", "sensor_transport_ip": "10.255.250.20"})
     dev = naming.gre_port_for_bridge_sensor(_vnet(), "s1")
     key = naming.gre_key_for_bridge_sensor(_vnet(), "s1")
-    assert out == {"gre_port": dev} and naming.is_tap_gretap(dev)
+    assert out == {"gre_port": dev, "mirror_path": ""} and naming.is_tap_gretap(dev)
     cmds = rig.runner.cmds
     assert cmds == [
         f"ip -o link show {dev} 2>/dev/null || true",
@@ -1240,6 +1241,7 @@ def test_attach_gre_tunnel_runs_the_same_commands_as_proxmox():
         gretap_up_cmd(dev),
         gretap_qdisc_cmd(dev, 20000),
         gretap_offload_cmd(dev),
+        mirror_path_mtu_cmd("10.255.250.20"),
     ]
     assert f"remote 10.255.250.20 key {key} nopmtudisc ignore-df" in cmds[1]
     assert "pfifo limit 20000" in cmds[3] and "mtu 1500 up" in cmds[2]

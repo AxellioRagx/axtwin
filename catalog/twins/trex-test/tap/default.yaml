@@ -1,0 +1,16 @@
+# Tap plan: trex-test / default -- the internal LANs and the external edge to
+# the XPress-SW-A sink (dev45's lab sensor).
+#   lan-a, lan-b  `segment`: every port on the net, rx only (internal views)
+#   inet          `perimeter`: the router's port on the external segment, both
+#                 directions -- the boundary tap, where internal meets external
+# A crowd flow is captured once per tapped segment it crosses: SMB on lan-a
+# and lan-b, web/DNS on lan-a and at the perimeter.
+tap-plan:
+  target: trex-test
+  bindings:
+    - selector: { scope: segment, target: lan-a }
+      sensors: [XPress-SW-A]
+    - selector: { scope: segment, target: lan-b }
+      sensors: [XPress-SW-A]
+    - selector: { scope: perimeter, target: inet }
+      sensors: [XPress-SW-A]

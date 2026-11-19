@@ -1,0 +1,23 @@
+# trex-test -- the root manifest. The `trex-astf` persona driver's twin (the
+# crowd work, README.md): a TRex ASTF client generator emulating a 50-host
+# internal crowd on lan-a; an internal server generator (SMB file servers) on
+# lan-b beside a real AD DS domain controller; an external server generator
+# (web, DNS) on inet, beyond the router that is the boundary; all three
+# segments tapped.
+twin:
+  id: trex-test
+  description: >
+    TRex ASTF crowd: 50 emulated internal clients (10.250.1.0/24) on lan-a;
+    SMB 3.1.1 file transfers to internal file servers (trex-server, lan-b,
+    with AD DS domain controller dc01 for crowd.axr.lab); HTTP, TLS and DNS to
+    external servers (trex-ext on inet, TEST-NET space) through one Debian
+    router that is the internal/external boundary; segment taps on both LANs
+    and a perimeter tap on the external edge.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

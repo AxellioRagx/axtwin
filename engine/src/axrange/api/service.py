@@ -6416,6 +6416,7 @@ def _host_health_detail(
             instance_id=iid, persona=str(inp.get("persona_id") or "unknown"),
             state=rec["state"], alive=rec.get("alive"), unit=rec.get("unit"),
             checked_at=rec.get("checked_at"), reason=rec.get("reason"),
+            stats=rec.get("stats"),
         ))
     return dtos.HealthHostDetailDTO(host_id=host, qga=qga, personas=personas)
 
