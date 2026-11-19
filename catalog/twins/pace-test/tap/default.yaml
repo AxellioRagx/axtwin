@@ -1,0 +1,8 @@
+# Tap plan: pace-test / default -- the server segment to the XPress-SW-A sink.
+# Every client->server flow crosses gw onto `srv`, so tapping `srv` captures
+# each flow exactly once, with the client's real (routed, un-NATed) address.
+tap-plan:
+  target: pace-test
+  bindings:
+    - selector: { scope: segment, target: srv }
+      sensors: [XPress-SW-A]

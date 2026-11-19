@@ -1,0 +1,18 @@
+# pace-test -- the root manifest (loader: axrange/twinconfig/manifest.py).
+# A small, fully real twin for the discovery round trip: deploy it, tap it to
+# XPress-SW-A, discover an imprint from the capture through the
+# XPress-SW-Reader axquery source, cast it, and compare the cast with this.
+twin:
+  id: pace-test
+  description: >
+    Ground-truth twin for the discovery round trip: one router, three real
+    servers (bind9, nginx HTTP/TLS, Samba) on a server LAN and four Linux
+    clients running real protocol tools at a brisk cadence on a client LAN.
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tap:
+      default: tap/default.yaml
+    tfc:
+      default: tfc/default.yaml

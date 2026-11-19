@@ -1,0 +1,8 @@
+# pace-test traffic: the pace-client persona on every client.
+traffic-profile:
+  target: pace-test
+  assignments:
+    - role: pace-client
+      persona: pace-client
+      schedule: 24x7
+      seed: 20261119

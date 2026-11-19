@@ -1,0 +1,31 @@
+# The bundle-local client persona for pace-test: real protocol tools
+# (`drive: command`) at a brisk cadence. Per client, per minute, about:
+#   dns   12 x 8 dig        ->  96 queries
+#   http   6 x 2 curl       ->  12 GETs
+#   https  6 x 2 curl       ->  12 TLS sessions
+#   smb    2 x 2 smbclient  ->   4 x 1 MiB SMB3 reads
+#   icmp   4 x 2 ping       ->   8 echoes
+# Four clients make that ~500 flows a minute across the router.
+persona:
+  id: pace-client
+  os_family: linux
+  drive: command
+
+  emits:
+    - { proto: dns,   ports: [53],  peer_role: dns-resolver, direction: EW, cadence: "cyclic:5s",  volume: med }
+    - { proto: http,  ports: [80],  peer_role: web-tier,     direction: EW, cadence: "cyclic:10s", volume: low }
+    - { proto: https, ports: [443], peer_role: web-tier,     direction: EW, cadence: "cyclic:10s", volume: low }
+    - { proto: smb,   ports: [445], peer_role: file-server,  direction: EW, cadence: "cyclic:30s", volume: low }
+    - { proto: icmp,                peer_role: web-tier,     direction: EW, cadence: "cyclic:15s", volume: low }
+
+  requires: [dns-resolver, web-tier, file-server]
+
+  knobs:
+    # bind9's recipe is authoritative for corp.axr.lab (a wildcard A record).
+    dns_qname: "axdc04.corp.axr.lab."
+    # The share is guest-readable (scripts/serve-smb.sh): anonymous smbclient.
+    auth_credential: none
+    smb_share: share
+    smb_file: axrange-probe.bin
+    schedule: 24x7
+    seed_jitter: true

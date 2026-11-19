@@ -1,0 +1,98 @@
+# Twin config: pace-test (catalog/twins/pace-test/README.md)
+#
+# The GROUND TRUTH for the discovery round trip. Everything is a real VM with
+# a real address and a real protocol server or client, so every fact a cast
+# could recover is written down here:
+#
+#   lan  10.72.1.0/24  gw .1   clients cli (x4, sequential from .2)
+#   srv  10.72.2.0/24  gw .1   srv-dns .11 (53 udp/tcp), srv-web .12 (80, 443),
+#                              srv-smb .13 (445)
+#
+# Traffic (tfc): every client resolves through srv-dns, fetches HTTP and HTTPS
+# from srv-web, pulls a 1 MiB file over SMB3 from srv-smb, and pings srv-web.
+# All of it crosses gw (lan -> srv), routed, never NATed.
+#
+# Tap (tap/default.yaml): the `srv` segment, so each client->server flow is
+# captured once, with the client's real address.
+twin_config:
+  id: pace-test
+  description: |
+    Ground-truth twin for the discovery round trip: four Linux clients on lan
+    drive DNS, HTTP, HTTPS, SMB3 and ICMP at a brisk cadence against three real
+    servers on srv (bind9, nginx, Samba), through one Debian router.
+
+  default_agents: false
+
+  # Gateways declared on the segments, router legs unpinned (see trex-test:
+  # a pinned router leg records no segment gateway and hosts get no route).
+  segments:
+    - { name: lan, cidr: 10.72.1.0/24, gateway: 10.72.1.1, zone_type: simple }
+    - { name: srv, cidr: 10.72.2.0/24, gateway: 10.72.2.1, zone_type: simple }
+
+  nodes:
+    - name: gw
+      role: gw
+      kind: router
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      nets:
+        - { segment: lan }
+        - { segment: srv }
+
+    - name: srv-dns
+      role: dns-resolver
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: srv, ip: 10.72.2.11 }]
+      install:
+        - { pkg: bind9 }
+        - { pkg: bind9-utils }
+        - { script: scripts/serve-dns.sh }
+      listen:
+        - { port: 53, proto: udp }
+        - { port: 53, proto: tcp }
+
+    - name: srv-web
+      role: web-tier
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: srv, ip: 10.72.2.12 }]
+      install:
+        - { pkg: nginx }
+        - { pkg: openssl }
+        - { script: scripts/serve-web.sh }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+
+    - name: srv-smb
+      role: file-server
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 2Gi, disk: 20Gi }
+      nets: [{ segment: srv, ip: 10.72.2.13 }]
+      install:
+        - { pkg: samba }
+        - { script: scripts/serve-smb.sh }
+      listen:
+        - { port: 445, proto: tcp }
+
+    # The clients: no listen (they serve nothing; ABSENT is "no claim").
+    - name: cli
+      role: pace-client
+      image: debian-12-cloud@v1
+      requires: [linux]
+      resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
+      count: 4
+      nets: [{ segment: lan }]
+      install:
+        - { pkg: dnsutils }    # dig        -- proto: dns
+        - { pkg: curl }        # curl       -- proto: http / https
+        - { pkg: smbclient }   # smbclient  -- proto: smb
+        # ping is iputils-ping, already in the base cloud image.
+
+  conduits:
+    - { from: lan, to: srv }
