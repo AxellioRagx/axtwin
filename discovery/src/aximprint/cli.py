@@ -754,6 +754,99 @@ def _write_serve_scripts(out: dict, pit: dict, dest, personas: dict) -> None:
             f"server half exists to remove.")
 
 
+def _drop_indexed(out: dict, list_path: str, items: list, drop: set) -> list:
+    """`items` without the indices in `drop`, re-keying `out["provenance"]["fields"]` so every
+    surviving `<list_path>[i]...` key follows its item to the new index and the dropped items'
+    keys go with them. The provenance sidecar is keyed by list position; removing an item
+    without this would silently attach every later item's provenance to its neighbour."""
+    import re
+
+    keep = [i for i in range(len(items)) if i not in drop]
+    remap = {old: new for new, old in enumerate(keep)}
+    fields = (out.get("provenance") or {}).get("fields")
+    if isinstance(fields, dict):
+        pat = re.compile(rf"^{re.escape(list_path)}\[(\d+)\](.*)$")
+        rekeyed = {}
+        for key, val in fields.items():
+            m = pat.match(key)
+            if not m:
+                rekeyed[key] = val
+            elif int(m.group(1)) in remap:
+                rekeyed[f"{list_path}[{remap[int(m.group(1))]}]{m.group(2)}"] = val
+        out["provenance"]["fields"] = rekeyed
+    return [items[i] for i in keep]
+
+
+def _prune_unused_sink(out: dict, personas: dict, used: set) -> None:
+    """Drop internet-sink node groups no ASSIGNED persona dials, and the sink segment (with the
+    router's leg on it) when none is left.
+
+    The compiler emits the whole sink family (`SINK_BUCKETS`, 15 hosts) before any persona
+    exists, so it cannot know which sub-roles will be dialled. Measured on `pace-test`
+    (2026-11-19): the only assigned persona dialling out reached `internet-sink-1`/`-2`, while
+    `-4`/`-8` were named only by `cast-dns-resolver`, which a resolver never gets assigned (D5a)
+    -- twelve VMs that could generate and receive nothing. A sink group an operator later wants
+    is one re-cast away; a twin that deploys idle VMs misdescribes the network it was cast from.
+    """
+    from aximprint.synth.compiler import SINK_SEGMENT_NAME
+    from aximprint.synth.personas import SINK_ROLE
+
+    tc = out["twin_config"]["twin_config"]
+    dialled = {e.get("peer_role") for pid in used if pid in personas
+               for e in personas[pid]["persona"].get("emits", [])}
+    nodes = tc.get("nodes", [])
+    drop = {i for i, n in enumerate(nodes)
+            if str(n.get("role", "")).startswith(SINK_ROLE + "-") and n["role"] not in dialled}
+    if not drop:
+        return
+    gone = sorted(nodes[i]["role"] for i in drop)
+    tc["nodes"] = nodes = _drop_indexed(out, "twin_config.nodes", nodes, drop)
+    sink_left = any(str(n.get("role", "")).startswith(SINK_ROLE + "-") for n in nodes)
+    if not sink_left:
+        segs = tc.get("segments", [])
+        tc["segments"] = _drop_indexed(
+            out, "twin_config.segments", segs,
+            {i for i, sg in enumerate(segs) if sg.get("name") == SINK_SEGMENT_NAME})
+        conds = tc.get("conduits", [])
+        tc["conduits"] = _drop_indexed(
+            out, "twin_config.conduits", conds,
+            {i for i, c in enumerate(conds) if SINK_SEGMENT_NAME in (c.get("from"), c.get("to"))})
+        for n in nodes:
+            if n.get("nets"):
+                n["nets"] = [leg for leg in n["nets"] if leg.get("segment") != SINK_SEGMENT_NAME]
+    out["caveats"].append(
+        f"internet-sink group(s) {gone} were dropped: no assigned persona dials them"
+        + ("" if sink_left else f", so the {SINK_SEGMENT_NAME!r} segment and the router's leg on "
+           f"it went too") + ". Re-cast to restore them if a persona is assigned later.")
+
+
+def _install_client_tools(nodes: list, assignments: list, personas: dict) -> None:
+    """Give every node a `drive: command` persona lands on the Debian packages its client tools
+    need, as `pkg:` installs ahead of any script (`personas.client_packages`).
+
+    Without them the command driver refuses to start (it probes for each binary) and the host
+    generates nothing. Node-level, so every instance of a group gets them even when only some
+    instances carry the persona: a package nobody runs costs disk, a missing one costs the emit.
+    """
+    from aximprint.synth.personas import client_packages, node_instances
+
+    for a in assignments:
+        pkgs = client_packages(personas.get(a.get("persona"), {}))
+        if not pkgs:
+            continue
+        for node in nodes:
+            if a.get("role"):
+                hit = node.get("role") == a["role"]
+            else:
+                hit = a.get("node") in (node.get("name"), *node_instances(node))
+            if not hit:
+                continue
+            have = {i.get("pkg") for i in node.get("install") or [] if i.get("pkg")}
+            missing = [{"pkg": p} for p in pkgs if p not in have]
+            if missing:
+                node["install"] = missing + list(node.get("install") or [])
+
+
 def _drop_unsynthesized_roles(prof: dict, personas: dict, caveats: list) -> list[str]:
     """Take out every role-level assignment whose persona this cast did not synthesize, and
     say so in the caveats. Returns the roles dropped, sorted.
@@ -892,6 +985,9 @@ def cmd_cast(args) -> int:
         suffixes = (LOCAL_VARIANT_SUFFIX, CHATTER_VARIANT_SUFFIX)
         personas = {pid: doc for pid, doc in personas.items()
                     if pid in used or not pid.endswith(suffixes)}
+
+        _install_client_tools(nodes_all, prof["assignments"], personas)
+        _prune_unused_sink(out, personas, used)
 
         pdir = dest / "personas"
         pdir.mkdir(parents=True, exist_ok=True)

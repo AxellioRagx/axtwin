@@ -78,12 +78,14 @@ _IR_PROTO_ALIASES: dict[str, tuple[str, ...]] = {
     # -- the nineteen that scored zero, where the sensor does have a counterpart ------------
     # TLS is `ssl`, and HTTP/3 arrives as the composite `quic,ssl`. 472 rows on this source:
     # the single biggest thing the ranking could not see.
-    "https": ("ssl", "quic"),
+    # axquery (XPress-SW-A's reader, 2026-11) labels the same sessions `tls`, so a cast from it
+    # never weighted or paced 443 at all until this third token (pace-test, 2026-11-19).
+    "https": ("ssl", "quic", "tls"),
     # Everything else carried inside TLS is `ssl` too -- the IR has no port column, so it
     # genuinely cannot tell one TLS session from another. Mapping them is truthful about that
     # ambiguity (they tie, and the dial-frequency tiebreak decides); on THIS source neither
     # port is dialled by anything, so both entries are inert here.
-    "ldaps": ("ssl",), "imaps": ("ssl",),
+    "ldaps": ("ssl", "tls"), "imaps": ("ssl", "tls"),
     "kerberos": ("krb", "krb_tcp"),          # + the composite `gssapi,smb,krb`
     "ldap": ("ldap_tcp", "ldap_udp"),        # Zeek splits LDAP by transport
     "smb": ("smb",),                         # + `gssapi,smb,krb` / `gssapi,smb,ntlm`
@@ -289,6 +291,138 @@ def _cadence_for(tier: str, observed_bytes_per_s: float) -> str:
     """
     rate = max(1.0, float(observed_bytes_per_s or 1.0))
     return f"cyclic:{max(5, min(600, int(_TIER_BYTES.get(tier, 512) / rate)))}s"
+
+
+# -- per-emit pacing from the edge table (pace-test round trip, 2026-11-19) -------------------
+#
+# The group-wide byte-rate cadence above (`_cadence_for`) reads `ir_traffic_profile`, which is
+# floor-gated at `_RATE_MIN_WINDOWS` (4) windows. A one-hour axquery PIT has ONE window, every
+# profile is NULL, the observed rate degrades to `max(1.0, 0)` = 1 B/s, and every emit of every
+# persona fired once per 512 s. Measured on `pace-test` (ground truth: four clients each sending
+# ~70 DNS queries, 9 HTTP GETs, 9 TLS sessions and 3 SMB reads a minute), the cast offered 0.2
+# fires a minute per emit -- ~100x too slow -- and the same cadence for DNS as for SMB, though
+# the source ran DNS 20x more often.
+#
+# `ir_edge` carries exact `flows` per (src, dst, proto) whatever the window count, so the pace is
+# taken from there, PER EMIT: the flows a group's member hosts sent to the emit's peer on the
+# emit's protocol, per host, per second of the PIT's span. A fire is `messages` flows to each
+# resolved peer (axRange's scripted and command drivers both run one connection / one tool
+# invocation per message), so the interval that reproduces the rate is `messages / rate`.
+
+#: axRange's volume tiers -> messages per fire (`personas.drivers.scripted._VOLUME_PROFILE`).
+_TIER_MESSAGES = {"low": 2, "med": 8, "high": 24, "bulk": 64}
+_TIER_ORDER = ("low", "med", "high", "bulk")
+#: The same clamp `_cadence_for` documents: below 5 s a persona is a load generator, above 10 min
+#: it does not appear in a short capture.
+_MIN_INTERVAL_S, _MAX_INTERVAL_S = 5, 600
+
+
+def emit_flow_rates(pit: dict, bands: Optional[dict] = None) -> dict[tuple[str, str, str], float]:
+    """`{(group, "port/transport", peer): flows per member host per second}`.
+
+    `peer` is the destination ROLE for a local destination and `SINK_ROLE` for an external one
+    (what the sink stands in for). An edge is attributed to a port when the sensor's protocol
+    label carries that port's application token (`services.app_token`, the sensor vocabulary);
+    a port no table names falls back to the destination's own listen census. A rate exists only
+    where an edge was observed, so an emit with no matching edge keeps the group cadence.
+    """
+    from aximprint.synth.services import app_token, edge_tokens, parse_port
+
+    pit_row = (pit.get("ir_pit") or [{}])[0]
+    span = float((pit_row.get("observed_to") or 0) - (pit_row.get("observed_from") or 0))
+    if span <= 0:
+        return {}
+    ents = {e["entity_key"]: e for e in pit.get("ir_entity") or []}
+    members: Counter = Counter()
+    group_of: dict[str, str] = {}
+    for key, e in ents.items():
+        if not e.get("role") or e.get("locality") != "local":
+            continue
+        b = (bands or {}).get(key, "")
+        group_of[key] = f"{e['role']}-{b}" if b else e["role"]
+        members[group_of[key]] += 1
+    flows: Counter = Counter()
+    for ed in pit.get("ir_edge") or []:
+        group = group_of.get(ed.get("src_key"))
+        dst = ents.get(ed.get("dst_key"))
+        if not group or not dst:
+            continue
+        if dst.get("locality") == "local":
+            peer = dst.get("role")
+            if not peer:
+                continue
+        else:
+            peer = SINK_ROLE
+        tokens = edge_tokens(ed.get("proto"))
+        src_dials = json.loads(ents[ed["src_key"]].get("dial_ports") or "[]")
+        dst_listens = set(json.loads(dst.get("listen_ports") or "[]"))
+        for spec in src_dials:
+            parsed = parse_port(spec)
+            if not parsed:
+                continue
+            tok = app_token(*parsed)
+            wanted = set(_IR_PROTO_ALIASES.get(_PORT_PROTO.get(parsed[0], ""), ())) | {tok}
+            if (tok and wanted & tokens) or (tok is None and spec in dst_listens):
+                flows[(group, spec, peer)] += int(ed.get("flows") or 0)
+    return {k: n / members[k[0]] / span for k, n in flows.items() if members[k[0]]}
+
+
+def pace_for(rate_per_host: float, *, peers: int = 1,
+             min_tier: str = "low") -> tuple[str, str]:
+    """`(cadence, volume)` reproducing `rate_per_host` flows a second across `peers` peers.
+
+    The smallest tier at or above `min_tier` whose interval stays at or above the 5 s floor; at
+    `bulk` the floor wins and the emit under-offers, which is the documented clamp, not a
+    silent one -- the cadence string says 5 s."""
+    per_peer = rate_per_host / max(1, peers)
+    start = _TIER_ORDER.index(min_tier) if min_tier in _TIER_ORDER else 0
+    tier = _TIER_ORDER[start]
+    for tier in _TIER_ORDER[start:]:
+        if per_peer <= 0 or _TIER_MESSAGES[tier] / per_peer >= _MIN_INTERVAL_S:
+            break
+    interval = _TIER_MESSAGES[tier] / per_peer if per_peer > 0 else _MAX_INTERVAL_S
+    interval = max(_MIN_INTERVAL_S, min(_MAX_INTERVAL_S, int(round(interval))))
+    return f"cyclic:{interval}s", tier
+
+
+# -- protocol-faithful clients (axRange `drive: command`) -------------------------------------
+#
+# A scripted persona pushes tagged filler at the right port, so the cast's own real servers
+# (bind9, nginx, samba -- `synth/services.py`) discard it and the re-capture records bare
+# `udp`/`tcp` where the source recorded `dns`/`ssl`/`smb`. The iteration-18 note above measured
+# what that costs: protocol fidelity drives role attribution. axRange's `command` driver runs a
+# REAL client tool per message instead, so a persona whose every emit is one of these protocols
+# is cast as `drive: command`, and its hosts get the tools' Debian packages as `pkg:` installs
+# (`client_packages`). Anything else -- a raw tcp/udp port, a credentialed protocol (ldap,
+# kerberos, rpc need an identity the cast does not have), ntp (`ntpdate`'s package name differs
+# between Debian releases), a Windows host -- keeps `scripted`, for the whole persona.
+#: proto -> the Debian packages its axRange command template needs beyond the base image
+#: (`axrange.personas.drivers.command`; cross-checked by `tests/test_synth_personas_pace.py`).
+COMMAND_PROTO_PACKAGES: dict[str, tuple[str, ...]] = {
+    "dns": ("dnsutils",), "http": ("curl",), "https": ("curl",), "smb": ("smbclient",),
+    "icmp": (),
+}
+
+
+def command_knobs() -> dict:
+    """The `knobs` a cast command persona carries, matched to the cast's own servers.
+
+    `dns_qname` is under the LAB realm the bind9 recipe is authoritative for (a wildcard answers
+    every name in it); the smb share and file are the samba recipe's; `auth_credential: none`
+    because that share is guest-readable and nothing observed carries a credential."""
+    from aximprint.synth.services import LAB_REALM, SMB_FILE, SMB_SHARE
+
+    return {"dns_qname": f"axrange-probe.{LAB_REALM}.", "auth_credential": "none",
+            "smb_share": SMB_SHARE, "smb_file": SMB_FILE}
+
+
+def client_packages(persona: dict) -> tuple[str, ...]:
+    """The Debian packages a cast persona's host must install (empty unless `drive: command`)."""
+    doc = persona.get("persona", persona)
+    if doc.get("drive") != "command":
+        return ()
+    return tuple(sorted({pkg for e in doc.get("emits", [])
+                         for pkg in COMMAND_PROTO_PACKAGES.get(e.get("proto"), ())}))
 
 
 def _p50(raw: Any) -> float:
@@ -837,6 +971,7 @@ def synthesize_personas(pit: dict, *, window_s: int = 60,
     edge_targets = role_edge_targets(pit)
 
     population = local_population(pit, bands)
+    flow_rates = emit_flow_rates(pit, bands)
 
     out: dict[str, dict] = {}
     for group, ports in sorted(dial_counts.items()):
@@ -972,23 +1107,41 @@ def synthesize_personas(pit: dict, *, window_s: int = 60,
             tier = _volume_for(mean_bytes / max(1.0, mean_flows))
             per_row_rate = (mean_bytes / window_s) / max(1, rows)
             cadence = _cadence_for(tier, per_row_rate)
-            for emit in emits:
-                emit["cadence"], emit["volume"] = cadence, tier
             img = (image_of or {}).get(group, "")
+            os_family = "windows" if "win" in img else "linux"
+            drive = ("command" if os_family == "linux" and all(
+                e["proto"] in COMMAND_PROTO_PACKAGES for e in emits) else "scripted")
+            for emit in emits:
+                # PER EMIT where the edge table observed it (see `emit_flow_rates`); the group
+                # cadence only where it did not. A command fire's bytes are the protocol's own,
+                # so its tier buys messages alone and starts at `low`; a scripted fire also
+                # spends the tier's bytes, so it keeps the group's byte tier as its floor.
+                spec = f"{emit['ports'][0]}/{emit['transport']}"
+                peer = SINK_ROLE if emit.get("peer_scope") == "all" else emit["peer_role"]
+                rate = flow_rates.get((group, spec, peer))
+                if rate:
+                    fanout = int(emit["peer_role"].rsplit("-", 1)[-1]) \
+                        if emit.get("peer_scope") == "all" else 1
+                    emit["cadence"], emit["volume"] = pace_for(
+                        rate, peers=fanout, min_tier="low" if drive == "command" else tier)
+                else:
+                    emit["cadence"], emit["volume"] = cadence, tier
             pid = f"cast-{group}{suffix}"
             out[pid] = {"persona": {
                 "id": pid,
-                "os_family": "windows" if "win" in img else "linux",
-                # Always `scripted`: a synthesized persona exists to EMIT. `real-service`
+                "os_family": os_family,
+                # Never `real-service`: a synthesized persona exists to EMIT, and `real-service`
                 # asserts a daemon the twin was never told to install, which is how six roles
-                # ended up invisible in their own capture (GAP-C6).
-                "drive": "scripted",
+                # ended up invisible in their own capture (GAP-C6). `command` where every emit
+                # has a real client tool (see `COMMAND_PROTO_PACKAGES`), else `scripted`.
+                "drive": drive,
                 "emits": emits,
                 # Deliberately empty. Every peer here was resolved from this twin's own listen
                 # census, so it exists by construction; declaring hard requires would only
                 # re-open GAP-C5 for no gain.
                 "requires": [],
-                "knobs": {"intensity": 1.0, "schedule": "24x7", "seed_jitter": True},
+                "knobs": {"intensity": 1.0, "schedule": "24x7", "seed_jitter": True,
+                          **(command_knobs() if drive == "command" else {})},
             }}
     return out
 

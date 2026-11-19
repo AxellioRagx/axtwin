@@ -78,6 +78,7 @@ import hashlib
 import ipaddress
 import itertools
 import json
+from collections import Counter
 import statistics
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -911,6 +912,49 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
         return seg if seg and _is_ipv4_network(seg) else None
 
     placed = [e for e in pit["ir_entity"] if e["locality"] == "local" and _segment_of(e)]
+
+    # THE GATEWAY ADDRESS IS THE ROUTER'S LEG, not one more host. axRange gives every router leg
+    # its segment's `network+1` (`TwinConfigSegment.gateway`), so the twin's `gw` takes that
+    # address whatever the cast says; an observed entity AT that address with no role and nothing
+    # it was seen serving is that same router seen from the wire (ARP, ICMP, a resolver query
+    # forwarded to it), and casting it as a node deploys a second VM for one device. Measured on
+    # `pace-test` through XPress-SW-A (2026-11-19): `10.72.2.1` (82 ARP rows, one ICMP) became an
+    # `unroled-endpoint`, so the cast's server LAN carried 4 hosts against the twin's 3; the
+    # trex-test cast had one on each of its three segments. A router that also DIALS (its own
+    # resolver or time source) is inferred `generic-endpoint` -- "consumes services, serves
+    # none" -- which is just as true of a router, so that role folds too. An entity at `.1` with
+    # any other role or a listen set is kept -- that is a server, and the conflict is the
+    # operator's to see -- and so is one an assertion names.
+    def _is_gateway_leg(entity) -> bool:
+        seg = _segment_of(entity)
+        if entity.get("role") not in (None, "generic-endpoint"):
+            return False
+        if json.loads(entity.get("listen_ports") or "[]"):
+            return False
+        if aview is not None and aview.host_fields(entity["entity_key"]):
+            return False
+        gw_ip = str(ipaddress.ip_network(seg, strict=False).network_address + 1)
+        return json.loads(entity.get("addresses") or "[]") == [gw_ip]
+
+    # The sink's own numbers, from THIS PIT (they were CorpAPCN's -- "85%", "7 of 132 hosts,
+    # max 53" -- printed into every cast's caveat and provenance whatever it was cast from).
+    _loc = {e["entity_key"]: e["locality"] for e in pit["ir_entity"]}
+    _from_local = [ed for ed in pit.get("ir_edge") or [] if _loc.get(ed["src_key"]) == "local"]
+    _ext_edges = [ed for ed in _from_local if _loc.get(ed["dst_key"]) != "local"]
+    ext_share_pct = round(100 * len(_ext_edges) / len(_from_local)) if _from_local else 0
+    ext_fanout = Counter()
+    for _src, _dst in {(ed["src_key"], ed["dst_key"]) for ed in _ext_edges}:
+        ext_fanout[_src] += 1
+    ext_over = [n for n in ext_fanout.values() if n > sum(SINK_BUCKETS)]
+
+    gateway_legs = sorted(e["entity_key"] for e in placed if _is_gateway_leg(e))
+    if gateway_legs:
+        placed = [e for e in placed if e["entity_key"] not in gateway_legs]
+        caveats.append(
+            f"{len(gateway_legs)} observed address(es) at a segment's gateway position "
+            f"({', '.join(k.partition(':')[2] for k in gateway_legs)}) carry no role and serve "
+            f"nothing; each is the router leg the {GATEWAY_NAME!r} node takes (axRange assigns "
+            f"network+1 to a router leg) and is folded into it rather than cast as a host.")
     v6_segments = sorted({e["segment"] for e in pit["ir_entity"]
                           if e["locality"] == "local" and e["segment"]
                           and not _is_ipv4_network(e["segment"])})
@@ -1708,8 +1752,8 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             prov(f"twin_config.nodes[{idx}]", COMPILER_CLASS,
                  "synth/personas.py SINK_BUCKETS",
                  reason=f"synthetic: part of the internet sink (GAP-C17). {count} host(s) "
-                        f"holding role {role!r}, which exists so personas can aim the 85% of "
-                        f"this source's conversation that leaves the network at something "
+                        f"holding role {role!r}, which exists so personas can aim the "
+                        f"{ext_share_pct}% of this source's conversation that leaves the network at something "
                         f"INSIDE the twin. Sizes are binary (1/2/4/8) so a persona composes "
                         f"any external fan-out in 1..15 from `peer_scope: all` emits.")
         else:
@@ -2129,12 +2173,16 @@ def compile_twin(pit: dict, *, max_count: Optional[int] = None,
             f"the {len(sink_groups)} {sorted(sink_groups)} node group(s) on segment "
             f"{SINK_SEGMENT_NAME!r} ({SINK_CIDR}, {sum(SINK_BUCKETS)} hosts) are SYNTHETIC and "
             f"observe nothing (GAP-C17). They stand in for every destination outside the twin — "
-            f"85% of this source's edges — so personas have somewhere to put outbound traffic "
-            f"other than each other. Reached by ROLE only: axRange personas cannot name an "
-            f"address, so no synthetic traffic can leave for a real network. Fan-out is "
-            f"expressible up to {sum(SINK_BUCKETS)} distinct external peers per host; 7 of the "
-            f"132 source hosts with external conversations exceed that (the 16..53 tail, max 53) "
-            f"and are clamped, so the busiest hosts' external fan-out is UNDER-represented. Its "
+            f"{ext_share_pct}% of this source's edges — so personas have somewhere to put "
+            f"outbound traffic other than each other. Reached by ROLE only: axRange personas "
+            f"cannot name an address, so no synthetic traffic can leave for a real network. "
+            f"Fan-out is expressible up to {sum(SINK_BUCKETS)} distinct external peers per host; "
+            + (f"{len(ext_over)} of the {len(ext_fanout)} source hosts with external "
+               f"conversations exceed that (max {max(ext_over)}) and are clamped, so the busiest "
+               f"hosts' external fan-out is UNDER-represented. " if ext_over else
+               f"none of the {len(ext_fanout)} source hosts with external conversations exceeds "
+               f"it (max {max(ext_fanout.values(), default=0)}). ")
+            + f"Its "
             f"own segment is NOT tapped — see the tap-plan caveat below for why that loses "
             f"nothing.")
 
