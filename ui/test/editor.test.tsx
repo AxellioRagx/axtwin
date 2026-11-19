@@ -44,8 +44,6 @@ describe("C1.1 -- one form per installed endpoint plugin, from the schema", () =
     fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "corp-apcn-reader.swlab.axellio.dom" } });
     fireEvent.change(screen.getByLabelText("SSH user"), { target: { value: "fxadmin" } });
     fireEvent.change(screen.getByLabelText("SSH key path"), { target: { value: "/home/op/.ssh/id_ed25519" } });
-    fireEvent.change(screen.getByLabelText("Days to read"), { target: { value: "10" } });
-    fireEvent.change(screen.getByLabelText("Network"), { target: { value: "corp-apcn" } });
     fireEvent.click(screen.getByRole("button", { name: "Save source" }));
     await waitFor(() => expect(state.writes).toHaveLength(1));
     expect(state.writes[0]).toEqual({
@@ -60,7 +58,6 @@ describe("C1.1 -- one form per installed endpoint plugin, from the schema", () =
           user: null,
           ssh: { host: "corp-apcn-reader.swlab.axellio.dom", user: "fxadmin", key_path: "/home/op/.ssh/id_ed25519", port: 22 },
         },
-        defaults: { days: 10, network: "corp-apcn" },
       },
     });
     // Lands on the new source's page.

@@ -160,6 +160,8 @@ export interface FakeState {
   runSteps: Array<Partial<DiscoveryRun>>;
   /** What `probeSourceConfig` answers (after `probeHold`, if set); absent: reachable, like `probeSource`. */
   probeConfigAnswer?: Partial<ProbeResult>;
+  /** When set, `listRuns` waits on it before answering (the runs list loading after the page). */
+  runsHold?: Promise<void>;
   /** When set, `probeSourceConfig` waits on it before answering (a test in flight). */
   probeHold?: Promise<void>;
   /** What `GET /api/targets` lists. */
@@ -275,7 +277,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         },
         has_password: Boolean(body.password),
         has_api_key: Boolean(body.api_key),
-        defaults: body.defaults,
+        defaults: body.defaults ?? {},
         last_probe: body.last_probe ?? null,
       });
       state.sources.push(src);
@@ -380,6 +382,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       state.runs = state.runs.filter((x) => x.id !== id);
     },
     async listRuns() {
+      if (state.runsHold) await state.runsHold;
       return { runs: state.runs };
     },
     async getRun(id) {

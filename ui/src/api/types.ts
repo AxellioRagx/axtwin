@@ -71,6 +71,8 @@ export interface DiscoverySource {
   access: SourceAccess;
   has_password: boolean;
   has_api_key: boolean;
+  /** LEGACY run options a source used to carry; the console no longer writes them. Read only as
+   *  the run form's second-tier pre-fill (after the source's last run). */
   defaults: SourceDefaults;
   last_probe: (Probe & { probed_at: string }) | null;
   created_at: string;
@@ -89,7 +91,8 @@ export interface SourceWrite {
   access: { transport: Transport; auth: Auth; user?: string | null; ssh?: SshAccess | null; tls_verify?: boolean };
   password?: string;
   api_key?: string;
-  defaults: SourceDefaults;
+  /** LEGACY: still accepted by the API, never sent by the console (left out, a PUT keeps the stored value). */
+  defaults?: SourceDefaults;
   /** A test of THIS config just run in the editor; stored as the record's `last_probe`. */
   last_probe?: Probe & { probed_at: string };
 }
@@ -161,6 +164,8 @@ export interface DiscoveryRun {
   ts_from: number | null;
   ts_to: number | null;
   via: string | null;
+  /** The run options it ran with (network, vantage, window, subbuckets); absent on older APIs. */
+  options?: Record<string, unknown>;
   /** Source time the ingest has reached (the end of the last window it closed), and when it said so. */
   progress_ts: number | null;
   progress_at: string | null;

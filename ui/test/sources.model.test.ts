@@ -9,10 +9,14 @@ import {
   fromSource,
   runOptions,
   siteRows,
+  lastRunOf,
+  prefillHint,
+  runPrefill,
   toWrite,
   validateForm,
   windowPreview,
 } from "../src/model/sources";
+import type { DiscoveryRun } from "../src/api/types";
 import { AXQUERY, FOO_HTTP, SPAN, ZEEK, tunnelSource } from "./helpers/fakeApi";
 
 describe("the source form <-> the API record", () => {
@@ -20,7 +24,6 @@ describe("the source form <-> the API record", () => {
     const form = fromSource(tunnelSource());
     expect(form.access).toBe("ssh_tunnel");
     expect(form.ssh).toEqual({ host: "corp-apcn-reader.swlab.axellio.dom", port: "22", user: "fxadmin", keyPath: "/home/op/.ssh/id_ed25519" });
-    expect(form.defaults.days).toBe("10");
     const body = toWrite(form, true);
     expect(body.access).toEqual({
       transport: "ssh_tunnel",
@@ -30,7 +33,8 @@ describe("the source form <-> the API record", () => {
     });
     expect(body).not.toHaveProperty("password");
     expect(body).not.toHaveProperty("api_key");
-    expect(body.defaults).toEqual({ days: 10, network: "corp-apcn" });
+    // A source carries no run settings: the legacy stored defaults are never sent back.
+    expect(body).not.toHaveProperty("defaults");
   });
 
   it("maps the single access choice onto transport x auth", () => {
@@ -127,14 +131,66 @@ describe("probe steps and the test key", () => {
     expect(formatSteps(undefined)).toBe("");
   });
 
-  it("the key follows plugin, endpoint and access, never the run defaults", async () => {
+  it("the key follows plugin, endpoint and access, not the name", async () => {
     const { emptyForm, probeKey } = await import("../src/model/sources");
     const f = { ...emptyForm("axquery"), endpoint: "http://127.0.0.1:9090" };
     const k = probeKey(f);
-    expect(probeKey({ ...f, name: "renamed", defaults: { ...f.defaults, days: "3", network: "n" } })).toBe(k);
+    expect(probeKey({ ...f, name: "renamed" })).toBe(k);
     expect(probeKey({ ...f, plugin: "elastic" })).not.toBe(k);
     expect(probeKey({ ...f, access: "api_key", apiKey: "k" })).not.toBe(k);
     expect(probeKey({ ...f, ssh: { ...f.ssh, host: "h" } })).toBe(k); // ssh unused without a tunnel
     expect(probeKey({ ...f, access: "ssh_tunnel" })).not.toBe(k);
+  });
+});
+
+describe("the run form's pre-fill: last run, then legacy source defaults, then built-ins", () => {
+  const run = (over: Partial<DiscoveryRun> = {}): DiscoveryRun => ({
+    id: "disc-8d560f14", status: "completed", plugin: "axquery", name: "n", imprint_id: "n",
+    stages_done: [], stages: [], pit_id: null, error: null, created_at: "2026-11-19T10:00:00Z",
+    finished_at: null, source_id: "src-1", started_at: null, ts_from: 1791311437, ts_to: 1791315037,
+    via: null, progress_ts: null, progress_at: null, cancel_requested_at: null,
+    options: { network: "corp-apcn", window: 120 }, ...over,
+  });
+
+  it("takes the window length and options from the last run, and names it", () => {
+    const p = runPrefill(tunnelSource({ defaults: { days: 3, network: "legacy", vantage: "v:legacy" } }), run());
+    expect(p.from).toEqual({ kind: "run", runId: "disc-8d560f14" });
+    expect([p.amount, p.unit]).toEqual(["1", "hours"]);
+    // The run's options win; what it did not set falls through to the legacy defaults.
+    expect(p.values).toEqual({ network: "corp-apcn", window: "120", vantage: "v:legacy" });
+    expect(prefillHint(p.from)).toBe("Filled from run disc-8d560f14, the last one from this source.");
+  });
+
+  it("reads a whole-day window as days", () => {
+    const p = runPrefill(tunnelSource({ defaults: {} }), run({ ts_from: 0, ts_to: 3 * 86400 }));
+    expect([p.amount, p.unit]).toEqual(["3", "days"]);
+  });
+
+  it("falls back to the source's legacy defaults, sensors included", () => {
+    const p = runPrefill(tunnelSource({ defaults: { days: 2, network: "corp-apcn", sensors: ["XPress-SW-A"] } }), undefined);
+    expect(p.from).toEqual({ kind: "source" });
+    expect([p.amount, p.unit, p.values.network, p.sensors]).toEqual(["2", "days", "corp-apcn", "XPress-SW-A"]);
+  });
+
+  it("falls back to the built-ins: the last 10 days, nothing else", () => {
+    const p = runPrefill(tunnelSource({ defaults: {} }), undefined);
+    expect(p).toEqual({ amount: "10", unit: "days", values: {}, sensors: "", from: { kind: "builtin" } });
+    expect(prefillHint(p.from)).toBe("Built-in defaults: the last 10 days.");
+  });
+
+  it("what the last test reported sits below the run and the source, above nothing", () => {
+    const extras = { vantage: "v:probe", window: "60" };
+    expect(runPrefill(tunnelSource({ defaults: {} }), undefined, extras).values).toEqual(extras);
+    expect(runPrefill(tunnelSource({ defaults: {} }), run(), extras).values).toEqual({ network: "corp-apcn", window: "120", vantage: "v:probe" });
+  });
+
+  it("the last run is the newest from THIS source, whatever its status", () => {
+    const runs = [
+      run({ id: "a", created_at: "2026-11-18T00:00:00Z" }),
+      run({ id: "b", created_at: "2026-11-19T00:00:00Z", status: "failed" }),
+      run({ id: "c", created_at: "2026-11-20T00:00:00Z", source_id: "src-other" }),
+    ];
+    expect(lastRunOf(runs, "src-1")?.id).toBe("b");
+    expect(lastRunOf(undefined, "src-1")).toBeUndefined();
   });
 });

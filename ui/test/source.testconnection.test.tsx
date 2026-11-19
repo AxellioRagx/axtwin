@@ -110,16 +110,15 @@ describe("Test connection on the new-source form", () => {
     expect(state.writes[0]!.body).not.toHaveProperty("last_probe");
   });
 
-  it("a change to the endpoint, plugin or access marks the result out of date; a run default does not", async () => {
+  it("a change to the endpoint, plugin or access marks the result out of date; the name does not", async () => {
     const { api, state } = fakeApi();
     state.probeConfigAnswer = FAILED_AT_API;
     renderAt(api, "/discovery/sources/new");
     await fillTunnelSource();
     fireEvent.click(testButton());
     await screen.findByTestId("probe-steps");
-    // Run defaults do not touch reachability.
-    fireEvent.change(screen.getByLabelText("Network"), { target: { value: "corp-apcn" } });
-    fireEvent.change(screen.getByLabelText("Days to read"), { target: { value: "3" } });
+    // The name does not touch reachability.
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "renamed" } });
     expect(screen.queryByTestId("test-stale")).toBeNull();
     expect(screen.getByRole("button", { name: "Save anyway" })).toBeTruthy();
 
@@ -239,5 +238,27 @@ describe("a sensor with a self-signed certificate", () => {
     await screen.findByText("direct, no credential, TLS certificate not verified");
     const created = state.writes.find((w) => w.op === "create")!.body as { access: Record<string, unknown> };
     expect(created.access.tls_verify).toBe(false);
+  });
+});
+
+describe("a source carries no run settings", () => {
+  const RUN_FIELDS = ["Days to read", "Network", "Vantage", "Window seconds", "Sensors"];
+
+  it("the new-source form renders no run-default field", async () => {
+    const { api } = fakeApi();
+    renderAt(api, "/discovery/sources/new");
+    await screen.findByLabelText("Plugin");
+    for (const label of RUN_FIELDS) expect(screen.queryByLabelText(label)).toBeNull();
+    expect(screen.queryByText("Run defaults")).toBeNull();
+  });
+
+  it("the edit form renders none either, and saving leaves the legacy defaults alone", async () => {
+    const { api, state } = fakeApi({ sources: [tunnelSource({ defaults: { days: 3, network: "corp-apcn" } })] });
+    renderAt(api, "/discovery/sources/src-1/edit");
+    await waitFor(() => expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("corp-apcn-reader"));
+    for (const label of RUN_FIELDS) expect(screen.queryByLabelText(label)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(state.writes.filter((w) => w.op === "update")).toHaveLength(1));
+    expect(state.writes.find((w) => w.op === "update")!.body).not.toHaveProperty("defaults");
   });
 });

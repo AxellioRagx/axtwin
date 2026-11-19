@@ -26,6 +26,9 @@ import { ProbeView } from "./ProbeView";
  * UI change. The access block is the one part that is not schema-driven --
  * how a sensor is REACHED is the control plane's business (A7), not a plugin's.
  *
+ * A source is the sensor and how to reach it -- no run settings. Those live on the run
+ * form, pre-filled from the source's last run (`runPrefill`).
+ *
  * "Test connection" probes the config as typed, unsaved (`probeSourceConfig`). A result
  * belongs to the plugin + endpoint + access it was run against (`probeKey`); once any of
  * those change it is shown as out of date, never as current. Testing never gates saving:
@@ -71,8 +74,6 @@ export function SourceEditor() {
   const plugin: DiscoveryPlugin | undefined = usable.find((p) => p.name === form.plugin);
   const set = <K extends keyof SourceForm>(key: K, value: SourceForm[K]) => setForm((f) => ({ ...f, [key]: value }));
   const setSsh = (key: keyof SourceForm["ssh"], value: string) => setForm((f) => ({ ...f, ssh: { ...f.ssh, [key]: value } }));
-  const setDef = (key: keyof SourceForm["defaults"], value: string) =>
-    setForm((f) => ({ ...f, defaults: { ...f.defaults, [key]: value } }));
   const auth = form.access === "ssh_tunnel" ? form.tunnelAuth : form.access;
   const currentKey = probeKey(form);
   const current = test && test.key === currentKey ? test.result : null;
@@ -272,34 +273,6 @@ export function SourceEditor() {
               <span className="hint">Sent as a bearer token. Stored on the server, never shown again.</span>
             </div>
           ) : null}
-        </fieldset>
-
-        <fieldset>
-          <legend>Run defaults</legend>
-          <div className="fields-2">
-            <div className="field">
-              <label htmlFor="def-days">Days to read</label>
-              <input id="def-days" type="number" min="0" step="any" value={form.defaults.days} onChange={(e) => setDef("days", e.target.value)} />
-              <span className="hint">The most recent N days the source holds, resolved when a run starts.</span>
-            </div>
-            <div className="field">
-              <label htmlFor="def-network">Network</label>
-              <input id="def-network" type="text" value={form.defaults.network} onChange={(e) => setDef("network", e.target.value)} />
-              <span className="hint">Which network this capture is of, as the operator names it.</span>
-            </div>
-            <div className="field">
-              <label htmlFor="def-vantage">Vantage</label>
-              <input id="def-vantage" type="text" value={form.defaults.vantage} onChange={(e) => setDef("vantage", e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="def-window">Window seconds</label>
-              <input id="def-window" type="number" value={form.defaults.window} onChange={(e) => setDef("window", e.target.value)} />
-            </div>
-            <div className="field">
-              <label htmlFor="def-sensors">Sensors</label>
-              <input id="def-sensors" type="text" placeholder="comma-separated" value={form.defaults.sensors} onChange={(e) => setDef("sensors", e.target.value)} />
-            </div>
-          </div>
         </fieldset>
 
         {problems.length ? (

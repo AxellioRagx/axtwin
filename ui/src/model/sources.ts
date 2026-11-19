@@ -15,7 +15,6 @@ import type {
   Probe,
   ProbeStage,
   ProbeStep,
-  SourceDefaults,
   SourceWrite,
 } from "../api/types";
 import { formatInstant } from "./time";
@@ -35,7 +34,6 @@ export interface SourceForm {
   ssh: { host: string; port: string; user: string; keyPath: string };
   /** Verify the endpoint's TLS certificate (https only). Off for a sensor's self-signed one. */
   tlsVerify: boolean;
-  defaults: { days: string; network: string; vantage: string; window: string; subbuckets: string; sensors: string };
 }
 
 export const ACCESS_LABELS: Record<AccessChoice, string> = {
@@ -57,7 +55,6 @@ export function emptyForm(plugin = ""): SourceForm {
     tunnelAuth: "none",
     ssh: { host: "", port: "22", user: "", keyPath: "" },
     tlsVerify: true,
-    defaults: { days: "10", network: "", vantage: "", window: "", subbuckets: "", sensors: "" },
   };
 }
 
@@ -81,15 +78,6 @@ export function fromSource(src: DiscoverySource): SourceForm {
   }
   f.user = src.access.user ?? "";
   f.tlsVerify = src.access.tls_verify !== false;
-  const d = src.defaults;
-  f.defaults = {
-    days: d.days === undefined ? "" : String(d.days),
-    network: d.network ?? "",
-    vantage: d.vantage ?? "",
-    window: d.window === undefined ? "" : String(d.window),
-    subbuckets: d.subbuckets === undefined ? "" : String(d.subbuckets),
-    sensors: (d.sensors ?? []).join(", "),
-  };
   return f;
 }
 
@@ -98,21 +86,6 @@ function num(text: string): number | undefined {
   if (!t) return undefined;
   const n = Number(t);
   return Number.isFinite(n) ? n : undefined;
-}
-
-export function defaultsFromForm(d: SourceForm["defaults"]): SourceDefaults {
-  const out: SourceDefaults = {};
-  const days = num(d.days);
-  if (days !== undefined) out.days = days;
-  if (d.network.trim()) out.network = d.network.trim();
-  if (d.vantage.trim()) out.vantage = d.vantage.trim();
-  const w = num(d.window);
-  if (w !== undefined) out.window = w;
-  const s = num(d.subbuckets);
-  if (s !== undefined) out.subbuckets = s;
-  const sensors = d.sensors.split(",").map((x) => x.trim()).filter(Boolean);
-  if (sensors.length) out.sensors = sensors;
-  return out;
 }
 
 /**
@@ -141,7 +114,8 @@ export function toWrite(form: SourceForm, editing = false): SourceWrite {
             }
           : null,
     },
-    defaults: defaultsFromForm(form.defaults),
+    // No `defaults`: a source is the sensor and how to reach it. Run settings live on the
+    // run form (`runPrefill`); a PUT without the field keeps any legacy stored value.
   };
   // Sent only when off: an absent field verifies, so a PUT without it turns it back on.
   if (!form.tlsVerify) body.access.tls_verify = false;
@@ -172,8 +146,6 @@ export function validateForm(form: SourceForm, editing = false): string[] {
     const port = num(form.ssh.port);
     if (port === undefined || port < 1 || port > 65535) problems.push("the SSH port must be 1..65535");
   }
-  const days = num(form.defaults.days);
-  if (form.defaults.days.trim() && (days === undefined || days <= 0)) problems.push("days must be a positive number");
   return problems;
 }
 
@@ -356,7 +328,7 @@ export function formatSteps(steps: ProbeStep[] | undefined): string {
 }
 
 /** The part of a form a connection test depends on: plugin, endpoint and every access
- *  field, secrets included. Run defaults are left out -- they do not change reachability. */
+ *  field, secrets included. The name is left out -- it does not change reachability. */
 export function probeKey(form: SourceForm): string {
   const auth = effectiveAuth(form);
   return JSON.stringify({
@@ -370,4 +342,88 @@ export function probeKey(form: SourceForm): string {
     ssh: form.access === "ssh_tunnel" ? form.ssh : null,
     tlsVerify: form.tlsVerify,
   });
+}
+
+/** The run form's built-in window when nothing else says: the last 10 days. */
+export const BUILTIN_RUN_DAYS = 10;
+
+export interface RunPrefill {
+  /** The window as "last <amount> <unit>". */
+  amount: string;
+  unit: "days" | "hours";
+  /** Run options by key (network, vantage, window, subbuckets). */
+  values: Record<string, string>;
+  sensors: string;
+  /** Where the values came from, for the hint: the most specific tier that supplied any. */
+  from: { kind: "run"; runId: string } | { kind: "source" } | { kind: "builtin" };
+}
+
+const RUN_OPTION_KEYS = ["network", "vantage", "window", "subbuckets"] as const;
+
+/** A window length in seconds as "last N days" (whole-ish days) or "last N hours". */
+function windowAmount(seconds: number): { amount: string; unit: "days" | "hours" } {
+  const days = seconds / 86400;
+  const tidy = (n: number) => String(Number(n.toFixed(2)));
+  if (days >= 1 && Math.abs(days - Math.round(days)) < 0.01) return { amount: tidy(Math.round(days)), unit: "days" };
+  return { amount: tidy(seconds / 3600), unit: "hours" };
+}
+
+/** The source's most recent run (any status: what the operator last chose is the point). */
+export function lastRunOf(runs: DiscoveryRun[] | undefined, sourceId: string): DiscoveryRun | undefined {
+  return (runs ?? [])
+    .filter((r) => r.source_id === sourceId)
+    .reduce<DiscoveryRun | undefined>((best, r) => (!best || r.created_at > best.created_at ? r : best), undefined);
+}
+
+/**
+ * What the run form starts with, field by field: (a) the source's most recent run -- its
+ * window length and options -- then (b) the source's LEGACY stored defaults, then (c) the
+ * built-ins (last 10 days). A run record carries no sensors (they are a cast-time choice), so
+ * those come from (b) only. `probeExtras` (what the last test reported for vantage / window /
+ * subbuckets) fill what (a) and (b) leave empty, below them.
+ */
+export function runPrefill(
+  source: DiscoverySource,
+  lastRun: DiscoveryRun | undefined,
+  probeExtras: Record<string, string> = {},
+): RunPrefill {
+  const legacy = source.defaults ?? {};
+  const opts = lastRun?.options ?? {};
+  let usedRun = false;
+  let usedSource = false;
+  const values: Record<string, string> = {};
+  for (const k of RUN_OPTION_KEYS) {
+    const fromRun = opts[k];
+    const fromSource = legacy[k];
+    if (fromRun !== undefined && fromRun !== null && fromRun !== "") {
+      values[k] = String(fromRun);
+      usedRun = true;
+    } else if (fromSource !== undefined && fromSource !== "") {
+      values[k] = String(fromSource);
+      usedSource = true;
+    } else if (probeExtras[k] !== undefined) {
+      values[k] = probeExtras[k];
+    }
+  }
+  let amount = String(BUILTIN_RUN_DAYS);
+  let unit: "days" | "hours" = "days";
+  if (lastRun && lastRun.ts_from !== null && lastRun.ts_to !== null && lastRun.ts_to > lastRun.ts_from) {
+    ({ amount, unit } = windowAmount(lastRun.ts_to - lastRun.ts_from));
+    usedRun = true;
+  } else if (typeof legacy.days === "number" && legacy.days > 0) {
+    amount = String(legacy.days);
+    usedSource = true;
+  }
+  const sensorList = legacy.sensors ?? [];
+  if (sensorList.length) usedSource = true;
+  const from: RunPrefill["from"] =
+    usedRun && lastRun ? { kind: "run", runId: lastRun.id } : usedSource ? { kind: "source" } : { kind: "builtin" };
+  return { amount, unit, values, sensors: sensorList.join(", "), from };
+}
+
+/** The hint under the run form naming where its starting values came from. */
+export function prefillHint(from: RunPrefill["from"]): string {
+  if (from.kind === "run") return `Filled from run ${from.runId}, the last one from this source.`;
+  if (from.kind === "source") return "Filled from this source's saved run defaults (from before sources stopped carrying them).";
+  return `Built-in defaults: the last ${BUILTIN_RUN_DAYS} days.`;
 }
