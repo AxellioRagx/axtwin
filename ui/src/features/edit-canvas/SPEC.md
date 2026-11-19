@@ -27,11 +27,11 @@ separate, later feature over the expanded IR and are not this canvas.
 ## Seam
 
 A consumer of the control-plane API only (`ui/Spec.md`); it defines no
-endpoint and holds no orchestration logic. Mounted as `/canvas/:id` in the
-console's **Canvas** area (`ui/src/areas/canvas/`: the top-menu entry whose
-drop-down lists the catalog's twins with New design and Open…, and the
-`/canvas` designs page); `/canvas/new` is this page over an untitled design;
-`/twins/:id/canvas` reaches the same page from a twin's page.
+endpoint and holds no orchestration logic. Mounted as `/canvas/:id`; `/` (XTwin,
+the home link) and `/canvas/new` are this page over an untitled design;
+`/twins/:id/canvas` reaches the same page from a twin's page. There is no
+Canvas menu: an existing twin opens through the bar's Open… (the Twins
+page's list, `areas/twins/TwinList.tsx`, as a picker).
 
 | Reads | Route |
 |---|---|
@@ -84,7 +84,7 @@ two segments that are one VLAN — the edit is offered a **promote to
 assertion** action that writes it through the imprint's assertions seam,
 re-casts, and re-opens the working copy; the canvas never writes assertions
 directly and never edits the imprint in place. A twin designed from scratch
-starts as an untitled design at `/canvas/new` -- no segment and no nodes,
+starts as an untitled design at `/` -- no segment and no nodes,
 held in the browser -- and has no imprint and no promote action. The engine
 refuses a config with no segment, so Save waits for one (with the reason).
 
@@ -183,7 +183,7 @@ criteria of its own beyond them.
   promote-to-assertion on a cast twin re-opens a working copy whose
   baseline carries the change.
 - **Automated, New / Open (2026-11-19, *`canvas.untitled.test.tsx`*):**
-  - New: `/canvas/new` is an editable, blank, untitled canvas -- no form, no
+  - New: `/` (XTwin) and `/canvas/new` are an editable, blank, untitled canvas -- no form, no
     read of a stored twin (twin, tree, topology, cast, deploys, twin-config,
     layout), no Deploy. Its files, undo stack and layout draft are kept in this
     browser (`twin:__untitled__`) and survive a reload.
@@ -195,11 +195,12 @@ criteria of its own beyond them.
     (`twin_config.description`, `twin.description`); A3 writes it, the layout
     draft and the undo stack move to the new id, the browser copy is dropped,
     and the page is `/canvas/<id>`, clean. A named design's Save is unchanged.
-  - Open (the bar's Open…, Ctrl+O, the Canvas menu's Open…): a searchable list
-    of the catalog's twins with origin and a *deployed* mark; a pick opens it.
+  - Open (the bar's Open…, Ctrl+O): the Twins page's list as a searchable
+    picker -- origin, deploy state per tier, no actions; a pick (its link or
+    the row) opens it on the canvas.
   - Unsaved guard: a non-blank untitled design, or an undeployed design with
-    unsaved changes, asks before a reload/close or an in-app link (New, Open,
-    the menu) leaves it; letting an untitled design go drops its browser copy.
+    unsaved changes, asks before a reload/close or an in-app link (XTwin, Open,
+    the top menu) leaves it; letting an untitled design go drops its browser copy.
     The browser's Back is not guarded (no data router).
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.

@@ -39,7 +39,7 @@ export function blankDesignFiles(d: BlankDesign): Record<string, string> {
   const description = d.description?.trim() || "a twin designed on the canvas.";
   const segments = d.segment ? ["  segments:", `    - { name: ${d.segment.name}, cidr: ${d.segment.cidr}, zone_type: vlan }`] : ["  segments: []"];
   const te = [
-    "# Designed on the axTwin canvas; the twin config (te tier).",
+    "# Designed on the XTwin canvas; the twin config (te tier).",
     "twin_config:",
     `  id: ${d.id}`,
     `  description: ${quoted(description)}`,

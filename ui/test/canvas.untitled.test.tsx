@@ -168,56 +168,58 @@ describe("the unsaved-work guard", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Untitled" })).toBeNull());
   });
 
-  it("starts a fresh untitled design from New design once the old one is let go", async () => {
+  it("starts a fresh untitled design from XTwin once the old one is let go", async () => {
     const { api } = seeded();
-    renderAt(api, "/canvas/new");
+    renderAt(api, "/");
     await screen.findByTestId("rail-add");
     await addFirstSegment();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    fireEvent.click(screen.getByRole("button", { name: "Open a design" }));
-    const menu = await screen.findByRole("menu", { name: "Designs" });
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "New design" }));
+    fireEvent.click(screen.getByRole("link", { name: "XTwin: a new design on the canvas" }));
     await waitFor(() => expect(screen.queryAllByTestId("canvas-segment")).toHaveLength(0));
     expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
     expect(screen.getByTestId("clean-marker").textContent).toBe("not saved yet");
   });
 });
 
+const openDialog = () => screen.findByRole("dialog", { name: "Open a twin" });
+
 describe("Open", () => {
-  it("lists the twins with their origin, marks the deployed one, and opens the pick", async () => {
+  it("is the Twins list as a picker: origin and deploy per row, searchable, a pick opens the canvas", async () => {
     const { api } = seeded();
     renderAt(api, "/canvas/new");
     await screen.findByTestId("rail-add");
     fireEvent.keyDown(window, { key: "o", ctrlKey: true });
-    const dialog = await screen.findByRole("dialog", { name: "Open a design" });
+    const dialog = await openDialog();
     const rows = await within(dialog).findAllByTestId("open-row");
-    expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["corp-auth", "corp-live", "corp-cast"]);
+    expect(rows.map((r) => within(r).getAllByRole("link")[0]!.textContent)).toEqual(["corp-auth", "corp-live", "corp-cast"]);
+    // One link per row (the canvas), no actions: the picker view of the Twins list.
+    expect(rows.map((r) => within(r).getAllByRole("link").length)).toEqual([1, 1, 1]);
+    expect(within(dialog).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(rows.map((r) => r.dataset["deployed"] ?? "")).toEqual(["", "true", ""]);
-    expect(within(rows[1]!).getByTestId("open-deployed").textContent).toBe("deployed · dev45");
+    await waitFor(() => expect(within(rows[1]!).getByTestId("twin-deploy").textContent).toContain("te ✓"));
+    expect(within(rows[0]!).getByTestId("twin-deploy").textContent).toBe("undeployed");
+    expect(rows[1]!.title).toMatch(/opens on its working copy/);
     expect(rows[0]!.textContent).toContain("authored");
     expect(rows[2]!.textContent).toContain("cast from corp capture");
-    fireEvent.change(within(dialog).getByLabelText("Search designs"), { target: { value: "live" } });
+    fireEvent.change(within(dialog).getByLabelText("Search twins"), { target: { value: "live" } });
     await waitFor(() => expect(within(dialog).getAllByTestId("open-row")).toHaveLength(1));
     fireEvent.click(within(dialog).getByRole("link", { name: "corp-live" }));
     await screen.findByRole("heading", { name: "corp-live" });
-    expect(screen.queryByRole("dialog", { name: "Open a design" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Open a twin" })).toBeNull();
   });
 
-  it("is in the bar of a named design, and in the Canvas menu", async () => {
+  it("is in the bar of a named design too, and a click on a row's empty space opens it", async () => {
     const { api } = seeded();
     renderAt(api, "/canvas/corp-auth");
     await screen.findByRole("heading", { name: "corp-auth" });
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
-    await screen.findByRole("dialog", { name: "Open a design" });
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open a design" }));
-    const menu = await screen.findByRole("menu", { name: "Designs" });
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Open…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Open a design" });
-    await within(dialog).findAllByTestId("open-row");
+    const dialog = await openDialog();
+    const rows = await within(dialog).findAllByTestId("open-row");
+    fireEvent.click(rows[2]!.querySelectorAll("td")[3]!);
+    await screen.findByRole("heading", { name: "corp-cast" });
   });
 
-  it("goes through the guard from a dirty undeployed design", async () => {
+  it("goes through the guard from a dirty undeployed design (the link and the row alike)", async () => {
     const { api } = seeded();
     renderAt(api, "/canvas/corp-auth");
     await screen.findAllByTestId("canvas-host");
@@ -225,10 +227,12 @@ describe("Open", () => {
     await waitFor(() => expect(segments().length).toBe(3));
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Open a design" });
+    const dialog = await openDialog();
     fireEvent.click(await within(dialog).findByRole("link", { name: "corp-cast" }));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(confirm.mock.calls[0]![0]).toMatch(/unsaved changes/);
+    fireEvent.click(within(dialog).getAllByTestId("open-row")[2]!.querySelectorAll("td")[3]!);
+    expect(confirm).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("heading", { name: "corp-auth" })).toBeTruthy();
   });
 });

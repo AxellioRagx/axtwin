@@ -1,10 +1,10 @@
 /**
- * The Canvas area of the console: the brand, the Canvas entry of the top menu
- * with its drop-down of designs (New design, Open…, the twins), the designs page,
- * the blank design document, and the `/canvas/:id` route. The untitled canvas
- * behind New design is `canvas.untitled.test.tsx`.
+ * The canvas in the console's shell: XTwin (the brand, the home link to the
+ * untitled canvas at `/`), no Canvas menu, the blank design document, and the
+ * `/canvas/:id` route. The untitled canvas itself and Open are
+ * `canvas.untitled.test.tsx`.
  */
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Imprint, TwinConfigDocument } from "../src/api/types";
@@ -43,66 +43,33 @@ function seeded(over: Partial<FakeState> = {}) {
   });
 }
 
-describe("the brand and the Canvas entry of the top menu", () => {
-  it("is axTwin, with Canvas after Twins and a drop-down of the designs", async () => {
+describe("XTwin, the home link", () => {
+  it("is the brand -- the X mark and \"Twin\" -- linking home, the untitled canvas; there is no Canvas menu", async () => {
     const { api } = seeded();
     renderAt(api, "/twins");
-    expect(screen.getByText("axTwin").className).toBe("brand");
-    expect(document.title === "" || document.title === "axTwin").toBe(true);
+    const brand = screen.getByRole("link", { name: "XTwin: a new design on the canvas" });
+    expect(brand.className).toBe("brand");
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(brand.textContent).toBe("Twin");
+    expect(brand.querySelector("svg.brand-x")).not.toBeNull();
     const areas = screen.getByRole("navigation", { name: "Areas" });
-    expect(within(areas).getByRole("link", { name: "Canvas" }).getAttribute("href")).toBe("/canvas");
-    expect(screen.queryByRole("menu", { name: "Designs" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open a design" }));
-    const menu = await screen.findByRole("menu", { name: "Designs" });
-    await within(menu).findByRole("menuitem", { name: /corp-auth/ });
-    const items = within(menu).getAllByRole("menuitem");
-    expect(items.map((a) => a.textContent)).toEqual(["New design", "Open…", "corp-authauthored", expect.stringContaining("corp-cast"), "All designs"]);
-    expect(items.map((a) => a.getAttribute("href"))).toEqual(["/canvas/new", null, "/canvas/corp-auth", "/canvas/corp-cast", "/canvas"]);
-    expect(items[3]!.textContent).toContain("cast from");
-    // Picking one closes the menu and opens it on the canvas: the canvas is the
-    // page, so the bar names the open design and there is no sub-bar.
-    fireEvent.click(items[2]!);
-    await screen.findByRole("heading", { name: "corp-auth" });
-    expect(screen.queryByRole("menu", { name: "Designs" })).toBeNull();
-    expect(screen.queryByRole("navigation", { name: "Canvas" })).toBeNull();
-    expect(within(areas).getByRole("link", { name: "Canvas" }).className).toContain("active");
+    expect(within(areas).queryByRole("link", { name: "Canvas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open a design" })).toBeNull();
+    fireEvent.click(brand);
+    // Home is the untitled canvas: the canvas is the page, so no sub-bar and no centred column.
+    await screen.findByRole("heading", { name: "Untitled" });
+    await screen.findByTestId("rail-add");
+    expect(document.querySelector("main.canvas-main")).not.toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Discovery" })).toBeNull();
   });
 
-  it("closes on Escape and says when the catalog is empty", async () => {
-    const { api } = fakeApi();
-    renderAt(api, "/discovery");
-    fireEvent.click(screen.getByRole("button", { name: "Open a design" }));
-    await screen.findByText("No twin in the catalog yet.");
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("menu", { name: "Designs" })).toBeNull());
-    expect(screen.queryByRole("navigation", { name: "Canvas" })).toBeNull();
-  });
-});
-
-describe("the designs page", () => {
-  it("lists every twin with its origin and an Open link, and the imprints not yet cast", async () => {
+  it("opens / and /canvas/new on the untitled canvas; /canvas and an unknown path go home", async () => {
     const { api } = seeded();
-    renderAt(api, "/canvas");
-    await screen.findByRole("heading", { name: "Canvas" });
-    const rows = await screen.findAllByTestId("design-row");
-    expect(rows).toHaveLength(2);
-    expect(within(rows[0]!).getByRole("link", { name: "corp-auth" }).getAttribute("href")).toBe("/canvas/corp-auth");
-    expect(within(rows[0]!).getByText("authored")).toBeTruthy();
-    expect(within(rows[1]!).getByRole("link", { name: "corp capture" }).getAttribute("href")).toBe("/imprints/pit-1");
-    expect(within(rows[1]!).getByRole("link", { name: "Open corp-cast on the canvas" }).getAttribute("href")).toBe("/canvas/corp-cast");
-    expect(screen.getByRole("button", { name: "New design" }).getAttribute("href")).toBe("/canvas/new");
-    await screen.findByRole("heading", { name: "Imprints not yet cast" });
-    expect(screen.getByRole("link", { name: "branch capture" }).getAttribute("href")).toBe("/imprints/pit-2");
-    expect(screen.queryByRole("link", { name: "corp capture" })).not.toBeNull();
-    const sub = screen.getByRole("navigation", { name: "Canvas" });
-    expect(within(sub).getByRole("link", { name: "Designs" }).className).toContain("active");
-    expect(within(sub).getByRole("link", { name: "New design" }).className).not.toContain("active");
-  });
-
-  it("says so when there is nothing to open", async () => {
-    const { api } = fakeApi();
-    renderAt(api, "/canvas");
-    await screen.findByText("No twin to open yet. Cast an imprint, or start a new design.");
+    for (const path of ["/", "/canvas/new", "/canvas", "/nowhere"]) {
+      const r = renderAt(api, path);
+      await screen.findByRole("heading", { name: "Untitled" });
+      r.unmount();
+    }
   });
 });
 
@@ -152,9 +119,11 @@ describe("the canvas routes", () => {
     expect(document.querySelector("main.canvas-main")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "corp-auth" }).closest("header.topbar")).not.toBeNull();
     expect(screen.getByRole("link", { name: "corp-auth" }).getAttribute("href")).toBe("/twins/corp-auth");
+    expect(screen.getByRole("navigation", { name: "Areas" }).querySelector("a.active")).toBeNull();
     a.unmount();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findByRole("heading", { name: "corp-auth" });
-    expect(screen.getByRole("link", { name: "Canvas" }).className).toContain("active");
+    // Reached from a twin's page, Twins stays lit; /canvas/:id lights no area (no Canvas entry any more).
+    expect(screen.getByRole("navigation", { name: "Areas" }).querySelector("a.active")?.textContent).toBe("Twins");
   });
 });
