@@ -73,7 +73,7 @@ class _FakeGA:
 # The original pin guarded the Windows PORT from silently touching the Linux
 # branch, which is a different (and still valid) concern — this change alters
 # both branches on purpose.
-_LINUX_CLIENT_SHA256 = "ccc83dd5745d5defc9dc801e58403c524c4cb747fedccc559b8c8a09692184a5"
+_LINUX_CLIENT_SHA256 = "0330becf4dcbee49fd9d65f29fcb31f278cdd30874fd66ff440ae527e69625fa"
 # Re-pinned 2026-08-04 (was 6fd6b404...) — `systemd_daemon_start_block` gained
 # a leading `mkdir -p $(dirname <log>)` so the unit's stdout/stderr redirect
 # can't fail on a plain host with no pre-existing `/var/log/axrange` (W1 dev45

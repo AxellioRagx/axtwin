@@ -1610,6 +1610,10 @@ for _e in EMITS:
     if _e['bytes_note']:
         log('note ' + _e['proto'] + ' ' + _e['bytes_note'])
 next_fire = [0.0] * len(EMITS)
+# The jitter-free schedule each emit is held to. Advanced by exactly one interval
+# per fire, so the time a fire takes (and the 1 s poll below) never stretches the
+# period: `cyclic:5s` fires 12 times a minute, not ~9.5 (pace-test, 2026-11-19).
+anchor = [0.0] * len(EMITS)
 while True:
     now = time.time()
     for idx, emit in enumerate(EMITS):
@@ -1620,7 +1624,12 @@ while True:
             continue
         fire(emit)
         jitter = rng.uniform(-0.1, 0.1) * emit['interval_s']
-        next_fire[idx] = now + emit['interval_s'] + jitter
+        # More than one period behind (a slow fire, a suspended guest): re-anchor
+        # rather than burst to catch up.
+        if anchor[idx] <= 0 or anchor[idx] + emit['interval_s'] < now:
+            anchor[idx] = now
+        anchor[idx] += emit['interval_s']
+        next_fire[idx] = anchor[idx] + jitter
     time.sleep(1.0)
 '''
 

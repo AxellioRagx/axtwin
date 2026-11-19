@@ -45,6 +45,8 @@ _EXPECTED_IDS = {
     "canvas-test", "switch-test", "switch-trunk-test",
     # The TRex ASTF crowd proof (catalog/twins/trex-test, 2026-11-16).
     "trex-test",
+    # Ground truth for the discovery round trip (catalog/twins/pace-test, 2026-11-19).
+    "pace-test",
 }
 
 

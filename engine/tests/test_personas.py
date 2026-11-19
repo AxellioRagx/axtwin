@@ -2012,7 +2012,7 @@ def test_no_shipped_persona_uses_the_command_drive_on_either_os():
 
 # Recomputed deliberately ONLY when the scripted render is intentionally
 # changed (see the test below).
-_SCRIPTED_RENDER_SHA256 = "926f4dfeaccf47dce678aed1327306a97ae3ebc848caa474578d78145ede063c"
+_SCRIPTED_RENDER_SHA256 = "0ade84ad235c70226b46fb44540b90dc648c53aae7555cd74c92b34d90f24e0a"
 
 
 def test_scripted_render_is_byte_identical_after_the_command_driver_landed():
