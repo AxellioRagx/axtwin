@@ -522,3 +522,292 @@ def test_window_from_probe_needs_a_last_ts():
         ds.window_from_probe({"first_ts": 1.0}, 1)
     assert ds.window_from_probe({"first_ts": 0.0, "last_ts": 99.0}, 1) == (0.0, 100.0)
     assert ds.window_from_probe({"last_ts": 1_000_000.0}, 1) == (1_000_000.0 + 1 - 86400, 1_000_001.0)
+
+
+# ---------------------------------------------------------------------------
+# A7.2a -- the probe of an UNSAVED config (the editor's "Test connection")
+# ---------------------------------------------------------------------------
+PROBE = "/api/discovery/sources/probe"
+RESET_AT_LOCAL = {
+    "supported": True, "reachable": False,
+    "error": "axquery /api/info unreachable at http://127.0.0.1:45678: [Errno 104] Connection reset by peer",
+    "first_ts": None, "last_ts": None, "vantage": None, "extra": {}}
+
+
+def test_probe_of_an_unsaved_config_answers_like_the_saved_one_and_writes_nothing(tmp_path):
+    settings = _settings(tmp_path)
+    be = _FakeDiscovery()
+    c = _client(settings, backend=be)
+    r = c.post(PROBE, json=_tunnel_source())
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["source_id"] is None and doc["reachable"] is True and doc["stage"] is None
+    assert doc["via"] == "ssh fxadmin@reader.example:22 -> 127.0.0.1:9090 via 127.0.0.1:45678"
+    assert [s["stage"] for s in doc["steps"]] == list(ds.PROBE_STAGES)
+    assert all(s["ok"] for s in doc["steps"]) and doc["probed_at"]
+    assert be.probes == [("axquery", "axquery:http://127.0.0.1:45678", {})]
+    assert _FakeTunnel.log == ["open fxadmin@reader.example:22 -> ('127.0.0.1', 9090)", "close"]
+    # Nothing written: the sources table was never even opened, and lists empty.
+    tables = {r[0] for r in sqlite3.connect(settings.discovery_db).execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "sources" not in tables
+    assert c.get("/api/discovery/sources").json() == {"sources": []}
+
+
+def test_probe_of_an_unsaved_config_leaves_saved_sources_untouched(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    sid = c.post("/api/discovery/sources", json=_tunnel_source()).json()["id"]
+    before = c.get("/api/discovery/sources").json()
+    assert c.post(PROBE, json=_tunnel_source(name="other")).status_code == 200
+    assert c.get("/api/discovery/sources").json() == before
+    assert c.get(f"/api/discovery/sources/{sid}").json()["last_probe"] is None
+
+
+def test_an_unreachable_unsaved_config_names_the_stage_and_the_configured_endpoint(tmp_path):
+    be = _FakeDiscovery(probe=lambda p, s, e: dict(RESET_AT_LOCAL))
+    c = _client(_settings(tmp_path), backend=be)
+    doc = c.post(PROBE, json=_tunnel_source()).json()
+    assert doc["reachable"] is False and doc["stage"] == "api_http"
+    assert doc["steps"] == [{"stage": s, "ok": s != "api_http"} for s in ds.PROBE_STAGES[:4]]
+    # Worded against the endpoint the operator typed, not the tunnel's local end.
+    assert "45678" not in doc["error"]
+    assert "http://127.0.0.1:9090 (as seen from fxadmin@reader.example)" in doc["error"]
+    assert "Connection reset by peer" in doc["error"]
+    assert _FakeTunnel.log[-1] == "close"
+
+
+def test_the_saved_probe_also_names_the_stage_and_the_configured_endpoint(tmp_path):
+    be = _FakeDiscovery(probe=lambda p, s, e: dict(RESET_AT_LOCAL))
+    c = _client(_settings(tmp_path), backend=be)
+    sid = c.post("/api/discovery/sources", json=_tunnel_source()).json()["id"]
+    doc = c.post(f"/api/discovery/sources/{sid}/probe").json()
+    assert doc["source_id"] == sid and doc["stage"] == "api_http" and "45678" not in doc["error"]
+    assert c.get(f"/api/discovery/sources/{sid}").json()["last_probe"]["stage"] == "api_http"
+
+
+@pytest.mark.parametrize("message, stage", [
+    ("ssh tunnel to fx@h:22 exited (255) before the forward came up: fx@h: Permission denied (publickey).", "ssh_auth"),
+    ("ssh tunnel to fx@h:22 exited (255) before the forward came up: ssh: connect to host h port 22: Connection refused", "ssh_connect"),
+    ("ssh tunnel to fx@h:22 exited (255) before the forward came up: Host key verification failed.", "ssh_auth"),
+    ("ssh tunnel to fx@h:22 exited (255) before the forward came up: bind [127.0.0.1]:4000: Address already in use", "ssh_forward"),
+])
+def test_ssh_failures_are_sorted_into_their_stage(tmp_path, message, stage):
+    err = message.split("came up: ", 1)[1]
+    assert ds.classify_ssh_error(err) == stage
+
+    class _Dead(_FakeTunnel):
+        def __enter__(self):
+            raise ds.AccessError(message, stage=ds.classify_ssh_error(err))
+
+    be = _FakeDiscovery()
+    doc = _client(_settings(tmp_path), backend=be, tunnel=_Dead).post(PROBE, json=_tunnel_source()).json()
+    assert doc["reachable"] is False and doc["stage"] == stage and doc["error"] == message
+    assert doc["steps"][-1] == {"stage": stage, "ok": False} and be.probes == []
+
+
+@pytest.mark.parametrize("error, stage", [
+    ("axquery /api/info unreachable at http://h:1: refused", "api_http"),
+    ("axquery /api/info timed out after 60s — narrow the time window", "api_http"),
+    ("axquery /api/info -> HTTP 401: http://h:1/api/info -- the server refused the credential", "api_http"),
+    ("axquery /api/info returned non-JSON: b'<html>'", "plugin_census"),
+    ("axquery /api/info returned an EMPTY body (http://h/api/info)", "plugin_census"),
+])
+def test_plugin_failures_are_sorted_into_http_or_census(tmp_path, error, stage):
+    be = _FakeDiscovery(probe=lambda p, s, e: {"supported": True, "reachable": False, "error": error})
+    doc = _client(_settings(tmp_path), backend=be).post(
+        PROBE, json=_tunnel_source(endpoint="https://sensor.example:9443", access={"transport": "direct"})).json()
+    assert doc["stage"] == stage and doc["error"] == error
+    assert [s["stage"] for s in doc["steps"]] == list(ds.DIRECT_STAGES[: ds.DIRECT_STAGES.index(stage) + 1])
+
+
+def test_a_crashed_plugin_is_a_census_failure_not_a_500(tmp_path):
+    def boom(p, s, e):
+        raise disc.DiscoveryError("probe failed (exit 1): Traceback ... http://127.0.0.1:45678")
+
+    doc = _client(_settings(tmp_path), backend=_FakeDiscovery(probe=boom)).post(PROBE, json=_tunnel_source()).json()
+    assert doc["stage"] == "plugin_census" and "127.0.0.1:9090" in doc["error"] and "45678" not in doc["error"]
+    assert _FakeTunnel.log[-1] == "close"
+
+
+@pytest.mark.parametrize("over, needle", [
+    ({"plugin": "zeek"}, "reads a path, not an endpoint"),
+    ({"endpoint": "10.0.0.1:9090"}, "absolute http(s) base URL"),
+    ({"access": {"transport": "direct", "auth": "basic", "user": "ro"}}, "basic auth needs a password"),
+    ({"access": {"transport": "ssh_tunnel", "auth": "none"}}, "access.ssh {host, user, key_path, port?} is required"),
+    ({"name": "  "}, "name must be a non-empty string"),
+])
+def test_an_invalid_unsaved_config_is_refused_like_create_and_never_probed(tmp_path, over, needle):
+    be = _FakeDiscovery()
+    c = _client(_settings(tmp_path), backend=be)
+    probed = c.post(PROBE, json=_tunnel_source(**over))
+    created = c.post("/api/discovery/sources", json=_tunnel_source(**over))
+    assert probed.status_code == created.status_code == 400
+    assert probed.json() == created.json() and needle in probed.text
+    assert be.probes == [] and _FakeTunnel.log == []
+
+
+def test_a_malformed_body_is_the_same_422_as_create(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    body = {"plugin": "axquery"}  # no name, no endpoint
+    p, cr = c.post(PROBE, json=body), c.post("/api/discovery/sources", json=body)
+    assert p.status_code == cr.status_code == 422
+
+
+def test_the_unsaved_probe_carries_the_write_token(tmp_path):
+    c = _client(_settings(tmp_path, api_token="t0k"), backend=_FakeDiscovery())
+    assert c.post(PROBE, json=_tunnel_source()).status_code == 401
+    assert c.post(PROBE, json=_tunnel_source(), headers={"Authorization": "Bearer t0k"}).status_code == 200
+
+
+def test_both_probe_routes_call_the_one_probe_function(tmp_path, monkeypatch):
+    calls: list[tuple[str, str, str]] = []
+
+    def spy(backend, plugin, spec, *, tunnel_factory=None, timeout_s):
+        calls.append((plugin, spec.endpoint, spec.access.transport))
+        return {"reachable": True, "error": None, "first_ts": None, "last_ts": None,
+                "vantage": None, "extra": {}, "via": "direct", "stage": None, "steps": []}
+
+    monkeypatch.setattr(ds, "probe_config", spy)
+    c = _client(_settings(tmp_path, source_probe_timeout_s=7.0), backend=_FakeDiscovery())
+    sid = c.post("/api/discovery/sources", json=_tunnel_source()).json()["id"]
+    assert c.post(f"/api/discovery/sources/{sid}/probe").status_code == 200
+    assert c.post(PROBE, json=_tunnel_source()).status_code == 200
+    assert calls == [("axquery", "http://127.0.0.1:9090", "ssh_tunnel")] * 2
+
+
+def test_secrets_reach_the_plugin_env_and_nowhere_else(tmp_path, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    be = _FakeDiscovery(probe=lambda p, s, e: dict(RESET_AT_LOCAL))
+    c = _client(_settings(tmp_path), backend=be)
+    for body, secret in (
+        (_tunnel_source(access={"transport": "direct", "auth": "basic", "user": "ro"},
+                        password="pw-SECRET-1", endpoint="https://s.example:9443"), "pw-SECRET-1"),
+        (_tunnel_source(access={"transport": "ssh_tunnel", "auth": "api_key",
+                                "ssh": {"host": "reader.example", "user": "fxadmin", "key_path": "~/.ssh/k"}},
+                        api_key="key-SECRET-2"), "key-SECRET-2"),
+    ):
+        r = c.post(PROBE, json=body)
+        assert r.status_code == 200 and secret not in r.text
+    assert be.probes[0][2] == {ds.ENV_USER: "ro", ds.ENV_PASSWORD: "pw-SECRET-1"}
+    assert be.probes[1][2] == {ds.ENV_API_KEY: "key-SECRET-2"}
+    assert "SECRET" not in caplog.text
+
+
+def test_secrets_from_fills_an_untyped_secret_from_the_saved_source(tmp_path):
+    be = _FakeDiscovery()
+    c = _client(_settings(tmp_path), backend=be)
+    body = _tunnel_source(access={"transport": "direct", "auth": "basic", "user": "ro"},
+                          endpoint="https://s.example:9443")
+    sid = c.post("/api/discovery/sources", json={**body, "password": "stored-pw"}).json()["id"]
+    # The edit form sends no password ("unchanged unless typed").
+    assert c.post(PROBE, json=body).status_code == 400
+    r = c.post(f"{PROBE}?secrets_from={sid}", json=body)
+    assert r.status_code == 200 and "stored-pw" not in r.text
+    assert be.probes[-1][2][ds.ENV_PASSWORD] == "stored-pw"
+    # A typed one wins; an unknown id is a 404.
+    c.post(f"{PROBE}?secrets_from={sid}", json={**body, "password": "typed"})
+    assert be.probes[-1][2][ds.ENV_PASSWORD] == "typed"
+    assert c.post(f"{PROBE}?secrets_from=src-nope", json=body).status_code == 404
+    assert c.get(f"/api/discovery/sources/{sid}").json()["last_probe"] is None
+
+
+class _Hung(_FakeTunnel):
+    """A tunnel whose connect never comes up until something calls `kill()`."""
+
+    def __init__(self, ssh, target):
+        super().__init__(ssh, target)
+        import threading
+
+        self._stop = threading.Event()
+
+    def __enter__(self):
+        _FakeTunnel.log.append("connecting")
+        self._stop.wait(10)
+        raise ds.AccessError("stopped", stage="ssh_connect")
+
+    def kill(self):
+        _FakeTunnel.log.append("kill")
+        self._stop.set()
+
+
+def test_a_hung_ssh_connect_times_out_at_its_stage_and_the_tunnel_is_killed(tmp_path):
+    be = _FakeDiscovery()
+    c = _client(_settings(tmp_path, source_probe_timeout_s=0.3), backend=be, tunnel=_Hung)
+    doc = c.post(PROBE, json=_tunnel_source()).json()
+    assert doc["reachable"] is False and doc["stage"] == "ssh_connect"
+    assert doc["error"] == "timed out after 0.3s at ssh_connect"
+    assert doc["steps"] == [{"stage": "ssh_connect", "ok": False}]
+    assert _FakeTunnel.log == ["connecting", "kill"] and be.probes == []
+
+
+def test_a_hung_api_read_times_out_at_api_http_and_the_tunnel_is_closed(tmp_path):
+    import threading
+
+    released = threading.Event()
+
+    class _Killable(_FakeTunnel):
+        def kill(self):
+            _FakeTunnel.log.append("kill")
+            released.set()  # a killed tunnel fails the request in flight through it
+
+    def hang(p, s, e):
+        released.wait(10)
+        return dict(RESET_AT_LOCAL)
+
+    c = _client(_settings(tmp_path, source_probe_timeout_s=0.3), backend=_FakeDiscovery(probe=hang),
+                tunnel=_Killable)
+    doc = c.post(PROBE, json=_tunnel_source()).json()
+    assert doc["stage"] == "api_http" and doc["error"].startswith("timed out after 0.3s at api_http")
+    assert "http://127.0.0.1:9090" in doc["error"] and doc["via"]
+    assert [s["ok"] for s in doc["steps"]] == [True, True, True, False]
+    assert _FakeTunnel.log == ["open fxadmin@reader.example:22 -> ('127.0.0.1', 9090)", "kill", "close"]
+
+
+def test_a_real_ssh_tunnel_is_terminated_by_the_deadline(tmp_path, monkeypatch):
+    """The real `SshTunnel` against an `ssh` that never forwards: the deadline kills the
+    process and nothing is left running."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake_ssh = bindir / "ssh"
+    pidfile = tmp_path / "ssh.pid"
+    fake_ssh.write_text(f"#!/bin/sh\necho $$ > {pidfile}\nexec sleep 30\n")
+    fake_ssh.chmod(0o755)
+    key = tmp_path / "id_test"
+    key.write_text("not a real key")
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    spec = ds.AccessSpec(endpoint="http://127.0.0.1:9090", access=ds.validate_access(
+        {"transport": "ssh_tunnel", "ssh": {"host": "h.example", "user": "fx", "key_path": str(key)}}))
+    answer = ds.probe_config(_FakeDiscovery(), "axquery", spec, timeout_s=0.5)
+    assert answer["stage"] == "ssh_connect" and answer["error"] == "timed out after 0.5s at ssh_connect"
+    pid = int(pidfile.read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
+
+
+def test_a_real_tunnel_whose_ssh_refuses_the_key_is_an_ssh_auth_failure(tmp_path, monkeypatch):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "ssh").write_text("#!/bin/sh\necho 'fx@h: Permission denied (publickey).' >&2\nexit 255\n")
+    (bindir / "ssh").chmod(0o755)
+    key = tmp_path / "id_test"
+    key.write_text("x")
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+    spec = ds.AccessSpec(endpoint="http://127.0.0.1:9090", access=ds.validate_access(
+        {"transport": "ssh_tunnel", "ssh": {"host": "h", "user": "fx", "key_path": str(key)}}))
+    answer = ds.probe_config(_FakeDiscovery(), "axquery", spec, timeout_s=10)
+    assert answer["stage"] == "ssh_auth" and "Permission denied" in answer["error"]
+
+
+def test_create_and_update_store_a_probe_just_run_in_the_editor(tmp_path):
+    c = _client(_settings(tmp_path), backend=_FakeDiscovery())
+    probe = c.post(PROBE, json=_tunnel_source()).json()
+    rec = c.post("/api/discovery/sources", json={**_tunnel_source(), "last_probe": probe}).json()
+    assert rec["last_probe"]["reachable"] is True and rec["last_probe"]["probed_at"] == probe["probed_at"]
+    assert "source_id" not in rec["last_probe"]
+    failed = {**probe, "reachable": False, "stage": "api_http", "error": "refused"}
+    upd = c.put(f"/api/discovery/sources/{rec['id']}", json={"last_probe": failed}).json()
+    assert upd["last_probe"]["stage"] == "api_http"
+    # Without one, an update leaves the stored probe as it was.
+    assert c.put(f"/api/discovery/sources/{rec['id']}", json={"name": "renamed"}).json()["last_probe"]["stage"] == "api_http"

@@ -4056,6 +4056,40 @@ def discovery_source_detail(source_id: str, *, store: Any) -> dtos.DiscoverySour
     return _source_dto(_source_or_404(store, source_id))
 
 
+def _validated_source_write(
+    settings: ApiSettings, req: dtos.DiscoverySourceWrite, *, backend: Any,
+    stored_secrets: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    """The create-source refusals, by field (plugin, name, endpoint, access, secret,
+    defaults), shared by create and by the probe of an unsaved config so both answer
+    the same 400 for the same body. `stored_secrets` fills a secret the body leaves
+    empty (the editor's "unchanged unless typed")."""
+    from axrange.api import discovery_sources as ds
+
+    _http_plugin_or_400(settings, backend, req.plugin)
+    secrets = {"password": req.password, "api_key": req.api_key}
+    for key, value in (stored_secrets or {}).items():
+        if not secrets.get(key):
+            secrets[key] = value
+    try:
+        name = ds._text(req.name, "name")
+        endpoint = ds.validate_endpoint(req.endpoint)
+        access = ds.validate_access(req.access.model_dump())
+        defaults = ds.validate_defaults(req.defaults)
+        kept = ds.secrets_for(access, secrets)
+    except ds.SourceError as e:
+        raise ApiError(400, str(e)) from e
+    return {"name": name, "endpoint": endpoint, "access": access, "defaults": defaults,
+            "secrets": kept}
+
+
+def _stored_probe(probe: Optional[dtos.DiscoveryProbeDTO]) -> Optional[dict[str, Any]]:
+    """An editor-run probe answer as `last_probe` stores it (the saved route's shape)."""
+    if probe is None:
+        return None
+    return probe.model_dump(exclude={"source_id"})
+
+
 def create_discovery_source(
     settings: ApiSettings, req: dtos.DiscoverySourceWrite, *, store: Any, backend: Any = None,
 ) -> dtos.DiscoverySourceDTO:
@@ -4063,19 +4097,20 @@ def create_discovery_source(
     defaults) before anything is written; the created record carries no secret."""
     from axrange.api import discovery_sources as ds
 
-    _http_plugin_or_400(settings, backend, req.plugin)
+    v = _validated_source_write(settings, req, backend=backend)
     try:
-        endpoint = ds.validate_endpoint(req.endpoint)
-        access = ds.validate_access(req.access.model_dump())
-        defaults = ds.validate_defaults(req.defaults)
         rec = store.create(
-            name=req.name, plugin=req.plugin, endpoint=endpoint, access=access,
-            secrets={"password": req.password, "api_key": req.api_key}, defaults=defaults,
+            name=v["name"], plugin=req.plugin, endpoint=v["endpoint"], access=v["access"],
+            secrets=v["secrets"], defaults=v["defaults"],
         )
     except ds.SourceError as e:
         raise ApiError(400, str(e)) from e
     except ds.SourceConflict as e:
         raise ApiError(409, str(e)) from e
+    probe = _stored_probe(req.last_probe)
+    if probe is not None:
+        store.record_probe(rec.id, probe)
+        rec = store.get(rec.id)
     return _source_dto(rec)
 
 
@@ -4107,6 +4142,10 @@ def update_discovery_source(
         raise ApiError(400, str(e)) from e
     except ds.SourceConflict as e:
         raise ApiError(409, str(e)) from e
+    probe = _stored_probe(req.last_probe)
+    if probe is not None:
+        store.record_probe(source_id, probe)
+        rec = store.get(source_id)
     return _source_dto(rec)
 
 
@@ -4132,37 +4171,51 @@ def _access_spec(store: Any, rec: Any) -> Any:
     return ds.AccessSpec(endpoint=rec.endpoint, access=rec.access, secrets=store.secrets(rec.id))
 
 
+def _probe_answer(settings: ApiSettings, be: Any, plugin: str, spec: Any, *,
+                  tunnel_factory: Any) -> dict[str, Any]:
+    """Both probe routes, through `discovery_sources.probe_config` (the one probe)."""
+    import time as _time
+
+    from axrange.api import discovery_sources as ds
+
+    answer = ds.probe_config(be, plugin, spec, tunnel_factory=tunnel_factory,
+                             timeout_s=settings.source_probe_timeout_s)
+    answer["probed_at"] = _iso(_time.time()) or ""
+    return answer
+
+
 def probe_discovery_source(
     settings: ApiSettings, source_id: str, *, store: Any, backend: Any = None,
     tunnel_factory: Any = None,
 ) -> dtos.DiscoveryProbeDTO:
     """A7.2: open the access path, ask the plugin what is there, remember the answer
-    on the record. Not reachable is an ANSWER (200, `reachable: false` + the reason --
-    a closed tunnel, a refused key, a wrong port each read differently), not a 5xx;
-    only "discovery is not configured" is."""
-    import time as _time
-
-    from axrange.api import discovery as disc
-    from axrange.api import discovery_sources as ds
-
+    on the record. Not reachable is an ANSWER (200, `reachable: false` + the failed
+    `stage` + the reason -- a closed tunnel, a refused key, a wrong port each read
+    differently), not a 5xx; only "discovery is not configured" is."""
     rec = _source_or_404(store, source_id)
     be = _discovery_backend(settings, backend)
-    spec = _access_spec(store, rec)
-    answer: dict[str, Any] = {"reachable": False, "error": None, "first_ts": None,
-                              "last_ts": None, "vantage": None, "extra": {}, "via": None}
-    try:
-        with ds.open_access(spec, tunnel_factory=tunnel_factory) as opened:
-            answer["via"] = opened.via
-            probe = be.probe(rec.plugin, f"{rec.plugin}:{opened.base_url}", env=opened.env)
-            for k in ("reachable", "error", "first_ts", "last_ts", "vantage", "extra"):
-                if k in probe:
-                    answer[k] = probe[k]
-            answer["reachable"] = bool(answer["reachable"])
-    except (ds.AccessError, disc.DiscoveryError) as e:
-        answer["error"] = str(e)
-    answer["probed_at"] = _iso(_time.time()) or ""
+    answer = _probe_answer(settings, be, rec.plugin, _access_spec(store, rec),
+                           tunnel_factory=tunnel_factory)
     store.record_probe(source_id, answer)
     return dtos.DiscoveryProbeDTO(source_id=source_id, **answer)
+
+
+def probe_discovery_source_config(
+    settings: ApiSettings, req: dtos.DiscoverySourceWrite, *, store: Any,
+    backend: Any = None, tunnel_factory: Any = None, secrets_from: Optional[str] = None,
+) -> dtos.DiscoveryProbeDTO:
+    """A7.2a: the same probe for a config that is NOT saved -- the editor's "Test
+    connection". The body is create-source's and is refused the same way; nothing is
+    written. `secrets_from` (a saved source id, the edit form) supplies a password or
+    API key the body leaves empty, so testing an edit does not mean retyping it."""
+    from axrange.api import discovery_sources as ds
+
+    stored = store.secrets(_source_or_404(store, secrets_from).id) if secrets_from else None
+    v = _validated_source_write(settings, req, backend=backend, stored_secrets=stored)
+    be = _discovery_backend(settings, backend)
+    spec = ds.AccessSpec(endpoint=v["endpoint"], access=v["access"], secrets=v["secrets"])
+    answer = _probe_answer(settings, be, req.plugin, spec, tunnel_factory=tunnel_factory)
+    return dtos.DiscoveryProbeDTO(source_id=None, **answer)
 
 
 def create_discovery_source_run(

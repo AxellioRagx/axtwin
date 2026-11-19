@@ -813,6 +813,29 @@ class SourceAccessDTO(BaseModel):
     ssh: Optional[SshAccessDTO] = None  # ssh_tunnel only
 
 
+class ProbeStepDTO(BaseModel):
+    # ssh_connect | ssh_auth | ssh_forward | api_http | plugin_census
+    stage: str
+    ok: bool
+
+
+class DiscoveryProbeDTO(BaseModel):
+    # None for a probe of an unsaved config (`POST /api/discovery/sources/probe`).
+    source_id: Optional[str] = None
+    reachable: bool
+    error: Optional[str] = None
+    first_ts: Optional[float] = None
+    last_ts: Optional[float] = None
+    vantage: Optional[str] = None
+    # The plugin's own census of the source (axquery: chunks, packets, sites, ...).
+    extra: dict[str, Any] = {}
+    via: Optional[str] = None
+    probed_at: str
+    # The step that failed (None when reachable), and every step walked up to it.
+    stage: Optional[str] = None
+    steps: list[ProbeStepDTO] = []
+
+
 class DiscoverySourceWrite(BaseModel):
     name: str
     plugin: str
@@ -825,6 +848,10 @@ class DiscoverySourceWrite(BaseModel):
     # Run options the console pre-fills: days, network, vantage, window,
     # subbuckets, sensors.
     defaults: dict[str, Any] = {}
+    # The answer of a test of THIS config just run in the editor, stored as the
+    # record's `last_probe` (so a new source does not start "Not tested yet").
+    # Ignored by `POST .../sources/probe`.
+    last_probe: Optional[DiscoveryProbeDTO] = None
 
 
 class DiscoverySourceUpdate(BaseModel):
@@ -836,6 +863,7 @@ class DiscoverySourceUpdate(BaseModel):
     password: Optional[str] = None
     api_key: Optional[str] = None
     defaults: Optional[dict[str, Any]] = None
+    last_probe: Optional[DiscoveryProbeDTO] = None
 
 
 class DiscoverySourceDTO(BaseModel):
@@ -855,19 +883,6 @@ class DiscoverySourceDTO(BaseModel):
 
 class DiscoverySourceListDTO(BaseModel):
     sources: list[DiscoverySourceDTO]
-
-
-class DiscoveryProbeDTO(BaseModel):
-    source_id: str
-    reachable: bool
-    error: Optional[str] = None
-    first_ts: Optional[float] = None
-    last_ts: Optional[float] = None
-    vantage: Optional[str] = None
-    # The plugin's own census of the source (axquery: chunks, packets, sites, ...).
-    extra: dict[str, Any] = {}
-    via: Optional[str] = None
-    probed_at: str
 
 
 class DiscoverySourceRunRequest(BaseModel):

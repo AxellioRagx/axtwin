@@ -571,6 +571,24 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
             settings, req, store=_sources(), backend=app.state.discovery_backend,
         )
 
+    # The editor's "Test connection": the create body, probed, never stored.
+    # `?secrets_from=<id>` (the edit form) fills a secret the body leaves empty.
+    @app.post(
+        "/api/discovery/sources/probe",
+        response_model=dtos.DiscoveryProbeDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def discovery_source_config_probe(
+        req: dtos.DiscoverySourceWrite, secrets_from: Optional[str] = None,
+    ) -> dtos.DiscoveryProbeDTO:
+        return service.probe_discovery_source_config(
+            # The store is opened only to read a saved secret: a probe of a new
+            # config does not even create the store file.
+            settings, req, store=_sources() if secrets_from else None,
+            backend=app.state.discovery_backend,
+            tunnel_factory=app.state.discovery_tunnel, secrets_from=secrets_from,
+        )
+
     @app.get("/api/discovery/sources/{source_id}", response_model=dtos.DiscoverySourceDTO)
     @_ro
     def discovery_source_detail(source_id: str) -> dtos.DiscoverySourceDTO:

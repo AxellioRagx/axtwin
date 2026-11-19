@@ -27,12 +27,19 @@ host:port through the SSH host, waits for the local forward to accept, and hands
 rewritten base URL plus the credential environment; for `direct` it hands back the
 endpoint as is. The tunnel lives exactly as long as the `with` block -- the whole chain
 for a run, one `/api/info` for a probe.
+
+`probe_config()` is THE probe: one config (endpoint + access + secrets), never a saved id,
+so a saved source's "Test connection" and the editor's test of an unsaved config are the
+same code. It runs under one hard overall deadline, names the stage that failed
+(`PROBE_STAGES`), and words every error against the endpoint the operator configured,
+never the tunnel's temporary local port.
 """
 from __future__ import annotations
 
 import contextlib
 import json
 import os
+import re
 import secrets as _secrets
 import socket
 import sqlite3
@@ -49,6 +56,18 @@ SETTING_DISCOVERY_TIMEOUT = "AXRANGE_DISCOVERY_TIMEOUT_S"
 #: Seconds one stage of a source-driven run may take. The ingest of a multi-day window
 #: over a tunnel is HOURS, so `recompile`'s 120 s (sized for one cast) cannot apply here.
 DEFAULT_DISCOVERY_TIMEOUT_S = 6 * 3600.0
+SETTING_PROBE_TIMEOUT = "AXRANGE_SOURCE_PROBE_TIMEOUT_S"
+#: Seconds one probe may take overall: SSH connect + forward + the plugin's `/api/info`.
+#: The tunnel's own connect wait is 20 s (+5), so this leaves the HTTP read ~35 s.
+DEFAULT_PROBE_TIMEOUT_S = 60.0
+
+#: The steps a probe walks, in order; a failed probe names the one that failed.
+#: `ssh_connect` (TCP to the SSH host, DNS, ssh itself), `ssh_auth` (the key, the login,
+#: known_hosts), `ssh_forward` (the local forward coming up), `api_http` (the plugin's
+#: HTTP request: refused, reset, timed out, an HTTP error status), `plugin_census` (an
+#: answer came back but the plugin could not read it, or the plugin itself failed).
+PROBE_STAGES = ("ssh_connect", "ssh_auth", "ssh_forward", "api_http", "plugin_census")
+DIRECT_STAGES = ("api_http", "plugin_census")
 
 TRANSPORTS = ("direct", "ssh_tunnel")
 AUTHS = ("none", "basic", "api_key")
@@ -79,7 +98,12 @@ class SourceConflict(Exception):
 
 
 class AccessError(Exception):
-    """The access path could not be opened (tunnel refused, key missing, ...)."""
+    """The access path could not be opened (tunnel refused, key missing, ...). `stage` is
+    the `PROBE_STAGES` step that failed, when the opener could tell."""
+
+    def __init__(self, message: str, *, stage: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.stage = stage
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +427,8 @@ class OpenedAccess:
     env: dict[str, str]
     #: Human line for the run record: "direct" or "ssh user@host:port -> 127.0.0.1:NNN".
     via: str
+    #: The tunnel's local port, when there is a tunnel (so errors can be reworded).
+    local_port: Optional[int] = None
 
 
 def env_for(access: Access, secrets: dict[str, str]) -> dict[str, str]:
@@ -447,6 +473,7 @@ class SshTunnel:
         self.connect_timeout_s = connect_timeout_s
         self.local_port: Optional[int] = None
         self._proc: Optional[subprocess.Popen[str]] = None
+        self._killed = threading.Event()
 
     def argv(self, local_port: int) -> list[str]:
         host, port = self.target
@@ -466,7 +493,8 @@ class SshTunnel:
     def __enter__(self) -> "SshTunnel":
         key = Path(self.ssh.key_path).expanduser()
         if not key.is_file():
-            raise AccessError(f"ssh key {self.ssh.key_path!r} is not a file on this machine")
+            raise AccessError(f"ssh key {self.ssh.key_path!r} is not a file on this machine",
+                              stage="ssh_auth")
         self.local_port = free_port()
         try:
             self._proc = subprocess.Popen(  # noqa: S603 -- argv list, no shell
@@ -474,14 +502,23 @@ class SshTunnel:
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
             )
         except OSError as e:
-            raise AccessError(f"cannot start ssh: {e}") from e
+            raise AccessError(f"cannot start ssh: {e}", stage="ssh_connect") from e
+        who = f"{self.ssh.user}@{self.ssh.host}:{self.ssh.port}"
         deadline = time.monotonic() + self.connect_timeout_s + 5.0
         while time.monotonic() < deadline:
-            if self._proc.poll() is not None:
-                err = (self._proc.stderr.read() if self._proc.stderr else "").strip()
+            if self._killed.is_set():
+                self.__exit__(None, None, None)
+                raise AccessError(f"ssh tunnel to {who} was stopped before the forward came up",
+                                  stage="ssh_connect")
+            proc = self._proc
+            if proc.poll() is not None:
+                err = (proc.stderr.read() if proc.stderr else "").strip()
+                code = proc.returncode
+                self.__exit__(None, None, None)
                 raise AccessError(
-                    f"ssh tunnel to {self.ssh.user}@{self.ssh.host}:{self.ssh.port} exited "
-                    f"({self._proc.returncode}) before the forward came up: {err or '<no stderr>'}"
+                    f"ssh tunnel to {who} exited ({code}) before the forward came up: "
+                    f"{err or '<no stderr>'}",
+                    stage=classify_ssh_error(err),
                 )
             with contextlib.suppress(OSError):
                 with socket.create_connection(("127.0.0.1", self.local_port), timeout=0.5):
@@ -489,9 +526,19 @@ class SshTunnel:
             time.sleep(0.2)
         self.__exit__(None, None, None)
         raise AccessError(
-            f"ssh tunnel to {self.ssh.user}@{self.ssh.host}:{self.ssh.port} did not accept on "
-            f"127.0.0.1:{self.local_port} within {self.connect_timeout_s:g}s"
+            f"ssh tunnel to {who} came up but its local forward did not accept within "
+            f"{self.connect_timeout_s:g}s",
+            stage="ssh_forward",
         )
+
+    def kill(self) -> None:
+        """Stop the ssh process from ANOTHER thread (the probe's overall deadline). The
+        owning thread's `__enter__` loop or `__exit__` then reaps it."""
+        self._killed.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            with contextlib.suppress(OSError):
+                proc.terminate()
 
     def __exit__(self, *exc: Any) -> None:
         proc, self._proc = self._proc, None
@@ -508,13 +555,35 @@ class SshTunnel:
             proc.stderr.close()
 
 
+#: `ssh` stderr phrases, by the step they mean. Anything else from an ssh that exited
+#: before the forward came up is a connect failure (DNS, refused, timed out, no route).
+_SSH_AUTH = ("permission denied", "host key verification failed", "too many authentication",
+             "no such identity", "load key", "bad permissions", "passphrase",
+             "no supported authentication")
+_SSH_FORWARD = ("forwarding failed", "cannot listen", "bind:", "address already in use",
+                "administratively prohibited", "open failed")
+
+
+def classify_ssh_error(stderr: str) -> str:
+    low = (stderr or "").lower()
+    if any(p in low for p in _SSH_AUTH):
+        return "ssh_auth"
+    if any(p in low for p in _SSH_FORWARD):
+        return "ssh_forward"
+    return "ssh_connect"
+
+
 #: `tunnel_factory(ssh_spec, (host, port))` -> a context manager exposing `local_port`
-#: once entered. Tests inject one that forwards nowhere; the default is `SshTunnel`.
+#: once entered (and, optionally, a thread-safe `kill()` the probe deadline calls). Tests
+#: inject one that forwards nowhere; the default is `SshTunnel`.
 TunnelFactory = Callable[[SshSpec, tuple[str, int]], Any]
 
 
 @contextlib.contextmanager
-def open_access(spec: AccessSpec, *, tunnel_factory: Optional[TunnelFactory] = None) -> Iterator[OpenedAccess]:
+def open_access(spec: AccessSpec, *, tunnel_factory: Optional[TunnelFactory] = None,
+                on_tunnel: Optional[Callable[[Any], None]] = None) -> Iterator[OpenedAccess]:
+    """`on_tunnel(tunnel)` is called with the tunnel object BEFORE it is entered, so a
+    caller on another thread can `kill()` a connect that outlives its deadline."""
     env = env_for(spec.access, spec.secrets)
     if spec.access.transport == "direct":
         yield OpenedAccess(base_url=spec.endpoint, env=env, via="direct")
@@ -522,13 +591,150 @@ def open_access(spec: AccessSpec, *, tunnel_factory: Optional[TunnelFactory] = N
     assert spec.access.ssh is not None  # validate_access guarantees it
     factory = tunnel_factory or SshTunnel
     target = endpoint_target(spec.endpoint)
-    with factory(spec.access.ssh, target) as tunnel:
+    tunnel_cm = factory(spec.access.ssh, target)
+    if on_tunnel is not None:
+        on_tunnel(tunnel_cm)
+    with tunnel_cm as tunnel:
         port = int(tunnel.local_port)
         yield OpenedAccess(
             base_url=rewrite_endpoint(spec.endpoint, port), env=env,
             via=f"ssh {spec.access.ssh.user}@{spec.access.ssh.host}:{spec.access.ssh.port} "
                 f"-> {target[0]}:{target[1]} via 127.0.0.1:{port}",
+            local_port=port,
         )
+
+
+# ---------------------------------------------------------------------------
+# the probe -- one config in, one answer out, under one deadline
+# ---------------------------------------------------------------------------
+#: The shared HTTP layer's wording (`aximprint.ingest.siem.http.fetch`, used by every http
+#: plugin): a socket failure, a read timeout, an HTTP error status. Each means the request
+#: itself failed; any other refusal means an answer came back the plugin could not read.
+_HTTP_FAILURE = re.compile(
+    r"unreachable at|timed out after|-> HTTP \d{3}|connection (reset|refused|aborted)|"
+    r"no route to host|name or service not known",
+    re.IGNORECASE,
+)
+
+
+def classify_plugin_error(message: Optional[str]) -> str:
+    return "api_http" if _HTTP_FAILURE.search(message or "") else "plugin_census"
+
+
+def stages_for(access: Access) -> tuple[str, ...]:
+    return PROBE_STAGES if access.transport == "ssh_tunnel" else DIRECT_STAGES
+
+
+def probe_steps(access: Access, failed: Optional[str]) -> list[dict[str, Any]]:
+    """Every step up to and including the failed one, each `{stage, ok}`; all of them, ok,
+    when nothing failed. The steps after a failure were never attempted, so not listed."""
+    out: list[dict[str, Any]] = []
+    for stage in stages_for(access):
+        out.append({"stage": stage, "ok": stage != failed})
+        if stage == failed:
+            break
+    return out
+
+
+def speak_of_endpoint(text: str, spec: AccessSpec, local_port: Optional[int]) -> str:
+    """Word `text` against the endpoint the operator configured, not the tunnel's local
+    end: `http://127.0.0.1:47815` reads like a wrong address when the source says
+    `http://127.0.0.1:9090` on the SSH host."""
+    if not text or local_port is None or spec.access.ssh is None:
+        return text
+    ssh = spec.access.ssh
+    local_base = rewrite_endpoint(spec.endpoint, local_port)
+    seen_from = f"{spec.endpoint} (as seen from {ssh.user}@{ssh.host})"
+    text = text.replace(local_base, seen_from)
+    host, port = endpoint_target(spec.endpoint)
+    return re.sub(rf"(?:127\.0\.0\.1|localhost):{local_port}\b", f"{host}:{port}", text)
+
+
+def _blank_answer() -> dict[str, Any]:
+    return {"reachable": False, "error": None, "first_ts": None, "last_ts": None,
+            "vantage": None, "extra": {}, "via": None, "stage": None, "steps": []}
+
+
+def _probe_once(backend: Any, plugin: str, spec: AccessSpec, *,
+                tunnel_factory: Optional[TunnelFactory], state: dict[str, Any]) -> dict[str, Any]:
+    from axrange.api.discovery import DiscoveryError  # lazy: discovery imports this module
+
+    answer = _blank_answer()
+    failed: Optional[str] = None
+    local_port: Optional[int] = None
+    try:
+        with open_access(spec, tunnel_factory=tunnel_factory,
+                         on_tunnel=lambda t: state.__setitem__("tunnel", t)) as opened:
+            local_port = opened.local_port
+            state["stage"] = "api_http"
+            state["via"] = answer["via"] = opened.via
+            probe = backend.probe(plugin, f"{plugin}:{opened.base_url}", env=opened.env)
+            for k in ("reachable", "error", "first_ts", "last_ts", "vantage", "extra"):
+                if k in probe:
+                    answer[k] = probe[k]
+            answer["reachable"] = bool(answer["reachable"])
+            if not answer["reachable"]:
+                failed = classify_plugin_error(answer["error"])
+                answer["error"] = speak_of_endpoint(answer["error"] or "no reason given",
+                                                    spec, local_port)
+    except AccessError as e:
+        failed = e.stage or "ssh_connect"
+        answer["reachable"] = False
+        answer["error"] = str(e)
+    except DiscoveryError as e:
+        failed = "plugin_census"
+        answer["reachable"] = False
+        answer["error"] = speak_of_endpoint(str(e), spec, local_port)
+    answer["stage"] = failed
+    answer["steps"] = probe_steps(spec.access, failed)
+    return answer
+
+
+def probe_config(backend: Any, plugin: str, spec: AccessSpec, *,
+                 tunnel_factory: Optional[TunnelFactory] = None,
+                 timeout_s: float = DEFAULT_PROBE_TIMEOUT_S) -> dict[str, Any]:
+    """Open `spec`'s access path, ask `plugin` what is there, close it. The ONE probe:
+    both the saved source's and the unsaved config's route call this; neither it nor
+    anything it calls writes a record.
+
+    Not reachable is an ANSWER (`reachable: false`, `stage`, `error`), never a raise; an
+    unexpected exception is re-raised. The whole thing runs on a worker thread under one
+    hard deadline: past it, the tunnel (if any) is killed -- which also fails any request
+    still in flight through it -- and the answer is "timed out after Ns at <stage>". The
+    worker's `with` blocks tear the tunnel down on every path; a direct request still in
+    flight is bounded by the backend's own subprocess timeout and its answer discarded.
+    """
+    state: dict[str, Any] = {"stage": stages_for(spec.access)[0], "tunnel": None, "via": None}
+    box: dict[str, Any] = {}
+
+    def _work() -> None:
+        try:
+            box["answer"] = _probe_once(backend, plugin, spec,
+                                        tunnel_factory=tunnel_factory, state=state)
+        except BaseException as e:  # noqa: BLE001 -- handed back to the caller's thread
+            box["exc"] = e
+
+    worker = threading.Thread(target=_work, name="source-probe", daemon=True)
+    worker.start()
+    worker.join(timeout_s)
+    if worker.is_alive():
+        stage = state["stage"]
+        kill = getattr(state["tunnel"], "kill", None)
+        if callable(kill):
+            with contextlib.suppress(Exception):
+                kill()
+        worker.join(5.0)  # let the tunnel's teardown run; the answer stands either way
+        answer = _blank_answer()
+        answer["via"] = state["via"]
+        answer["stage"] = stage
+        answer["steps"] = probe_steps(spec.access, stage)
+        answer["error"] = f"timed out after {timeout_s:g}s at {stage}" + (
+            f" (no answer from {spec.endpoint})" if stage in ("api_http", "plugin_census") else ""
+        )
+        return answer
+    if "exc" in box:
+        raise box["exc"]
+    return box["answer"]
 
 
 def window_from_probe(probe: dict[str, Any], days: float) -> tuple[float, float]:

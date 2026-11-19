@@ -43,20 +43,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-def _discovery_timeout_from_env() -> float:
-    raw = os.environ.get(_ds.SETTING_DISCOVERY_TIMEOUT)
+def _seconds_from_env(key: str, default: float) -> float:
+    raw = os.environ.get(key)
     if not raw or not raw.strip():
-        return _ds.DEFAULT_DISCOVERY_TIMEOUT_S
+        return default
     try:
         value = float(raw)
     except ValueError:
         raise ApiSettingsError(
-            f"{_ds.SETTING_DISCOVERY_TIMEOUT}={raw!r} is not a number of seconds "
-            f"(default {_ds.DEFAULT_DISCOVERY_TIMEOUT_S:g})"
+            f"{key}={raw!r} is not a number of seconds (default {default:g})"
         ) from None
     if value <= 0:
-        raise ApiSettingsError(f"{_ds.SETTING_DISCOVERY_TIMEOUT}={raw!r} must be positive")
+        raise ApiSettingsError(f"{key}={raw!r} must be positive")
     return value
+
+
+def _discovery_timeout_from_env() -> float:
+    return _seconds_from_env(_ds.SETTING_DISCOVERY_TIMEOUT, _ds.DEFAULT_DISCOVERY_TIMEOUT_S)
+
+
+def _probe_timeout_from_env() -> float:
+    return _seconds_from_env(_ds.SETTING_PROBE_TIMEOUT, _ds.DEFAULT_PROBE_TIMEOUT_S)
 
 
 def default_db_path() -> str:
@@ -198,6 +205,10 @@ class ApiSettings:
     # ingest over a tunnel is hours; `aximprint_timeout_s` above is sized for
     # one cast). `AXRANGE_DISCOVERY_TIMEOUT_S`, default 6 h.
     discovery_timeout_s: float = field(default_factory=_discovery_timeout_from_env)
+    # Seconds one source PROBE may take overall (SSH connect + forward + the
+    # plugin's HTTP read), both probe routes. `AXRANGE_SOURCE_PROBE_TIMEOUT_S`,
+    # default 60.
+    source_probe_timeout_s: float = field(default_factory=_probe_timeout_from_env)
 
     # Cluster targets file (Unified Console ruling §3.1, `axrange.api.
     # targets`): named `{name, adapter_config, db}` entries, the first one

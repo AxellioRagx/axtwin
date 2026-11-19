@@ -28,7 +28,7 @@ that is **not** listed under a seam below already exists:
 `GET /api/pcaps`, `GET /api/twins[/{id}]`, `DELETE /api/twins/{id}`, `GET /api/twins/{id}/cast`, `GET /api/imprints[/{pit}]`, `PATCH|DELETE /api/imprints/{pit}`, `POST /api/imprints/{pit}/copy|cast`, `GET|PUT /api/imprints/{pit}/assertions`,
 `GET /api/discovery/plugins`, `POST /api/discovery/runs`, `GET /api/discovery/runs[/{id}]`, `POST /api/discovery/runs/{id}/cancel`, `DELETE /api/discovery/runs/{id}` (A1, built),
 `GET|POST /api/discovery/sources`, `GET|PUT|DELETE /api/discovery/sources/{id}`,
-`POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
+`POST /api/discovery/sources/probe`, `POST /api/discovery/sources/{id}/probe`, `POST /api/discovery/sources/{id}/runs` (A7, built),
 `GET /api/twin-configs[/{id}]`, `GET /api/scenarios/{id}/topology` (a `network` node carries the segment's `egress`, the config's uplink marker the canvas reads -- 2026-11-06),
 `GET /api/deploys[/{id}]`, `GET /api/deploys/{id}/inventory`, `GET|PUT /api/deploys/{id}/config`, `POST /api/deploys/{id}/config/apply|reset|cancel`, `POST /api/validate`, `POST /api/fabric-conversion`,
 `GET /api/targets`, `POST /api/deploys`, `POST /api/deploys/{id}/run`,
@@ -296,7 +296,21 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   (`IngestPlugin.probe`: `/api/info` for axquery), record the answer on the
   source (`last_probe`). Not reachable is an **answer** (`200`,
   `reachable: false` + the reason in ssh's or the plugin's own words), never
-  a 5xx; `503` only when discovery is unconfigured.
+  a 5xx; `503` only when discovery is unconfigured. A failed answer names the
+  `stage` that failed (`ssh_connect` | `ssh_auth` | `ssh_forward` | `api_http`
+  | `plugin_census`) and `steps` (`[{stage, ok}]`, every step walked up to it),
+  and its `error` speaks of the configured endpoint "as seen from" the SSH
+  host, never the tunnel's temporary local port. One hard overall deadline,
+  `AXRANGE_SOURCE_PROBE_TIMEOUT_S` (default 60 s): past it the tunnel is
+  killed and the answer is `timed out after Ns at <stage>`.
+- `POST /api/discovery/sources/probe` (token; built 2026-11-19) — the same
+  probe (`discovery_sources.probe_config`, the one function both routes call)
+  for an **unsaved** config: the create body, refused with create's own
+  400/422, answered in the probe's shape with `source_id: null`, and **writes
+  nothing**. `?secrets_from=<id>` fills a password/API key the body leaves
+  empty from that saved source (the edit form's "unchanged unless typed").
+  `POST` / `PUT` of a source accept an optional `last_probe` (an answer from
+  this route for the same config), stored as the record's `last_probe`.
 - `POST .../{id}/runs` `{imprint_id, days? | ts_from+ts_to, network?, vantage?,
   window?, subbuckets?, sensors?}` (token, `202`) — an A1 run whose `source`
   and credential come from the record. `days` is resolved **when the run
