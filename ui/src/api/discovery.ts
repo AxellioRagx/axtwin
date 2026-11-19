@@ -55,6 +55,9 @@ export interface Api {
   updateSource(id: string, body: SourceUpdate): Promise<DiscoverySource>;
   deleteSource(id: string): Promise<void>;
   probeSource(id: string): Promise<ProbeResult>;
+  /** Test an UNSAVED config (the create body); nothing is written. `secretsFrom` (a saved
+   *  source id, the edit form) fills a password or API key the body leaves empty. */
+  probeSourceConfig(body: SourceWrite, secretsFrom?: string): Promise<ProbeResult>;
   startRun(sourceId: string, body: SourceRunRequest): Promise<DiscoveryRun>;
   listRuns(signal?: AbortSignal): Promise<DiscoveryRunList>;
   getRun(id: string, signal?: AbortSignal): Promise<DiscoveryRun>;
@@ -151,6 +154,12 @@ export function makeApi(request: Requester): Api {
     updateSource: (id, body) => request("PUT", `/api/discovery/sources/${enc(id)}`, { body }),
     deleteSource: (id) => request("DELETE", `/api/discovery/sources/${enc(id)}`, {}),
     probeSource: (id) => request("POST", `/api/discovery/sources/${enc(id)}/probe`, {}),
+    probeSourceConfig: (body, secretsFrom) =>
+      request(
+        "POST",
+        `/api/discovery/sources/probe${secretsFrom ? `?secrets_from=${enc(secretsFrom)}` : ""}`,
+        { body },
+      ),
     startRun: (sourceId, body) => request("POST", `/api/discovery/sources/${enc(sourceId)}/runs`, { body }),
     listRuns: (signal) => request("GET", "/api/discovery/runs", { signal }),
     getRun: (id, signal) => request("GET", `/api/discovery/runs/${enc(id)}`, { signal }),

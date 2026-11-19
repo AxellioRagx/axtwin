@@ -155,9 +155,13 @@ export interface FakeState {
   /** Every write the console made, in order. */
   writes: Array<{ op: string; id?: string; body?: unknown }>;
   /** What the next create/probe/startRun should do instead of succeeding. */
-  refuse: { create?: ApiError; probe?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError; plan?: ApiError; deploy?: ApiError; destroy?: ApiError };
+  refuse: { create?: ApiError; probe?: ApiError; probeConfig?: ApiError; run?: ApiError; cancel?: ApiError; delete?: ApiError; deleteImprint?: ApiError; deleteTwin?: ApiError; rename?: ApiError; copy?: ApiError; cast?: ApiError; assertions?: ApiError; layout?: ApiError; config?: ApiError; apply?: ApiError; twinConfigWrite?: ApiError; plan?: ApiError; deploy?: ApiError; destroy?: ApiError };
   /** How a run progresses: each `getRun` moves it one step along this list. */
   runSteps: Array<Partial<DiscoveryRun>>;
+  /** What `probeSourceConfig` answers (after `probeHold`, if set); absent: reachable, like `probeSource`. */
+  probeConfigAnswer?: Partial<ProbeResult>;
+  /** When set, `probeSourceConfig` waits on it before answering (a test in flight). */
+  probeHold?: Promise<void>;
   /** What `GET /api/targets` lists. */
   targets: Target[];
   /** `GET /api/targets/{name}/health` by target name; a target without an entry answers every component unknown. */
@@ -271,6 +275,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         has_password: Boolean(body.password),
         has_api_key: Boolean(body.api_key),
         defaults: body.defaults,
+        last_probe: body.last_probe ?? null,
       });
       state.sources.push(src);
       return src;
@@ -279,6 +284,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       state.writes.push({ op: "update", id, body });
       const s = await api.getSource(id);
       Object.assign(s, { name: body.name ?? s.name, endpoint: body.endpoint ?? s.endpoint });
+      if (body.last_probe) s.last_probe = body.last_probe;
       return s;
     },
     async deleteSource(id) {
@@ -307,6 +313,25 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
         probed_at: "2026-10-27T16:00:00Z",
       };
       s.last_probe = probe;
+      return probe;
+    },
+    async probeSourceConfig(body: SourceWrite, secretsFrom?: string) {
+      state.writes.push({ op: "probe-config", id: secretsFrom, body });
+      if (state.probeHold) await state.probeHold;
+      if (state.refuse.probeConfig) throw state.refuse.probeConfig;
+      const probe: ProbeResult = {
+        source_id: null,
+        reachable: true,
+        error: null,
+        ...SPAN,
+        vantage: "axellio-hq/corp-apcn-rdr1:12",
+        extra: { chunks: 69 },
+        via: "ssh fxadmin@corp-apcn-reader.swlab.axellio.dom:22 -> 127.0.0.1:9090 via 127.0.0.1:37219",
+        probed_at: "2026-11-19T12:00:00Z",
+        stage: null,
+        steps: [],
+        ...state.probeConfigAnswer,
+      };
       return probe;
     },
     async startRun(sourceId, body: SourceRunRequest) {

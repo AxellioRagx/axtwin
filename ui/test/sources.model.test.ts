@@ -119,3 +119,22 @@ describe("the window", () => {
     ).toBe("direct, basic auth as ro, password stored");
   });
 });
+
+describe("probe steps and the test key", () => {
+  it("formats the step trail and tolerates a probe recorded before steps existed", async () => {
+    const { formatSteps } = await import("../src/model/sources");
+    expect(formatSteps([{ stage: "api_http", ok: true }, { stage: "plugin_census", ok: false }])).toBe("API ✓ · census ✗");
+    expect(formatSteps(undefined)).toBe("");
+  });
+
+  it("the key follows plugin, endpoint and access, never the run defaults", async () => {
+    const { emptyForm, probeKey } = await import("../src/model/sources");
+    const f = { ...emptyForm("axquery"), endpoint: "http://127.0.0.1:9090" };
+    const k = probeKey(f);
+    expect(probeKey({ ...f, name: "renamed", defaults: { ...f.defaults, days: "3", network: "n" } })).toBe(k);
+    expect(probeKey({ ...f, plugin: "elastic" })).not.toBe(k);
+    expect(probeKey({ ...f, access: "api_key", apiKey: "k" })).not.toBe(k);
+    expect(probeKey({ ...f, ssh: { ...f.ssh, host: "h" } })).toBe(k); // ssh unused without a tunnel
+    expect(probeKey({ ...f, access: "ssh_tunnel" })).not.toBe(k);
+  });
+});

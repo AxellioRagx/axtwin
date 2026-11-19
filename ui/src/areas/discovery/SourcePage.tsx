@@ -6,16 +6,14 @@ import type { DiscoveryPlugin, DiscoveryRun, DiscoverySource, ProbeResult, Sourc
 import {
   defaultImprintId,
   describeAccess,
-  formatBig,
-  formatCount,
   formatTs,
   runOptions,
-  siteRows,
   windowPreview,
 } from "../../model/sources";
 import { ConfirmDelete } from "../shell/ConfirmDelete";
 import { EntityName, ErrorLine, LinkRow, StatusBadge, When } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { ProbeView } from "./ProbeView";
 
 /** One source: how it is reached, what the last test found, and the run form. */
 export function SourcePage() {
@@ -125,7 +123,6 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
       setBusy(false);
     }
   }
-  const sites = siteRows(probe?.extra.sites);
   return (
     <div className="panel" data-testid="probe-panel">
       <div className="row">
@@ -135,67 +132,11 @@ function ProbePanel({ source, onProbed }: { source: DiscoverySource; onProbed: (
         </button>
       </div>
       <ErrorLine error={error} prefix="the test could not run" />
-      {!probe ? <p className="muted">Not tested yet. Testing opens the access path and reads the source's own census.</p> : null}
-      {probe && !probe.reachable ? (
-        <div className="error" role="alert">
-          Not reachable (<When value={probe.probed_at} />): {probe.error ?? "no reason given"}
-        </div>
-      ) : null}
-      {probe && probe.reachable ? (
-        <>
-          <div className="notice">Reachable (<When value={probe.probed_at} />){probe.via ? `, ${probe.via}` : ""}</div>
-          <dl className="facts">
-            <dt>Data span</dt>
-            <dd>
-              {`${formatTs(probe.first_ts)} → ${formatTs(probe.last_ts)}${
-                probe.first_ts !== null && probe.last_ts !== null
-                  ? ` (${((probe.last_ts - probe.first_ts) / 86400).toFixed(1)} days)`
-                  : ""
-              }`}
-            </dd>
-            <dt>Vantage</dt>
-            <dd>
-              {probe.vantage ? (
-                <>
-                  <code>{probe.vantage}</code>{" "}
-                  <span className="muted">site/system:streams, the sensor's own name for where it sat</span>
-                </>
-              ) : (
-                "not reported"
-              )}
-            </dd>
-            {CENSUS.map(({ key, label, format }) =>
-              key in probe.extra ? <Fact key={key} label={label} value={format(probe.extra[key])} /> : null,
-            )}
-          </dl>
-          {sites.length ? (
-            <table className="list" aria-label="Sites">
-              <thead>
-                <tr>
-                  <th>Location</th>
-                  <th>System</th>
-                  <th>Streams</th>
-                  <th>Chunks</th>
-                  <th>First (epoch s)</th>
-                  <th>Last (epoch s)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sites.map((row) => (
-                  <tr key={`${row.location}/${row.system}`}>
-                    <td>{row.location}</td>
-                    <td>{row.system}</td>
-                    <td>{formatCount(row.streams)}</td>
-                    <td>{formatCount(row.chunks)}</td>
-                    <td className="muted mono">{row.first_ts ?? "—"}</td>
-                    <td className="muted mono">{row.last_ts ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : null}
-        </>
-      ) : null}
+      {probe ? (
+        <ProbeView probe={probe} />
+      ) : (
+        <p className="muted">Not tested yet. Testing opens the access path and reads the source's own census.</p>
+      )}
     </div>
   );
 }
@@ -215,26 +156,6 @@ function probeRunDefaults(source: DiscoverySource): Record<string, string> {
     if (source.defaults[k] === undefined && typeof v === "number" && Number.isFinite(v)) out[k] = String(v);
   }
   return out;
-}
-
-/** The census figures a probe may carry, in display order, each with its own reading. */
-const CENSUS: ReadonlyArray<{ key: string; label: string; format: (v: unknown) => string }> = [
-  { key: "chunks", label: "Chunks", format: formatCount },
-  { key: "packets", label: "Packets", format: (v) => `${formatBig(v)} (${formatCount(v)})` },
-  { key: "bytes", label: "Bytes", format: (v) => `${formatBig(v, "B")} (${formatCount(v)})` },
-  { key: "entities", label: "Entities", format: formatCount },
-  { key: "events", label: "Events", format: formatCount },
-  { key: "endpoints", label: "Endpoints", format: formatCount },
-  { key: "applications", label: "Applications", format: formatCount },
-];
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </>
-  );
 }
 
 function RunForm({ source, plugin }: { source: DiscoverySource; plugin: DiscoveryPlugin | undefined }) {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { useApi } from "../../api/context";
-import type { DiscoveryPlugin } from "../../api/types";
+import type { DiscoveryPlugin, ProbeResult } from "../../api/types";
 import {
   ACCESS_LABELS,
   type AccessChoice,
@@ -11,18 +11,26 @@ import {
   emptyForm,
   endpointPlugins,
   fromSource,
+  probeKey,
   sourceHelp,
   toWrite,
   validateForm,
 } from "../../model/sources";
 import { ErrorLine } from "../shell/parts";
 import { useLoad } from "../shell/useLoad";
+import { ProbeView } from "./ProbeView";
 
 /**
  * New or edit. The plugin list and each plugin's `source` wording come from
  * `GET /api/discovery/plugins` (C1.1): a new http plugin shows up here with no
  * UI change. The access block is the one part that is not schema-driven --
  * how a sensor is REACHED is the control plane's business (A7), not a plugin's.
+ *
+ * "Test connection" probes the config as typed, unsaved (`probeSourceConfig`). A result
+ * belongs to the plugin + endpoint + access it was run against (`probeKey`); once any of
+ * those change it is shown as out of date, never as current. Testing never gates saving:
+ * a sensor that is offline today is still worth saving, so a failed test only relabels
+ * the button "Save anyway". A current result is saved with the source as its `last_probe`.
  */
 export function SourceEditor() {
   const api = useApi();
@@ -39,6 +47,9 @@ export function SourceEditor() {
   const [problems, setProblems] = useState<string[]>([]);
   const [serverError, setServerError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
+  const [test, setTest] = useState<{ result: ProbeResult; key: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<unknown>(null);
 
   const usable = useMemo(() => endpointPlugins(plugins.data?.plugins ?? []), [plugins.data]);
 
@@ -63,6 +74,27 @@ export function SourceEditor() {
   const setDef = (key: keyof SourceForm["defaults"], value: string) =>
     setForm((f) => ({ ...f, defaults: { ...f.defaults, [key]: value } }));
   const auth = form.access === "ssh_tunnel" ? form.tunnelAuth : form.access;
+  const currentKey = probeKey(form);
+  const current = test && test.key === currentKey ? test.result : null;
+  const stale = Boolean(test) && !current;
+  const failedTest = current !== null && !current.reachable;
+
+  async function runTest() {
+    const found = validateForm(form, editing);
+    setProblems(found);
+    setTestError(null);
+    if (found.length) return;
+    const key = currentKey;
+    setTesting(true);
+    try {
+      const result = await api.probeSourceConfig(toWrite(form, editing), editing ? id : undefined);
+      setTest({ result, key });
+    } catch (err) {
+      setTestError(err);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,6 +105,10 @@ export function SourceEditor() {
     setSaving(true);
     try {
       const body = toWrite(form, editing);
+      if (current) {
+        const { source_id: _unsaved, ...probe } = current;
+        body.last_probe = probe;
+      }
       const saved = editing && id ? await api.updateSource(id, body) : await api.createSource(body);
       navigate(`/discovery/sources/${encodeURIComponent(saved.id)}`);
     } catch (err) {
@@ -255,10 +291,30 @@ export function SourceEditor() {
             {problems.join("\n")}
           </div>
         ) : null}
+        <ErrorLine error={testError} prefix="the test could not run" />
+        {test ? (
+          <div data-testid="test-result">
+            {stale ? (
+              <div className="notice" data-testid="test-stale">
+                Config changed since this test — test again
+              </div>
+            ) : (
+              <ProbeView probe={test.result} />
+            )}
+          </div>
+        ) : null}
         <ErrorLine error={serverError} prefix="the server refused the source" />
         <div className="row">
           <button className="primary" type="submit" disabled={saving || usable.length === 0}>
-            {editing ? "Save changes" : "Save source"}
+            {failedTest ? "Save anyway" : editing ? "Save changes" : "Save source"}
+          </button>
+          <button
+            type="button"
+            data-testid="test-connection"
+            onClick={runTest}
+            disabled={testing || usable.length === 0}
+          >
+            {testing ? "Testing…" : "Test connection"}
           </button>
           <Link to={editing && id ? `/discovery/sources/${encodeURIComponent(id)}` : "/discovery"}>Cancel</Link>
         </div>

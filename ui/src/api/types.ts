@@ -88,9 +88,19 @@ export interface SourceWrite {
   password?: string;
   api_key?: string;
   defaults: SourceDefaults;
+  /** A test of THIS config just run in the editor; stored as the record's `last_probe`. */
+  last_probe?: Probe & { probed_at: string };
 }
 
 export type SourceUpdate = Partial<SourceWrite>;
+
+/** The steps a probe walks, in order (tunnel sources walk all five, direct ones the last two). */
+export type ProbeStage = "ssh_connect" | "ssh_auth" | "ssh_forward" | "api_http" | "plugin_census";
+
+export interface ProbeStep {
+  stage: ProbeStage;
+  ok: boolean;
+}
 
 export interface Probe {
   reachable: boolean;
@@ -100,10 +110,15 @@ export interface Probe {
   vantage: string | null;
   extra: Record<string, unknown>;
   via: string | null;
+  /** The step that failed; null when reachable. Absent on a probe recorded before stages existed. */
+  stage?: ProbeStage | null;
+  /** Every step walked up to the failed one (all of them, ok, when reachable). */
+  steps?: ProbeStep[];
 }
 
 export interface ProbeResult extends Probe {
-  source_id: string;
+  /** null for a test of an unsaved config (`probeSourceConfig`). */
+  source_id: string | null;
   probed_at: string;
 }
 

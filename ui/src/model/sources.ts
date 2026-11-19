@@ -13,6 +13,8 @@ import type {
   DiscoverySource,
   JsonSchemaProperty,
   Probe,
+  ProbeStage,
+  ProbeStep,
   SourceDefaults,
   SourceWrite,
 } from "../api/types";
@@ -330,4 +332,34 @@ export function runProgress(run: DiscoveryRun, nowMs: number): RunProgress | nul
   const elapsedS = Number.isFinite(startedMs) ? (nowMs - startedMs) / 1000 : NaN;
   const remainingS = covered > 0 && elapsedS > 0 ? ((span - covered) / covered) * elapsedS : null;
   return { fraction: covered / span, reached, remainingS, ingestDone };
+}
+
+/** How a probe step reads in the one-line trail ("SSH ✓ · login ✓ · tunnel ✓ · API ✗"). */
+export const STAGE_LABELS: Record<ProbeStage, string> = {
+  ssh_connect: "SSH",
+  ssh_auth: "login",
+  ssh_forward: "tunnel",
+  api_http: "API",
+  plugin_census: "census",
+};
+
+/** The steps a probe walked, as one line; "" for a probe recorded before steps existed. */
+export function formatSteps(steps: ProbeStep[] | undefined): string {
+  return (steps ?? []).map((s) => `${STAGE_LABELS[s.stage] ?? s.stage} ${s.ok ? "✓" : "✗"}`).join(" · ");
+}
+
+/** The part of a form a connection test depends on: plugin, endpoint and every access
+ *  field, secrets included. Run defaults are left out -- they do not change reachability. */
+export function probeKey(form: SourceForm): string {
+  const auth = effectiveAuth(form);
+  return JSON.stringify({
+    plugin: form.plugin,
+    endpoint: form.endpoint.trim(),
+    access: form.access,
+    auth,
+    user: auth === "basic" ? form.user.trim() : "",
+    password: auth === "basic" ? form.password : "",
+    apiKey: auth === "api_key" ? form.apiKey : "",
+    ssh: form.access === "ssh_tunnel" ? form.ssh : null,
+  });
 }
