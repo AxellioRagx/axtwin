@@ -25,6 +25,14 @@ coverage gap this build reports rather than ignores):
   /api/events?type=dns    -> IdentityEvent(dns)   query name<->answer ip (referenced)
   /api/info               -> probe_vantage() only, never events
 
+Since 2026-11 axquery serves ONE flow table instead: `/api/flows` (fields asked by name,
+`flow.*` / `tcp.*` / `dns.*` / `dhcp.*`, ISO `flow.first_seen`, `completeness.window` for the
+coverage block, a 10,000-row response cap with `offset` paging). `events()` asks the server
+which generation it is (`AxQuerySource.has_flows_api`, a one-row read) and maps either:
+
+  /api/flows                     -> FlowEvent (`_flow_v2`) + SensorHealthEvent
+  /api/flows?q=proto:dhcp|dns    -> IdentityEvent(dhcp|dns), the same parsers
+
 The `/api/events` identity read was DECLINED at build (2026-08-20) and REVISITED 2026-09-08 under
 a user directive to mine axquery's richer data for the twin-discovery loop (Supersedes the
 `/api/events` decline for the identity half; `docs/WORK_ORDER_axquery_ingest.md`). Only the
@@ -193,8 +201,34 @@ def _is_ip(value: str) -> bool:
 
 def _event_ts(r: dict, field: str) -> float:
     """A `/api/events` row's start: `tsSec`(+`tsNsec`), the same representation `/api/connections`
-    uses (D7's one timestamp normalizer covers both). Fails loud on an unrecognized shape."""
+    uses (D7's one timestamp normalizer covers both); on the `/api/flows` generation it is the
+    ISO `flow.first_seen`. Fails loud on an unrecognized shape."""
+    if r.get("tsSec") is None and r.get("flow.first_seen") is not None:
+        return _epoch(r.get("flow.first_seen"), "flows.flow.first_seen")
     return _epoch(r.get("tsSec"), field) + float(r.get("tsNsec") or 0) / 1e9
+
+
+def _flow_start(r: dict) -> Optional[float]:
+    """The bisection partition key for a `/api/flows` row: its ISO `flow.first_seen`, or `None`
+    when absent or unreadable (a partition key, so skipped rather than fail-loud)."""
+    value = r.get("flow.first_seen")
+    if value in (None, ""):
+        return None
+    try:
+        return _epoch(value, "flows.flow.first_seen")
+    except AxQueryError:
+        return None
+
+
+#: What `_flow_v2` reads from `/api/flows` -- asked by name (`fields=`), so a page carries no
+#: extents array or protocol detail nobody consumes.
+_FLOW_FIELDS = (
+    "flow.first_seen", "flow.last_seen", "flow.duration_ns",
+    "flow.orig_ip", "flow.resp_ip", "flow.orig_port", "flow.resp_port",
+    "flow.transport", "flow.proto",
+    "flow.orig_bytes", "flow.resp_bytes", "flow.orig_pkts", "flow.resp_pkts",
+    "flow.orig_vlan_id", "flow.resp_vlan_id", "tcp.orig_flags", "tcp.resp_flags",
+)
 
 
 def _event_start(r: dict) -> Optional[float]:
@@ -256,6 +290,12 @@ def _ev_dns(r: dict) -> Iterator[Event]:
 #: same positive-gate discipline `_ENDPOINTS`/`_DECLINED` apply to whole endpoints.
 _IDENTITY_PARSERS = {"dhcp": _ev_dhcp, "dns": _ev_dns}
 
+#: The fields each identity parser reads, asked by name on the `/api/flows` generation.
+_IDENTITY_FIELDS = {
+    "dhcp": ("dhcp.client_mac", "dhcp.your_ip", "dhcp.requested_ip", "dhcp.hostname"),
+    "dns": ("dns.flag_qr", "dns.query", "dns.answers"),
+}
+
 
 @register
 class AxQueryPlugin(IngestPlugin):
@@ -269,7 +309,8 @@ class AxQueryPlugin(IngestPlugin):
     #: `_DECLINED` is reported by `unrecognized_stems` — the same positive-gate discipline the
     #: zeek plugin applies to log stems, one transport over. `/api/events` reads the APP-LAYER
     #: identity half only (`_IDENTITY_PARSERS`: dhcp/dns); the flow half stays `/api/connections`.
-    _ENDPOINTS = ("/api/connections", "/api/events")
+    #: `/api/flows` on a 2026-11 server; the older pair otherwise (`events()` picks).
+    _ENDPOINTS = ("/api/flows", "/api/connections", "/api/events")
 
     #: Declined BY NAME, each with a reason, so a reader finds it here instead of inferring it
     #: from absence (`ingest/zeek/plugin.py::_SKIP`'s discipline).
@@ -418,10 +459,83 @@ class AxQueryPlugin(IngestPlugin):
         # disorder to smooth. Concatenating instead — all flows, THEN all dhcp, THEN all dns —
         # made every identity event arrive ~hours behind the clock the flow stream had already
         # advanced, so the windower dumped them all into the final window (measured 2026-09-08).
-        streams: list[Iterator[Event]] = [self._connections(src, float(ts_from), float(ts_to))]
-        for etype, parse in _IDENTITY_PARSERS.items():
-            streams.append(self._identity_stream(src, float(ts_from), float(ts_to), etype, parse))
+        # Two server generations: `/api/flows` (2026-11, one flow table carrying every
+        # protocol's fields) and the older `/api/connections` + `/api/events`.
+        lo, hi = float(ts_from), float(ts_to)
+        if src.has_flows_api(lo):
+            streams: list[Iterator[Event]] = [self._flows(src, lo, hi)]
+            for etype, parse in _IDENTITY_PARSERS.items():
+                streams.append(self._identity_flows(src, lo, hi, etype, parse))
+        else:
+            streams = [self._connections(src, lo, hi)]
+            for etype, parse in _IDENTITY_PARSERS.items():
+                streams.append(self._identity_stream(src, lo, hi, etype, parse))
         yield from heapq.merge(*streams, key=lambda ev: ev.ts)
+
+    # -- the /api/flows generation (2026-11) --------------------------------------
+
+    def _identity_flows(self, src: AxQuerySource, after: float, before: float,
+                        etype: str, parse) -> Iterator[Event]:
+        """`_identity_stream` on the flows API: the flows of one protocol (`q=proto:<etype>`),
+        asking only the fields the parser reads. Same bisection, same own-start partition."""
+        fields = ",".join(("flow.first_seen",) + _IDENTITY_FIELDS[etype])
+        for r in src.bisected_rows("/api/flows", "rows", after, before, _flow_start,
+                                   q=f"proto:{etype}", fields=fields):
+            yield from parse(r)
+
+    def _flows(self, src: AxQuerySource, after: float, before: float) -> Iterator[Event]:
+        """`_connections` on the flows API: every flow STARTING in `[after, before)`, the
+        fields `_flow_v2` reads and nothing else (the extents array stays unasked, as before)."""
+        for r in src.bisected_rows("/api/flows", "rows", after, before, _flow_start,
+                                   fields=",".join(_FLOW_FIELDS)):
+            ev = self._flow_v2(r)
+            if ev is not None:
+                yield ev
+                cov = src.last_coverage
+                if cov is not None and not cov.complete:
+                    yield SensorHealthEvent(
+                        ts=ev.ts, kind="capture_loss",
+                        value=round(max(0.0, 1.0 - cov.fraction) * 100.0, 6),
+                        detail=f"axquery coverage: {cov.chunks_covered}/{cov.chunks_wanted} "
+                               f"chunks, {cov.chunks_missing} missing, "
+                               f"reason={cov.reason or 'none'}")
+
+    @staticmethod
+    def _flow_v2(r: dict) -> Optional[FlowEvent]:
+        """One `/api/flows` row: the same FlowEvent `_flow` builds, from the renamed fields
+        (`flow.orig_ip`, ISO `flow.first_seen`, `tcp.orig_flags`, ...)."""
+        ip_o, ip_r = r.get("flow.orig_ip"), r.get("flow.resp_ip")
+        if not ip_o or not ip_r:
+            return None
+        transport = str(r.get("flow.transport") or "")
+        bytes_in = int(r.get("flow.resp_bytes") or 0)
+        pkts_in = int(r.get("flow.resp_pkts") or 0)
+        state, state_class = _state_class(
+            r.get("tcp.orig_flags"), r.get("tcp.resp_flags"), transport,
+            responder_replied=(bytes_in > 0 or pkts_in > 0))
+        ts = _epoch(r.get("flow.first_seen"), "flows.flow.first_seen")
+        dur_ns = r.get("flow.duration_ns")
+        if dur_ns is not None:
+            duration = max(0.0, float(dur_ns) / 1e9)
+        elif r.get("flow.last_seen"):
+            duration = max(0.0, _epoch(r.get("flow.last_seen"), "flows.flow.last_seen") - ts)
+        else:
+            duration = 0.0
+        return FlowEvent(
+            ts=ts, src_ip=str(ip_o), dst_ip=str(ip_r),
+            src_port=int(r.get("flow.orig_port") or 0), dst_port=int(r.get("flow.resp_port") or 0),
+            proto=transport.lower(),
+            # `flow.proto` is the L7 label (`dns`/`tls`/...), the old `protocol`: `service`.
+            service=str(r.get("flow.proto") or ""),
+            duration=duration,
+            bytes_out=int(r.get("flow.orig_bytes") or 0), bytes_in=bytes_in,
+            pkts_out=int(r.get("flow.orig_pkts") or 0), pkts_in=pkts_in,
+            state=state, state_class=state_class,
+            originator_is_src=True,
+            vlan_src=_vlan(r.get("flow.orig_vlan_id")),
+            vlan_dst=_vlan(r.get("flow.resp_vlan_id")),
+            local_src=None, local_dst=None,
+        )
 
     # -- endpoints --------------------------------------------------------------
 

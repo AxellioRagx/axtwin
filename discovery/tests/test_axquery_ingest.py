@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from aximprint.events import FlowEvent, SensorHealthEvent
+from aximprint.events import FlowEvent, IdentityEvent, SensorHealthEvent
 from aximprint.ingest import get_plugin
 from aximprint.ingest.axquery.sources import (
     PAGE_ROWS, AxQueryError, AxQuerySource,
@@ -37,17 +37,21 @@ def _conn(ts, o="10.0.0.1", r="10.0.0.2", op=1234, rp=443, transport="TCP",
     return row
 
 
-def _stub(monkeypatch, handler):
-    """Route every urlopen through `handler(path, params) -> dict`."""
+def _stub(monkeypatch, handler, *, flows_api=False):
+    """Route every urlopen through `handler(path, params) -> dict`. Unless `flows_api`, the
+    server is the older generation: `/api/flows` answers 404, as it does there."""
+    import urllib.error
     import urllib.parse
     import urllib.request
 
-    def fake_urlopen(url, timeout=None):
+    def fake_urlopen(url, timeout=None, **_kw):
         # The transport sends a `Request` (it carries the Authorization header);
         # a bare URL string is still accepted so older stubs read the same.
         url = getattr(url, "full_url", url)
         parsed = urllib.parse.urlparse(url)
         params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        if parsed.path.endswith("/api/flows") and not flows_api:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(b""))
         body = json.dumps(handler(parsed.path, params)).encode()
         return io.BytesIO(body)
 
@@ -517,3 +521,86 @@ def test_api_events_is_read_for_identity_not_declined():
     assert "/api/events" in AxQueryPlugin._ENDPOINTS
     assert "/api/events" not in AxQueryPlugin._DECLINED
     assert "/api/identity/users" in AxQueryPlugin._DECLINED
+
+
+
+# -- the /api/flows generation (2026-11) -------------------------------------------
+
+def _iso(ts):
+    import datetime as dt
+    return dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _frow(ts, **kw):
+    row = {"flow.first_seen": _iso(ts), "flow.duration_ns": 2_500_000_000,
+           "flow.orig_ip": "10.0.0.1", "flow.resp_ip": "10.0.0.2", "flow.orig_port": 50000,
+           "flow.resp_port": 443, "flow.transport": "tcp", "flow.proto": "tls",
+           "flow.orig_bytes": 100, "flow.resp_bytes": 900, "flow.orig_pkts": 3,
+           "flow.resp_pkts": 5, "flow.orig_vlan_id": 0, "flow.resp_vlan_id": 30,
+           "tcp.orig_flags": 27, "tcp.resp_flags": 27}
+    row.update(kw)
+    return row
+
+
+def test_a_flows_api_server_is_read_from_api_flows_with_named_fields(monkeypatch):
+    seen = []
+
+    def handler(path, p):
+        seen.append((path, p))
+        if p.get("q") == "proto:dns":
+            return {"rows": [{"flow.first_seen": _iso(T0 + 0.5), "dns.flag_qr": 1,
+                              "dns.query": "a.example", "dns.answers": [
+                                  {"value": "10.0.0.9", "ttl": 30}, {"value": "cname.example"}]}],
+                    "limit": int(p["limit"]), "nextOffset": None,
+                    "completeness": {"window": {"complete": True, "chunksWanted": 1,
+                                                "chunksCovered": 1}}}
+        if p.get("q"):
+            return {"rows": [], "limit": int(p["limit"]), "nextOffset": None}
+        return {"rows": [_frow(T0 + 0.25)], "limit": int(p["limit"]), "nextOffset": None,
+                "completeness": {"window": {"complete": True, "chunksWanted": 1,
+                                            "chunksCovered": 1}}}
+
+    _stub(monkeypatch, handler, flows_api=True)
+    evs = list(get_plugin("axquery").events(BASE, T0, T0 + 1))
+    (flow,) = [e for e in evs if isinstance(e, FlowEvent)]
+    assert (flow.src_ip, flow.dst_ip, flow.dst_port, flow.proto, flow.service) == \
+        ("10.0.0.1", "10.0.0.2", 443, "tcp", "tls")
+    assert flow.ts == pytest.approx(T0 + 0.25) and flow.duration == pytest.approx(2.5)
+    assert (flow.bytes_in, flow.pkts_out, flow.state_class) == (900, 3, "established")
+    assert (flow.vlan_src, flow.vlan_dst) == (None, 30)       # 0 = not observed tagged
+    (ident,) = [e for e in evs if isinstance(e, IdentityEvent)]
+    assert (ident.kind, ident.ip, ident.hostname) == ("dns", "10.0.0.9", "a.example")
+    paths = {path for path, _ in seen}
+    assert paths == {"/api/flows"}, "never the old endpoints on a flows server"
+    reads = [p for path, p in seen if "q" not in p and p.get("fields") != "flow.id"]
+    assert "include_extents" not in reads[0] and "flow.extents" not in reads[0]["fields"]
+
+
+def test_a_capped_page_is_followed_by_offset_not_taken_as_complete(monkeypatch):
+    """Measured 2026-11-19: `limit=20000` answers 10,000 rows with `limit: 10000` and a
+    `nextOffset`. Reading that as a short (complete) page silently dropped 96% of an hour."""
+    import aximprint.ingest.axquery.sources as mod
+    monkeypatch.setattr(mod, "PAGE_ROWS", 6)
+    rows = [_frow(T0 + i * 0.1, **{"flow.orig_port": 40000 + i}) for i in range(5)]
+
+    def handler(path, p):
+        if p.get("q"):
+            return {"rows": [], "limit": 2, "nextOffset": None}
+        if p.get("fields") == "flow.id":
+            return {"rows": [], "limit": 1, "nextOffset": None}
+        off, lim = int(p.get("offset") or 0), min(int(p["limit"]), 2)   # the server's cap: 2
+        page = rows[off:off + lim]
+        return {"rows": page, "limit": lim,
+                "nextOffset": off + lim if off + lim < len(rows) else None}
+
+    _stub(monkeypatch, handler, flows_api=True)
+    flows = [e for e in get_plugin("axquery").events(BASE, T0, T0 + 1) if isinstance(e, FlowEvent)]
+    assert sorted(f.src_port for f in flows) == [40000, 40001, 40002, 40003, 40004]
+
+
+def test_flows_completeness_becomes_coverage():
+    from aximprint.ingest.axquery.sources import Coverage
+    c = Coverage.from_window({"complete": False, "reason": "chunk-missing",
+                              "chunksWanted": 4, "chunksCovered": 3, "chunksNotIndexed": 1})
+    assert (c.complete, c.chunks_missing, c.fraction) == (False, 1, 0.75)
+    assert Coverage.from_window(None) is None

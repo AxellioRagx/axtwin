@@ -138,6 +138,24 @@ class Coverage:
         )
 
 
+    @classmethod
+    def from_window(cls, blob: dict | None) -> Optional["Coverage"]:
+        """The same statement from `/api/flows`' `completeness.window` (`complete`, `reason`,
+        `chunksWanted`, `chunksCovered`, `chunksNotIndexed`); the fraction is derived."""
+        if not isinstance(blob, dict):
+            return None
+        wanted = int(blob.get("chunksWanted", 0) or 0)
+        covered = int(blob.get("chunksCovered", 0) or 0)
+        return cls(
+            complete=bool(blob.get("complete", False)),
+            reason=str(blob.get("reason", "")),
+            chunks_wanted=wanted,
+            chunks_covered=covered,
+            chunks_missing=int(blob.get("chunksNotIndexed", 0) or 0) or max(0, wanted - covered),
+            fraction=(covered / wanted) if wanted else 1.0,
+        )
+
+
 class AxQuerySource:
     """One axquery instance, addressed as `axquery:<base-url>`."""
 
@@ -177,8 +195,26 @@ class AxQuerySource:
                                 error=AxQueryError, timeout=TIMEOUT_SECONDS)
         if not isinstance(blob, dict):
             raise AxQueryError(f"axquery {path} returned {type(blob).__name__}, expected an object")
-        self.last_coverage = Coverage.from_json(blob.get("coverage"))
+        cov = blob.get("coverage")
+        if cov is None and isinstance(blob.get("completeness"), dict):
+            # The `/api/flows` generation (2026-11) reports `completeness.window` instead.
+            cov = Coverage.from_window(blob["completeness"].get("window"))
+        else:
+            cov = Coverage.from_json(cov)
+        self.last_coverage = cov
         return blob
+
+    def has_flows_api(self, at: float) -> bool:
+        """True when this server answers `/api/flows` (the 2026-11 API), False when it is the
+        older `/api/connections` + `/api/events` generation (a 404). One one-row request over a
+        one-second window -- never an unbounded read."""
+        try:
+            self.get("/api/flows", limit=1, after=int(at), before=int(at) + 1, fields="flow.id")
+        except AxQueryError as exc:
+            if "HTTP 404" in str(exc):
+                return False
+            raise
+        return True
 
     def info(self) -> dict:
         """`/api/info` — the DB census, and the one call `probe_vantage` needs."""
@@ -241,7 +277,23 @@ class AxQuerySource:
         def leaf(lo: float, hi: float, limit: int) -> list[dict]:
             a, b = _http.second_bounds(lo, hi)     # widen to whole seconds, never truncate
             blob = self.get(path, limit=limit, after=a, before=b, **params)
-            return blob.get(key) or []
+            rows = list(blob.get(key) or [])
+            # The `/api/flows` generation CAPS a response below the `limit` asked (measured
+            # 2026-11-19: `limit=20000` answers `limit: 10000`, 10,000 rows, `nextOffset`
+            # set). Taken at face value, 10,000 < 20,000 reads as a complete leaf and silently
+            # drops the rest. That server pages by `offset` within the time bounds, so a capped
+            # page is followed until the leaf holds `limit` rows or the server says it is done;
+            # the bisector then sees an honest count (full -> split or widen, short -> done).
+            served = blob.get("limit")
+            while (isinstance(served, int) and served < limit and len(rows) < limit
+                   and blob.get("nextOffset") not in (None, 0)):
+                blob = self.get(path, limit=min(served, limit - len(rows)),
+                                offset=int(blob["nextOffset"]), after=a, before=b, **params)
+                page = blob.get(key) or []
+                if not page:
+                    break
+                rows.extend(page)
+            return rows
 
         # The discipline is `siem/http.py::bisected_rows` (lifted from here); the NUMBERS stay
         # this module's, read at call time so a test can shrink them here.
