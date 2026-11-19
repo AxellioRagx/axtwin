@@ -185,12 +185,22 @@ def segment_of(addr: str) -> Optional[str]:
     Locality is NOT checked here — that is the caller's job, and separating them is what keeps
     this a pure address function. An external address has a well-defined /24; it simply must
     not become a twin segment, which is a decision about what to DO with the answer.
+
+    The network and broadcast addresses of an IPv4 segment are None too. A twin segment is a
+    /24, and on a /24 neither `.0` nor `.255` can be a host: measured on `trex-test` through
+    XPress-SW-A (2026-11-19), a domain controller's NetBIOS datagrams to `10.70.2.255` minted an
+    `address:10.70.2.255` entity, placed on `10.70.2.0/24`, and the cast deployed it as one more
+    `unroled-endpoint` VM. A directed broadcast is a destination GROUP, like a multicast address,
+    and is declined (and counted) the same way.
     """
     ip = _parse(addr)
     if ip is None or not is_provisionable(ip):
         return None
     prefix = SEGMENT_PREFIX if ip.version == 4 else SEGMENT_PREFIX_V6
-    return str(ipaddress.ip_network(f"{addr}/{prefix}", strict=False))
+    net = ipaddress.ip_network(f"{addr}/{prefix}", strict=False)
+    if ip.version == 4 and ip in (net.network_address, net.broadcast_address):
+        return None
+    return str(net)
 
 
 def segment_name(cidr: str) -> str:

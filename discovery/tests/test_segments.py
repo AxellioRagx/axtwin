@@ -56,6 +56,15 @@ def test_segment_of_returns_none_for_a_non_address():
     assert segment_of("") is None
 
 
+def test_segment_of_declines_the_network_and_broadcast_address_of_a_v4_segment():
+    """A /24's `.0` and `.255` are not hosts, so they place on no segment (and so never
+    become a twin node). Measured: `10.70.2.255` (NetBIOS broadcasts) cast as an endpoint VM."""
+    assert segment_of("10.70.2.255") is None
+    assert segment_of("10.70.2.0") is None
+    assert segment_of("10.70.2.254") == "10.70.2.0/24"
+    assert segment_of("10.70.2.1") == "10.70.2.0/24"
+
+
 def test_segment_name_is_an_identifier_and_round_trips():
     """axRange needs `name` (a node's `net:` reference) as well as `cidr`."""
     assert segment_name("10.80.72.0/24") == "seg-10-80-72-0"
