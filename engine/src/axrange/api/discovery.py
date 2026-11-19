@@ -156,6 +156,18 @@ class DiscoveryRunRequest:
     #: Extra environment for every `aximprint` subprocess of this run -- the credential
     #: a stored discovery source carries (`discovery_sources.env_for`). Never `argv`.
     env: dict[str, str] = field(default_factory=dict)
+    #: "Add to an existing imprint": the BASE imprint's belief store. The run copies it
+    #: (with its DuckDB `.wal`) to `belief_store` and ingests into the copy; the base is
+    #: never opened for writing, moved or removed.
+    base_store: Optional[Path] = None
+    #: A network id to declare on the copy's earlier runs that declared none (a legacy
+    #: base), via `aximprint stamp-network`, before the ingest.
+    stamp_network: Optional[str] = None
+    #: `bake --replace`. Off for an Add, so a new version whose PIT id collides with an
+    #: existing imprint is refused rather than overwriting it.
+    replace: bool = True
+    #: Called with the result once the bake succeeded (lineage, carried assertions).
+    on_baked: Optional[Callable[["DiscoveryRunResult", "DiscoveryRunRequest"], None]] = None
 
     @property
     def name(self) -> str:
@@ -334,9 +346,26 @@ class SubprocessDiscovery:
             self.binary, "bake",
             "--store", str(r.belief_store),
             "--out", str(r.ir_store),
-            "--replace",
+            *(["--replace"] if r.replace else []),
             "--name", r.imprint_id,
         ]
+
+    def stamp_network(self, store: str, network: str) -> None:
+        """`aximprint stamp-network`: declare `network` on the store's runs that declared none."""
+        proc = self._run([self.binary, "stamp-network", "--store", store, "--network", network],
+                         stage="stamp-network", ok_codes=(0, 1))
+        if proc.returncode == 1:
+            raise DiscoveryError(clip(proc.stderr or "", limit=300).strip() or "stamp refused")
+
+    def store_status(self, store: str) -> dict[str, Any]:
+        """`aximprint status`: the belief store's summary (last run's vantage and network)."""
+        proc = self._run([self.binary, "status", "--store", store], stage="status")
+        try:
+            return dict(json.loads(proc.stdout or ""))
+        except (ValueError, TypeError) as e:
+            raise DiscoveryError(
+                f"`{self.binary} status` printed no JSON: "
+                f"{clip(proc.stdout or '', limit=300, keep='head')!r}") from e
 
     build_materialize_argv = build_bake_argv
 
@@ -828,14 +857,24 @@ def execute_source_run(
             runs.update(run_id, config=dict(request.config),
                         ts_from=request.config.get("ts_from"), ts_to=request.config.get("ts_to"))
             _discard_stale_belief_store(request)
+            if request.base_store is not None:
+                _copy_base_store(request, backend)
             result = backend.run(request, on_stage=lambda s: runs.stage_done(run_id, s),
                                  on_progress=_progress_sink(runs, run_id),
                                  handle=runs.handle_for(run_id))
+            if request.on_baked is not None:
+                request.on_baked(result, request)
     except DiscoveryCancelled as e:
         _discard_stale_belief_store(request)
+        if request.base_store is not None:
+            _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_CANCELLED, error=str(e), finished_at=time.time())
         return
     except Exception as e:  # noqa: BLE001 -- the record IS the error channel
+        if request.base_store is not None:
+            # A failed Add removes only its own partial version; the base is untouched.
+            _discard_stale_belief_store(request)
+            _discard_partial_bundle(request)
         runs.update(run_id, status=STATUS_FAILED, error=clip(str(e), limit=2000),
                     finished_at=time.time())
         return
@@ -843,6 +882,26 @@ def execute_source_run(
         shutil.rmtree(request.scratch_dir, ignore_errors=True)
     runs.update(run_id, status=STATUS_COMPLETED, pit_id=result.pit_id,
                 pit_name=result.pit_name or result.pit_id, finished_at=time.time())
+
+
+def _copy_base_store(request: DiscoveryRunRequest, backend: Any) -> None:
+    """"Add to an existing imprint": the base imprint's belief store, copied to this run's
+    path (with DuckDB's `.wal`, which a reader replays on open, so the copy holds every
+    committed row). The base is only ever read. The caller refused a base that is mid-run."""
+    base = Path(request.base_store)
+    dst = Path(request.belief_store)
+    if base.resolve() == dst.resolve():
+        raise DiscoveryError("refusing to ingest into the base imprint's own belief store")
+    if not base.is_file():
+        raise DiscoveryError(f"the base imprint's belief store {base} is gone")
+    shutil.copyfile(base, dst)
+    wal = Path(f"{base}.wal")
+    if wal.is_file():
+        shutil.copyfile(wal, Path(f"{dst}.wal"))
+    if request.stamp_network:
+        stamp = getattr(backend, "stamp_network", None)
+        if stamp is not None:
+            stamp(str(dst), request.stamp_network)
 
 
 def _discard_partial_bundle(request: DiscoveryRunRequest) -> None:
@@ -855,7 +914,11 @@ def _discard_stale_belief_store(request: DiscoveryRunRequest) -> None:
     """The belief store under this imprint id is this run's to write. One that already
     exists can only be what an earlier failed or cancelled run left (a completed run's
     bundle would have refused this run at POST), and ingesting on top of it would merge
-    two reads into one store. Removed, with DuckDB's `-wal`."""
+    two reads into one store. Removed, with DuckDB's `-wal`. Only ever THIS run's path:
+    an Add's base store is never this path (`_copy_base_store` refuses it)."""
+    if request.base_store is not None and \
+            Path(request.base_store).resolve() == Path(request.belief_store).resolve():
+        return
     for suffix in ("", ".wal"):
         p = Path(f"{request.belief_store}{suffix}")
         if p.is_file():

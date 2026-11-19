@@ -360,7 +360,10 @@ def test_run_last_n_days_resolves_bounds_from_the_span_and_runs_the_chain_over_t
     # The chain saw the tunnel's local end, the defaults, and the bounds; the tunnel
     # outlived the whole chain.
     req = be.requests[0]
-    assert req.config == {"source": "axquery:http://127.0.0.1:45678", "network": "corp",
+    # The source's legacy `network: corp` is ignored: a new imprint's network id is
+    # derived from the run's own id.
+    assert req.config == {"source": "axquery:http://127.0.0.1:45678",
+                          "network": "net-" + run["id"].split("-", 1)[1],
                           "ts_from": run["ts_from"], "ts_to": run["ts_to"]}
     assert req.env == {} and req.sensors == []
     assert req.belief_store == Path(settings.aximprint_store).parent / "corp-10d.belief.duckdb"
@@ -385,8 +388,10 @@ def test_run_explicit_bounds_skip_the_probe_and_override_the_defaults(tmp_path):
     assert r.json()["status"] == "completed" and r.json()["via"] == "direct"
     assert be.probes == []
     req = be.requests[0]
-    assert req.config == {"source": "axquery:http://sensor.example:9090", "network": "lab",
-                          "vantage": "tap-1", "window": 3600, "ts_from": 100.0, "ts_to": 200.0}
+    # network/vantage in the request are deprecated and ignored for source runs.
+    assert req.config == {"source": "axquery:http://sensor.example:9090",
+                          "network": "net-" + r.json()["id"].split("-", 1)[1],
+                          "window": 3600, "ts_from": 100.0, "ts_to": 200.0}
     assert req.env == {ds.ENV_API_KEY: "K"} and req.sensors == []
 
 
@@ -901,6 +906,161 @@ def test_a_run_record_returns_the_options_it_ran_with(tmp_path):
     sid = c.post("/api/discovery/sources", json=_no_defaults_source()).json()["id"]
     run = c.post(f"/api/discovery/sources/{sid}/runs",
                  json={"name": "opt", "days": 1, "network": "corp", "vantage": "v:1", "window": 60}).json()
-    assert run["options"] == {"network": "corp", "vantage": "v:1", "window": 60}
+    assert run["options"] == {"network": "net-" + run["id"].split("-", 1)[1], "window": 60}
     listed = [r for r in c.get("/api/discovery/runs").json()["runs"] if r["id"] == run["id"]]
     assert listed[0]["options"] == run["options"] and listed[0]["source_id"] == sid
+
+
+# ---------------------------------------------------------------------------
+# "Add to an existing imprint": versions, lineage, the base never touched
+# ---------------------------------------------------------------------------
+class _StoreWritingDiscovery(_FakeDiscovery):
+    """A fake whose ingest appends to the belief store file (so a copy is visible) and
+    whose bake registers a PIT named after the run."""
+
+    def __init__(self, *, fail_ingest=False, **kw):
+        super().__init__(**kw)
+        self.fail_ingest = fail_ingest
+        self.stamped: list[tuple[str, str]] = []
+
+    def run(self, request, *, on_stage, on_progress=None, handle=None):
+        self.requests.append(request)
+        with open(request.belief_store, "ab") as fh:
+            fh.write(f"run {request.imprint_id}\n".encode())
+        if self.fail_ingest:
+            raise disc.DiscoveryError("ingest blew up")
+        pid = f"pit-{request.imprint_id}"
+        self.pits[pid] = request.imprint_id
+        for s in disc.STAGES:
+            on_stage(s)
+        return disc.DiscoveryRunResult(pit_id=pid, stages=list(disc.STAGES))
+
+    def stamp_network(self, store, network):
+        self.stamped.append((store, network))
+
+    def store_status(self, store):
+        return {"last_run_vantage": "axellio-hq/rdr1:12"}
+
+
+def _v1(tmp_path, **settings_over):
+    be = _StoreWritingDiscovery()
+    settings = _settings(tmp_path, **settings_over)
+    c = _client(settings, backend=be)
+    sid = c.post("/api/discovery/sources", json=_no_defaults_source()).json()["id"]
+    run = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp", "ts_from": 0.0, "ts_to": 21600.0, "window": 900}).json()
+    assert run["status"] == "completed", run
+    return be, settings, c, sid, run
+
+
+def _pits_dir(settings):
+    return Path(settings.aximprint_store).parent / "pits"
+
+
+def test_a_new_imprint_records_version_1_with_its_run_and_network(tmp_path):
+    be, settings, c, sid, run = _v1(tmp_path)
+    lin = c.get("/api/imprints/pit-corp").json()["lineage"]
+    assert lin["version"] == 1 and lin["parent"] is None and lin["root"] == "pit-corp"
+    assert lin["network"] == "net-" + run["id"].split("-", 1)[1]
+    assert (lin["window_seconds"], lin["subbuckets"]) == (900, 12)
+    assert lin["extendable"] is True and lin["next_name"] == "corp-v2"
+    assert lin["runs"] == [{"run_id": run["id"], "source_id": sid, "plugin": "axquery",
+                            "vantage": "axellio-hq/rdr1:12", "ts_from": 0.0, "ts_to": 21600.0}]
+
+
+def test_add_copies_the_base_store_and_never_mutates_the_base(tmp_path):
+    be, settings, c, sid, run1 = _v1(tmp_path)
+    base_store = Path(settings.aximprint_store).parent / "corp.belief.duckdb"
+    (Path(f"{base_store}.wal")).write_bytes(b"wal\n")
+    before = base_store.read_bytes()
+    a = _pits_dir(settings) / "pit-corp" / "pit-corp.assertions.yaml"
+    a.write_text("schema: axr-assertions/1\n")
+    run2 = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp-v2", "base_imprint": "pit-corp", "ts_from": 21600.0, "ts_to": 43200.0,
+        "network": "typed", "vantage": "typed"}).json()
+    assert run2["status"] == "completed", run2
+    req = be.requests[-1]
+    assert req.base_store == base_store and req.replace is False and req.stamp_network is None
+    assert req.config["network"] == "net-" + run1["id"].split("-", 1)[1]  # inherited
+    assert req.config["window"] == 900                                     # the base's
+    # The base is byte-identical; the new store is a copy plus this run.
+    assert base_store.read_bytes() == before
+    new_store = base_store.parent / "corp-v2.belief.duckdb"
+    assert new_store.read_bytes() == before + b"run corp-v2\n"
+    assert Path(f"{new_store}.wal").read_bytes() == b"wal\n"
+    lin = c.get("/api/imprints/corp-v2").json()["lineage"]
+    assert lin["version"] == 2 and lin["parent"] == "pit-corp" and lin["root"] == "pit-corp"
+    assert [r["run_id"] for r in lin["runs"]] == [run1["id"], run2["id"]]
+    assert lin["next_name"] == "corp-v3"
+    # Assertions carried as a copy, re-stemmed; the base's file is unchanged.
+    carried = _pits_dir(settings) / "pit-corp-v2" / "pit-corp-v2.assertions.yaml"
+    assert carried.read_text() == a.read_text() and not carried.is_symlink()
+    # v1 is untouched: same lineage, still version 1.
+    assert c.get("/api/imprints/pit-corp").json()["lineage"]["version"] == 1
+
+
+def test_add_refuses_a_window_or_subbuckets_that_differ_from_the_base(tmp_path):
+    be, settings, c, sid, _ = _v1(tmp_path)
+    for body, needle in (({"window": 3600}, "window=3600 differs"),
+                         ({"subbuckets": 6}, "subbuckets=6 differs")):
+        r = c.post(f"/api/discovery/sources/{sid}/runs", json={
+            "name": "corp-v2", "base_imprint": "pit-corp", "days": 1, **body})
+        assert r.status_code == 400 and needle in r.text, r.text
+    r = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp-v2", "base_imprint": "pit-corp", "days": 1, "window": 900, "subbuckets": 12})
+    assert r.status_code == 202, r.text
+
+
+def test_add_refuses_a_base_without_a_belief_store(tmp_path):
+    be, settings, c, sid, _ = _v1(tmp_path)
+    be.pits["pit-merged"] = "merged"           # no run record, no lineage
+    r = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "m-v2", "base_imprint": "pit-merged", "days": 1})
+    assert r.status_code == 409 and "cannot be extended" in r.text
+    (Path(settings.aximprint_store).parent / "corp.belief.duckdb").unlink()
+    r = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp-v2", "base_imprint": "pit-corp", "days": 1})
+    assert r.status_code == 409 and "is gone" in r.text
+    assert c.get("/api/imprints/pit-corp").json()["lineage"]["extendable"] is False
+
+
+def test_a_failed_add_removes_only_its_partial_version(tmp_path):
+    be, settings, c, sid, _ = _v1(tmp_path)
+    base_store = Path(settings.aximprint_store).parent / "corp.belief.duckdb"
+    before = base_store.read_bytes()
+    be.fail_ingest = True
+    run = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp-v2", "base_imprint": "pit-corp", "days": 1}).json()
+    assert run["status"] == "failed" and "ingest blew up" in run["error"]
+    assert base_store.read_bytes() == before
+    assert not (base_store.parent / "corp-v2.belief.duckdb").exists()
+    assert not (_pits_dir(settings) / "pit-corp-v2").exists()
+
+
+def test_a_legacy_base_gets_a_derived_network_stamped_on_the_copy_only(tmp_path):
+    be, settings, c, sid, run1 = _v1(tmp_path)
+    # Make it legacy: no lineage file, a run record that declared no network.
+    (_pits_dir(settings) / "pit-corp" / "lineage.json").unlink()
+    runs = c.app.state.discovery_runs
+    cfg = dict(runs.get(run1["id"]).config)
+    cfg.pop("network")
+    runs.update(run1["id"], config=cfg)
+    lin = c.get("/api/imprints/pit-corp").json()["lineage"]
+    assert lin["version"] == 1 and lin["network"] is None and lin["extendable"] is True
+    run2 = c.post(f"/api/discovery/sources/{sid}/runs", json={
+        "name": "corp-v2", "base_imprint": "corp", "days": 1}).json()
+    assert run2["status"] == "completed", run2
+    derived = "net-" + run1["id"].split("-", 1)[1]
+    new_store = str(Path(settings.aximprint_store).parent / "corp-v2.belief.duckdb")
+    assert be.stamped == [(new_store, derived)]
+    assert be.requests[-1].config["network"] == derived
+
+
+def test_a_save_as_copy_carries_no_lineage(tmp_path):
+    be, settings, c, sid, _ = _v1(tmp_path)
+    be.copy_pit = lambda store, pit, name: (be.pits.__setitem__("pit-copy", name)
+                                            or {"pit_id": "pit-copy", "name": name})
+    r = c.post("/api/imprints/pit-corp/copy", json={"name": "copy"})
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["lineage"] is None
+    assert not (_pits_dir(settings) / "pit-copy" / "lineage.json").exists()

@@ -116,13 +116,23 @@ the PITs in the API's IR store, each addressed by id or unique name.
   serves the last listing it read with `stale: true` and a warning; with
   nothing read yet it is `503` (retry shortly), and a rename or copy during
   a bake is `503` too.
+  Each carries an optional `lineage` (imprint versions, 2026-11-19): `version`,
+  `parent` (pit id), `root`, `network`, `window_seconds`, `subbuckets`,
+  `extendable` + `reason`, `next_name` (`<name minus -vN>-v<version+1>`) and
+  `runs[]` (`run_id`, `source_id`, `plugin`, `vantage` the sensor reported,
+  `ts_from`, `ts_to`). Read from `<store dir>/pits/<pit_id>/lineage.json`, or
+  rebuilt as version 1 from the run that baked an older imprint; null when
+  neither exists (merge, save-as). **Accumulation trade-off:** every run is its
+  own observation, so overlapping ranges inflate raw totals and window counts;
+  per-window medians and hour/day shares are largely unaffected.
 - `GET /api/imprints/{pit}` — one, by id or name (`404`; `409` an ambiguous name).
 - `PATCH /api/imprints/{pit}` `{name}` (token; alias `PATCH /api/discovery/pits/{pit}`)
   — rename; the id never changes, and every run record that produced it
   carries the new name. `400` blank, `409` a name or id another PIT has.
 - `POST /api/imprints/{pit}/copy` `{name}` (token, `201`) — save-as: a new
   imprint with the same rows, `derived_from` set, and the operator files
-  copied. `409` a taken name.
+  copied (not `lineage.json`: a copy keeps no belief store, so it cannot be
+  extended). `409` a taken name.
 - `GET|PUT /api/imprints/{pit}/assertions` (PUT token) — the operator's
   claims about the network (`axr-assertions/1`), kept at
   `<store dir>/pits/<pit_id>/<pit_id>.assertions.yaml`; GET before the first
@@ -317,9 +327,21 @@ root `CLAUDE.md` loop step 1). **Built 2026-10-27**
   empty from that saved source (the edit form's "unchanged unless typed").
   `POST` / `PUT` of a source accept an optional `last_probe` (an answer from
   this route for the same config), stored as the record's `last_probe`.
-- `POST .../{id}/runs` `{imprint_id, days? | ts_from+ts_to, network?, vantage?,
-  window?, subbuckets?, sensors?}` (token, `202`) — an A1 run whose `source`
-  and credential come from the record. `days` is resolved **when the run
+- `POST .../{id}/runs` `{imprint_id, days? | ts_from+ts_to, window?,
+  subbuckets?, base_imprint?}` (token, `202`) — an A1 run whose `source`
+  and credential come from the record. `network`/`vantage` are still accepted
+  and **ignored** (logged): the vantage comes from the sensor, and the run's
+  `--network` is an internal id — `net-<run hex>` for a new imprint, the
+  base's for an Add. **`base_imprint`** (id or name) adds to that imprint:
+  its belief store (with `.wal`) is copied to the new name's store, the run
+  ingests into the copy and bakes WITHOUT `--replace` (an id collision is
+  refused, never overwritten); the base's store, PIT and files are only read.
+  `window`/`subbuckets` default to the base's and a different value is `400`;
+  a base with no belief store or one still being written is `409`. A legacy
+  base whose runs declared no network gets the derived id stamped on the COPY
+  (`aximprint stamp-network`). On success the new imprint gets `lineage.json`
+  (parent, every run) and a copy of the base's assertions; a failed or
+  cancelled Add removes only its own store and bundle. `days` is resolved **when the run
   starts** from the source's own span (`[last_ts+1 − days·86400, last_ts+1)`,
   clamped to `first_ts`); the record reports the bounds used, `via` (how it
   was reached, never a credential), `started_at`. The tunnel is `ssh -N -L` in

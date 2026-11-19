@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -3671,16 +3672,87 @@ def _twins_by_pit(settings: ApiSettings) -> dict[str, list[str]]:
 
 
 def _pit_dto(settings: ApiSettings, row: dict[str, Any],
-             twins: Optional[dict[str, list[str]]] = None) -> dtos.PitDTO:
+             twins: Optional[dict[str, list[str]]] = None, runs: Any = None) -> dtos.PitDTO:
     from axrange.api.console_files import assertions_path
 
     pit_id = str(row.get("pit_id"))
     by_pit = twins if twins is not None else _twins_by_pit(settings)
     return dtos.PitDTO(
         **{k: row.get(k) for k in dtos.PitDTO.model_fields
-           if k not in ("has_assertions", "twins")},
+           if k not in ("has_assertions", "twins", "lineage")},
         has_assertions=assertions_path(_pit_files_dir(settings, pit_id), pit_id).is_file(),
         twins=[dtos.PitTwinRefDTO(id=t) for t in by_pit.get(pit_id, [])],
+        lineage=_lineage_dto(settings, row, runs),
+    )
+
+
+# ---- imprint versions ("Add to an existing imprint") ------------------------------------
+#: Where an imprint's versioning lives, beside its assertions (`_pit_files_dir`).
+LINEAGE_FILE = "lineage.json"
+_VERSION_SUFFIX = re.compile(r"-v\d+$")
+
+
+def _lineage_path(settings: ApiSettings, pit_id: str) -> Path:
+    return _pit_files_dir(settings, pit_id) / LINEAGE_FILE
+
+
+def _run_entry(run: Any, vantage: Optional[str] = None) -> dict[str, Any]:
+    return {"run_id": run.id, "source_id": run.source_id, "plugin": run.plugin,
+            "vantage": vantage, "ts_from": run.ts_from, "ts_to": run.ts_to}
+
+
+def _network_for_run(run_id: str) -> str:
+    """A new imprint's network id: derived from its first run's stable id, never from
+    the (renamable) name. Every version added to it inherits the same id."""
+    return "net-" + run_id.split("-", 1)[-1]
+
+
+def _lineage_doc(settings: ApiSettings, pit_id: str, runs: Any) -> Optional[dict[str, Any]]:
+    """The imprint's lineage document: the file when there is one; otherwise, for an
+    imprint made before versions existed, version 1 reconstructed from the completed run
+    that baked it (its belief store is `<store dir>/<run name>.belief.duckdb`)."""
+    p = _lineage_path(settings, pit_id)
+    if p.is_file():
+        try:
+            return dict(json.loads(p.read_text()))
+        except (OSError, ValueError):
+            return None
+    if runs is None:
+        return None
+    made = [r for r in runs.list() if r.pit_id == pit_id and r.status == "completed"]
+    if not made:
+        return None
+    run = max(made, key=lambda r: r.created_at)
+    cfg = run.config or {}
+    return {
+        "version": 1, "parent": None, "root": pit_id,
+        "network": cfg.get("network") or None,
+        "window_seconds": int(cfg.get("window") or 3600),
+        "subbuckets": int(cfg.get("subbuckets") or 12),
+        "belief_store": str(Path(settings.aximprint_store).parent
+                            / f"{run.imprint_id}.belief.duckdb"),
+        "runs": [_run_entry(run)],
+        "legacy_run_id": run.id,
+    }
+
+
+def _lineage_dto(settings: ApiSettings, row: dict[str, Any], runs: Any) -> Optional[dtos.LineageDTO]:
+    pit_id = str(row.get("pit_id"))
+    doc = _lineage_doc(settings, pit_id, runs)
+    if doc is None:
+        return None
+    store = Path(str(doc.get("belief_store") or ""))
+    extendable = bool(doc.get("belief_store")) and store.is_file()
+    name = str(row.get("name") or pit_id)
+    version = int(doc.get("version") or 1)
+    return dtos.LineageDTO(
+        version=version, parent=doc.get("parent"), root=str(doc.get("root") or pit_id),
+        network=doc.get("network"), window_seconds=int(doc.get("window_seconds") or 3600),
+        subbuckets=int(doc.get("subbuckets") or 12), extendable=extendable,
+        reason=None if extendable else "no belief store: this imprint's evidence was not kept",
+        next_name=f"{_VERSION_SUFFIX.sub('', name)}-v{version + 1}",
+        runs=[dtos.LineageRunDTO(**{k: r.get(k) for k in dtos.LineageRunDTO.model_fields})
+              for r in doc.get("runs") or []],
     )
 
 
@@ -3727,14 +3799,14 @@ def _list_pits_tolerant(settings: ApiSettings, be: Any) -> tuple[list[dict[str, 
     return rows, False
 
 
-def list_pits(settings: ApiSettings, *, backend: Any) -> dtos.PitListDTO:
+def list_pits(settings: ApiSettings, *, backend: Any, runs: Any = None) -> dtos.PitListDTO:
     """Every imprint: the PITs in the API's IR store, by id and name (`aximprint pit
     list`), each with whether it has assertions and the twins cast from it. While a bake
     holds the store, the last listing is served with `stale: true`."""
     be = _ir_backend(settings, backend)
     rows, stale = _list_pits_tolerant(settings, be)
     twins = _twins_by_pit(settings)
-    return dtos.PitListDTO(pits=[_pit_dto(settings, r, twins) for r in rows], stale=stale,
+    return dtos.PitListDTO(pits=[_pit_dto(settings, r, twins, runs) for r in rows], stale=stale,
                            warnings=[STORE_BUSY] if stale else [])
 
 
@@ -3753,9 +3825,9 @@ def _pit_row(settings: ApiSettings, be: Any, pit: str) -> dict[str, Any]:
     raise ApiError(404, f"no imprint with id or name {pit!r}")
 
 
-def pit_detail(settings: ApiSettings, pit: str, *, backend: Any) -> dtos.PitDTO:
+def pit_detail(settings: ApiSettings, pit: str, *, backend: Any, runs: Any = None) -> dtos.PitDTO:
     be = _ir_backend(settings, backend)
-    return _pit_dto(settings, _pit_row(settings, be, pit))
+    return _pit_dto(settings, _pit_row(settings, be, pit), runs=runs)
 
 
 def copy_pit(settings: ApiSettings, pit: str, req: dtos.PitCopyRequest, *,
@@ -3782,7 +3854,10 @@ def copy_pit(settings: ApiSettings, pit: str, req: dtos.PitCopyRequest, *,
     src_files = _pit_files_dir(settings, str(src["pit_id"]))
     if src_files.is_dir():
         dst = _pit_files_dir(settings, str(row["pit_id"]))
-        shutil.copytree(src_files, dst, dirs_exist_ok=True)
+        # Not the lineage: a save-as copy keeps no belief store of its own, so it is not a
+        # version of anything and cannot be extended.
+        shutil.copytree(src_files, dst, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(LINEAGE_FILE))
         # The copied assertions file names the original imprint; re-stem it.
         from axrange.api.console_files import assertions_path
         old = assertions_path(dst, str(src["pit_id"]))
@@ -4250,16 +4325,32 @@ def create_discovery_source_run(
     if not explicit and (days is None or days <= 0):
         raise ApiError(400, "pass days (> 0) or ts_from/ts_to; the source has no default days")
 
+    if req.network not in (None, "") or req.vantage not in (None, ""):
+        logger.warning("discovery source run %s: network/vantage in the request are "
+                       "deprecated and ignored (the vantage comes from the sensor, the "
+                       "network is derived from the imprint)", source_id)
+    base = _add_base(settings, req, be=be, runs=runs) if req.base_imprint else None
     config: dict[str, Any] = {"source": f"{rec.plugin}:{rec.endpoint}"}
-    for key in ("network", "vantage", "window", "subbuckets"):
+    for key in ("window", "subbuckets"):
         value = getattr(req, key)
-        if value is None:
-            value = rec.defaults.get(key)
+        if base is not None:
+            stored = base["doc"]["window_seconds" if key == "window" else key]
+            if value is not None and int(value) != int(stored):
+                raise ApiError(400, f"{key}={value} differs from the base imprint's {stored}: "
+                                    f"an Add must measure like the imprint it extends -- omit "
+                                    f"{key} to use the base's value")
+            value = int(stored)
+        elif value is None:
+            value = rec.defaults.get(key)  # LEGACY source defaults
         if value not in (None, ""):
             config[key] = value
+    if base is not None:
+        config["network"] = base["network"]
     if explicit:
         config["ts_from"], config["ts_to"] = float(req.ts_from), float(req.ts_to)
-    problems = disc.check_config(dict(plugin.get("config_schema") or {}), config)
+    # `network` is the engine's own (`aximprint ingest --network`), not a plugin option.
+    problems = disc.check_config(dict(plugin.get("config_schema") or {}),
+                                 {k: v for k, v in config.items() if k != "network"})
     if problems:
         raise ApiError(
             400, f"config rejected by plugin {rec.plugin!r}'s schema: " + "; ".join(problems),
@@ -4283,6 +4374,15 @@ def create_discovery_source_run(
     )
     spec = _access_spec(store, rec)
     run = runs.new(rec.plugin, req.name, config, source_id=source_id)
+    if base is None:
+        # A new imprint: its network id comes from this run's stable id.
+        config["network"] = _network_for_run(run.id)
+        runs.update(run.id, config=dict(config))
+    else:
+        request.base_store = Path(base["doc"]["belief_store"])
+        request.stamp_network = base["stamp"]
+        request.replace = False
+    request.on_baked = _record_version(settings, runs, run.id, base, be)
 
     def _job() -> None:
         disc.execute_source_run(
@@ -4295,6 +4395,77 @@ def create_discovery_source_run(
     else:
         threading.Thread(target=_job, name=f"discovery-{run.id}", daemon=True).start()
     return _discovery_run_dto(runs.snapshot(run.id))
+
+
+def _add_base(settings: ApiSettings, req: Any, *, be: Any, runs: Any) -> dict[str, Any]:
+    """The base of an "Add to an existing imprint" run, refused unless it can be extended:
+    it has a belief store, and no run is writing it. Returns its row, lineage document,
+    network id, and the id to stamp on the copy's earlier runs (a legacy base declared none)."""
+    row = _pit_row(settings, be, str(req.base_imprint))
+    pit_id = str(row["pit_id"])
+    doc = _lineage_doc(settings, pit_id, runs)
+    if doc is None:
+        raise ApiError(409, f"imprint {row.get('name')!r} cannot be extended: no run record or "
+                            "lineage says where its evidence is (an imprint made by merge or "
+                            "save-as keeps no belief store)")
+    store = Path(str(doc.get("belief_store") or ""))
+    if not doc.get("belief_store") or not store.is_file():
+        raise ApiError(409, f"imprint {row.get('name')!r} cannot be extended: its belief store "
+                            f"{store.name or '(none)'} is gone")
+    if store.name.removesuffix(".belief.duckdb") in runs.active_imprint_ids():
+        raise ApiError(409, f"imprint {row.get('name')!r} is still being written by a run; "
+                            "add to it once that run has finished")
+    network = doc.get("network")
+    stamp = None
+    if not network:
+        network = _network_for_run(str(doc.get("legacy_run_id") or pit_id))
+        stamp = network
+    return {"row": row, "pit_id": pit_id, "doc": doc, "network": network, "stamp": stamp}
+
+
+def _record_version(settings: ApiSettings, runs: Any, run_id: str,
+                    base: Optional[dict[str, Any]], be: Any):
+    """After a successful bake: write the new imprint's lineage (its parent, and every run
+    it holds with the vantage the sensor reported), and carry the base's assertions file
+    into it (a copy). The base's own files are only read."""
+    def _done(result: Any, request: Any) -> None:
+        import shutil
+
+        from axrange.api.console_files import assertions_path
+
+        run = runs.snapshot(run_id)
+        vantage = None
+        status = getattr(be, "store_status", None)
+        if status is not None:
+            try:
+                vantage = status(str(request.belief_store)).get("last_run_vantage")
+            except Exception:  # noqa: BLE001 -- provenance, not the run's outcome
+                vantage = None
+        entry = _run_entry(run, vantage)
+        entry["ts_from"] = request.config.get("ts_from")
+        entry["ts_to"] = request.config.get("ts_to")
+        if base is None:
+            doc = {"version": 1, "parent": None, "root": result.pit_id, "runs": [entry]}
+        else:
+            parent = base["doc"]
+            doc = {"version": int(parent.get("version") or 1) + 1, "parent": base["pit_id"],
+                   "root": parent.get("root") or base["pit_id"],
+                   "runs": list(parent.get("runs") or []) + [entry]}
+        doc.update({
+            "network": request.config.get("network"),
+            "window_seconds": int(request.config.get("window") or 3600),
+            "subbuckets": int(request.config.get("subbuckets") or 12),
+            "belief_store": str(request.belief_store),
+        })
+        dst = _pit_files_dir(settings, result.pit_id)
+        dst.mkdir(parents=True, exist_ok=True)
+        (dst / LINEAGE_FILE).write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+        if base is not None:
+            src = assertions_path(_pit_files_dir(settings, base["pit_id"]), base["pit_id"])
+            mine = assertions_path(dst, result.pit_id)
+            if src.is_file() and not mine.exists():
+                shutil.copyfile(src, mine)
+    return _done
 
 
 def _pit_names(settings: ApiSettings, backend: Any) -> dict[str, str]:

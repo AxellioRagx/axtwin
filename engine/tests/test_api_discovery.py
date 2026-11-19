@@ -826,6 +826,9 @@ def test_an_imprint_is_listed_with_its_name_and_a_rename_follows_onto_the_runs(t
     assert (run["pit_id"], run["pit_name"]) == ("pit-fake", "pit-fake")
     listed = c.get("/api/imprints").json()
     assert listed == c.get("/api/discovery/pits").json(), "the old path is an alias"
+    # `lineage` is additive: reconstructed (version 1) from the run that baked it.
+    lineage = listed["pits"][0].pop("lineage")
+    assert lineage["version"] == 1 and lineage["parent"] is None and lineage["root"] == "pit-fake"
     assert listed == {"pits": [
         {"pit_id": "pit-fake", "name": "pit-fake", "derived_from": None, "has_assertions": False,
          "twins": [], "as_of": 100.0, "observed_from": None, "observed_to": None,

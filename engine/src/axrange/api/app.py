@@ -463,12 +463,14 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     @app.get("/api/discovery/pits", response_model=dtos.PitListDTO, include_in_schema=False)
     @_ro
     def imprints_list() -> dtos.PitListDTO:
-        return service.list_pits(settings, backend=app.state.discovery_backend)
+        return service.list_pits(settings, backend=app.state.discovery_backend,
+                                 runs=app.state.discovery_runs)
 
     @app.get("/api/imprints/{pit}", response_model=dtos.PitDTO)
     @_ro
     def imprint_pit_detail(pit: str) -> dtos.PitDTO:
-        return service.pit_detail(settings, pit, backend=app.state.discovery_backend)
+        return service.pit_detail(settings, pit, backend=app.state.discovery_backend,
+                                  runs=app.state.discovery_runs)
 
     @app.patch(
         "/api/imprints/{pit}",

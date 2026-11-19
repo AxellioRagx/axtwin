@@ -735,6 +735,32 @@ class PitTwinRefDTO(BaseModel):
     id: str
 
 
+class LineageRunDTO(BaseModel):
+    """One run an imprint holds: where its evidence came from."""
+    run_id: Optional[str] = None
+    source_id: Optional[str] = None
+    plugin: Optional[str] = None
+    vantage: Optional[str] = None
+    ts_from: Optional[float] = None
+    ts_to: Optional[float] = None
+
+
+class LineageDTO(BaseModel):
+    """An imprint's versioning: its parent, its root, the runs accumulated into it, and
+    the measurement settings an Add must reuse. Read from `pits/<pit_id>/lineage.json`,
+    or reconstructed from the run record for an imprint made before versions existed."""
+    version: int = 1
+    parent: Optional[str] = None
+    root: str
+    network: Optional[str] = None
+    window_seconds: int = 3600
+    subbuckets: int = 12
+    extendable: bool = False
+    reason: Optional[str] = None
+    next_name: str
+    runs: list[LineageRunDTO] = []
+
+
 class PitDTO(BaseModel):
     """One imprint: a PIT in the API's IR store (`aximprint pit list`), with
     its operator state and the twins cast from it."""
@@ -753,6 +779,7 @@ class PitDTO(BaseModel):
     entities: Optional[int] = None
     segments: Optional[int] = None
     merge_axis: Optional[str] = None
+    lineage: Optional[LineageDTO] = None
 
 
 class PitListDTO(BaseModel):
@@ -906,12 +933,18 @@ class DiscoverySourceRunRequest(BaseModel):
     days: Optional[float] = None
     ts_from: Optional[float] = None
     ts_to: Optional[float] = None
-    # Run options; unset -> the source's defaults.
+    # DEPRECATED for source runs: accepted, IGNORED (logged). The vantage comes from the
+    # sensor; the network is an internal id derived from the imprint.
     network: Optional[str] = None
     vantage: Optional[str] = None
+    # Unset -> the base imprint's values on an Add, else the source's legacy defaults, else
+    # aximprint's (3600 / 12).
     window: Optional[int] = None
     subbuckets: Optional[int] = None
     sensors: Optional[list[str]] = None
+    # "Add to an existing imprint": the base imprint's id (or unique name). The run copies
+    # its belief store, ingests into the copy and bakes a NEW imprint (the next version).
+    base_imprint: Optional[str] = None
 
 
 class PcapListDTO(BaseModel):
