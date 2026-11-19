@@ -194,3 +194,17 @@ describe("the run form's pre-fill: last run, then legacy source defaults, then b
     expect(lastRunOf(undefined, "src-1")).toBeUndefined();
   });
 });
+
+describe("a failed probe in plain words", () => {
+  it("classifies the common failures and falls back to the first line", async () => {
+    const { probeFailure } = await import("../src/model/sources");
+    const f = (error: string, stage: "api_http" | "ssh_auth" | "ssh_connect" = "api_http") => probeFailure({ reachable: false, error, stage });
+    expect(f("unreachable at https://h.example/api: HTTP Error 401: Unauthorized")).toEqual({ step: "API", reason: "rejected the credential (HTTP 401) at h.example" });
+    expect(f("ssh fxadmin@rdr1: Permission denied (publickey).", "ssh_auth")).toEqual({ step: "login", reason: "SSH login refused (permission denied) at rdr1" });
+    expect(f("Host key verification failed.", "ssh_connect")?.reason).toBe("SSH host key not trusted (not in known_hosts)");
+    expect(f("unreachable at http://127.0.0.1:9090: [Errno 111] Connection refused")?.reason).toBe("connection refused at 127.0.0.1");
+    expect(f("timed out after 60s at api_http")?.reason).toBe("timed out");
+    expect(f("something odd\nsecond line")?.reason).toBe("something odd");
+    expect(probeFailure({ reachable: true, error: null })).toBeNull();
+  });
+});

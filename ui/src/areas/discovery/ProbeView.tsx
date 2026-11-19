@@ -1,5 +1,5 @@
 import type { Probe } from "../../api/types";
-import { formatBig, formatCount, formatSteps, formatTs, siteRows } from "../../model/sources";
+import { formatBig, formatCount, formatSteps, formatTs, probeFailure, siteRows } from "../../model/sources";
 import { When } from "../shell/parts";
 
 /**
@@ -10,15 +10,27 @@ import { When } from "../shell/parts";
 export function ProbeView({ probe }: { probe: Probe & { probed_at: string } }) {
   if (!probe.reachable) {
     const trail = formatSteps(probe.steps);
+    const failure = probeFailure(probe);
     return (
       <div className="error" role="alert" data-testid="probe-failure">
-        Not reachable (<When value={probe.probed_at} />):{" "}
-        {trail ? (
-          <>
-            <span data-testid="probe-steps">{trail}</span> —{" "}
-          </>
+        <div>
+          Not reachable (<When value={probe.probed_at} />)
+          {trail ? (
+            <>
+              : <span data-testid="probe-steps">{trail}</span>
+            </>
+          ) : null}
+        </div>
+        <div data-testid="probe-failed-step">
+          {failure?.step ? `${failure.step} ✗ — ` : ""}
+          {failure?.reason ?? "no reason given"}
+        </div>
+        {probe.error ? (
+          <details data-testid="probe-raw-error">
+            <summary>Details</summary>
+            <pre className="mono" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{probe.error}</pre>
+          </details>
         ) : null}
-        {probe.error ?? "no reason given"}
       </div>
     );
   }

@@ -327,6 +327,49 @@ export function formatSteps(steps: ProbeStep[] | undefined): string {
   return (steps ?? []).map((s) => `${STAGE_LABELS[s.stage] ?? s.stage} ${s.ok ? "✓" : "✗"}`).join(" · ");
 }
 
+/**
+ * A failed probe in plain words: which step failed ("API") and why ("TLS: certificate not
+ * trusted (self-signed) at 10.80.72.40"). Classified client-side from `stage` and the error
+ * text, so the response shape stays as it is; the raw error stays available for a details
+ * toggle. `null` for a reachable probe.
+ */
+export function probeFailure(probe: Pick<Probe, "reachable" | "error" | "stage" | "steps">): { step: string | null; reason: string } | null {
+  if (probe.reachable) return null;
+  const err = probe.error ?? "";
+  const failed = probe.stage ?? (probe.steps ?? []).find((s) => !s.ok)?.stage ?? null;
+  const step = failed ? (STAGE_LABELS[failed] ?? failed) : null;
+  const host = hostIn(err);
+  const at = host ? ` at ${host}` : "";
+  const status = /\bHTTP (?:Error )?(\d{3})\b/i.exec(err)?.[1] ?? /\b(40[13])\b/.exec(err)?.[1];
+  let reason: string;
+  if (/CERTIFICATE_VERIFY_FAILED|self[- ]signed|certificate verify failed/i.test(err)) {
+    reason = /self[- ]signed/i.test(err) ? `TLS: certificate not trusted (self-signed)${at}` : `TLS: certificate not trusted${at}`;
+  } else if (/host key verification failed|REMOTE HOST IDENTIFICATION/i.test(err)) {
+    reason = `SSH host key not trusted (not in known_hosts)${at}`;
+  } else if (/permission denied/i.test(err)) {
+    reason = `SSH login refused (permission denied)${at}`;
+  } else if (status === "401" || status === "403") {
+    reason = `rejected the credential (HTTP ${status})${at}`;
+  } else if (/timed out|timeout/i.test(err)) {
+    reason = `timed out${at}`;
+  } else if (/connection refused/i.test(err)) {
+    reason = `connection refused${at}`;
+  } else if (/name or service not known|nodename nor servname|could not resolve|getaddrinfo|Name does not resolve/i.test(err)) {
+    reason = `host name not found${at}`;
+  } else {
+    reason = err.split("\n")[0]?.trim() || "no reason given";
+  }
+  return { step, reason };
+}
+
+/** The first host a probe error names: from a URL, else from `user@host`. */
+function hostIn(text: string): string | null {
+  const url = /\bhttps?:\/\/([^/:\s]+)/i.exec(text);
+  if (url) return url[1] ?? null;
+  const ssh = /\b[\w.-]+@([\w.-]+)/.exec(text);
+  return ssh ? (ssh[1] ?? null) : null;
+}
+
 /** The part of a form a connection test depends on: plugin, endpoint and every access
  *  field, secrets included. The name is left out -- it does not change reachability. */
 export function probeKey(form: SourceForm): string {

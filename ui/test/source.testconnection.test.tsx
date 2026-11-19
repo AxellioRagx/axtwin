@@ -262,3 +262,37 @@ describe("a source carries no run settings", () => {
     expect(state.writes.find((w) => w.op === "update")!.body).not.toHaveProperty("defaults");
   });
 });
+
+describe("a failed test reads in plain words, the raw error behind a toggle", () => {
+  const SELF_SIGNED = {
+    reachable: false,
+    stage: "api_http" as const,
+    steps: [{ stage: "api_http" as const, ok: false }],
+    error: "axquery /api/info unreachable at https://10.80.72.40/axquery/api: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate (_ssl.c:1006)>",
+  };
+
+  it("on the source form", async () => {
+    const { api, state } = fakeApi();
+    state.probeConfigAnswer = SELF_SIGNED;
+    renderAt(api, "/discovery/sources/new");
+    await fillTunnelSource();
+    fireEvent.click(testButton());
+    const step = await screen.findByTestId("probe-failed-step");
+    expect(step.textContent).toBe("API ✗ — TLS: certificate not trusted (self-signed) at 10.80.72.40");
+    const raw = screen.getByTestId("probe-raw-error") as HTMLDetailsElement;
+    expect(raw.tagName).toBe("DETAILS");
+    expect(raw.open).toBe(false);
+    expect(raw.textContent).toContain("_ssl.c:1006");
+    expect(step.textContent).not.toContain("_ssl.c");
+  });
+
+  it("on the source page", async () => {
+    const { api } = fakeApi({
+      sources: [tunnelSource({ last_probe: { ...SELF_SIGNED, first_ts: null, last_ts: null, vantage: null, extra: {}, via: null, probed_at: "2026-11-19T12:00:00Z" } })],
+    });
+    renderAt(api, "/discovery/sources/src-1");
+    expect((await screen.findByTestId("probe-failed-step")).textContent).toBe(
+      "API ✗ — TLS: certificate not trusted (self-signed) at 10.80.72.40",
+    );
+  });
+});
