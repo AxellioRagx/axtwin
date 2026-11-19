@@ -503,6 +503,21 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_stamp_network(args) -> int:
+    """Declare a network on the store's runs that declared none (extending a legacy imprint's
+    COPY). Exit 1 when the store already declares a different one."""
+    store = BeliefStore(args.store)
+    try:
+        n = store.stamp_network(args.network)
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        store.close()
+    print(json.dumps({"store": args.store, "network": args.network, "stamped_runs": n}))
+    return 0
+
+
 def cmd_synth(args) -> int:
     store = BeliefStore(args.store)
     doc = synthesize(store.snapshot(as_of=args.as_of))
@@ -1323,6 +1338,13 @@ def main(argv=None) -> int:
     ps = sub.add_parser("status", help="belief store summary")
     ps.add_argument("--store", default="imprint.duckdb")
     ps.set_defaults(fn=cmd_status)
+
+    pn = sub.add_parser("stamp-network",
+                        help="declare a network on every run in the store that declared none "
+                             "(refused if a different one is declared)")
+    pn.add_argument("--store", required=True)
+    pn.add_argument("--network", required=True, metavar="ID")
+    pn.set_defaults(fn=cmd_stamp_network)
 
     pm = sub.add_parser("bake", aliases=["materialize"],
                         help="bake the belief store into a point-in-time network IR (a PIT) "

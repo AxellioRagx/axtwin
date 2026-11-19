@@ -907,6 +907,29 @@ def run_once(source: str, workdir: Path, tag: str, window_seconds: int,
     return windows_json, yaml_text, features, sidecar + asserted
 
 
+def multi_run_pit(source: str, workdir: Path, tag: str, window_seconds: int,
+                  subbuckets: int, plugin_name: str = "zeek") -> str:
+    """An ACCUMULATED store (imprint versioning, 2026-11-19): the same source ingested twice
+    under one network from two declared vantages, baked. Same store contents must give the
+    same PIT bytes even though every window start now appears twice."""
+    from aximprint.cli import _pipeline
+    from aximprint.ir.materialize import materialize
+    from aximprint.store import BeliefStore
+
+    store_path = workdir / f"{tag}.multi.duckdb"
+    if store_path.exists():
+        store_path.unlink()
+    for vantage in ("tap-a", "tap-b"):
+        _pipeline(plugin_name, source, ts_from=None, ts_to=None,
+                  window_seconds=window_seconds, subbuckets=subbuckets,
+                  specs=[("store", str(store_path))], vantage=vantage, network="net-check")
+    store = BeliefStore(str(store_path))
+    pit = materialize(store)
+    store.close()
+    pit.pop("_stats", None)
+    return json.dumps(pit, sort_keys=True, default=str)
+
+
 def _assertions_for(pit: dict):
     """A synthetic `axr-assertions/1` set derived from `pit`'s own placed entities.
 
@@ -1169,6 +1192,17 @@ def main() -> int:
 
         failures += check_cast_sidecar(p1, p2, workdir)
         failures += check_features(f1, f2, workdir)
+
+        m1 = multi_run_pit(source, workdir, "run1", args.window, args.subbuckets, args.plugin)
+        m2 = multi_run_pit(source, workdir, "run2", args.window, args.subbuckets, args.plugin)
+        print(f"\n[5/5] byte-stable PIT from an accumulated (two-run, two-vantage) store "
+              f"({len(m1)} bytes)")
+        if m1 == m2:
+            print(f"  ✓ identical  sha256={hashlib.sha256(m1.encode()).hexdigest()[:16]}")
+        else:
+            failures += 1
+            print("  ✗ AN ACCUMULATED STORE DOES NOT BAKE BYTE-STABLE.")
+            print(_first_diff(m1, m2, "run1", "run2"))
 
         if failures:
             print(f"\n✗ {failures} determinism invariant(s) BROKEN")

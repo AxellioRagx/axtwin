@@ -230,14 +230,86 @@ def test_two_networks_in_one_store_are_refused(tmp_path):
         materialize(st)
 
 
-def test_two_vantages_in_one_store_are_refused_and_point_at_merge(tmp_path):
-    """A PIT is one tap point's view (D4). Unioning two taps HERE would hide the view difference
-    inside a single artifact, which is exactly what `merge` exists to make visible instead."""
+def test_two_vantages_without_a_shared_network_are_refused_and_point_at_merge(tmp_path):
+    """Without one declared network the two taps are not known to be one imprint's evidence."""
     st = _store(tmp_path, [_flow(ALIGNED + 1, "10.0.1.10", "10.0.1.20")], source="/cap/one")
-    st.con.execute("UPDATE runs SET vantage = 'tap-a', network = 'corp'")
-    _second_run(st, vantage="tap-b", network="corp")
+    st.con.execute("UPDATE runs SET vantage = 'tap-a'")
+    _second_run(st, vantage="tap-b")
     with pytest.raises(MaterializeError, match="merge --axis vantage"):
         materialize(st)
+
+
+def test_several_sources_and_vantages_under_one_network_bake_with_vantages_as_provenance(tmp_path):
+    """Plain accumulation (imprint versioning): one network, several taps and sources -> one PIT;
+    the taps are recorded, never used to combine anything."""
+    st = _store(tmp_path, [_flow(ALIGNED + 1, "10.0.1.10", "10.0.1.20")], source="/cap/one")
+    st.con.execute("UPDATE runs SET vantage = 'tap-a', network = 'net-1'")
+    _second_run(st, vantage="tap-b", network="net-1")
+    row = materialize(st)["ir_pit"][0]
+    assert row["network"] == "net-1" and row["vantage"] is None
+    assert json.loads(row["vantages"]) == ["tap-a", "tap-b"]
+    assert row["source"] == "/cap/one + /cap/two"
+
+
+def test_a_legacy_store_stamped_with_a_network_bakes_with_a_new_networked_run(tmp_path):
+    st = _store(tmp_path, [_flow(ALIGNED + 1, "10.0.1.10", "10.0.1.20")], source="/cap/one")
+    _second_run(st, network="net-1")
+    with pytest.raises(MaterializeError, match="neither one vantage nor one network"):
+        materialize(st)
+    assert st.stamp_network("net-1") == 1
+    assert materialize(st)["ir_pit"][0]["network"] == "net-1"
+
+
+def test_stamping_never_overwrites_a_different_declared_network(tmp_path):
+    st = _store(tmp_path, [_flow(ALIGNED + 1, "10.0.1.10", "10.0.1.20")], source="/cap/one")
+    st.con.execute("UPDATE runs SET network = 'corp'")
+    with pytest.raises(ValueError, match="already declares"):
+        st.stamp_network("net-1")
+    assert st.con.execute("SELECT network FROM runs").fetchall() == [("corp",)]
+
+
+def test_two_runs_over_the_same_windows_count_as_separate_observations(tmp_path):
+    """Plain accumulation, asserted explicitly: the same 5 days x 24 h ingested twice doubles
+    totals and every window count, and leaves the medians and diurnal shares unchanged."""
+    events = _diurnal_events(range(24), 5)
+    once = materialize(_store(tmp_path, events, name="once.duckdb"))
+    st = BeliefStore(str(tmp_path / "twice.duckdb"))
+    for source in ("/cap/one", "/cap/two"):
+        wm = WindowManager(window_seconds=WINDOW)
+        wins = list(wm.process(iter(events))) + list(wm.finalize())
+        for w in wins:
+            st.write_window(w, extract_assertions(w))
+        st.write_entity_roster(source, wm.entity_roster())
+        st.write_run({"source": source, "plugin": "zeek", "window_seconds": WINDOW,
+                      "subbuckets": 12, "network": "net-1"}, build_stamp(), len(wins),
+                     ALIGNED, ALIGNED + 1)
+    twice = materialize(st)
+    a, b = _traffic_row(once), _traffic_row(twice)
+    assert b["windows_active"] == 2 * a["windows_active"]
+    assert b["windows_total"] == 2 * a["windows_total"]
+    seen = lambda pit: {e["entity_key"]: e["windows_seen"] for e in pit["ir_entity"]}
+    assert seen(twice) == {k: 2 * v for k, v in seen(once).items()}
+    cov = lambda pit: {s["cidr"]: s["windows_present"] for s in pit["ir_segment"]}
+    assert cov(twice) == {k: 2 * v for k, v in cov(once).items()}
+    assert twice["ir_pit"][0]["windows"] == 2 * once["ir_pit"][0]["windows"]
+    for field in ("burstiness_p50", "client_ratio_p50", "interarrival_p50", "hod_flows",
+                  "dow_flows", "schedule"):
+        assert b[field] == a[field], field
+    assert b["flows_per_window_q"][1] == a["flows_per_window_q"][1]   # the median
+    assert (twice["ir_pit"][0]["observed_from"], twice["ir_pit"][0]["observed_to"]) == \
+        (once["ir_pit"][0]["observed_from"], once["ir_pit"][0]["observed_to"])
+
+
+def test_an_accumulated_store_bakes_byte_stable(tmp_path):
+    st = _store(tmp_path, _diurnal_events(range(24), 3), source="/cap/one")
+    st.con.execute("UPDATE runs SET vantage = 'tap-a', network = 'net-1'")
+    wm = WindowManager(window_seconds=WINDOW)
+    for w in list(wm.process(iter(_diurnal_events(range(24), 3, src="10.80.72.51")))) + \
+            list(wm.finalize()):
+        st.write_window(w, extract_assertions(w))
+    _second_run(st, vantage="tap-b", network="net-1")
+    dump = lambda: json.dumps(materialize(st), sort_keys=True, default=str)
+    assert dump() == dump()
 
 
 def test_a_vantage_declared_by_only_some_runs_does_not_join_two_sources(tmp_path):

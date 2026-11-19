@@ -557,10 +557,16 @@ class BeliefStore:
         # Python twice (the fetch, then the sets). The distinct-window count is only *wrong* per
         # spelling for entities a merge touches, and those are few (24 of 3,302 on the baseline),
         # so they get a second, targeted query instead of making everything pay for them.
+        #
+        # Plain accumulation (imprint versioning, 2026-11-19): a window two runs both covered is
+        # TWO observations, so this counts rows, not distinct starts. One run writes at most one
+        # row per (spelling, window), so rows per (spelling, window) = runs that saw it there.
+        # For a merged entity the count at one start is the LARGEST over its spellings -- the
+        # alias overlap above is within one run and must still count once.
         merged = set(alias) | set(alias.values())
         nodes: dict[str, list] = {}
         for entity, last_ws, seen in self.con.execute(
-                f"SELECT entity, max(window_start), count(DISTINCT window_start) "
+                f"SELECT entity, max(window_start), count(*) "
                 f"FROM node_features {cond} GROUP BY entity", params).fetchall():
             if entity not in merged:
                 nodes[entity] = [entity, last_ws, seen]
@@ -570,14 +576,15 @@ class BeliefStore:
             # counts over-counts and the union has to be taken over actual window values.
             marks = ",".join("?" * len(merged))
             joiner = "AND" if cond else "WHERE"
-            windows: dict[str, set] = {}
-            for entity, window_start in self.con.execute(
-                    f"SELECT entity, window_start FROM node_features {cond} "
+            windows: dict[str, dict] = {}
+            for entity, window_start, runs in self.con.execute(
+                    f"SELECT entity, window_start, count(*) FROM node_features {cond} "
                     f"{joiner} entity IN ({marks}) GROUP BY entity, window_start",
                     params + sorted(merged)).fetchall():
-                windows.setdefault(canon(entity, entity), set()).add(window_start)
+                at = windows.setdefault(canon(entity, entity), {})
+                at[window_start] = max(at.get(window_start, 0), runs)
             for key, wins in windows.items():
-                nodes[key] = [key, max(wins), len(wins)]
+                nodes[key] = [key, max(wins), sum(wins.values())]
         listens: dict[tuple, float] = {}
         for subject, obj, conf in self.con.execute(
                 f"SELECT subject, object, max(confidence) FROM assertions "
@@ -765,6 +772,28 @@ class BeliefStore:
                 # vantage.md` D2 tier 3).
                 "last_run_vantage": last_run[5] if last_run else None,
                 "last_run_network": last_run[6] if last_run else None}
+
+    def stamp_network(self, network: str) -> int:
+        """Declare `network` on every `runs` row that declared none; returns how many changed.
+
+        For a COPY of a legacy store about to be extended under a network id (imprint
+        versioning, 2026-11-19): without it the copy's old runs (network NULL) and the new run
+        (network set) would fail `materialize._run_context`'s one-network check. A row that
+        already declares a DIFFERENT network is refused, never overwritten -- two networks in
+        one store stay a refusal.
+        """
+        network = str(network).strip()
+        if not network:
+            raise ValueError("a network id is a non-empty string")
+        other = sorted(r[0] for r in self.con.execute(
+            "SELECT DISTINCT network FROM runs WHERE network IS NOT NULL AND network <> ?",
+            [network]).fetchall())
+        if other:
+            raise ValueError(f"store already declares network(s) {other}; not restamped as "
+                             f"{network!r}")
+        n = self.con.execute("SELECT count(*) FROM runs WHERE network IS NULL").fetchone()[0]
+        self.con.execute("UPDATE runs SET network = ? WHERE network IS NULL", [network])
+        return int(n)
 
     def close(self):
         self.con.close()

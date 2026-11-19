@@ -114,7 +114,11 @@ def _run_context(store) -> dict:
         raise MaterializeError(
             f"belief store mixes {len(networks)} declared networks {networks}: a PIT describes ONE "
             f"network as of one time. Materialize each network from its own store.")
-    if len(vantages) > 1:
+    # Several vantages under ONE declared network (every run agreeing on it) is an imprint built
+    # by plain accumulation (`docs/design` imprint versioning, approved 2026-11-19): each run is
+    # its own observation and the vantages are kept as provenance (`vantages` on the PIT), never
+    # used to combine anything. Without that shared network the old refusal stands.
+    if len(vantages) > 1 and not one_network:
         raise MaterializeError(
             f"belief store mixes {len(vantages)} vantages {vantages}: a PIT is one tap point's "
             f"view, and unioning two taps here would hide the view difference inside a single "
@@ -134,6 +138,9 @@ def _run_context(store) -> dict:
         # PIT keeps saying what it was built from rather than naming one of its inputs.
         "source": sources[0] if len(sources) == 1 else " + ".join(sources),
         "vantage": vantages[0] if one_vantage else None,
+        # Set only when the runs reported more than one tap (accumulated under one network);
+        # `None` otherwise, so a single-tap or tap-less store bakes exactly as before.
+        "vantages": vantages if len(vantages) > 1 else None,
         "network": networks[0] if one_network else None,
         "aximprint_version": version, "code_fingerprint": fingerprint,
         "git_commit": commit, "window_seconds": window_seconds or 3600}
@@ -259,12 +266,22 @@ def _segment_windows(store, since: Optional[float], as_of: Optional[float]) -> d
     that cannot tell them apart will learn the first from the second.
     """
     cond, params = _bound(since, as_of)
-    present: dict[str, set] = {}
-    for window_start, features in store.con.execute(
-            f"SELECT window_start, features FROM node_features {cond}", params).fetchall():
+    # Plain accumulation: a window two runs both covered is two observations. One run writes at
+    # most one row per (entity, window), so the rows an entity has at one window start count the
+    # runs that saw it there; a segment's multiplicity at that start is the largest such count
+    # among its entities (the belief store records no run per row, LES-001 forbids adding one).
+    seen: dict[tuple, int] = {}
+    for window_start, entity, features in store.con.execute(
+            f"SELECT window_start, entity, features FROM node_features {cond}",
+            params).fetchall():
         for segment in (json.loads(features).get("segments") or []):
-            present.setdefault(segment, set()).add(window_start)
-    return {cidr: len(windows) for cidr, windows in present.items()}
+            k = (segment, window_start, entity)
+            seen[k] = seen.get(k, 0) + 1
+    present: dict[str, dict[float, int]] = {}
+    for (segment, window_start, _entity), runs in seen.items():
+        at = present.setdefault(segment, {})
+        at[window_start] = max(at.get(window_start, 0), runs)
+    return {cidr: sum(at.values()) for cidr, at in present.items()}
 
 
 def _entity_extents(store, since: Optional[float], as_of: Optional[float], canon) -> dict[str, tuple[float, float]]:
@@ -456,8 +473,8 @@ def _entity_traffic(store, since, as_of, canon) -> dict[str, dict]:
     cond, params = _bound(since, as_of)
     acc: dict[str, _TrafficAcc] = {}
     for window_start, entity, features in store.con.execute(
-            f"SELECT window_start, entity, features FROM node_features {cond}",
-            params).fetchall():
+            f"SELECT window_start, entity, features FROM node_features {cond} "
+            "ORDER BY window_start, entity, features", params).fetchall():
         key = canon(entity, entity)
         a = acc.setdefault(key, _TrafficAcc())
         f = json.loads(features)
@@ -906,7 +923,10 @@ def resolve(ev: EvidenceSnapshot) -> dict:
         # are set only by `ir.merge`, which is what makes "this PIT is one tap's view" and "this
         # PIT combines several" tellable apart by a reader that was handed only the artifact.
         "vantage": ctx["vantage"], "network": ctx["network"],
-        "vantages": None, "merge_axis": None, "merged_from": None,
+        # `vantages` is also set on an accumulated multi-tap store (`_run_context`); the
+        # per-entity column stays null there, since which tap saw which host is not recorded.
+        "vantages": json.dumps(ctx["vantages"]) if ctx.get("vantages") else None,
+        "merge_axis": None, "merged_from": None,
         "name": pid,    # the default label; `bake(name=...)` overrides it
     }
     unseen = _unseen(ev.referenced_bindings, seen_addresses, set(per_segment_entities))
