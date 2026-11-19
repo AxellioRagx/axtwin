@@ -251,6 +251,14 @@ SERVER_RECIPES: tuple[Recipe, ...] = (
     Recipe(name="isc-dhcp-server", packages=("isc-dhcp-server",), unit="isc-dhcp-server",
            unit_alternatives=("isc-dhcp-server",),
            ports=frozenset({(67, "udp")})),
+    # SMB as REAL Samba. Before this row a cast file server installed `samba` (its catalog
+    # role's package) AND an echo responder on 445 -- two binds on one port, whichever won by
+    # start order (measured on the trex-test cast, 2026-11-19). The share it renders is the one
+    # axRange's `drive: command` smb client asks for by default (`//<peer>/share`, file
+    # `axrange-probe.bin`, anonymous), so a protocol-faithful client fetches a real file.
+    Recipe(name="samba", packages=("samba",), unit="smbd",
+           unit_alternatives=("smbd", "smb"),
+           ports=frozenset({(445, "tcp"), (139, "tcp")})),
     # ASSERT ONLY: sshd is running on every Debian/Ubuntu cloud image this twin clones from, so
     # installing anything here would be a no-op with a failure mode. `packages` is empty and
     # that is the whole recipe.
@@ -681,6 +689,53 @@ axr_unit "$(axr_unit_name isc-dhcp-server)"
 '''
 
 
+#: The share and file the samba recipe serves -- axRange's `drive: command` smb defaults
+#: (`personas.drivers.command`: knobs `smb_share`, `smb_file`).
+SMB_SHARE = "share"
+SMB_FILE = "axrange-probe.bin"
+SMB_FILE_BYTES = 1024 * 1024
+
+
+def _render_samba(ports, ctx) -> str:
+    """Samba as a standalone file server with one guest-readable share.
+
+    Guest (`map to guest = Bad User`) because nothing observed carries a credential, and an
+    anonymous read is what lets a client fetch a real file with none. `smb ports` is exactly the
+    declared intersection, so a host seen only on 445 does not also open 139. NetBIOS name
+    service stays off (`nmbd` is stopped): it is 137/138 udp, which is not this recipe's to serve.
+    The file is random bytes, so a transfer is not compressible into something smaller on the wire.
+    """
+    smb_ports = " ".join(str(p) for p, _t in ports)
+    return f'''
+# --- samba -----------------------------------------------------------------
+# serves: {_fmt_ports(ports)}  (package: samba, installed above)
+mkdir -p /srv/{SMB_SHARE}
+[ -s /srv/{SMB_SHARE}/{SMB_FILE} ] || head -c {SMB_FILE_BYTES} /dev/urandom > /srv/{SMB_SHARE}/{SMB_FILE}
+chmod 0755 /srv/{SMB_SHARE}; chmod 0644 /srv/{SMB_SHARE}/{SMB_FILE}
+cat > /etc/samba/smb.conf <<'AXR_SMB_EOF'
+[global]
+   workgroup = AXR
+   server role = standalone server
+   server min protocol = SMB2_10
+   map to guest = Bad User
+   guest account = nobody
+   disable netbios = yes
+   smb ports = {smb_ports}
+   log file = /var/log/samba/log.%m
+   max log size = 1000
+
+[{SMB_SHARE}]
+   path = /srv/{SMB_SHARE}
+   read only = yes
+   guest ok = yes
+   guest only = yes
+AXR_SMB_EOF
+testparm -s >/dev/null
+systemctl disable --now nmbd >/dev/null 2>&1 || true
+axr_unit "$(axr_unit_name smbd smb)"
+'''
+
+
 def _render_sshd(ports, ctx) -> str:
     return f'''
 # --- sshd ------------------------------------------------------------------
@@ -719,6 +774,7 @@ _RENDERERS = {
     "nginx": _render_nginx,
     "chrony": _render_chrony,
     "isc-dhcp-server": _render_dhcp,
+    "samba": _render_samba,
     "sshd": _render_sshd,
 }
 

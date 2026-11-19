@@ -115,6 +115,18 @@ def test_the_declared_set_is_partitioned_between_real_servers_and_the_echo():
     assert sorted(set(plan.covered) | set(plan.echo)) == sorted(plan.declared)
 
 
+def test_smb_is_served_by_real_samba_not_the_echo():
+    """A cast file server used to install `samba` AND echo 445: two binds on one port.
+    The share is the one axRange's `drive: command` smb client fetches by default."""
+    plan = plan_node_services("fs", [(445, "tcp")])
+    assert [r.name for r, _p in plan.recipes] == ["samba"]
+    assert plan.echo == ()
+    script = render_serve_script(plan)
+    assert "smb ports = 445\n" in script            # 139 was not declared, so not opened
+    assert "[share]" in script and "axrange-probe.bin" in script
+    assert "echo responder" not in script
+
+
 def test_the_echo_can_never_bind_a_port_a_real_daemon_owns():
     """D8's guard, and the reason it is a render-time assertion: the runtime symptom is
     invisible. A responder that loses one bind keeps running, `systemctl is-active` still says
