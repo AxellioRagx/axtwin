@@ -354,6 +354,9 @@ def emit_flow_rates(pit: dict, bands: Optional[dict] = None) -> dict[tuple[str, 
         else:
             peer = SINK_ROLE
         tokens = edge_tokens(ed.get("proto"))
+        if "icmp" in tokens:
+            # ICMP has no port, so no dial census names it; keyed by the bare proto.
+            flows[(group, "icmp", peer)] += int(ed.get("flows") or 0)
         src_dials = json.loads(ents[ed["src_key"]].get("dial_ports") or "[]")
         dst_listens = set(json.loads(dst.get("listen_ports") or "[]"))
         for spec in src_dials:
@@ -1126,6 +1129,19 @@ def synthesize_personas(pit: dict, *, window_s: int = 60,
                         rate, peers=fanout, min_tier="low" if drive == "command" else tier)
                 else:
                     emit["cadence"], emit["volume"] = cadence, tier
+            if drive == "command":
+                # ICMP echo to the LOCAL peers this variant already talks to, where the edge
+                # table saw this group ping them. The port-driven composition above cannot
+                # produce it (no port, no dial census), and only `command` can send it (`ping`;
+                # a scripted fire is a socket at a port). pace-test pings its web tier 8x a
+                # minute per client; without this the cast's protocol mix lacked it entirely.
+                talked_to = {e["peer_role"] for e in emits if not e.get("peer_scope")}
+                for peer in sorted(talked_to):
+                    rate = flow_rates.get((group, "icmp", peer))
+                    if rate:
+                        c, v = pace_for(rate)
+                        emits.append({"proto": "icmp", "peer_role": peer, "direction": "EW",
+                                      "optional": True, "cadence": c, "volume": v})
             pid = f"cast-{group}{suffix}"
             out[pid] = {"persona": {
                 "id": pid,

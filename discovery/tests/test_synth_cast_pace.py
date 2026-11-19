@@ -95,6 +95,8 @@ def test_the_client_persona_is_command_driven_and_paced_per_emit():
     assert by_proto["dns"] == ("cyclic:7s", "med")
     assert by_proto["smb"] == ("cyclic:35s", "low")
     assert by_proto["https"][0] != "cyclic:512s"       # the old one-cadence-fits-all fallback
+    assert by_proto["icmp"] == ("cyclic:19s", "low")   # 386 pings/h to the web tier
+    assert next(e for e in doc["emits"] if e["proto"] == "icmp")["peer_role"] == "web-tier"
     assert doc["knobs"]["auth_credential"] == "none"
     assert doc["knobs"]["smb_share"] == "share"
     assert client_packages({"persona": doc}) == ("curl", "dnsutils", "smbclient")
