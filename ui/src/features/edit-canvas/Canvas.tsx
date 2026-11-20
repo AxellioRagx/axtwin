@@ -292,6 +292,14 @@ export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: num
   return dev ? placeOnDevice(te, dev) : null;
 }
 
+/** Whether a declared conduit's arc is drawn in the design view (2026-11-20, decluttered): the rail's
+ *  Conduits toggle is on, the conduit (its arc) is selected, one of its segments is selected, or the
+ *  last Check pinned a finding on it -- a failure is never hidden. Pure. */
+export function conduitVisible(s: { on: boolean; selectedKey: string | null; selectedSegments: readonly string[]; findings: ReadonlyMap<string, unknown> }, pairs: ReadonlyArray<{ a: string; b: string }>, key: string): boolean {
+  if (s.on || s.selectedKey === key) return true;
+  return pairs.some((c) => s.selectedSegments.includes(c.a) || s.selectedSegments.includes(c.b) || s.findings.has(`conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}`));
+}
+
 /** A selection a template can be saved from: nodes, segments or a subtree (§5.3). */
 export function selectionSavable(sel: Selection): boolean {
   return (sel.kind === "node" && sel.names.length > 0) || (sel.kind === "segment" && sel.names.length > 0) || sel.kind === "subtree";
@@ -360,6 +368,16 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
 /** The Lab overlay's toggle (targets-and-lab §2.3), off by default, kept per user in this browser. */
+/** The rail's Conduits toggle (off by default), per browser. */
+const CONDUITS_KEY = "axr-canvas-conduits";
+function readConduits(): boolean {
+  try {
+    return localStorage.getItem(CONDUITS_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
 const LAB_KEY = "axr-canvas-lab";
 function readLab(): boolean {
   try {
@@ -448,6 +466,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // The provenance overlay (§3.3): off, a dot on asserted and authored items; on, every state.
   const [overlayPref, setOverlay] = useState<boolean>(readOverlay);
   // The Lab overlay: chrome over the drawing, never a node and never an edit.
+  const [conduitsOn, setConduitsOn] = useState<boolean>(readConduits);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONDUITS_KEY, conduitsOn ? "on" : "off");
+    } catch {
+      // per-viewer convenience only
+    }
+  }, [conduitsOn]);
   const [labOn, setLabOn] = useState<boolean>(readLab);
   useEffect(() => {
     try {
@@ -1219,6 +1245,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (!c) return null;
     return (placement.edges.find((e) => e.type === "arc" && (e.data as { conduits?: Array<{ a: string; b: string }> } | undefined)?.conduits?.some((p) => (p.a === c.from && p.b === c.to) || (p.a === c.to && p.b === c.from)))?.data as { key?: string } | undefined)?.key ?? null;
   })();
+  const selectedSegments = edit?.selection.kind === "segment" ? edit.selection.names : [];
+  const conduitShown = useCallback(
+    (pairs: ReadonlyArray<{ a: string; b: string }>, key: string) => conduitVisible({ on: conduitsOn, selectedKey: selectedConduitKey, selectedSegments, findings }, pairs, key),
+    [conduitsOn, selectedConduitKey, selectedSegments.join("\n"), findings], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : edit?.selection.kind === "link" ? [`link:${edit.selection.index}`] : [];
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
@@ -1235,12 +1266,18 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     void fansOpen;
     const others = placement.edges.flatMap((e) => {
       if (e.type === "leg" && e.data?.kind === "leg") return [];
-      // A declared conduit is structure in the design view: always drawn (and selectable); observed pairs stay evidence.
-      if (e.type === "arc") return e.data?.kind === "arc" && ((edit && e.data.arcKind === "asserted") || arcShown(e.data.key, scope, glow.arcs)) ? [edit && e.data.arcKind === "asserted" && selectedConduitKey === e.data.key ? { ...e, selected: true } : e] : [];
+      // A declared conduit in the design view (decluttered): drawn while the Conduits toggle is on, while it
+      // or one of its segments is selected, or while the last Check pins a finding on it (never hidden);
+      // observed pairs stay evidence.
+      if (e.type === "arc") {
+        if (e.data?.kind !== "arc") return [];
+        if (edit && e.data.arcKind === "asserted") return conduitShown(e.data.conduits ?? [], e.data.key) ? [selectedConduitKey === e.data.key ? { ...e, selected: true } : e] : [];
+        return arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+      }
       return [selectedLegs.includes(e.id) ? { ...e, selected: true } : e];
     });
     return [...others, ...structural.map((e) => (selectedLegs.includes(e.id) ? { ...e, selected: true } : e))];
-  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen, Boolean(edit), selectedConduitKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen, Boolean(edit), selectedConduitKey, conduitShown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rehomeTarget = legDrag?.over ?? null;
   // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
@@ -1448,6 +1485,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
     ...(provenanceOverlay ? [{ name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" }] : []),
+    ...(edit ? [{ name: conduitsOn ? "Conduits: shown" : "Conduits: hidden (a selected or failing one still shows)", icon: <Icon.conduit />, pressed: conduitsOn, onClick: () => setConduitsOn((v) => !v), testId: "rail-conduits" }] : []),
     ...(lab ? [{ name: labOn ? "Lab overlay: on" : "Lab overlay: off", icon: <Icon.lab />, pressed: labOn, onClick: () => setLabOn((v) => !v), testId: "rail-lab" }] : []),
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },

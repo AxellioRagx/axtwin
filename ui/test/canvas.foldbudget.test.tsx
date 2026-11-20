@@ -135,10 +135,11 @@ describe("on the page", () => {
       twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
     });
     renderAt(api, `/twins/${id}/canvas`);
-    // An authored twin opens in the free layout (nothing folds); the folds are the tree's.
+    // A catalog twin opens in the tree (2026-11-20), where the folds are; free folds nothing.
     const modes = await screen.findByTestId("layout-mode");
-    expect(modes.dataset["mode"]).toBe("free");
-    expect(screen.queryByText(/^\+\d+ more$/)).toBeNull();
+    expect(modes.dataset["mode"]).toBe("tree");
+    fireEvent.click(within(modes).getByRole("button", { name: "free" }));
+    await waitFor(() => expect(screen.queryByText(/^\+\d+ more$/)).toBeNull());
     fireEvent.click(within(modes).getByRole("button", { name: "tree" }));
     const more = await screen.findByText(/^\+\d+ more$/);
     const n = Number(/\d+/.exec(more.textContent ?? "")![0]);

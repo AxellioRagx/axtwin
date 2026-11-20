@@ -783,9 +783,48 @@ export function removeConduit(text: string, index: number): string {
   return t.out();
 }
 
-/** True when some node has a leg on BOTH segments: the engine's expansion refuses a conduit no node implements. */
-export function conduitImplemented(te: Pick<TeModel, "nodes">, a: string, b: string): boolean {
-  return te.nodes.some((n) => n.nets.some((l) => l.segment === a) && n.nets.some((l) => l.segment === b));
+/** A node's legs as the engine's expansion counts them (`expand.py` `_legs_for`): its `net`/`nets`,
+ *  then every segment an `up` link naming it carries. */
+function legSegments(te: Pick<TeModel, "nodes" | "links">, n: TeNode): string[] {
+  const out = n.nets.map((l) => l.segment);
+  for (const l of te.links ?? []) {
+    if (l.state !== "up" || (l.a.device !== n.name && l.b.device !== n.name)) continue;
+    for (const sg of [...(l.native ? [l.native] : []), ...l.vlans]) if (!out.includes(sg)) out.push(sg);
+  }
+  return out;
+}
+
+/** Each segment's router-reachable set (`expand.py` `router_components`): segments are vertices and
+ *  every multi-homed `kind: router` joins the segments it has legs on. */
+export function routerComponents(te: Pick<TeModel, "nodes" | "links">): Map<string, Set<string>> {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)!)!);
+      x = parent.get(x)!;
+    }
+    return x;
+  };
+  for (const n of te.nodes) {
+    const segs = legSegments(te, n);
+    segs.forEach(find);
+    if (n.kind === "router" && new Set(segs).size > 1) for (const sg of segs.slice(1)) parent.set(find(sg), find(segs[0]!));
+  }
+  const groups = new Map<string, Set<string>>();
+  for (const sg of parent.keys()) {
+    const r = find(sg);
+    if (!groups.has(r)) groups.set(r, new Set());
+    groups.get(r)!.add(sg);
+  }
+  return new Map([...parent.keys()].map((sg) => [sg, groups.get(find(sg))!]));
+}
+
+/** The engine's conduit rule (`expand.py` `conduit_implemented`, 2026-11-20): one node with a leg on
+ *  BOTH segments, or a chain of routers joining them (tier-test's users-a -> dist-a -> core -> srv). */
+export function conduitImplemented(te: Pick<TeModel, "nodes" | "links">, a: string, b: string, components?: Map<string, Set<string>>): boolean {
+  if (te.nodes.some((n) => { const segs = legSegments(te, n); return segs.includes(a) && segs.includes(b); })) return true;
+  return Boolean((components ?? routerComponents(te)).get(a)?.has(b));
 }
 
 /** Point one end of the `conduits[]` entry at `index` at another segment. */

@@ -1498,7 +1498,7 @@ function ConduitPanel(p: SidePanelProps & { index: number }) {
         Conduit <span className="mono">{c.from} ↔ {c.to}</span>
       </h3>
       <p className={ok ? "muted" : "warn-line"} data-testid="conduit-state">
-        {ok ? "implemented: a node has a leg on both segments" : "no node has a leg on both segments: the engine refuses this conduit until one does"}
+        {ok ? "implemented: a node on both segments, or a chain of routers between them" : "no node has a leg on both segments and no chain of routers joins them: the engine refuses this conduit until one does"}
       </p>
       {!ok ? (
         fixes.length ? (

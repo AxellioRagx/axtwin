@@ -1445,6 +1445,23 @@ def test_validate_answers_an_unjoined_conduit_as_a_finding_with_a_subject(env):
     }
 
 
+def test_validate_answers_every_failing_conduit_as_its_own_finding(env):
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    files = dict(_doc(c))
+    files["te.yaml"] = files["te.yaml"].replace(
+        "  nodes:\n",
+        "    - name: dmz\n      cidr: 10.20.1.0/24\n      zone_type: simple\n"
+        "    - name: lab\n      cidr: 10.20.2.0/24\n      zone_type: simple\n\n"
+        "  conduits:\n    - { from: corp, to: dmz }\n    - { from: corp, to: lab }\n\n  nodes:\n", 1,
+    )
+    body = _validate(c, files).json()
+    conduits = [f for f in body["findings"] if f["rule_id"] == "TC-CONDUIT"]
+    assert [(f["subject"]["from"], f["subject"]["to"]) for f in conduits] == [("corp", "dmz"), ("corp", "lab")]
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 422 and len([f for f in r.json()["detail"]["findings"] if f["rule_id"] == "TC-CONDUIT"]) == 2
+
+
 def test_writers_still_refuse_an_unjoined_conduit_with_422_and_findings(env):
     settings, catalog = env
     c, _, _ = _client(settings)

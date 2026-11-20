@@ -747,7 +747,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const defaultSource = castTwin ? "discovered" : "authored";
   // The layout (B2): the choice saved with the layout, else free for an authored design (untitled, a
   // draft, a twin with no cast or discovery provenance) and the device tree for a cast twin.
-  const layoutMode: LayoutMode = draft.mode ?? (castTwin ? "tree" : "free");
+  // Free only for a design still being drawn -- the untitled one or a draft -- unless the side-car
+  // says otherwise; every catalog twin (authored or cast) and every deployed one opens in the tree
+  // (2026-11-20: a finished twin opened free and lost its structure).
+  const layoutMode: LayoutMode = draft.mode ?? (untitled || isDraft ? "free" : "tree");
   // The rail's Fan-out (§7.6): how many implied switches a carrier shows before folding the rest.
   const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 

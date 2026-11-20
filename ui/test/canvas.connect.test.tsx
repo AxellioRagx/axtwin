@@ -102,7 +102,12 @@ describe("the free layout", () => {
     const p = place(m, { "host:r2": { x: 640, y: 40 } });
     expect(p.nodes.find((n) => n.id === "router:r2")!.position).toEqual({ x: 640, y: 40 });
     expect(p.edges.every((e) => (e.data as { free?: boolean }).free === true && !(e.data as { route?: unknown }).route)).toBe(true);
-    for (const e of p.edges.filter((x) => x.id.startsWith("leg:"))) expect(e.source).toBe(`router:${/^leg:([^>]+)>/.exec(e.id)![1]}`);
+    // A router's leg leaves the router; a host's access edge (the same `leg:` id shape) keeps its switch.
+    for (const e of p.edges.filter((x) => x.id.startsWith("leg:"))) {
+      const name = /^leg:([^>]+)>/.exec(e.id)![1]!;
+      expect(e.source).toBe(p.nodes.some((n) => n.id === `router:${name}`) ? `router:${name}` : e.source);
+      expect(p.nodes.some((n) => n.id === e.source)).toBe(true);
+    }
   });
 
   it("a triangle's three transits are three edges between three different router pairs (no shared path), each with its pill", () => {
@@ -130,7 +135,7 @@ describe("on the page", () => {
     const { api, state } = withTriangle();
     renderAt(api, "/twins/tri/canvas");
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
-    expect(screen.getByTestId("layout-mode").dataset["mode"]).toBe("free");
+    expect(screen.getByTestId("layout-mode").dataset["mode"]).toBe("tree"); // a catalog twin opens in the tree
     fireEvent.click(router("r1"));
     fireEvent.click(router("r2"), { shiftKey: true });
     fireEvent.click(router("r3"), { shiftKey: true });
@@ -155,9 +160,10 @@ describe("on the page", () => {
     const { api, state } = withTriangle();
     renderAt(api, "/twins/tri/canvas");
     const modes = await screen.findByTestId("layout-mode");
-    fireEvent.click(within(modes).getByRole("button", { name: "tree" }));
-    await waitFor(() => expect(screen.getByTestId("layout-mode").dataset["mode"]).toBe("tree"));
+    expect(modes.dataset["mode"]).toBe("tree");
+    fireEvent.click(within(modes).getByRole("button", { name: "free" }));
+    await waitFor(() => expect(screen.getByTestId("layout-mode").dataset["mode"]).toBe("free"));
     fireEvent.click(screen.getByRole("button", { name: "Save layout" }));
-    await waitFor(() => expect(state.layouts["tri"]?.mode).toBe("tree"));
+    await waitFor(() => expect(state.layouts["tri"]?.mode).toBe("free"));
   });
 });

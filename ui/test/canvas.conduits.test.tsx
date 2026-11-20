@@ -130,12 +130,15 @@ describe("conduits on the canvas", () => {
     const g = open.getByTestId("canvas-conduit");
     expect(g.dataset["open"]).toBe("1");
     expect(g.classList.contains("open")).toBe(true);
-    expect(g.textContent).toContain("conduit · no router joins both");
+    // Labels collapse: a failing conduit keeps a short "no route" until hovered or selected.
+    expect(g.dataset["label"]).toBe("no route");
+    fireEvent.mouseEnter(g);
+    expect(g.dataset["label"]).toBe("conduit · no route");
     expect(open.getByTestId("finding-badge").dataset["severity"]).toBe("error");
     open.unmount();
     const ok = drawArc(TE, [{ a: "seg-10-74-20-0", b: "seg-10-74-41-0" }]);
     expect(ok.getByTestId("canvas-conduit").dataset["open"]).toBeUndefined();
-    expect(ok.getByTestId("canvas-conduit").textContent).toBe("seg-10-74-20-0 ↔ seg-10-74-41-0conduit");
+    expect(ok.getByTestId("canvas-conduit").dataset["label"]).toBe(""); // no label until hovered or selected
     expect(ok.queryByTestId("finding-badge")).toBeNull();
   });
 

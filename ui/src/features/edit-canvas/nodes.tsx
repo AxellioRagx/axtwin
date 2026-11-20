@@ -700,6 +700,7 @@ export function ArcEdge(e: E) {
   const detail = useContext(DetailContext);
   const edit = useEdit();
   const findings = useContext(FindingsContext);
+  const [hover, setHover] = useState(false);
   const d = e.data;
   if (!d || d.kind !== "arc") return null;
   const dx = Math.abs(e.targetX - e.sourceX);
@@ -715,10 +716,12 @@ export function ArcEdge(e: E) {
     const keys = conduits.map((c) => `conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}`);
     const pinned = keys.map((k) => findings.get(k)).filter((p): p is FindingPin => Boolean(p));
     const pin = pinned.length ? { severity: pinned.some((p) => p.severity === "error") ? "error" : "warning", messages: pinned.flatMap((p) => p.messages) } : null;
-    const label = `conduit${conduits.length > 1 ? ` ×${conduits.length}` : ""}${open.length ? " · no router joins both" : ""}`;
-    const title = conduits.map((c) => `${c.a} ↔ ${c.b}${conduitImplemented(edit!.model.te, c.a, c.b) ? "" : " (no node on both segments)"}`).join("\n");
+    // Labels collapse (2026-11-20): "conduit" on hover or selection only; a failing one keeps "no route".
+    const full = `conduit${conduits.length > 1 ? ` ×${conduits.length}` : ""}${open.length ? " · no route" : ""}`;
+    const label = e.selected || hover ? full : open.length ? "no route" : undefined;
+    const title = conduits.map((c) => `${c.a} ↔ ${c.b}${conduitImplemented(edit!.model.te, c.a, c.b) ? "" : " (no node on both segments, no chain of routers between them)"}`).join("\n");
     return (
-      <g data-testid="canvas-conduit" data-key={d.key} data-open={open.length || undefined} data-conduits={conduits.map((c) => `${c.a}|${c.b}`).join(",")} className={`cv-conduit${open.length ? " open" : ""}${e.selected ? " selected" : ""}`}>
+      <g data-testid="canvas-conduit" data-label={label ?? ""} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} data-key={d.key} data-open={open.length || undefined} data-conduits={conduits.map((c) => `${c.a}|${c.b}`).join(",")} className={`cv-conduit${open.length ? " open" : ""}${e.selected ? " selected" : ""}`}>
         <title>{title}</title>
         <BaseEdge id={e.id} path={path} className="cv-arc cv-arc-conduit" label={label} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg interactionWidth={12} />
         {pin ? (

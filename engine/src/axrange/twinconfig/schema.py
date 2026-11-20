@@ -365,10 +365,11 @@ class TwinConfigConduit(TCBase):
     policy (`docs/SLICE_ROUTER.md`'s per-rule firewall policy is a
     follow-on, not modeled by the IR yet). The actual topology comes from
     `nodes[]` (a `kind: router` node multi-homed across the segments it
-    joins); `expand.py` cross-checks that some router node actually joins
-    every declared conduit's two segments and errors loudly if not (the
-    same "don't let content silently not do what it says" posture as tap
-    points).
+    joins); `expand.py` cross-checks that every declared conduit's two
+    segments are joined -- by one node with a leg on both, or by a chain of
+    routers (`conduit_implemented`, 2026-11-20) -- and errors loudly, one
+    `TC-CONDUIT` issue per failing conduit, if not (the same "don't let
+    content silently not do what it says" posture as tap points).
     """
 
     from_: str = Field(alias="from")

@@ -41,14 +41,18 @@ class ApiError(Exception):
     """A service-layer failure with an HTTP-ish status hint."""
 
     def __init__(self, status: int, message: str, *, detail: Any = None,
-                 finding: Optional["dtos.FindingDTO"] = None) -> None:
+                 finding: Optional["dtos.FindingDTO"] = None,
+                 findings: Optional[list["dtos.FindingDTO"]] = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
         self.detail = detail
         # Set when the refusal is a DOCUMENT problem (a twin-config that does
-        # not expand): `POST /api/validate` answers it as this finding.
-        self.finding = finding
+        # not expand): `POST /api/validate` answers it as these findings
+        # (`finding` is the first; several when the expander found several,
+        # e.g. every failing conduit).
+        self.findings = findings if findings is not None else ([finding] if finding is not None else [])
+        self.finding = finding if finding is not None else (self.findings[0] if self.findings else None)
 
 
 # ---------------------------------------------------------------------------
@@ -736,8 +740,9 @@ def _resolve_config_scenario_path(
             warnings=warnings,
         )
     except TwinConfigError as e:
+        found = _expand_findings(config_id, e)
         raise ApiError(400, f"config {config_id!r}: {e}",
-                       finding=_expand_finding(config_id, e))
+                       finding=found[0], findings=found)
 
     if settings.images_root:
         images_root = Path(settings.images_root)
@@ -746,6 +751,22 @@ def _resolve_config_scenario_path(
     else:
         images_root = Path.cwd()
     return sp, images_root, source_dir
+
+
+def _expand_findings(config_id: str, e: Exception) -> list[dtos.FindingDTO]:
+    """Every finding an expansion refusal carries: one per `issues` entry
+    when the error found several (each failing conduit), else the one."""
+    issues = getattr(e, "issues", None) or []
+    if not issues:
+        return [_expand_finding(config_id, e)]
+
+    class _One(Exception):
+        def __init__(self, i: dict) -> None:
+            super().__init__(i["message"])
+            self.rule_id = i.get("rule_id")
+            self.subject = i.get("subject")
+
+    return [_expand_finding(config_id, _One(i)) for i in issues]
 
 
 def _expand_finding(config_id: str, e: Exception) -> dtos.FindingDTO:
@@ -6770,12 +6791,12 @@ def _validate_twin_document(
                 raise ApiError(
                     422, e.message,
                     detail={"code": "invalid",
-                            "findings": [e.finding.model_dump(by_alias=True)]},
+                            "findings": [f.model_dump(by_alias=True) for f in e.findings]},
                 ) from e
             # A document problem found while expanding: the ANSWER, not a failure.
             return dtos.ValidateResultDTO(
-                disposition="FAIL", exit_code=1, passes_run=[], errors=1,
-                warnings=0, findings=[e.finding],
+                disposition="FAIL", exit_code=1, passes_run=[], errors=len(e.findings),
+                warnings=0, findings=list(e.findings),
             )
         if result.disposition == "FAIL" and raise_on_fail:
             raise ApiError(

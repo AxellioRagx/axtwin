@@ -228,6 +228,12 @@ export const Icon = {
     </Svg>
   ),
   /** The Lab overlay (targets-and-lab §2.3): a flask -- the O2 components beside the twin. */
+  conduit: () => (
+    <Svg>
+      <path d="M2.5 4v1.5a6 6 0 0 0 11 0V4" strokeDasharray="1.6 1.6" />
+      <path d="M1 3.5h3M12 3.5h3" />
+    </Svg>
+  ),
   lab: () => (
     <Svg>
       <path d="M6 1.5h4M6.5 1.5v4L2.5 13a1 1 0 0 0 .9 1.5h9.2a1 1 0 0 0 .9-1.5L9.5 5.5v-4" />

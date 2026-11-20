@@ -98,12 +98,16 @@ is the text they were made over); Apply and Persist push the working copy
 and then run; a failing edit can only go to a draft; the poll still adopts
 another console's change but never over local edits.
 
-**Conduits in the design view (2026-11-20).** Every `conduits[]` entry is
-drawn in Design view as a thin dotted connector labelled `conduit` between
+**Conduits in the design view (2026-11-20).** A `conduits[]` entry is drawn
+in Design view (decluttered the same day) only while the rail's **Conduits**
+toggle is on (off by default, per browser), while it or one of its segments is
+selected, or while the last Check pins a finding on it (a failure is never
+hidden); its label shows `conduit` on hover or selection only, a failing one
+keeping a short `no route`. It is a thin dotted connector between
 its two segments' anchors (implied or real switch, or the fold that holds
-one), on the arc geometry, never through a box; a conduit no node implements
-(no node with a leg on BOTH segments -- the engine's expansion refuses it) is
-drawn in the warning colour. Observed flows stay evidence (Light-up or a
+one), on the arc geometry, never through a box; a conduit nothing implements
+(no node with a leg on BOTH segments and no chain of routers joining them --
+the engine's expansion refuses it, 2026-11-20) is drawn in the warning colour. Observed flows stay evidence (Light-up or a
 selection). Selecting a conduit opens its panel: whether it is implemented,
 *Add a router leg to fix* (a router on one segment gets a leg on the other),
 Remove, and its provenance. Declare one from a segment's menu (*Declare
@@ -137,12 +141,15 @@ VyOS leg config, but OSPF comes up only with a VyOS router, a node
 not write. The created segment, its CIDR and the leg addresses edit in the
 inspector as any.
 
-**Free layout (2026-11-20, `canvas/free.ts`).** An untitled design, a draft
-or a twin with no cast / discovery provenance opens in the **free** layout:
+**Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
+opens in the **free** layout (every catalog twin, authored or cast, and every
+deployed one opens in the **tree** unless its side-car says `mode: free` --
+corrected the same day: finished twins had opened free):
 every box stays where it was dropped or dragged (its pin in the side-car), the
 first placement the tree's own, nothing folds, and every edge is drawn point
-to point (straight, a router's legs from the router itself; never a comb);
-transits keep their pill. Cast twins keep the **tree**. The layout bar's
+to point (straight, a router's legs from the router itself, each host's
+access edge from its switch, hued by segment as in the tree; never a comb);
+transits keep their pill. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 

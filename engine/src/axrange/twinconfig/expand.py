@@ -611,6 +611,44 @@ def _has_joining_node(instances: list[_NodeInstance], seg_a: str, seg_b: str) ->
     return _find_joining_node(instances, seg_a, seg_b) is not None
 
 
+def router_components(instances: list[_NodeInstance]) -> dict[str, frozenset[str]]:
+    """Each segment's router-reachable set: segments are vertices, and every
+    multi-homed `kind: router` joins the segments it has legs on (a chain of
+    routers -- users-a -> dist-a -> core -> srv -- connects its ends). A
+    segment no router touches is its own set."""
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for inst in instances:
+        segs = [leg.segment for leg in inst.legs]
+        for sg in segs:
+            find(sg)
+        if inst.spec.kind == "router" and len(set(segs)) > 1:
+            first = find(segs[0])
+            for sg in segs[1:]:
+                parent[find(sg)] = first
+    groups: dict[str, set[str]] = {}
+    for sg in list(parent):
+        groups.setdefault(find(sg), set()).add(sg)
+    return {sg: frozenset(groups[find(sg)]) for sg in parent}
+
+
+def conduit_implemented(instances: list[_NodeInstance], seg_a: str, seg_b: str,
+                        components: Optional[dict[str, frozenset[str]]] = None) -> bool:
+    """A conduit is implemented when one node has legs on both segments (the
+    original rule, any kind), or when routers connect them (`router_components`)."""
+    if _has_joining_node(instances, seg_a, seg_b):
+        return True
+    comp = (components if components is not None else router_components(instances)).get(seg_a)
+    return comp is not None and seg_b in comp
+
+
 def instance_ids(name: str, count: int) -> list[str]:
     """The node ids a spec fans out to (`ws` alone at `count: 1`, else
     `ws01`, `ws02`, ...). ONE derivation, shared by the emission loop, by
@@ -1164,15 +1202,29 @@ def _build_ir(
 
     # ---- Conduit cross-check (documentation-only field, but a declared
     # conduit with no implementing router is a real content bug) ---------
+    # Implemented = one node on both segments, OR a chain of routers joining
+    # them (tier-test's users-a -> dist-a -> core -> srv). EVERY failing
+    # conduit is reported: the error carries one issue per conduit.
+    components = router_components(instances)
+    issues: list[dict] = []
     for c in conduits:
-        if not _has_joining_node(instances, c.from_, c.to):
-            raise TwinConfigShapeError(
-                f"twin_config {tc.id!r}: conduit {c.from_!r}->{c.to!r} has no "
-                "node attached to BOTH segments -- add a multi-homed router "
-                "leg on both, or drop the conduit",
-                rule_id="TC-CONDUIT",
-                subject={"kind": "conduit", "from_": c.from_, "to": c.to},
-            )
+        if not conduit_implemented(instances, c.from_, c.to, components):
+            reach = sorted(components.get(c.from_, frozenset({c.from_})))
+            issues.append({
+                "message": (
+                    f"twin_config {tc.id!r}: conduit {c.from_!r}->{c.to!r} has no "
+                    "node attached to BOTH segments and no chain of routers joining "
+                    f"them (routers reach only {reach} from {c.from_!r}) -- add a "
+                    "multi-homed router leg on both, or drop the conduit"
+                ),
+                "rule_id": "TC-CONDUIT",
+                "subject": {"kind": "conduit", "from_": c.from_, "to": c.to},
+            })
+    if issues:
+        raise TwinConfigShapeError(
+            issues[0]["message"] + (f" (and {len(issues) - 1} more failing conduit(s))" if len(issues) > 1 else ""),
+            rule_id="TC-CONDUIT", subject=issues[0]["subject"], issues=issues,
+        )
 
     # ---- identity:/data: references (work order §4.3 step 6, D2) ---------
     # These are AUTHORED facts, unlike segments and conduits which are DERIVED

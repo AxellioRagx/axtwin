@@ -18,13 +18,17 @@ class TwinConfigShapeError(TwinConfigError):
     `rule_id` / `subject` are optional STRUCTURED data for the errors that
     name something on the canvas (`POST /api/validate` folds them into a
     finding instead of parsing the message): `subject` is a dict with the
-    `FindingSubjectDTO` keys (`kind`, and `name` / `from_` + `to` / `index`)."""
+    `FindingSubjectDTO` keys (`kind`, and `name` / `from_` + `to` / `index`).
+    `issues` lists every problem when there are several (one finding each)."""
 
     def __init__(self, message: str = "", *, rule_id: "str | None" = None,
-                 subject: "dict | None" = None) -> None:
+                 subject: "dict | None" = None, issues: "list[dict] | None" = None) -> None:
         super().__init__(message)
         self.rule_id = rule_id
         self.subject = subject
+        # Several problems of one kind found at once (every failing conduit):
+        # one `{message, rule_id, subject}` each, the first being this error.
+        self.issues = issues or []
 
 
 class DeployGateRefusalError(TwinConfigShapeError):

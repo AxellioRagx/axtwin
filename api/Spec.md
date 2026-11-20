@@ -61,7 +61,9 @@ config expanded and validated with the real manifests, every tier file parsed
 by its playout's loader, the twin-local personas loaded), answering the same
 findings shape; pure, nothing written; `document` is exclusive with the id
 fields. A document problem found while expanding / cross-checking (an unjoined
-conduit `TC-CONDUIT`, an unknown segment on a node's net `TC-NODE-SEGMENT`,
+conduit `TC-CONDUIT` -- implemented when one node has a leg on both segments
+or a chain of `kind: router` nodes joins them, every failing conduit its own
+finding (2026-11-20) --, an unknown segment on a node's net `TC-NODE-SEGMENT`,
 duplicate node ids `TC-NODE-DUP`, a bad `links[]` entry `TC-LINK`, any other
 expansion refusal `EXPAND-000`) is the ANSWER -- `200`, disposition `FAIL`, an
 `error` finding -- not a failed request. A finding carries an optional

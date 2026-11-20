@@ -12,13 +12,18 @@ import { ID, type Placement } from "./placement";
 export const FREE_FAN = 10_000;
 
 export function freeLayout(p: Placement): Placement {
+  const ids = new Set(p.nodes.map((n) => n.id));
   const edges = p.edges.map((e) => {
     const data = { ...(e.data ?? {}) } as Record<string, unknown>;
     delete data["route"];
     data["free"] = true;
-    // A router's leg leaves the router, not a site tile under it.
+    // A router's leg leaves the router, not a site tile under it. A host's access edge has the same
+    // `leg:<name>><segment>` id (tree.ts `TREE_ID.access`) and keeps its switch as the source: only
+    // a name that IS a router is re-sourced (2026-11-20: re-sourcing every leg pointed the access
+    // edges at a router that does not exist, and the hosts floated unconnected).
     const leg = /^leg:([^>]+)>/.exec(e.id);
-    const source = leg && e.data?.kind === "leg" ? ID.router(leg[1]!) : e.source;
+    const router = leg ? ID.router(leg[1]!) : null;
+    const source = router && e.data?.kind === "leg" && ids.has(router) ? router : e.source;
     return { ...e, source, data } as typeof e;
   });
   return { ...p, edges };
