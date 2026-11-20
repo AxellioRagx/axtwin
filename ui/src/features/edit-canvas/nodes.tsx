@@ -22,7 +22,7 @@ import { evidenceClassName, saturationFor } from "./model/evidence";
 import type { DetailLevel } from "./model/detail";
 import { SWITCH_ROLES, switchBadge } from "./model/roles";
 import { encodePoints, type Point } from "./canvas/legs";
-import { midOf, roundedPath } from "./canvas/orthogonal";
+import { dropPoint, midOf, roundedPath } from "./canvas/orthogonal";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
@@ -717,9 +717,9 @@ export function LegEdge(e: E) {
   // No route (an end was dragged): an orthogonal smoothstep between the handles, never a diagonal through a box.
   const step = routed ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   const pts: Point[] = routed ?? [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }];
-  const mid = midOf(pts);
+  // A router's leg labels its own drop into the target; every other edge its route's middle.
+  const mid = src?.type === "router" ? dropPoint(pts) : midOf(pts);
   const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : [step![0], step![1], step![2]];
-  void src;
   const folded = kind === "leg" || kind === "stub" ? ((e.data as { folded?: number }).folded ?? 0) : 0;
   const parts = folded || (kind !== "leg" && kind !== "stub") ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
@@ -760,13 +760,15 @@ export function LinkEdge(e: E) {
   const routed = useTreeRoute(e);
   const d = e.data;
   if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
-  const mid = routed ? midOf(routed) : null;
+  // A transit segment's pill sits on its own drop into the child router; a link labels its middle.
+  const mid = routed ? (d.kind === "seglink" ? dropPoint(routed) : midOf(routed)) : null;
   const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   if (d.kind === "seglink") {
-    // A segment only routers are on (fab-link): one router-to-router wire, labelled with the segment.
+    // A segment only routers are on (a transit, fab-link): one thick router-to-router wire, its
+    // segment a pill (name · CIDR) on the drop into the child router.
     return (
-      <g data-testid="canvas-seglink" data-segment={d.segment} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
-        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.segment} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+      <g data-testid="canvas-seglink" data-segment={d.segment} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.cidr ? `${d.segment} · ${d.cidr}` : d.segment} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
       </g>
     );
   }

@@ -1142,6 +1142,20 @@ export function absoluteBoxes(nodes: readonly CanvasNode[]): Map<string, Box> {
   return out;
 }
 
+/** How far apart a router's spread exits are, at most; and how far the outermost keeps inside its ring. */
+export const ROUTER_EXIT_STEP = 10;
+const ROUTER_EXIT_INSET = 4;
+
+/** The lane an edge runs in (`orthogonal.ts`): an edge of ONE segment -- a router's leg, a seglink,
+ *  a switch's access edge to a host -- lanes by that segment, so a router's legs are separate lines
+ *  and a switch's hosts on one segment share one; an edge of no single segment (a bridge's "via",
+ *  a fold, a host fold, a role band, a link, a stub) lanes by its source, as before. */
+export function laneOf(e: Pick<CanvasEdge, "source" | "data">): string {
+  const d = e.data;
+  if (d?.kind === "seglink" || (d?.kind === "leg" && d.segment)) return `seg:${d.segment}`;
+  return e.source;
+}
+
 /** Route every structural edge orthogonally on the dagre ranks (`orthogonal.ts`); an edge whose
  *  end was pinned away from dagre's place, or that runs upward, keeps no route and draws a
  *  smoothstep. Mutates the edges' `data.route`. */
@@ -1181,6 +1195,7 @@ function routeTree(g: dagre.graphlib.Graph, nodes: readonly CanvasNode[], edges:
     return rank === undefined || rank < 0 ? null : { box, rank, top };
   };
   const reqs: RouteRequest[] = [];
+  const edgeOfReq: CanvasEdge[] = [];
   for (const e of edges) {
     if (e.type === "arc" || !e.data) continue;
     const s = endOf(e.source);
@@ -1196,7 +1211,24 @@ function routeTree(g: dagre.graphlib.Graph, nodes: readonly CanvasNode[], edges:
       }
       if (via.some((x) => Number.isNaN(x))) continue; // no column reserved: leave it to the smoothstep
     }
-    reqs.push({ id: e.id, src: s.box, dst: t.box, srcRank: s.rank, dstRank: t.rank, via, lane: e.source });
+    edgeOfReq.push(e);
+    reqs.push({ id: e.id, src: s.box, dst: t.box, srcRank: s.rank, dstRank: t.rank, via, lane: laneOf(e) });
+  }
+  // A router's edges leave across the bottom of its ring, left to right in their targets' order, so no
+  // two of its legs share a vertical (each leg is its own port).
+  const routerIds = new Set(nodes.filter((n) => n.type === "router").map((n) => n.id));
+  const fromRouter = new Map<string, RouteRequest[]>();
+  for (const [r, e] of reqs.map((r, i) => [r, edgeOfReq[i]!] as const)) if (routerIds.has(e.source)) fromRouter.set(e.source, [...(fromRouter.get(e.source) ?? []), r]);
+  for (const list of fromRouter.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.dst.x + a.dst.w / 2 - (b.dst.x + b.dst.w / 2) || (a.id < b.id ? -1 : 1));
+    const step = Math.min(ROUTER_EXIT_STEP, (2 * (TAP_ICON_HALF - ROUTER_EXIT_INSET)) / (list.length - 1));
+    list.forEach((r, k) => {
+      const dx = (k - (list.length - 1) / 2) * step;
+      const bottom = r.src.y + r.src.h;
+      // On the ring's lower arc (the ring is the icon box, flush with the node's bottom centre).
+      r.exit = { x: r.src.x + r.src.w / 2 + dx, y: bottom - TAP_ICON_HALF + Math.sqrt(Math.max(0, TAP_ICON_HALF ** 2 - dx * dx)) };
+    });
   }
   const routes = routeOrthogonal(bands, reqs);
   const at = (id: string) => {

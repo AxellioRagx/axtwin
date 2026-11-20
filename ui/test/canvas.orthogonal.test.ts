@@ -11,9 +11,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { routeOrthogonal, segmentCrossesBox, type Box } from "../src/features/edit-canvas/canvas/orthogonal";
+import { dropPoint, routeOrthogonal, segmentCrossesBox, type Box, type Point } from "../src/features/edit-canvas/canvas/orthogonal";
 import { ID } from "../src/features/edit-canvas/canvas/placement";
-import { HUE_NEUTRAL, TREE_HOST_BUDGET, TREE_ID, absoluteBoxes, hostsKey, placeTree, type TreeOptions } from "../src/features/edit-canvas/canvas/tree";
+import { HUE_NEUTRAL, TREE_HOST_BUDGET, TREE_ID, absoluteBoxes, hostsKey, laneOf, placeTree, type TreeOptions } from "../src/features/edit-canvas/canvas/tree";
 import { hueOf } from "../src/features/edit-canvas/canvas/hues";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
@@ -258,5 +258,136 @@ describe("segments no device carries", () => {
       const orphans = p.nodes.filter((n) => !n.parentId && n.type !== "router" && n.id !== ID.internet && !reached.has(n.id)).map((n) => n.id);
       expect(orphans).toEqual([]);
     }
+  });
+});
+
+// tier-cast's shape (catalog of the live checkout, 2026-11-20): gw has four legs -- an access leg to a
+// three-host segment and three segments only routers are on (transit-1 to gw-4, transit-2 to gw-2,
+// seg-0 to gw-3). Each is its own port of gw: four separate paths, no shared horizontal or vertical.
+const TIER = `twin_config:
+  id: tier
+  segments:
+    - { name: seg-20, cidr: 10.74.20.0/24 }
+    - { name: transit-1, cidr: 10.254.0.0/29 }
+    - { name: transit-2, cidr: 10.254.0.8/29 }
+    - { name: seg-0, cidr: 10.74.0.0/24 }
+    - { name: seg-31, cidr: 10.74.31.0/24 }
+    - { name: seg-41, cidr: 10.74.41.0/24 }
+    - { name: seg-42, cidr: 10.74.42.0/24 }
+    - { name: seg-10, cidr: 10.74.10.0/24 }
+    - { name: sink, cidr: 10.200.254.0/24 }
+  nodes:
+    - { name: dns, role: dns, image: img@v1, net: seg-20 }
+    - { name: files, role: file-server, image: img@v1, net: seg-20 }
+    - { name: web, role: web, image: img@v1, net: seg-20 }
+    - { name: ep31, role: workstation, image: img@v1, net: seg-31 }
+    - { name: ep41, role: workstation, image: img@v1, net: seg-41 }
+    - { name: web42, role: web, image: img@v1, net: seg-42 }
+    - { name: web10, role: web, image: img@v1, net: seg-10 }
+    - { name: sink-1, role: sink, image: img@v1, net: sink }
+    - { name: sink-2, role: sink, image: img@v1, net: sink }
+    - { name: gw, kind: router, image: vyos@v1, nets: [{ segment: seg-20 }, { segment: transit-1 }, { segment: transit-2 }, { segment: seg-0 }] }
+    - { name: gw-2, kind: router, image: vyos@v1, nets: [{ segment: seg-41 }, { segment: seg-42 }, { segment: transit-2 }] }
+    - { name: gw-3, kind: router, image: vyos@v1, nets: [{ segment: seg-10 }, { segment: seg-0 }, { segment: sink }] }
+    - { name: gw-4, kind: router, image: vyos@v1, nets: [{ segment: seg-31 }, { segment: transit-1 }] }
+`;
+
+// A real switch carrying two VLANs on one trunk, two hosts on each (no access links: access edges).
+const TRUNKED = `twin_config:
+  id: trunked
+  segments:
+    - { name: lan-a, cidr: 10.1.1.0/24 }
+    - { name: lan-b, cidr: 10.1.2.0/24 }
+  nodes:
+    - { name: a1, role: workstation, image: img@v1, net: lan-a }
+    - { name: a2, role: workstation, image: img@v1, net: lan-a }
+    - { name: b1, role: workstation, image: img@v1, net: lan-b }
+    - { name: b2, role: workstation, image: img@v1, net: lan-b }
+    - { name: sw, kind: switch, role: l2-switch }
+    - { name: gw, kind: router, image: vyos@v1, nets: [{ segment: lan-a }, { segment: lan-b }] }
+  links:
+    - { a: { device: gw, port: eth1 }, b: { device: sw, port: SFP1 }, mode: trunk, vlans: [lan-a, lan-b] }
+`;
+
+type Placed = ReturnType<typeof placed>;
+const routeOf = (p: Placed, id: string): Point[] => p.edges.find((e) => e.id === id)!.data!.route!.points;
+/** The y of each horizontal run of a route. */
+const horizontals = (pts: readonly Point[]) => pts.slice(1).flatMap((b, i) => (Math.abs(pts[i]!.y - b.y) < 0.01 && Math.abs(pts[i]!.x - b.x) > 0.01 ? [b.y] : []));
+/** The x of each vertical run of a route, with its y extent. */
+const verticals = (pts: readonly Point[]) => pts.slice(1).flatMap((b, i) => (Math.abs(pts[i]!.x - b.x) < 0.01 ? [{ x: b.x, lo: Math.min(pts[i]!.y, b.y), hi: Math.max(pts[i]!.y, b.y) }] : []));
+
+describe("lanes by segment, spread router exits (tier-cast, 2026-11-20)", () => {
+  it("a router's legs get distinct lane y's and distinct exit x's: no two share a horizontal or a vertical", () => {
+    const p = placed("tier", TIER);
+    expect(crossings(p)).toEqual([]);
+    expect(unrouted(p)).toEqual([]);
+    const legs = p.edges.filter((e) => e.type !== "arc" && e.source === ID.router("gw"));
+    expect(legs.map((e) => e.data?.kind).sort()).toEqual(["leg", "seglink", "seglink", "seglink"]);
+    const routes = legs.map((e) => e.data!.route!.points);
+    const exits = routes.map((r) => r[0]!.x);
+    expect(new Set(exits).size).toBe(4);
+    // Left to right in their targets' order.
+    const boxes = absoluteBoxes(p.nodes);
+    const byTarget = legs.map((e, i) => ({ tx: boxes.get(e.target)!.x + boxes.get(e.target)!.w / 2, exit: exits[i]! })).sort((a, b) => a.tx - b.tx);
+    expect(byTarget.map((x) => x.exit)).toEqual([...exits].sort((a, b) => a - b));
+    const lanes = routes.map((r) => horizontals(r));
+    expect(lanes.every((h) => h.length === 1)).toBe(true);
+    expect(new Set(lanes.flat()).size).toBe(4);
+    // No two legs overlap on a vertical either.
+    for (let i = 0; i < routes.length; i++)
+      for (let j = i + 1; j < routes.length; j++)
+        for (const a of verticals(routes[i]!)) for (const b of verticals(routes[j]!)) expect(Math.abs(a.x - b.x) < 0.01 && a.lo < b.hi && b.lo < a.hi, `${legs[i]!.id} and ${legs[j]!.id} share x=${a.x}`).toBe(false);
+    for (const e of legs) expect(laneOf(e)).toBe(`seg:${(e.data as { segment: string }).segment}`);
+  });
+  it("the hosts of one switch share a lane: an implied switch's, and a real switch's per segment (one line per VLAN)", () => {
+    const p = placed("tier", TIER);
+    const sw = ID.segment("seg-20");
+    const access = p.edges.filter((e) => e.source === sw && e.data?.kind === "leg");
+    expect(access.length).toBe(3);
+    const ys = new Set(access.flatMap((e) => horizontals(e.data!.route!.points)));
+    expect(ys.size).toBe(1);
+    // The implied switch's single-host segment keeps its switch and "1" badge (unchanged).
+    expect(p.nodes.find((n) => n.id === ID.segment("seg-31"))?.data).toMatchObject({ kind: "segment", implied: true, hosts: 1 });
+
+    const t = placed("trunked", TRUNKED);
+    expect(crossings(t)).toEqual([]);
+    const bySeg = new Map<string, Set<number>>();
+    for (const e of t.edges.filter((x) => x.source === "device:sw" && x.data?.kind === "leg")) {
+      const seg = (e.data as { segment: string }).segment;
+      bySeg.set(seg, new Set([...(bySeg.get(seg) ?? []), ...horizontals(e.data!.route!.points)]));
+    }
+    expect([...bySeg.keys()].sort()).toEqual(["lan-a", "lan-b"]);
+    expect([...bySeg.values()].map((s) => s.size)).toEqual([1, 1]);
+    expect([...bySeg.get("lan-a")!][0]).not.toBe([...bySeg.get("lan-b")!][0]);
+  });
+  it("a seglink's pill sits on the child router's vertical drop, not on a horizontal any edge runs along", () => {
+    const p = placed("tier", TIER);
+    const boxes = absoluteBoxes(p.nodes);
+    const links = p.edges.filter((e) => e.data?.kind === "seglink");
+    expect(links.map((e) => (e.data as { segment: string }).segment).sort()).toEqual(["seg-0", "transit-1", "transit-2"]);
+    const allRuns = p.edges.filter((e) => e.data?.route).map((e) => e.data!.route!.points).flatMap((pts) => pts.slice(1).map((b, i) => [pts[i]!, b] as const));
+    for (const e of links) {
+      const pts = routeOf(p, e.id);
+      const at = dropPoint(pts);
+      const child = boxes.get(e.target)!;
+      expect(at.x).toBeCloseTo(child.x + child.w / 2);
+      expect(at.y).toBeLessThan(child.y);
+      expect(at.y).toBeGreaterThan(horizontals(pts).at(-1)!);
+      const onRun = allRuns.some(([a, b]) => Math.abs(a.y - b.y) < 0.01 && Math.abs(a.y - at.y) < 1 && Math.min(a.x, b.x) <= at.x && at.x <= Math.max(a.x, b.x));
+      expect(onRun, `${e.id}'s pill on a horizontal`).toBe(false);
+    }
+  });
+  it("an edge of no single segment (a bridge's 'via', a host fold) still lanes by its source", () => {
+    const b = placed("bridged", BRIDGED);
+    const via = b.edges.find((e) => e.id.startsWith("bridge:"))!;
+    expect(via.data).toMatchObject({ kind: "carry", dashed: true });
+    expect(laneOf(via)).toBe(via.source);
+    const segs = Array.from({ length: 12 }, (_, h) => `    - { name: h${h}, role: workstation, image: img@v1, net: s0 }`).join("\n");
+    const f = placed("fold", `twin_config:\n  id: fold\n  segments:\n    - { name: s0, cidr: 10.1.0.0/24 }\n  nodes:\n${segs}\n    - { name: gw, kind: router, image: vyos@v1, net: s0 }\n`);
+    const fold = f.edges.find((e) => e.id.startsWith("fold:"))!;
+    expect(laneOf(fold)).toBe(fold.source);
+    // The fold runs on its own line beside the hosts' segment lane.
+    const hostLane = horizontals(f.edges.find((e) => e.source === fold.source && e.data?.kind === "leg")!.data!.route!.points);
+    expect(horizontals(fold.data!.route!.points)).not.toEqual(hostLane);
   });
 });

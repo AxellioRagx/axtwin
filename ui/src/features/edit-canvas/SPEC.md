@@ -208,6 +208,12 @@ criteria of its own beyond them.
     unsaved changes, asks before a reload/close or an in-app link (XTwin, Open,
     the top menu) leaves it; letting an untitled design go drops its browser copy.
     The browser's Back is not guarded (no data router).
+- **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
+  router get distinct lane y's and exit x's; the hosts of one switch (real or implied) share a
+  lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge
+  lanes by its source.
+- **Live (eyes), tier-cast:** gw's four legs render as four separate paths; no two legs share a
+  horizontal or a vertical; each segment label sits on its own leg.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 
@@ -383,8 +389,8 @@ Track B — the hierarchical device tree (brief "Canvas rendering"):
       router-to-router link labelled with it — `canvas.tree.test.tsx`,
       `canvas.orthogonal.test.ts`; datacenter shows `fab-r1 —fab-link— fab-r2` (`B1-datacenter.png`).
 - [x] R3-4: orthogonal edges routed through the gutters between ranks (`canvas/orthogonal.ts`:
-      down from the source, horizontal only in a gutter, one lane per parent, down a long
-      edge's reserved dagre column, into the target from above); a dragged end draws a
+      down from the source, horizontal only in a gutter, one lane per segment (2026-11-20; was
+      one per parent), down a long edge's reserved dagre column, into the target from above); a dragged end draws a
       smoothstep until Re-layout. The geometry test runs `placeTree` over canvas-test,
       datacenter, switch-test, corp-enterprise and corp-twin, folded and fully open, and
       asserts every structural edge is routed, axis-aligned and crosses no box —
@@ -637,8 +643,8 @@ one its `confidence`.
    (`ID.segment`), type `impliedSwitch`, data the segment's
    (`kind: "segment"`, `implied: true`), under the router with a leg on it.
    It is presentation only and never written to the twin config;
-   (c) only routers are on it (a `/30`, `fab-link`): one router-to-router
-   `seglink`, as before;
+   (c) only routers are on it (a `/30`, `fab-link`, a transit): one
+   router-to-router `seglink`, drawn as a transit (rule 5);
    (d) a multi-homed host is a child of its first segment's switch and
    draws between it and the switch of each further segment (a `stub` from
    that switch, which also ranks above it).
@@ -677,6 +683,24 @@ one its `confidence`.
    branch, to that switch; none to a segment its own link reaches); a leg to
    a folded segment goes to the fold, once. Observed flows stay evidence:
    arcs under Light-up or for the selection.
+   **Routing (2026-11-20).** Every structural edge is orthogonal
+   (`canvas/orthogonal.ts`): down from its source, horizontal only in the
+   gutter between two ranks, into its target from above; no edge crosses a
+   box. Each lane has its own y in a gutter, and the lane is the **segment**
+   (`laneOf`, `seg:<name>`) for every edge of one segment -- a router's leg, a
+   seglink, a switch's access edge -- so a router's legs are separate lines
+   and a switch's hosts on one segment share one (a switch of several
+   segments: one line per segment). An edge of no single segment (a bridge's
+   `via`, a fold, a host fold, a role band, a link, a stub) lanes by its
+   source. A **router's edges leave spread across the lower arc of its ring**,
+   left to right in their targets' order (`ROUTER_EXIT_STEP`, inside the
+   ring), so no two legs share a vertical; one source's lanes nest (the
+   farthest-going on top) so a fan never crosses itself. A **transit** (a
+   seglink) is drawn solid at twice an access leg's weight (3.5 vs 1.75), in
+   the parent router's hue, with its segment as a pill (`name · CIDR`) on its
+   own drop into the child router; a router leg's hover label sits on its drop
+   too. Dashed stays reserved for weak / unconfirmed / presentation-only
+   edges.
 6. **Folding, per switch.** A switch (real or implied) shows at most
    `TREE_HOST_BUDGET` (8) host icons and a `+N` host fold last on its row
    (`hostfold:<switch node id>`, expand key `hosts:<switch node id>`); its
