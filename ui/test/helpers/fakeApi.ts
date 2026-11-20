@@ -573,7 +573,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       }
       if (doc.imprint !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `request body: document declares imprint '${doc.imprint}' but is being written for '${id}'`, url: "" });
       const annotations = checkAnnotations(doc.annotations ?? [], `layout for '${id}'`);
-      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane, annotations };
+      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane, annotations, ...(doc.mode ? { mode: doc.mode } : {}) };
       state.layouts[id] = saved;
       return saved;
     },

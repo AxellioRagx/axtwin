@@ -14,7 +14,7 @@
  * drop in that hue, an observed arc with a `log(bytes)` width, and the fixed
  * chrome (Internet). Nothing here edits anything.
  */
-import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, useInternalNode, type EdgeProps, type NodeProps } from "@xyflow/react";
+import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, useInternalNode, type EdgeProps, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
@@ -778,8 +778,10 @@ export function LegEdge(e: E) {
   const kind = e.data?.kind;
   const tree = useTreeRoute(e);
   const routed = tree;
+  // The free layout (B2): point to point, a straight line between the two handles.
+  const free = Boolean((e.data as { free?: boolean } | undefined)?.free);
   // No route (an end was dragged): an orthogonal smoothstep between the handles, never a diagonal through a box.
-  const step = routed ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const step = routed ? null : free ? getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY }) : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   const pts: Point[] = routed ?? [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }];
   // A router's leg labels its own drop into the target; every other edge its route's middle.
   const mid = src?.type === "router" ? dropPoint(pts) : midOf(pts);
@@ -826,7 +828,8 @@ export function LinkEdge(e: E) {
   if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
   // A transit segment's pill sits on its own drop into the child router; a link labels its middle.
   const mid = routed ? (d.kind === "seglink" ? dropPoint(routed) : midOf(routed)) : null;
-  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const free = Boolean((d as { free?: boolean }).free);
+  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : free ? getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY }) : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   if (d.kind === "seglink") {
     // A segment only routers are on (a transit, fab-link): one thick router-to-router wire, its
     // segment a pill (name · CIDR) on the drop into the child router.

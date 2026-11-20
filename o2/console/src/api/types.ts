@@ -400,6 +400,8 @@ export interface LayoutDoc {
    * moved under them (LES-289).
    */
   plane: string | null;
+  /** The canvas layout mode; `null` = no choice saved. */
+  mode?: "tree" | "free" | null;
 }
 
 // ---------------------------------------------------------------------------

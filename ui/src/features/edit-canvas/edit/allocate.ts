@@ -62,6 +62,29 @@ export function nextFreeSlash24(prefix: string, inPlay: readonly string[], optio
   return null;
 }
 
+/** Where a router-to-router transit takes its `/30` (B1): a pool outside the sites' `/24`s. */
+export const TRANSIT_POOL = "10.254.0.0/16";
+
+/** The next free `/30` in `pool` (default `TRANSIT_POOL`), skipping every CIDR in play (any overlap),
+ *  or `null` when the pool is full. */
+export function nextFreeTransit(inPlay: readonly string[], pool: string = TRANSIT_POOL): string | null {
+  const p = ipv4Range(pool);
+  if (!p) return null;
+  const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
+  for (let start = p.start; start + 3 <= p.end; start += 4) {
+    const end = start + 3;
+    if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${intToIpv4(start)}/30`;
+  }
+  return null;
+}
+
+/** The two usable addresses of a `/30` (`.1` and `.2` of it). */
+export function transitEnds(cidr: string): [string, string] | null {
+  const r = ipv4Range(cidr);
+  if (!r || r.end - r.start !== 3) return null;
+  return [intToIpv4(r.start + 1), intToIpv4(r.start + 2)];
+}
+
 /** The first host address generated hosts are numbered from (`.10`). */
 export const HOST_NUMBERING_START = 10;
 

@@ -1991,6 +1991,8 @@ class LayoutDocDTO(BaseModel):
     # `None` = a LEGACY file with no stamp, which is what a pin saved before
     # the stamp existed looks like; it is NOT "the current plane" (LES-289).
     plane: Optional[str] = None
+    # The canvas layout mode: "tree" | "free"; None = no choice saved.
+    mode: Optional[str] = None
     # The canvas's annotations (free text and shapes as positioned SVG
     # snippets; `ui/src/features/edit-canvas/SPEC.md`). Optional in the file:
     # a document without the key stays `axr-layout/1` and round-trips

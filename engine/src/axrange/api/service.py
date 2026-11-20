@@ -5136,7 +5136,7 @@ def _layout_dto(doc: Any) -> dtos.LayoutDocDTO:
     return dtos.LayoutDocDTO(
         imprint_id=doc.imprint_id, path=str(doc.path), exists=doc.exists,
         etag=doc.etag, schema=doc.schema, imprint=doc.imprint, pins=doc.pins,
-        plane=doc.plane,
+        plane=doc.plane, mode=getattr(doc, "mode", None),
         annotations=[dtos.LayoutAnnotationDTO(**a) for a in getattr(doc, "annotations", [])],
     )
 

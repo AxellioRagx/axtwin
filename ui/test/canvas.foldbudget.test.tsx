@@ -7,7 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FOLD_FIT_MIN_ZOOM, boundsOf, foldFitTargets, foldViewport } from "../src/features/edit-canvas/canvas/fit";
@@ -135,6 +135,11 @@ describe("on the page", () => {
       twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
     });
     renderAt(api, `/twins/${id}/canvas`);
+    // An authored twin opens in the free layout (nothing folds); the folds are the tree's.
+    const modes = await screen.findByTestId("layout-mode");
+    expect(modes.dataset["mode"]).toBe("free");
+    expect(screen.queryByText(/^\+\d+ more$/)).toBeNull();
+    fireEvent.click(within(modes).getByRole("button", { name: "tree" }));
     const more = await screen.findByText(/^\+\d+ more$/);
     const n = Number(/\d+/.exec(more.textContent ?? "")![0]);
     expect(screen.getByTestId("canvas-status").textContent).toContain(`${n} segments behind "+N more" tiles`);

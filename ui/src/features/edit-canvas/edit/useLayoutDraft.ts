@@ -24,11 +24,15 @@ export const LAYOUT_SCHEMA = "axr-layout/1";
  * not re-saved as this drawing's -- plus every move since), the annotation
  * list as it stands, the plane stamp, and the etag as the precondition.
  */
-export function layoutWrite(current: LayoutDoc | null, id: string, pins: LayoutPins, annotations: readonly LayoutAnnotation[]): LayoutWrite {
+export function layoutWrite(current: LayoutDoc | null, id: string, pins: LayoutPins, annotations: readonly LayoutAnnotation[], mode: LayoutMode | null = current?.mode ?? null): LayoutWrite {
   const out: LayoutWrite = { schema: LAYOUT_SCHEMA, imprint: id, pins: { ...pins }, plane: CANVAS_PLANE, etag: current?.etag ?? null };
   if (annotations.length) out.annotations = [...annotations];
+  if (mode) out.mode = mode;
   return out;
 }
+
+/** The canvas's two layouts (B2): the device tree, or free (every box where it was dropped, edges point to point). */
+export type LayoutMode = "tree" | "free";
 
 /** The pins a loaded document contributes: its own when authored on this plane. */
 export function pinsOf(doc: LayoutDoc | null): Pins {
@@ -47,6 +51,10 @@ export interface LayoutDraft {
   /** What a failed save means for the next one, when there is something to say. */
   note: string | null;
   savedAt: string | null;
+  /** The layout mode chosen on this canvas (saved with the layout), or null when none was chosen. */
+  mode: LayoutMode | null;
+  /** Choose the layout mode: one unsaved change, written by Save layout. */
+  setMode(mode: LayoutMode): void;
   onPin(key: string, at: { x: number; y: number }): void;
   /** Several pins at once (a bus reorder re-ranks its site's lanes): one change. */
   onPinMany(pins: Record<string, { x: number; y: number }>): void;
@@ -66,6 +74,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [mode, setModeState] = useState<LayoutMode | null>(null);
 
   // A (re)load replaces the draft.
   useEffect(() => {
@@ -73,6 +82,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     setDoc(loaded);
     setPins(pinsOf(loaded));
     setAnnotationsState(fromLayoutList(loaded.annotations));
+    setModeState(loaded.mode ?? null);
     setChanges(0);
     setNote(null);
   }, [loaded]);
@@ -83,6 +93,12 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
   pinsRef.current = pins;
   const annotationsRef = useRef<Annotation[]>([]);
   annotationsRef.current = annotations;
+  const modeRef = useRef<LayoutMode | null>(null);
+  modeRef.current = mode;
+  const setMode = useCallback((m: LayoutMode) => {
+    setModeState(m);
+    setChanges((n) => n + 1);
+  }, []);
 
   const onPin = useCallback((key: string, at: { x: number; y: number }) => {
     setPins((p) => ({ ...p, [key]: at }));
@@ -102,7 +118,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     setError(null);
     setNote(null);
     try {
-      const saved = await api.putLayout(id, layoutWrite(docRef.current, id, pinsRef.current, annotationsRef.current.map(toLayout)));
+      const saved = await api.putLayout(id, layoutWrite(docRef.current, id, pinsRef.current, annotationsRef.current.map(toLayout), modeRef.current));
       setDoc(saved);
       setChanges(0);
       setSavedAt(new Date().toISOString());
@@ -132,6 +148,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     const current = docRef.current;
     setPins(pinsOf(current));
     setAnnotationsState(fromLayoutList(current?.annotations ?? []));
+    setModeState(current?.mode ?? null);
     setChanges(0);
     setError(null);
     setNote(null);
@@ -147,5 +164,5 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [changes]);
 
-  return { doc, pins, annotations, changes, saving, error, note, savedAt, onPin, onPinMany, setAnnotations, save, discard, relayout };
+  return { doc, pins, annotations, changes, saving, error, note, savedAt, mode, setMode, onPin, onPinMany, setAnnotations, save, discard, relayout };
 }

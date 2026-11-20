@@ -117,6 +117,35 @@ its location, else the names it quotes) names, and a fold that hides one
 wears the count. "The API could not validate" is left for a request that
 failed (network, 5xx); a 4xx on Check is a failing finding with its reason.
 
+**Connect gestures (2026-11-20, `edit/connect.ts`).** In edit mode every
+router, switch and host shows its handle on hover; the drag decides what it
+makes, one undo step each, with a live hint ("new transit r1--r2
+10.254.0.0/30") and the target lit: **router -> router** a transit segment
+`<a>--<b>` (`-2`, `-3` when taken), the next free `/30` of the transit pool
+(`10.254.0.0/16`), `zone_type: vlan` (as the catalog's transit, datacenter's
+`fab-link`), a leg for each router at the `/30`'s `.1` and `.2`; a pair that
+already shares a segment is refused with the reason. **router -> empty pane** a
+new LAN (the next free `/24`, as the palette's Segment) with the router's leg,
+its implied switch standing where it was dropped. **router / host -> segment**
+attaches; **switch <-> router / switch** links (`attachDevices`), unchanged.
+**Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
+chain, ring, full mesh, hub & spoke (the first selected is the hub), one
+undo step for the batch, a linked pair left out and named; *run OSPF on these
+links* sets `ospf_area` on each new transit -- which the planner passes to the
+VyOS leg config, but OSPF comes up only with a VyOS router, a node
+`routing:` block and a `fabric:` region with `igp: ospf`, which the canvas does
+not write. The created segment, its CIDR and the leg addresses edit in the
+inspector as any.
+
+**Free layout (2026-11-20, `canvas/free.ts`).** An untitled design, a draft
+or a twin with no cast / discovery provenance opens in the **free** layout:
+every box stays where it was dropped or dragged (its pin in the side-car), the
+first placement the tree's own, nothing folds, and every edge is drawn point
+to point (straight, a router's legs from the router itself; never a comb);
+transits keep their pill. Cast twins keep the **tree**. The layout bar's
+*Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
+in free mode tidies with the hierarchical (dagre) pass and stays free.
+
 **Two kinds of edit, classified by the API, shown by the canvas.** An
 attribute edit (persona, intensity, schedule, cadence, tap binding, a role
 change that keeps the image) applies live through the tier's playout; a
@@ -274,6 +303,13 @@ criteria of its own beyond them.
     (one undo step each).
   - Findings pin on the element they name (a node, a segment, a link, a tap, a parked switch);
     a click on one in the Checks tab selects it. Drafts are labelled in Open and on the Twins list.
+- **Automated, connect and free layout (2026-11-20, *`canvas.connect.test.tsx`*):** router ->
+  router makes one transit with a `/30` and a leg each at `.1` / `.2`, a second drag refused;
+  router -> pane makes a LAN segment; a full mesh of 4 makes 6 transits, a linked pair is refused;
+  the free layout keeps a dropped position, draws every edge point to point and gives a
+  triangle's three transits three different paths; the mode toggle is saved with the layout.
+- **Acceptance (eyes):** 3 routers on an empty canvas can be wired as a triangle in 3 drags and
+  pass Check once each has a role and an image.
 - **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
   router get distinct lane y's and exit x's; the hosts and role bands of one switch (real or
   implied) share a lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge

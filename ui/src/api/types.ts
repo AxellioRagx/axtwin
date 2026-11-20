@@ -603,6 +603,8 @@ export interface LayoutDoc {
   plane: string | null;
   /** `[]` for a document without the key; an empty list PUT back writes no key. */
   annotations: LayoutAnnotation[];
+  /** The canvas's layout mode as last saved (`tree` | `free`); absent: none chosen (the canvas picks). */
+  mode?: "tree" | "free" | null;
   warnings?: string[];
 }
 
@@ -614,6 +616,7 @@ export interface LayoutWrite {
   plane: string;
   etag: string | null;
   annotations?: LayoutAnnotation[];
+  mode?: "tree" | "free";
 }
 
 /** `POST /api/validate {document}`: a twin-config bundle validated through the Save / Persist path, nothing written. */

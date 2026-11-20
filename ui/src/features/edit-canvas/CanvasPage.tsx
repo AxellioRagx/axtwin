@@ -62,6 +62,7 @@ import { Canvas, type CanvasEditProps } from "./Canvas";
 import type { LabSource } from "./canvas/LabOverlay";
 import { authoredGraph, EMPTY_TREE, treeStructure, type TreeStructure } from "./canvas/authored";
 import { TREE_FAN_DEFAULT, placeTree, withoutFold } from "./canvas/tree";
+import { FREE_FAN, freeLayout } from "./canvas/free";
 import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
@@ -70,13 +71,14 @@ import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
+import { applyIntent, wirePairs, wireRouters, type WireShape } from "./edit/connect";
 import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
 import { useEditor, type ApplyOptions } from "./edit/useEditor";
 import { adoptBaselineProvenance } from "./edit/provenance";
-import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft } from "./edit/useLayoutDraft";
+import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft, type LayoutMode } from "./edit/useLayoutDraft";
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
@@ -303,17 +305,17 @@ function readUntitledLayout(scope: string = UNTITLED_SCOPE, id: string = UNTITLE
   try {
     const raw = localStorage.getItem(untitledLayoutKey(scope));
     if (!raw) return empty;
-    const v = JSON.parse(raw) as { pins?: LayoutDoc["pins"]; annotations?: LayoutAnnotation[] };
-    return { ...empty, pins: v.pins ?? {}, annotations: Array.isArray(v.annotations) ? v.annotations : [] };
+    const v = JSON.parse(raw) as { pins?: LayoutDoc["pins"]; annotations?: LayoutAnnotation[]; mode?: LayoutDoc["mode"] };
+    return { ...empty, pins: v.pins ?? {}, annotations: Array.isArray(v.annotations) ? v.annotations : [], mode: v.mode === "tree" || v.mode === "free" ? v.mode : null };
   } catch {
     return empty;
   }
 }
 
-export function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[], scope: string = UNTITLED_SCOPE): void {
+export function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[], scope: string = UNTITLED_SCOPE, mode: LayoutDoc["mode"] = null): void {
   try {
-    if (Object.keys(pins).length === 0 && annotations.length === 0) localStorage.removeItem(untitledLayoutKey(scope));
-    else localStorage.setItem(untitledLayoutKey(scope), JSON.stringify({ pins, annotations }));
+    if (Object.keys(pins).length === 0 && annotations.length === 0 && !mode) localStorage.removeItem(untitledLayoutKey(scope));
+    else localStorage.setItem(untitledLayoutKey(scope), JSON.stringify({ pins, annotations, ...(mode ? { mode } : {}) }));
   } catch {
     // no storage
   }
@@ -454,8 +456,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const leavingLayout = useRef(false);
   useEffect(() => {
     if (!browserLayout || leavingLayout.current || draft.changes === 0) return;
-    writeUntitledLayout(pins, annotations.map(toLayout), untitled ? UNTITLED_SCOPE : draftScope(id));
-  }, [browserLayout, untitled, id, pins, annotations, draft.changes]);
+    writeUntitledLayout(pins, annotations.map(toLayout), untitled ? UNTITLED_SCOPE : draftScope(id), draft.mode);
+  }, [browserLayout, untitled, id, pins, annotations, draft.changes, draft.mode]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [initialViewport] = useState(() => readViewport(scopeId));
 
@@ -484,6 +486,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Save as draft (always available) and the draft's Replace <origin> confirm.
   const [draftOpen, setDraftOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  // B3: the bulk-wiring dialog (2+ routers, a shape, OSPF on the new transits or not).
+  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number } | null>(null);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -745,6 +749,9 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // track 3 wrote none); a hand-authored twin reads it as authored and has no overlay to show.
   const castTwin = Boolean(data && (data.twin.pit_id || data.exportData || data.cast));
   const defaultSource = castTwin ? "discovered" : "authored";
+  // The layout (B2): the choice saved with the layout, else free for an authored design (untitled, a
+  // draft, a twin with no cast or discovery provenance) and the device tree for a cast twin.
+  const layoutMode: LayoutMode = draft.mode ?? (castTwin ? "tree" : "free");
   // The rail's Fan-out (§7.6): how many implied switches a carrier shows before folding the rest.
   const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 
@@ -768,7 +775,9 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     if (foldState.current && foldState.current !== folds) settled.current = {};
     foldState.current = folds;
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
-    const p = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan, taps, defaultSource, parked: design ? parked : undefined });
+    const free = design && layoutMode === "free";
+    const placed = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan: free ? FREE_FAN : fan, taps, defaultSource, parked: design ? parked : undefined });
+    const p = free ? freeLayout(placed) : placed;
     if (design && !p.overBudget) {
       // The tree's own positions settle for the session (an implied switch, a
       // device, a router, a host): a later mutation places only what has no
@@ -787,7 +796,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
     }
     return p;
-  }, [built, pins, expanded, fan, model?.tap, defaultSource, parkedKey]);
+  }, [built, pins, expanded, fan, model?.tap, defaultSource, parkedKey, layoutMode]);
 
   const onToggleSite = useCallback((siteKey: string) => setExpanded((xs) => (xs.includes(siteKey) ? withoutFold(xs, siteKey) : [...xs, siteKey])), []);
   const onViewport = useCallback(
@@ -944,7 +953,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       let carried = true;
       if (draft.doc || layoutChanges > 0) {
         try {
-          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout)));
+          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout), draft.mode));
           draft.discard();
         } catch {
           carried = false;
@@ -971,7 +980,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       const hasLayout = Object.keys(pins).length > 0 || annotations.length > 0;
       if (hasLayout) {
         try {
-          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout)));
+          await api.putLayout(newId, layoutWrite(null, newId, pins, annotations.map(toLayout), draft.mode));
         } catch {
           carried = false;
         }
@@ -1006,7 +1015,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       const written = saveAsFiles(editor.doc, newId);
       await api.createDraft({ id: newId, files: written, origin: draftOrigin, last_check: lastCheck(files) });
       // The layout on screen goes with the draft (into this browser: a draft has no side-car).
-      writeUntitledLayout(pins, annotations.map(toLayout), draftScope(newId));
+      writeUntitledLayout(pins, annotations.map(toLayout), draftScope(newId), draft.mode);
       if (untitled) {
         leaving.current = true;
         leavingLayout.current = true;
@@ -1388,6 +1397,18 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         setSelection({ kind: "node", names: [done.name] });
       },
       onAddConduit: (from, to) => void edit(`declare conduit ${from} ↔ ${to}`, (d, m) => addConduit(d, m, from, to)),
+      onConnectIntent: (intent, at) => {
+        if (intent.kind === "refused") {
+          setBlocked(intent.reason);
+          return;
+        }
+        const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : `link ${intent.a} — ${intent.b}`;
+        if (edit(label, (d, m) => applyIntent(d, m, intent)) !== null) return;
+        // A new LAN stands where it was dropped: its implied switch's pin.
+        if (intent.kind === "lan" && at) onPin(`segment:${intent.cidr}`, at);
+        if (intent.kind === "transit" || intent.kind === "lan") setSelection({ kind: "segment", names: [intent.name] });
+      },
+      onWireRouters: (routers) => setWireDialog({ routers, shape: "chain", ospf: false, area: 0 }),
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
@@ -1407,7 +1428,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       annotations,
       onAnnotations: setAnnotations,
     };
-  }, [model, built, locked, selection, placing, onPlace, edit, onAddSegment, annotations, setAnnotations]);
+  }, [model, built, locked, selection, placing, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -1467,6 +1488,16 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           </button>
         </>
       )}
+      {built?.kind === "design" ? (
+        <span className="cv-exit-group" role="group" aria-label="Layout mode" data-testid="layout-mode" data-mode={layoutMode}>
+          <span className="muted">Layout:</span>
+          {(["tree", "free"] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={layoutMode === m} onClick={() => { if (layoutMode !== m) { settled.current = {}; draft.setMode(m); } }} title={m === "tree" ? "the device tree: routers, switches and hosts laid out by branch, edges routed through the gutters" : "free: every box stays where you drop it, edges drawn point to point"}>
+              {m}
+            </button>
+          ))}
+        </span>
+      ) : null}
       <button
         type="button"
         data-testid="relayout"
@@ -1727,6 +1758,61 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           onSave={(newId) => void saveAsDraft(newId)}
           onClose={() => setDraftOpen(false)}
         />
+      ) : null}
+      {wireDialog ? (
+        <div className="modal-backdrop" data-testid="wire-backdrop">
+          <form
+            className="modal panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Connect routers"
+            data-testid="wire-dialog"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const w = wireDialog;
+              let made: string[] = [];
+              let skipped: string[] = [];
+              const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape}`, (d, m) => {
+                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null });
+                made = r.made;
+                skipped = r.skipped;
+                return r.files;
+              });
+              if (reason) return;
+              setWireDialog(null);
+              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf ? ` (ospf_area ${w.area})` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
+            }}
+          >
+            <h2 style={{ marginTop: 0 }}>Connect {wireDialog.routers.length} routers</h2>
+            <p className="muted">Each pair gets a transit segment (a /30 from 10.254.0.0/16) with a leg for both routers; a pair already linked is left as it is. One undo step.</p>
+            <fieldset className="field">
+              <legend>As</legend>
+              {(["chain", "ring", "mesh", "hub"] as const).map((sh) => (
+                <label key={sh} className="cv-check">
+                  <input type="radio" name="wire-shape" value={sh} checked={wireDialog.shape === sh} onChange={() => setWireDialog({ ...wireDialog, shape: sh })} />
+                  {sh === "mesh" ? "full mesh" : sh === "hub" ? `hub & spoke (hub: ${wireDialog.routers[0]})` : sh}
+                </label>
+              ))}
+            </fieldset>
+            <label className="cv-check">
+              <input type="checkbox" checked={wireDialog.ospf} onChange={(e) => setWireDialog({ ...wireDialog, ospf: e.target.checked })} />
+              run OSPF on these links (<span className="mono">ospf_area</span> on each new transit)
+            </label>
+            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note"><span className="mono">ospf_area</span> sets each transit leg's OSPF area; OSPF comes up only on a VyOS router with a <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>, which this does not write.</p> : null}
+            {wireDialog.ospf ? (
+              <div className="field">
+                <label htmlFor="wire-area">Area</label>
+                <input id="wire-area" type="number" min={0} value={wireDialog.area} onChange={(e) => setWireDialog({ ...wireDialog, area: Math.max(0, Number(e.target.value) || 0) })} />
+              </div>
+            ) : null}
+            <p className="muted mono">{wirePairs(wireDialog.routers, wireDialog.shape).map(([a, b]) => `${a}–${b}`).join(", ")}</p>
+            {blocked ? <div className="error" role="alert">{blocked}</div> : null}
+            <div className="row-actions">
+              <button type="submit" className="primary">Connect</button>
+              <button type="button" onClick={() => setWireDialog(null)}>Cancel</button>
+            </div>
+          </form>
+        </div>
       ) : null}
       {replaceOpen && isDraft && data?.draftRow?.origin ? (
         <div className="modal-backdrop" data-testid="replace-backdrop">

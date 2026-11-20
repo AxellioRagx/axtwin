@@ -18,6 +18,8 @@ import {
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
+  ConnectionMode,
+  useConnection,
   useNodesInitialized,
   useNodesState,
   useOnViewportChange,
@@ -48,6 +50,7 @@ import type { DocModel } from "./edit/document";
 import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
 import type { TeModel } from "./edit/te";
 import { switchSegment } from "./edit/switches";
+import { connectIntent, intentHint, type ConnectEnd, type ConnectIntent } from "./edit/connect";
 import { LabOverlay, type LabSource } from "./canvas/LabOverlay";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
@@ -77,6 +80,10 @@ export interface CanvasEditProps {
   onInsertSwitch?(segment: string): void;
   /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
   onAddConduit?(from: string, to: string): void;
+  /** A handle drag decided what to make (`edit/connect.ts`); `at` is the drop point on the pane (a new LAN). */
+  onConnectIntent?(intent: ConnectIntent, at?: { x: number; y: number }): void;
+  /** 2+ routers selected, the menu's "Connect as…": the bulk-wiring dialog. */
+  onWireRouters?(routers: string[]): void;
   onAttach(node: string, segment: string): void;
   /** An existing chip was dropped onto another segment. */
   onMove(node: string, segment: string): void;
@@ -311,6 +318,17 @@ export function carryTarget(nodes: Parameters<typeof deviceAt>[0], at: { x: numb
   if (device && !inSubtree.includes(device)) return { attachTo: device };
   const site = siteAbove(nodes, at);
   return { prefix: site && !prefixes.includes(site) ? site : null };
+}
+
+/** What a canvas node is to the connect gesture (`edit/connect.ts`). */
+export function connectEndOf(node: Pick<CanvasNode, "data"> | undefined | null): ConnectEnd | null {
+  const d = node?.data;
+  if (!d) return null;
+  if (d.kind === "router") return { kind: "router", name: d.name };
+  if (d.kind === "device") return { kind: d.deviceKind === "router" ? "router" : "switch", name: d.name };
+  if (d.kind === "host") return { kind: "host", name: d.nodeId };
+  if (d.kind === "segment") return { kind: "segment", name: d.name };
+  return null;
 }
 
 /** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
@@ -1012,12 +1030,35 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (root) selectSubtree(root);
   }, [edit, rf, selectSubtree]);
 
+  // A handle drag (B1): what it makes is decided by its two ends (`edit/connect.ts`); dropped on
+  // the empty pane, a router gets a new LAN segment where it was dropped.
   const onConnect = useCallback(
     (c: Connection) => {
+      if (!edit || !editing) return;
+      const from = connectEndOf(rf.getNode(c.source));
+      const to = connectEndOf(rf.getNode(c.target));
+      if (from && to && edit.onConnectIntent) {
+        edit.onConnectIntent(connectIntent(edit.model.te, from, to));
+        return;
+      }
       const a = connectionToAttach(c);
-      if (a && edit && editing) edit.onAttach(a.node, a.segment);
+      if (a) edit.onAttach(a.node, a.segment);
     },
-    [edit, editing],
+    [edit, editing, rf],
+  );
+  const onConnectEnd = useCallback(
+    (e: MouseEvent | TouchEvent, state: { isValid: boolean | null; fromNode: { id: string } | null; toNode: { id: string } | null }) => {
+      setConnecting(false);
+      if (!edit || !editing || !edit.onConnectIntent || state.toNode || !state.fromNode) return;
+      const target = (e.target as Element | null)?.closest?.(".react-flow__node");
+      if (target) return; // dropped on a node with no handle under it: nothing to make
+      const from = connectEndOf(rf.getNode(state.fromNode.id));
+      if (!from || from.kind !== "router") return;
+      const pt = "changedTouches" in e ? e.changedTouches[0]! : e;
+      const at = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
+      edit.onConnectIntent(connectIntent(edit.model.te, from, { kind: "pane" }), { x: Math.round(at.x), y: Math.round(at.y) });
+    },
+    [edit, editing, rf],
   );
 
   const onDrop = useCallback(
@@ -1423,6 +1464,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (!edit) return [];
     if (t.kind === "host" || t.kind === "router") {
       const group = edit.model.te.nodes.find((n) => n.name === t.name);
+      // B3: two or more routers selected (this one among them) -- wire them as a chain, ring, mesh or hub.
+      const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
+      const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
+      if (group?.kind === "router" && routersPicked.length >= 2 && routersPicked.includes(t.name) && edit.onWireRouters) items.push({ label: `Connect ${routersPicked.length} routers as… (chain, ring, mesh, hub)`, run: () => edit.onWireRouters!(routersPicked) });
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
       if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });
       items.push({
@@ -1506,7 +1551,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             onSelectionEnd={onSelectionEnd}
             onConnect={onConnect}
             onConnectStart={() => setConnecting(true)}
-            onConnectEnd={() => setConnecting(false)}
+            onConnectEnd={onConnectEnd}
+            connectionMode={ConnectionMode.Loose}
             onDrop={onDrop}
             onDragOver={(e) => {
               if (editing) {
@@ -1532,6 +1578,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             {...viewportProps}
           >
             {grid ? <Background gap={GRID} /> : null}
+            {edit && editing ? <ConnectHint te={edit.model.te} /> : null}
             <MiniMap pannable zoomable nodeStrokeWidth={2} position="bottom-right" />
             <Panel position="top-left" className="cv-chrome-left">
               <Rail view={viewTools} edit={editTools}>
@@ -1731,6 +1778,23 @@ function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel
         {n.occupancy !== null ? <><dt>occupancy</dt><dd>{Math.round(n.occupancy * 100)}%</dd></> : null}
         {n.isGhost ? <><dt>ghost</dt><dd>{n.ghostReasons.join(", ")}</dd></> : null}
       </dl>
+    </div>
+  );
+}
+
+/** The live hint while a handle is dragged (B1): what the drop would make, from the node under the
+ *  pointer (or the empty pane). */
+function ConnectHint({ te }: { te: DocModel["te"] }) {
+  const c = useConnection<CanvasNode>();
+  if (!c.inProgress) return null;
+  const from = connectEndOf(c.fromNode as unknown as CanvasNode);
+  if (!from) return null;
+  const to = c.toNode ? connectEndOf(c.toNode as unknown as CanvasNode) : ({ kind: "pane" } as const);
+  if (!to) return null;
+  const i = connectIntent(te, from, to);
+  return (
+    <div className={`cv-rehome-hint cv-connect-hint${i.kind === "refused" ? " refused" : ""}`} role="status" data-testid="connect-hint" data-intent={i.kind}>
+      {intentHint(i)}
     </div>
   );
 }

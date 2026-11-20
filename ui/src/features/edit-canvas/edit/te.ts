@@ -47,6 +47,8 @@ export interface TeSegment {
   isolated: boolean;
   /** `egress: true`: the segment is the twin's uplink (IR `Network.egress`), so a router with a leg on it is a gateway. */
   egress: boolean;
+  /** `ospf_area:` (the fabric slice's OSPF area for router legs on this segment), or null. */
+  ospfArea: number | null;
   source: TeSource | null;
   confidence: number | null;
 }
@@ -211,7 +213,7 @@ export function readTe(text: string): TeModel {
         problems.push(`segment at line ${it.line + 1} has no name or cidr`);
         continue;
       }
-      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
+      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", ospfArea: numberOf(get(it.value, "ospf_area")), source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
     }
   }
   const nodes: TeNode[] = [];
@@ -384,13 +386,15 @@ function listSlot(t: TeText, key: "segments" | "nodes" | "links" | "conduits"): 
 // ---------------------------------------------------------------------------
 // Segments
 // ---------------------------------------------------------------------------
-export function addSegment(text: string, seg: { name: string; cidr: string; zoneType?: string | null }): string {
+export function addSegment(text: string, seg: { name: string; cidr: string; zoneType?: string | null; ospfArea?: number | null; source?: TeSource | null }): string {
   const t = new TeText(text);
   if (t.seq("segments")?.items.some((i) => itemName(i) === seg.name)) throw new Error(`a segment named '${seg.name}' already exists`);
   const slot = listSlot(t, "segments");
   const pad = " ".repeat(slot.dashIndent);
   const zone = seg.zoneType ? `, zone_type: ${encodeScalar(seg.zoneType)}` : "";
-  insertLines(t.lines, slot.at, [`${pad}- { name: ${encodeScalar(seg.name)}, cidr: ${encodeScalar(seg.cidr)}${zone} }`]);
+  const ospf = typeof seg.ospfArea === "number" ? `, ospf_area: ${seg.ospfArea}` : "";
+  const source = seg.source ? `, source: ${seg.source}` : "";
+  insertLines(t.lines, slot.at, [`${pad}- { name: ${encodeScalar(seg.name)}, cidr: ${encodeScalar(seg.cidr)}${zone}${ospf}${source} }`]);
   return t.out();
 }
 

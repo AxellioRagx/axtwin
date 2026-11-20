@@ -5858,8 +5858,8 @@ _MIRRORED_DTO_FIELDS: dict[str, set[str]] = {
     },
     # `plane` (R2): the layout-plane stamp the pins were authored against.
     "LayoutDocDTO": {
-        "annotations", "etag", "exists", "imprint", "imprint_id", "path", "pins",
-        "plane", "schema",
+        "annotations", "etag", "exists", "imprint", "imprint_id", "mode", "path",
+        "pins", "plane", "schema",
     },
     # GAP-087/GAP-088: `code_fingerprint_before/after` became
     # `pit_code_fingerprint_*` (what it always held), and the build stamp that

@@ -72,7 +72,8 @@ null for `EXPAND-000`. A wrong identity or a bad path stays `400`. **Built 2026-
 gained an optional `annotations` list for the canvas's text and shapes
 (`console_files._canonical_annotations`, svg refused by name when it carries
 script, an event handler, a foreignObject or an href; tests
-`engine/tests/test_api_layout_annotations.py`).
+`engine/tests/test_api_layout_annotations.py`). It also takes an optional
+top-level `mode` (`"tree"` | `"free"`, the canvas's layout; absent = no choice saved, anything else `400`).
 
 The new seams, each a thin layer over working engine code, in critical-path
 order:
