@@ -529,3 +529,9 @@ g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
 .canvas-shell.editing.connecting .react-flow__handle.connectingto { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 2px solid var(--accent); }
 .canvas-shell.editing.connecting .react-flow__handle.connectingto:not(.valid) { outline-color: var(--bad); }
 .cv-connect-hint.refused { color: var(--bad); }
+/* Save as template (docs/design/canvas-add-panel.md §5.3). */
+.cv-save-template { max-width: 640px; max-height: 85vh; overflow: auto; }
+.cv-save-template h3 { margin: 14px 0 6px; font-size: 14px; }
+.cv-st-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.cv-st-table td { padding: 2px 4px; vertical-align: middle; }
+.cv-st-table input[type="text"] { width: 100%; }

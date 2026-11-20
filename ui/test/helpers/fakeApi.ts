@@ -601,6 +601,26 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     async listTemplates() {
       return { templates: state.templates, warnings: [] };
     },
+    async createTemplate(template) {
+      state.writes.push({ op: "create-template", id: template.id, body: template });
+      if (state.templates.some((t) => t.id === template.id)) throw new ApiError({ kind: "conflict", status: 409, message: `template '${template.id}' already exists`, url: "" });
+      const saved = { ...template, builtin: false };
+      state.templates = [...state.templates, saved];
+      return saved;
+    },
+    async putTemplate(id, template) {
+      const cur = state.templates.find((t) => t.id === id);
+      if (!cur) throw notFound(`template '${id}'`);
+      if (cur.builtin) throw new ApiError({ kind: "forbidden", status: 403, message: `template '${id}' is built in`, detail: { code: "builtin" }, url: "" });
+      state.templates = state.templates.map((t) => (t.id === id ? { ...template, id, builtin: false } : t));
+      return state.templates.find((t) => t.id === id)!;
+    },
+    async deleteTemplate(id) {
+      const cur = state.templates.find((t) => t.id === id);
+      if (!cur) throw notFound(`template '${id}'`);
+      if (cur.builtin) throw new ApiError({ kind: "forbidden", status: 403, message: `template '${id}' is built in`, detail: { code: "builtin" }, url: "" });
+      state.templates = state.templates.filter((t) => t.id !== id);
+    },
     async getTemplate(id) {
       const t = state.templates.find((x) => x.id === id);
       if (!t) throw notFound(`template '${id}'`);

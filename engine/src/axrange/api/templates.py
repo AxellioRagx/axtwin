@@ -363,3 +363,106 @@ def list_templates(settings: Any) -> dtos.TemplateListDTO:
 
 def template_detail(settings: Any, template_id: str) -> dtos.TemplateDTO:
     return _dto(read_template(settings, template_id))
+
+
+# ---------------------------------------------------------------------------
+# Writes (§5.3): POST / PUT / DELETE, write-token gated in `app.py`
+# ---------------------------------------------------------------------------
+CHECK_ID = "template-check"
+
+
+def _profiles(settings: Any) -> dict[str, Optional[str]]:
+    from axrange.api import image_profiles
+
+    return {p.name: p.image for p in image_profiles.list_image_profiles(settings).profiles}
+
+
+def validate_on_save(settings: Any, tpl: dict[str, Any]) -> None:
+    """§5.3: the fragment expanded with its default settings and wrapped in a
+    minimal twin must pass the twin-config validator -- a 422 with the
+    findings otherwise (the same refusal shape a twin-config write uses)."""
+    from axrange.api import service
+
+    try:
+        files = template_document(tpl, CHECK_ID, None, _profiles(settings))
+    except TemplateError as e:
+        raise ApiError(422, f"template {tpl.get('id')!r}: {e}", detail={"code": "invalid", "findings": []}) from e
+    service._validate_twin_document(settings, CHECK_ID, files, raise_on_fail=True)
+
+
+def _checked(body: dict[str, Any], *, template_id: Optional[str] = None) -> dict[str, Any]:
+    tpl = dict(body or {})
+    if template_id is not None and tpl.get("id") not in (None, template_id):
+        raise ApiError(400, f"body id {tpl.get('id')!r} does not match the path id {template_id!r}")
+    if template_id is not None:
+        tpl["id"] = template_id
+    if tpl.get("builtin"):
+        raise ApiError(400, "built-in templates ship with the catalog; a saved template cannot be built in")
+    tpl.pop("builtin", None)
+    try:
+        check_shape(tpl)
+    except TemplateError as e:
+        raise ApiError(400, str(e)) from e
+    return tpl
+
+
+def _dump(tpl: dict[str, Any]) -> str:
+    import io
+
+    from ruamel.yaml import YAML
+
+    y = YAML(typ="safe")
+    y.default_flow_style = False
+    buf = io.StringIO()
+    y.dump({"template": tpl}, buf)
+    return "# Canvas template, saved from the canvas (docs/design/canvas-add-panel.md §5.3).\n" + buf.getvalue()
+
+
+def create_template(settings: Any, body: dict[str, Any]) -> dtos.TemplateDTO:
+    """`POST /api/templates`: a new template; an id that exists is a 409."""
+    import os
+    import shutil
+
+    from axrange.api.console_files import atomic_write
+
+    tpl = _checked(body)
+    validate_on_save(settings, tpl)
+    folder = templates_root(settings) / tpl["id"]
+    try:
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        os.mkdir(folder)  # the claim: exactly one writer wins
+    except FileExistsError:
+        raise ApiError(409, f"template {tpl['id']!r} already exists") from None
+    except OSError as e:
+        raise ApiError(500, f"cannot create {folder}: {e}") from e
+    try:
+        atomic_write(folder / FILE, _dump(tpl))
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    return template_detail(settings, tpl["id"])
+
+
+def _existing_saved(settings: Any, template_id: str) -> Path:
+    current = read_template(settings, template_id)  # 404 when absent or unsafe
+    if current.get("builtin"):
+        raise ApiError(403, f"template {template_id!r} is built in and read-only; save a copy under another id", detail={"code": "builtin"})
+    return templates_root(settings) / template_id
+
+
+def write_template(settings: Any, template_id: str, body: dict[str, Any]) -> dtos.TemplateDTO:
+    """`PUT /api/templates/{id}`: replace a saved template; a built-in is a 403."""
+    from axrange.api.console_files import atomic_write
+
+    folder = _existing_saved(settings, template_id)
+    tpl = _checked(body, template_id=template_id)
+    validate_on_save(settings, tpl)
+    atomic_write(folder / FILE, _dump(tpl))
+    return template_detail(settings, template_id)
+
+
+def delete_template(settings: Any, template_id: str) -> None:
+    """`DELETE /api/templates/{id}`: a saved template only; a built-in is a 403."""
+    import shutil
+
+    shutil.rmtree(_existing_saved(settings, template_id))

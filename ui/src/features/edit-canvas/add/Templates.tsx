@@ -40,10 +40,12 @@ export function TemplatePreview({ template }: { template: Template }) {
   );
 }
 
-/** The Templates section: built in first, then the saved ones. */
-export function TemplatesSection({ templates, disabled, extra }: { templates: readonly Template[]; disabled: boolean; extra?: React.ReactNode }) {
+/** The Templates section (§3): Built in · My templates · From the team. */
+export function TemplatesSection({ templates, mine = [], disabled, extra }: { templates: readonly Template[]; mine?: readonly string[]; disabled: boolean; extra?: React.ReactNode }) {
   const builtin = templates.filter((t) => t.builtin);
-  const saved = templates.filter((t) => !t.builtin);
+  // My templates: the ones this browser saved; the rest of the saved ones are the team's (the same catalog, §5.3).
+  const own = templates.filter((t) => !t.builtin && mine.includes(t.id));
+  const team = templates.filter((t) => !t.builtin && !mine.includes(t.id));
   const group = (title: string, list: readonly Template[], testId: string) =>
     list.length ? (
       <div className="cv-tpl-group" data-testid={testId}>
@@ -67,7 +69,8 @@ export function TemplatesSection({ templates, disabled, extra }: { templates: re
     <section className="cv-palette-cat" aria-label="Templates" data-testid="add-templates">
       <h4 className="cv-add-head">Templates</h4>
       {group("Built in", builtin, "templates-builtin")}
-      {group("Saved", saved, "templates-saved")}
+      {group("My templates", own, "templates-mine")}
+      {group("From the team", team, "templates-team")}
       {extra}
       {templates.length === 0 ? <p className="muted cv-palette-hint">no templates in the catalog</p> : null}
     </section>

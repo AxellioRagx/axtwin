@@ -109,6 +109,11 @@ export interface Api {
   /** The canvas templates (built-in and saved), `docs/design/canvas-add-panel.md` §5. */
   listTemplates(signal?: AbortSignal): Promise<TemplateList>;
   getTemplate(id: string, signal?: AbortSignal): Promise<Template>;
+  /** Save a selection as a template (§5.3): validated on save (422 with findings); a taken id is 409. */
+  createTemplate(template: Template): Promise<Template>;
+  putTemplate(id: string, template: Template): Promise<Template>;
+  /** A saved template only: a built-in is 403. */
+  deleteTemplate(id: string): Promise<void>;
   // The edit model (`api/Spec.md` A2, A3): the document, Save / Save-As, and a deploy's working copy.
   /** The twin-config with its `document` (the bundle's text files); 404 when the catalog has no such entry. */
   getTwinConfig(id: string, signal?: AbortSignal): Promise<TwinConfigDetail>;
@@ -205,6 +210,9 @@ export function makeApi(request: Requester): Api {
     listImageProfiles: (signal) => request("GET", "/api/image-profiles", { signal }),
     listTemplates: (signal) => request("GET", "/api/templates", { signal }),
     getTemplate: (id, signal) => request("GET", `/api/templates/${enc(id)}`, { signal }),
+    createTemplate: (template) => request("POST", "/api/templates", { body: { template } }),
+    putTemplate: (id, template) => request("PUT", `/api/templates/${enc(id)}`, { body: { template } }),
+    deleteTemplate: (id) => request("DELETE", `/api/templates/${enc(id)}`, {}),
     // The server includes the bundle `document` (the canvas's edit mode) only
     // for a caller its write policy accepts; the summary is open.
     getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),

@@ -1432,6 +1432,25 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
 
         return _tpl.template_detail(settings, template_id)
 
+    @app.post("/api/templates", response_model=dtos.TemplateDTO, status_code=201, dependencies=[Depends(write_token)])
+    def template_create(req: dtos.TemplateWriteRequest) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.create_template(settings, req.template)
+
+    @app.put("/api/templates/{template_id}", response_model=dtos.TemplateDTO, dependencies=[Depends(write_token)])
+    def template_write(template_id: str, req: dtos.TemplateWriteRequest) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.write_template(settings, template_id, req.template)
+
+    @app.delete("/api/templates/{template_id}", status_code=204, response_class=Response, dependencies=[Depends(write_token)])
+    def template_delete(template_id: str) -> Response:
+        from axrange.api import templates as _tpl
+
+        _tpl.delete_template(settings, template_id)
+        return Response(status_code=204)
+
     @app.post(
         "/api/deploys/{deploy_id}/hosts/{host_id}/personas/plan",
         response_model=dtos.HostPersonasPlanDTO,

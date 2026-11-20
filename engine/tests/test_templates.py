@@ -136,3 +136,99 @@ def test_a_broken_template_file_is_a_warning_not_a_failed_listing(cl):
     assert "broken" not in {t["id"] for t in j["templates"]}
     assert any("broken" in w for w in j["warnings"])
     assert c.get("/api/templates/broken").status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Writes (§5.3): POST / PUT / DELETE
+# ---------------------------------------------------------------------------
+from tests.test_api_edit_model import AUTH  # noqa: E402
+
+
+def _saved(tid: str = "my-lan", **over) -> dict:
+    tpl = {
+        "id": tid, "label": "My LAN", "description": "saved from a test", "icon": "office",
+        "params": [{"name": "users", "label": "users: N", "type": "int", "default": 3, "min": 1},
+                   {"name": "prefix", "label": "Name prefix", "type": "name", "default": "lab"},
+                   {"name": "subnet", "label": "Subnet", "type": "cidr", "default": "auto"}],
+        "ports": [{"name": "uplink", "device": "{prefix}-gw"}],
+        "fragment": {
+            "segments": [{"name": "{prefix}-lan", "cidr": "10.0.0.0/24", "zone_type": "vlan"}],
+            "nodes": [{"name": "{prefix}-gw", "kind": "router", "role": "gw", "image": "debian-12-cloud@v1", "net": "{prefix}-lan"},
+                      {"name": "{prefix}-ws", "role": "generic-endpoint", "image": "debian-12-cloud@v1", "count": "{users}", "net": "{prefix}-lan"}],
+            "assignments": [{"node": "{prefix}-ws", "persona": "generic-endpoint"}],
+        },
+        "layout": {"{prefix}-gw": {"x": 0, "y": 0}},
+    }
+    tpl.update(over)
+    return tpl
+
+
+@pytest.fixture
+def wc(env, tmp_path):  # noqa: F811
+    settings, catalog = env
+    shutil.copytree(CATALOG_ROOT / "templates", catalog.parent / "templates")
+    (catalog.parent / "image-profiles.yaml").write_text((CATALOG_ROOT / "image-profiles.yaml").read_text())
+    settings.images_root = _settings(tmp_path).images_root
+    c, _, _ = _client(settings)
+    return c, catalog
+
+
+def test_post_get_put_delete_a_saved_template(wc):
+    c, catalog = wc
+    r = c.post("/api/templates", json={"template": _saved()}, headers=AUTH)
+    assert r.status_code == 201, r.text
+    assert r.json()["builtin"] is False and r.json()["label"] == "My LAN"
+    assert (catalog.parent / "templates" / "my-lan" / "template.yaml").is_file()
+    assert "my-lan" in {t["id"] for t in c.get("/api/templates").json()["templates"]}
+    # Taken: 409, never overwritten.
+    assert c.post("/api/templates", json={"template": _saved(label="other")}, headers=AUTH).status_code == 409
+    r = c.put("/api/templates/my-lan", json={"template": _saved(label="Renamed")}, headers=AUTH)
+    assert r.status_code == 200 and c.get("/api/templates/my-lan").json()["label"] == "Renamed"
+    # A body id other than the path's is refused.
+    assert c.put("/api/templates/my-lan", json={"template": _saved("x")}, headers=AUTH).status_code == 400
+    assert c.delete("/api/templates/my-lan", headers=AUTH).status_code == 204
+    assert c.get("/api/templates/my-lan").status_code == 404
+    assert c.delete("/api/templates/my-lan", headers=AUTH).status_code == 404
+
+
+def test_writes_need_the_write_token(wc):
+    c, _ = wc
+    assert c.post("/api/templates", json={"template": _saved()}).status_code == 401
+    assert c.put("/api/templates/dmz", json={"template": _saved("dmz")}).status_code == 401
+    assert c.delete("/api/templates/dmz").status_code == 401
+
+
+def test_builtins_are_read_only(wc):
+    c, catalog = wc
+    r = c.put("/api/templates/dmz", json={"template": _saved("dmz")}, headers=AUTH)
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "builtin"
+    assert c.delete("/api/templates/dmz", headers=AUTH).status_code == 403
+    assert (catalog.parent / "templates" / "dmz" / "template.yaml").is_file()
+    # A saved template cannot claim to be built in, nor take a built-in's id.
+    assert c.post("/api/templates", json={"template": _saved(builtin=True)}, headers=AUTH).status_code == 400
+    assert c.post("/api/templates", json={"template": _saved("dmz")}, headers=AUTH).status_code == 409
+
+
+def test_validated_on_save(wc):
+    c, catalog = wc
+    bad = _saved()
+    bad["fragment"]["nodes"][1]["net"] = "no-such-segment"
+    r = c.post("/api/templates", json={"template": bad}, headers=AUTH)
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["code"] == "invalid"
+    assert not (catalog.parent / "templates" / "my-lan").exists()  # nothing written
+    unknown_image = _saved()
+    unknown_image["fragment"]["nodes"][0]["image"] = "no-such-image@v9"
+    assert c.post("/api/templates", json={"template": unknown_image}, headers=AUTH).status_code == 422
+    # A bad expression is refused before the validator runs.
+    expr = _saved()
+    expr["fragment"]["nodes"][1]["count"] = "{nope + 1}"
+    assert c.post("/api/templates", json={"template": expr}, headers=AUTH).status_code == 422
+
+
+@pytest.mark.parametrize("tid", ["../evil", "a/b", ".", "..", "x y", "", "-lead"])
+def test_path_safety_on_write(wc, tid):
+    c, catalog = wc
+    r = c.post("/api/templates", json={"template": _saved(tid)}, headers=AUTH)
+    assert r.status_code == 400, (tid, r.text)
+    assert not (catalog.parent / "evil").exists()

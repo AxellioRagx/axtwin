@@ -2389,6 +2389,13 @@ class TemplateDTO(BaseModel):
     layout: dict[str, Any] = {}
 
 
+class TemplateWriteRequest(BaseModel):
+    """`POST /api/templates` / `PUT /api/templates/{id}`: the `template:`
+    mapping to store (validated on save, §5.3; `builtin` is refused)."""
+
+    template: dict[str, Any]
+
+
 class TemplateListDTO(BaseModel):
     templates: list[TemplateDTO]
     warnings: list[str] = []

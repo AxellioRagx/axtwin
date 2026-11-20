@@ -336,6 +336,22 @@ D3). **Built 2026-11-20** (phase 2).
   twin-config validator. Tests `engine/tests/test_templates.py` (every
   built-in, at its defaults, passes the validator).
 
+**A3g — canvas templates, write side** (`docs/design/canvas-add-panel.md`
+§5.3, D3). **Built 2026-11-20** (phase 3).
+- `POST /api/templates {template}` (201), `PUT /api/templates/{id} {template}`,
+  `DELETE /api/templates/{id}` (204): write-token gated like twin-configs; the
+  id is the catalog-id guard's (400 otherwise); a taken id on POST is 409,
+  never overwritten (the folder is claimed with `os.mkdir`); a body id other
+  than the path's is 400.
+- Built-ins are read-only: PUT / DELETE on one is 403 `detail.code: builtin`;
+  a body with `builtin: true` is 400.
+- Validated on save: the fragment expanded with its default settings (images
+  from `image-profiles.yaml`) and wrapped in a minimal twin goes through the
+  twin-config validator; a FAIL is 422 `detail: {code: invalid, findings}`
+  and nothing is written. Tests `engine/tests/test_templates.py`.
+- There is no author field and no sharing model: "My templates" is the ids
+  this browser saved; the rest of the saved ones are "From the team".
+
 **A4 — targets management.**
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target
   (a named entry of the adapter targets file). Credentials are stored by the

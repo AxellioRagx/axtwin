@@ -89,6 +89,8 @@ import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
 import { TemplatePopover, TemplatesSection } from "./add/Templates";
+import { buildTemplate, carriedBindings, proposeTemplate, readMyTemplates, rememberMyTemplate, type Proposal } from "./add/saveTemplate";
+import { SaveTemplateDialog } from "./add/SaveTemplateDialog";
 import { refOfItem } from "./add/AddPanel";
 import { SaveAsDialog } from "./SaveAsDialog";
 import { moveMember } from "./edit/members";
@@ -392,7 +394,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     [],
   );
   // Templates (§5): built-in and saved, one read; `templatesVersion` re-reads after a save (phase 3).
-  const [templatesVersion] = useState(0);
+  const [templatesVersion, setTemplatesVersion] = useState(0);
   const templateLoad = useLoad<{ templates: Template[]; note: string | null }>(
     (signal) => api.listTemplates(signal).then((t) => ({ templates: t.templates, note: t.warnings.length ? `templates: ${t.warnings.join("; ")}` : null }), (e: unknown) => ({ templates: [], note: `templates not listed: ${errorText(e)}` })),
     [templatesVersion],
@@ -456,6 +458,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [view, setView] = useState<View>("design");
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
   /** An Add-panel drop waiting on its popover (docs/design/canvas-add-panel.md §4.1): nothing is written until it closes. */
+  /** Save as template (§5.3): the proposal for the selection, while its dialog is open. */
+  const [saveTpl, setSaveTpl] = useState<{ proposal: Proposal; stripped: string[]; busy: boolean; error: string | null } | null>(null);
   /** The devices the canvas selects once drawn: a template's open ports after its drop (§5.2). */
   const [highlight, setHighlight] = useState<{ names: string[]; n: number } | null>(null);
   /** A template drop waiting on its settings form (§5.2). */
@@ -1448,8 +1452,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       annotations,
       onAnnotations: setAnnotations,
       highlight,
+      onSaveTemplate: () => {
+        const proposal = proposeTemplate(model, selectionRef.current);
+        setSaveTpl({ proposal, stripped: carriedBindings(model, proposal.set.hosts, personas).stripped, busy: false, error: null });
+      },
     };
-  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight]);
+  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -1780,6 +1788,31 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           onClose={() => setDraftOpen(false)}
         />
       ) : null}
+      {saveTpl && model ? (
+        <SaveTemplateDialog
+          proposal={saveTpl.proposal}
+          strippedBindings={saveTpl.stripped}
+          busy={saveTpl.busy}
+          error={saveTpl.error}
+          onClose={() => setSaveTpl(null)}
+          onSave={(choices) => {
+            const tpl = buildTemplate(model, saveTpl.proposal, choices, personas, { ...settled.current, ...pinsRef.current }, templates.map((t) => t.id));
+            setSaveTpl((s) => (s ? { ...s, busy: true, error: null } : s));
+            api.createTemplate(tpl).then(
+              (saved) => {
+                rememberMyTemplate(saved.id);
+                setSaveTpl(null);
+                setTemplatesVersion((v) => v + 1);
+                setExitNote(`saved template ${saved.label} (${saved.id}): it is under My templates in the Add panel`);
+              },
+              (e: unknown) => {
+                const findings = e instanceof ApiError && e.detail && typeof e.detail === "object" ? ((e.detail as { findings?: Array<{ message?: string }> }).findings ?? []) : [];
+                setSaveTpl((s) => (s ? { ...s, busy: false, error: [errorText(e), ...findings.map((f) => f.message ?? "").filter(Boolean)].join(" · ") } : s));
+              },
+            );
+          }}
+        />
+      ) : null}
       {wireDialog ? (
         <div className="modal-backdrop" data-testid="wire-backdrop">
           <form
@@ -1929,7 +1962,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data && model
               ? {
-                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} disabled={Boolean(locked)} />} />,
+                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
                   quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} templates={templates} onPick={pick} onClose={close} />,
                   ...(pendingTemplate
                     ? {

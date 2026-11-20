@@ -112,6 +112,8 @@ export interface CanvasEditProps {
   /** Devices to select once they are drawn (a template's open ports after its drop, canvas-add-panel
    *  §5.2); `n` re-fires it. Applied through the same selection a click makes. */
   highlight?: { names: string[]; n: number } | null;
+  /** "Save as template…" on the selection (canvas-add-panel §5.3): the page opens its dialog. */
+  onSaveTemplate?(): void;
 }
 
 export interface CanvasProps {
@@ -288,6 +290,11 @@ export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: num
   if (seg) return { segment: seg };
   const dev = deviceAt(nodes, at);
   return dev ? placeOnDevice(te, dev) : null;
+}
+
+/** A selection a template can be saved from: nodes, segments or a subtree (§5.3). */
+export function selectionSavable(sel: Selection): boolean {
+  return (sel.kind === "node" && sel.names.length > 0) || (sel.kind === "segment" && sel.names.length > 0) || sel.kind === "subtree";
 }
 
 export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
@@ -1499,6 +1506,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
+        if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
         items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
@@ -1512,6 +1520,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
       const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
       if (group?.kind === "router" && routersPicked.length >= 2 && routersPicked.includes(t.name) && edit.onWireRouters) items.push({ label: `Connect ${routersPicked.length} routers as… (chain, ring, mesh, hub)`, run: () => edit.onWireRouters!(routersPicked) });
+      if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
       if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });
       items.push({
