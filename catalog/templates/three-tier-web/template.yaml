@@ -1,0 +1,35 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: three-tier-web
+  builtin: true
+  label: Three-tier web app
+  description: Web, app and database tiers, each on its own segment, joined by one router.
+  icon: tiers
+  params:
+    - { name: web, label: Web servers, type: int, default: 2, min: 1, max: 50 }
+    - { name: app, label: App servers, type: int, default: 2, min: 1, max: 50 }
+    - { name: db, label: Database servers, type: int, default: 1, min: 1, max: 20 }
+    - { name: prefix, label: Name prefix, type: name, default: shop }
+    - { name: subnet, label: First subnet, type: cidr, default: auto }
+  ports:
+    - { name: uplink, device: "{prefix}-gw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-web-lan", cidr: 10.0.0.0/24, zone_type: vlan }
+      - { name: "{prefix}-app-lan", cidr: 10.0.1.0/24, zone_type: vlan }
+      - { name: "{prefix}-db-lan", cidr: 10.0.2.0/24, zone_type: vlan }
+    nodes:
+      - name: "{prefix}-gw"
+        kind: router
+        role: gw
+        profile: router
+        nets: [{ segment: "{prefix}-web-lan" }, { segment: "{prefix}-app-lan" }, { segment: "{prefix}-db-lan" }]
+      - { name: "{prefix}-web", role: web-tier, profile: linux-server, count: "{web}", net: "{prefix}-web-lan" }
+      - { name: "{prefix}-app", role: app-tier, profile: linux-server, count: "{app}", net: "{prefix}-app-lan" }
+      - { name: "{prefix}-db", role: db-tier, profile: linux-server, count: "{db}", net: "{prefix}-db-lan" }
+    assignments:
+      - { node: "{prefix}-web", persona: web-tier }
+      - { node: "{prefix}-db", persona: db-tier }
+  layout:
+    "{prefix}-gw": { x: 0, y: 0 }

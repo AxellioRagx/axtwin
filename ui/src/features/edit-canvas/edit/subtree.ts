@@ -13,11 +13,11 @@
  * trunk carrying what the deeper one carries) or a device and a host (an
  * access link on the host's first segment), with free ports at both ends.
  */
-import { allocateHostAddresses, nextFreeSlash24, takenAddresses } from "./allocate";
+import { allocateHostAddresses, ipv4Range, nextFreeSlash24, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
-import { addLink, addNode, addSegment, nodeOfEnd, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
+import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
 
 export interface Subtree {
   root: string;
@@ -242,6 +242,124 @@ export function subtreePrefixes(model: DocModel, root: string): string[] {
   return out;
 }
 
+/** What `copyInto` copies from a source document: devices, segments, host groups and links by index. */
+export interface CopySet {
+  devices: readonly string[];
+  segments: readonly string[];
+  hosts: readonly string[];
+  links: readonly number[];
+}
+
+export interface CopyOptions {
+  /** The name a copied node or segment takes, given the names already taken (default: `{name}-2`, `-3`, …). */
+  rename?: (name: string, taken: ReadonlySet<string>) => string;
+  /** Re-allocate every copied segment under this two-octet prefix (see `DuplicateOptions.prefix`). */
+  prefix?: string | null;
+  /** The first copied segment takes exactly this CIDR (a template's subnet setting); the rest follow in its prefix. */
+  firstCidr?: string | null;
+  /** Extra segments (source names) a copied node gets a leg on, beyond its own (a parked root's carried ones). */
+  extraLegs?: (name: string) => readonly string[];
+  /** Copy the `conduits[]` entries whose both ends are copied segments (a template does; a duplicate never has). */
+  conduits?: boolean;
+}
+
+function overlaps(a: string, b: string): boolean {
+  const x = ipv4Range(a);
+  const y = ipv4Range(b);
+  return Boolean(x && y && x.start <= y.end && y.start <= x.end);
+}
+
+/**
+ * The copy engine behind Duplicate subtree (§6.2) and a template's drop (canvas-add-panel §5.2):
+ * the set's nodes, segments and links from `source` written into `doc` (whose model is `target`)
+ * under fresh names, every copied segment on the next free `/24` of its prefix (or `firstCidr`),
+ * each pinned single host on the next free address there; member overrides and node-level persona
+ * bindings copy; taps never do. `source` may be `target` itself (a duplicate) or another document
+ * (a template's expansion). Pure.
+ */
+export function copyInto(doc: WorkingDoc, target: DocModel, source: DocModel, set: CopySet, options: CopyOptions = {}): Omit<DuplicateResult, "root"> {
+  const te = source.te;
+  const rename = options.rename ?? ((n: string, taken: ReadonlySet<string>) => copyName(n, taken));
+  const names: Record<string, string> = {};
+  const takenNodes = new Set(target.te.nodes.map((n) => n.name));
+  for (const n of [...set.devices, ...set.hosts]) {
+    const nn = rename(n, takenNodes);
+    names[n] = nn;
+    takenNodes.add(nn);
+  }
+  const takenSegs = new Set(target.te.segments.map((s) => s.name));
+  const inPlay = target.te.segments.map((s) => s.cidr);
+  const cidrs: Record<string, string> = {};
+  if (options.prefix && !/^\d{1,3}\.\d{1,3}$/.test(options.prefix)) throw new Error(`'${options.prefix}' is not a two-octet site prefix`);
+  set.segments.forEach((s, i) => {
+    const seg = te.segments.find((x) => x.name === s)!;
+    const nn = rename(s, takenSegs);
+    names[s] = nn;
+    takenSegs.add(nn);
+    let cidr: string | null;
+    if (i === 0 && options.firstCidr) {
+      if (!ipv4Range(options.firstCidr)) throw new Error(`'${options.firstCidr}' is not an IPv4 CIDR`);
+      const clash = inPlay.find((c) => overlaps(c, options.firstCidr!));
+      if (clash) throw new Error(`${options.firstCidr} overlaps ${clash}, already in the design`);
+      cidr = options.firstCidr;
+    } else {
+      const prefix = options.prefix || (options.firstCidr ? prefixOf(options.firstCidr) : null) || prefixOf(seg.cidr);
+      cidr = prefix ? nextFreeSlash24(prefix, inPlay, { after: true }) : null;
+      if (!cidr) throw new Error(`no free /24 left under ${prefix ?? seg.cidr} for a copy of ${s}`);
+    }
+    cidrs[nn] = cidr;
+    inPlay.push(cidr);
+  });
+  const seg = (s: string) => names[s] ?? s;
+
+  let text = doc.files[doc.teFile];
+  if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
+  for (const s of set.segments) text = addSegment(text, { name: names[s]!, cidr: cidrs[names[s]!]!, zoneType: te.segments.find((x) => x.name === s)!.zoneType });
+  const takenIps = new Map<string, Set<string>>();
+  const allocate = (segment: string, count: number): string[] => {
+    const cidr = cidrs[segment] ?? target.te.segments.find((x) => x.name === segment)?.cidr;
+    if (!cidr) return [];
+    const taken = takenIps.get(segment) ?? takenAddresses(target.te, segment);
+    const a = allocateHostAddresses(cidr, count, taken);
+    if (!a.ok) throw new Error(a.error);
+    for (const ip of a.addresses) taken.add(ip);
+    takenIps.set(segment, taken);
+    return a.addresses;
+  };
+  for (const name of [...set.devices, ...set.hosts]) {
+    const n = te.nodes.find((x) => x.name === name)!;
+    // A leg on a segment outside the set is not copied: the copy never joins an original segment.
+    const nets = n.nets.filter((l) => set.segments.includes(l.segment)).map((l) => ({ segment: seg(l.segment), ip: l.ip && n.countValue === 1 && !isDevice(n) ? allocate(seg(l.segment), 1)[0] ?? null : null }));
+    for (const s of options.extraLegs?.(name) ?? []) if (!nets.some((l) => l.segment === seg(s))) nets.push({ segment: seg(s), ip: null });
+    text = addNode(text, { name: names[name]!, kind: n.kind, role: n.role, image: n.image, count: n.count, nets, requires: n.requires, resources: n.resources, ...(n.otherKeys.includes("stp") ? { stp: "rstp" as const } : {}) });
+    for (const m of n.members) if (m.role) text = setMemberRole(text, names[name]!, m.index, m.role);
+  }
+  for (const i of set.links) {
+    const l = te.links[i]!;
+    // A copied link carries only the copied segments; one that would point outside the set is dropped.
+    const vlans = l.vlans.filter((v) => set.segments.includes(v)).map(seg);
+    const native = l.native && set.segments.includes(l.native) ? seg(l.native) : null;
+    if (!vlans.length && !native) continue;
+    text = addLink(text, { a: { device: names[l.a.device]!, port: l.a.port }, b: { device: names[l.b.device]!, port: l.b.port }, mode: l.mode, native, vlans, state: l.state === "up" ? null : l.state });
+  }
+  if (options.conduits) for (const c of te.conduits) if (set.segments.includes(c.from) && set.segments.includes(c.to)) text = teAddConduit(text, seg(c.from), seg(c.to));
+  let files: Files = { ...doc.files, [doc.teFile]: text };
+  // Traffic: the copied groups' bindings (group and instance) copy under the new names; taps never do.
+  if (source.tfc) {
+    for (const name of set.hosts) {
+      const n = te.nodes.find((x) => x.name === name)!;
+      const group = source.tfc.assignments.find((a) => a.by === "node" && a.target === name);
+      if (group) files = setPersona({ ...doc, files }, readDoc({ ...doc, files }), "node", names[name]!, { persona: group.persona, intensity: group.intensity, schedule: group.schedule });
+      for (let i = 1; i <= n.countValue; i++) {
+        const a = source.tfc.assignments.find((x) => x.by === "node" && x.target === instanceId(name, i));
+        if (!a) continue;
+        files = setPersona({ ...doc, files }, readDoc({ ...doc, files }), "node", instanceId(names[name]!, i), { persona: a.persona, intensity: a.intensity, schedule: a.schedule });
+      }
+    }
+  }
+  return { files, names, cidrs };
+}
+
 /** Copy `root`'s subtree, attached by a trunk to `attachTo` (a device) or parked when null. */
 export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string, attachTo: string | null, options: DuplicateOptions = {}): DuplicateResult {
   const te = model.te;
@@ -251,63 +369,15 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     if (!t || !isDevice(t)) throw new Error(`'${attachTo}' is not a switch or a router; a subtree attaches to a device`);
     if (tree.devices.includes(attachTo)) throw new Error(`'${attachTo}' is inside the subtree being copied`);
   }
-  const names: Record<string, string> = {};
-  const takenNodes = new Set(te.nodes.map((n) => n.name));
-  for (const n of [...tree.devices, ...tree.hosts]) {
-    const nn = copyName(n, takenNodes);
-    names[n] = nn;
-    takenNodes.add(nn);
-  }
-  const takenSegs = new Set(te.segments.map((s) => s.name));
-  const inPlay = te.segments.map((s) => s.cidr);
-  const cidrs: Record<string, string> = {};
-  for (const s of tree.segments) {
-    const seg = te.segments.find((x) => x.name === s)!;
-    const nn = copyName(s, takenSegs);
-    names[s] = nn;
-    takenSegs.add(nn);
-    if (options.prefix && !/^\d{1,3}\.\d{1,3}$/.test(options.prefix)) throw new Error(`'${options.prefix}' is not a two-octet site prefix`);
-    const prefix = options.prefix || prefixOf(seg.cidr);
-    const cidr = prefix ? nextFreeSlash24(prefix, inPlay, { after: true }) : null;
-    if (!cidr) throw new Error(`no free /24 left under ${prefix ?? seg.cidr} for a copy of ${s}`);
-    cidrs[nn] = cidr;
-    inPlay.push(cidr);
-  }
-  const seg = (s: string) => names[s] ?? s;
-
-  let text = doc.files[doc.teFile];
-  if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
-  for (const s of tree.segments) text = addSegment(text, { name: names[s]!, cidr: cidrs[names[s]!]!, zoneType: te.segments.find((x) => x.name === s)!.zoneType });
-  const takenIps = new Map<string, Set<string>>();
-  const allocate = (segment: string, count: number): string[] => {
-    const cidr = cidrs[segment] ?? te.segments.find((x) => x.name === segment)?.cidr;
-    if (!cidr) return [];
-    const taken = takenIps.get(segment) ?? takenAddresses(te, segment);
-    const a = allocateHostAddresses(cidr, count, taken);
-    if (!a.ok) throw new Error(a.error);
-    for (const ip of a.addresses) taken.add(ip);
-    takenIps.set(segment, taken);
-    return a.addresses;
-  };
   // A PARKED copy (R3-2) keeps what its uplink carried as ports of its own on the copied segments,
   // so the attach tool can trunk exactly those later (the uplink itself is never copied).
   const upCarried = attachTo === null && tree.uplink ? [...(tree.uplink.native ? [tree.uplink.native] : []), ...tree.uplink.vlans].filter((s, i, xs) => tree.segments.includes(s) && xs.indexOf(s) === i) : [];
-  for (const name of [...tree.devices, ...tree.hosts]) {
-    const n = te.nodes.find((x) => x.name === name)!;
-    // A leg on a segment outside the set is not copied: the copy never joins an original segment.
-    const nets = n.nets.filter((l) => tree.segments.includes(l.segment)).map((l) => ({ segment: seg(l.segment), ip: l.ip && n.countValue === 1 && !isDevice(n) ? allocate(seg(l.segment), 1)[0] ?? null : null }));
-    if (name === root) for (const s of upCarried) if (!nets.some((l) => l.segment === seg(s))) nets.push({ segment: seg(s), ip: null });
-    text = addNode(text, { name: names[name]!, kind: n.kind, role: n.role, image: n.image, count: n.count, nets, requires: n.requires, resources: n.resources });
-    for (const m of n.members) if (m.role) text = setMemberRole(text, names[name]!, m.index, m.role);
-  }
-  for (const i of tree.links) {
-    const l = te.links[i]!;
-    // A copied link carries only the copied segments; one that would point outside the set is dropped.
-    const vlans = l.vlans.filter((v) => tree.segments.includes(v)).map(seg);
-    const native = l.native && tree.segments.includes(l.native) ? seg(l.native) : null;
-    if (!vlans.length && !native) continue;
-    text = addLink(text, { a: { device: names[l.a.device]!, port: l.a.port }, b: { device: names[l.b.device]!, port: l.b.port }, mode: l.mode, native, vlans, state: l.state === "up" ? null : l.state });
-  }
+  // The bindings copy only when the bundle has a traffic profile to copy them into (as before).
+  const source = model.tfcPath && doc.files[model.tfcPath] !== undefined ? model : { ...model, tfc: null };
+  const copied = copyInto(doc, model, source, tree, { prefix: options.prefix ?? null, extraLegs: (name) => (name === root ? upCarried : []) });
+  const { names, cidrs } = copied;
+  const seg = (s: string) => names[s] ?? s;
+  let text = copied.files[doc.teFile]!;
   const newRoot = names[root]!;
   if (attachTo !== null) {
     const up = tree.uplink;
@@ -319,25 +389,7 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     const rootPort = up ? (up.a.device === root ? up.a.port : up.b.port) : freePort(readDocTe(text, doc), newRoot);
     text = addLink(text, { a: { device: attachTo, port: freePort(readDocTe(text, doc), attachTo) }, b: { device: newRoot, port: rootPort }, mode: "trunk", native, vlans: vlans.length || native ? vlans : carried });
   }
-  let files: Files = { ...doc.files, [doc.teFile]: text };
-  // Traffic: the copied groups' bindings (group and instance) copy under the new names; taps never do.
-  if (model.tfcPath && files[model.tfcPath] !== undefined && model.tfc) {
-    for (const name of tree.hosts) {
-      const n = te.nodes.find((x) => x.name === name)!;
-      const group = model.tfc.assignments.find((a) => a.by === "node" && a.target === name);
-      if (group) {
-        const next = readDoc({ ...doc, files });
-        files = setPersona({ ...doc, files }, next, "node", names[name]!, { persona: group.persona, intensity: group.intensity, schedule: group.schedule });
-      }
-      for (let i = 1; i <= n.countValue; i++) {
-        const a = model.tfc.assignments.find((x) => x.by === "node" && x.target === instanceId(name, i));
-        if (!a) continue;
-        const next = readDoc({ ...doc, files });
-        files = setPersona({ ...doc, files }, next, "node", instanceId(names[name]!, i), { persona: a.persona, intensity: a.intensity, schedule: a.schedule });
-      }
-    }
-  }
-  return { files, names, root: newRoot, cidrs };
+  return { files: { ...copied.files, [doc.teFile]: text }, names, root: newRoot, cidrs };
 }
 
 function readDocTe(text: string, doc: WorkingDoc): TeModel {

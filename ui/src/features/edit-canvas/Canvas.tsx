@@ -109,6 +109,9 @@ export interface CanvasEditProps {
   onLink?(from: string, to: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
+  /** Devices to select once they are drawn (a template's open ports after its drop, canvas-add-panel
+   *  §5.2); `n` re-fires it. Applied through the same selection a click makes. */
+  highlight?: { names: string[]; n: number } | null;
 }
 
 export interface CanvasProps {
@@ -634,6 +637,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const ids = new Set([...t.devices.map((d) => (graph.routers.some((r) => r.name === d) ? ID.router(d) : `device:${d}`)), ...t.segments.map(ID.segment), ...t.hosts.map(ID.host)]);
     setNodes((ns) => ns.map((n) => (n.selected === ids.has(n.id) ? n : { ...n, selected: ids.has(n.id) })));
   }, [subtreeKey, edit?.model, graph, setNodes, edit]);
+  // A highlight the page asked for (a template's open ports, canvas-add-panel §5.2): selected as a
+  // click would select them, once every one of them is drawn; then done.
+  const highlightDone = useRef<number | null>(null);
+  const highlight = edit?.highlight ?? null;
+  useEffect(() => {
+    if (!edit || !highlight || highlightDone.current === highlight.n) return;
+    const ids = highlight.names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : edit.model.te.nodes.find((x) => x.name === n)?.kind === "switch" ? `device:${n}` : ID.host(n)));
+    if (!ids.every((id) => nodes.some((x) => x.id === id))) return;
+    highlightDone.current = highlight.n;
+    select({ kind: "node", names: highlight.names }, ids);
+  }, [highlight, nodes, graph, edit, select]);
   /** Alt-click / the menu's Select subtree (§6.1): the device and everything below it, as one selection. */
   const selectSubtree = useCallback(
     (root: string) => {

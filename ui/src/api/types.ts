@@ -665,6 +665,36 @@ export interface ImageProfile {
   image: string | null;
 }
 
+/** A canvas template's setting (`docs/design/canvas-add-panel.md` §5). */
+export interface TemplateParam {
+  name: string;
+  label?: string;
+  type?: "int" | "percent" | "name" | "cidr";
+  default?: number | string | null;
+  min?: number;
+  max?: number;
+}
+
+/** `GET /api/templates[/{id}]`: the file's `template:` mapping as written (settings not applied). */
+export interface Template {
+  id: string;
+  builtin: boolean;
+  label: string;
+  description: string;
+  icon: string;
+  params: TemplateParam[];
+  ports: Array<{ name: string; device: string }>;
+  /** Twin-config vocabulary with `{expr}` substitution: segments, nodes, links, conduits, assignments. */
+  fragment: Record<string, unknown>;
+  /** Relative positions by (expanded) node or segment name. */
+  layout: Record<string, { x: number; y: number }>;
+}
+
+export interface TemplateList {
+  templates: Template[];
+  warnings: string[];
+}
+
 export interface ImageProfileList {
   profiles: ImageProfile[];
   warnings: string[];

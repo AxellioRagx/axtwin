@@ -1416,6 +1416,22 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
 
         return _ip.list_image_profiles(settings)
 
+    # ---- templates (docs/design/canvas-add-panel.md §5): built-in (read-only)
+    # and saved slices of a twin, under <catalog>/templates/<id>/template.yaml ----
+    @app.get("/api/templates", response_model=dtos.TemplateListDTO)
+    @_ro
+    def templates_list() -> dtos.TemplateListDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.list_templates(settings)
+
+    @app.get("/api/templates/{template_id}", response_model=dtos.TemplateDTO)
+    @_ro
+    def template_detail(template_id: str) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.template_detail(settings, template_id)
+
     @app.post(
         "/api/deploys/{deploy_id}/hosts/{host_id}/personas/plan",
         response_model=dtos.HostPersonasPlanDTO,

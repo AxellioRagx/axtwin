@@ -314,6 +314,28 @@ tests `engine/tests/test_api_drafts.py`).
   a warning; a malformed one is a 500 naming the file
   (`api/image_profiles.py`; tests `engine/tests/test_add_panel_catalog.py`).
 
+**A3f — canvas templates, read side** (`docs/design/canvas-add-panel.md` §5,
+D3). **Built 2026-11-20** (phase 2).
+- `GET /api/templates` (open read): `{templates: [TemplateDTO], warnings}`,
+  built-in first, then by label. A template is
+  `<catalog>/templates/<id>/template.yaml` (beside the twin write root): `id`,
+  `builtin`, `label`, `description`, `icon`, `params` (`{name, label, type:
+  int|percent|name|cidr, default, min, max}`), `ports` (`{name, device}`),
+  `fragment` (twin-config vocabulary -- `segments`, `nodes` with an optional
+  `profile:` resolved to an image, `links`, `conduits` -- plus `assignments`
+  in tfc vocabulary) and `layout`, all served AS WRITTEN (settings not
+  applied). A file that does not parse or has the wrong shape is left out
+  with a warning naming it.
+- `GET /api/templates/{id}`: one template; 404 for an unknown or unsafe id
+  (the catalog-id guard), 500 naming the file for a broken one.
+- Expansion (`api/templates.py` `expand`, mirrored by the canvas's
+  `add/template.ts`): `{expr}` -- a setting, or arithmetic over settings with
+  `round floor ceil min max` -- replaced in every string; a lone `{expr}`
+  keeps a number; a node counted 0 is dropped with the links and assignments
+  naming it. `template_document` wraps an expansion in a minimal twin for the
+  twin-config validator. Tests `engine/tests/test_templates.py` (every
+  built-in, at its defaults, passes the validator).
+
 **A4 — targets management.**
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target
   (a named entry of the adapter targets file). Credentials are stored by the

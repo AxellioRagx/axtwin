@@ -282,6 +282,17 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-add-star { grid-column: 2; grid-row: 1 / span 2; background: none; border: none; color: var(--muted, #888); cursor: pointer; font-size: 14px; padding: 0 2px !important; }
 .cv-add-star.on { color: var(--accent); }
 .cv-add-health { margin-top: 8px !important; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; }
+.cv-add-entry.has-media { grid-template-columns: auto 1fr auto; }
+.cv-add-entry.has-media .cv-add-media { grid-row: 1 / span 2; margin-right: 4px; }
+.cv-add-entry.has-media .cv-add-detail { grid-column: 2; }
+.cv-add-entry.has-media .cv-add-star { grid-column: 3; }
+.cv-tpl-preview { display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.cv-tpl-seg { stroke: var(--ink); stroke-width: 2; }
+.cv-tpl-edge { stroke: var(--line); stroke-width: 1; }
+.cv-tpl-router { fill: var(--accent); }
+.cv-tpl-switch { fill: var(--ink); }
+.cv-tpl-host { fill: var(--float-bg); stroke: var(--ink); stroke-width: 1; }
+.cv-tpl-count { font-size: 8px; text-anchor: middle; fill: var(--ink); }
 .cv-drop-popover, .cv-quick-add { position: absolute; z-index: 20; }
 .cv-drop-popover { width: 300px; max-height: 70vh; }
 .cv-quick-add .cv-quick { width: 280px; max-height: 50vh; }

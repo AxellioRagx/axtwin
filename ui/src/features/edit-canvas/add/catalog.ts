@@ -6,7 +6,7 @@
  * the recent / favourite items this browser keeps. Nothing here names a persona the API did not
  * list: every role is read from `GET /api/personas`. Pure -- no React (storage reads guarded).
  */
-import type { ImageProfile, Persona } from "../../../api/types";
+import type { ImageProfile, Persona, Template } from "../../../api/types";
 import { carriedBy, parkedDevices } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
 
@@ -152,7 +152,8 @@ export function imageFor(profiles: readonly ImageProfile[], profile: string | nu
 // ---------------------------------------------------------------------------
 export type AddHit =
   | { kind: "device"; card: CardId; role: string | null; os: Os | null; label: string; detail: string; score: number }
-  | { kind: "tool"; tool: ToolId; label: string; detail: string; score: number };
+  | { kind: "tool"; tool: ToolId; label: string; detail: string; score: number }
+  | { kind: "template"; template: string; label: string; detail: string; score: number };
 
 const CARD_WORDS: Record<CardId, string[]> = {
   router: ["router", "firewall", "gateway", "edge", "fw", "nat"],
@@ -190,7 +191,7 @@ function score(tokens: string[], fields: Array<[string, number]>): number {
 
 /** Search the panel: a role hit preselects its card, OS and role ("file" -> Server, file-server). The
  *  traffic generators are left out (they are Advanced-only). Best first. */
-export function searchAdd(query: string, personas: readonly Persona[]): AddHit[] {
+export function searchAdd(query: string, personas: readonly Persona[], templates: readonly Pick<Template, "id" | "label" | "description">[] = []): AddHit[] {
   const tokens = words(query);
   if (!tokens.length) return [];
   const hits: AddHit[] = [];
@@ -207,6 +208,10 @@ export function searchAdd(query: string, personas: readonly Persona[]): AddHit[]
   for (const t of TOOLS) {
     const s = score(tokens, [[t.label, 3], [TOOL_WORDS[t.id].join(" "), 2], [t.line, 1]]);
     if (s) hits.push({ kind: "tool", tool: t.id, label: t.label, detail: t.line, score: s });
+  }
+  for (const t of templates) {
+    const s = score(tokens, [[t.label, 3], [t.id, 2], [t.description, 1], ["template", 1]]);
+    if (s) hits.push({ kind: "template", template: t.id, label: t.label, detail: `template · ${t.description}`, score: s });
   }
   return hits.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label));
 }

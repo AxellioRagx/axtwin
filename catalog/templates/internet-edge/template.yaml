@@ -1,0 +1,29 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: internet-edge
+  builtin: true
+  label: Internet edge
+  description: An edge router between an internet segment (with a sink) and a DMZ holding the web proxy.
+  icon: edge
+  params:
+    - { name: prefix, label: Name prefix, type: name, default: edge }
+    - { name: subnet, label: First subnet, type: cidr, default: auto }
+  ports:
+    - { name: inside, device: "{prefix}-gw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-dmz", cidr: 10.0.0.0/24, zone_type: vlan }
+      - { name: "{prefix}-inet", cidr: 10.0.1.0/24, zone_type: vlan }
+    nodes:
+      - name: "{prefix}-gw"
+        kind: router
+        role: gw
+        profile: router
+        nets: [{ segment: "{prefix}-dmz" }, { segment: "{prefix}-inet" }]
+      - { name: "{prefix}-proxy", role: egress-proxy, profile: linux-server, net: "{prefix}-dmz" }
+      - { name: "{prefix}-sink", role: internet-sink, profile: linux-server, net: "{prefix}-inet" }
+    assignments:
+      - { node: "{prefix}-proxy", persona: egress-proxy }
+  layout:
+    "{prefix}-gw": { x: 0, y: 0 }

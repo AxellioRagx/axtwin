@@ -1,0 +1,28 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: ad-domain
+  builtin: true
+  label: AD domain
+  description: A Windows domain controller, a file server and domain-joined workstations on one LAN.
+  icon: domain
+  params:
+    - { name: workstations, label: Workstations, type: int, default: 10, min: 1, max: 500 }
+    - { name: prefix, label: Name prefix, type: name, default: corp }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: uplink, device: "{prefix}-sw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-lan", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-sw", kind: switch, role: l2-switch, net: "{prefix}-lan" }
+      - { name: "{prefix}-dc", role: domain-controller, profile: windows-server, net: "{prefix}-lan" }
+      - { name: "{prefix}-fs", role: file-server, profile: linux-server, net: "{prefix}-lan" }
+      - { name: "{prefix}-ws", role: corp-workstation, profile: windows-client, count: "{workstations}", net: "{prefix}-lan" }
+    assignments:
+      - { node: "{prefix}-dc", persona: domain-controller }
+      - { node: "{prefix}-fs", persona: file-server }
+      - { node: "{prefix}-ws", persona: corp-workstation }
+  layout:
+    "{prefix}-sw": { x: 0, y: 0 }

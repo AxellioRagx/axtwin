@@ -23,6 +23,7 @@ import type {
   PendingChange,
   Persona,
   ImageProfile,
+  Template,
   ProbeResult,
   TwinConfigDetail,
   TwinConfigDocument,
@@ -140,6 +141,7 @@ export interface FakeState {
   twinConfigs: TwinConfigSummary[];
   personas: Persona[];
   imageProfiles: ImageProfile[];
+  templates: Template[];
   /** The twin-config documents (`api/Spec.md` A3), by id: the baseline each editor opens. */
   documents: Record<string, TwinConfigDocument>;
   /** The drafts area (`api/Spec.md` A3d), by id: documents kept without the validation gate. */
@@ -204,6 +206,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     layouts: {},
     twinConfigs: [],
     personas: [],
+    templates: [],
     imageProfiles: [
       { name: "linux-server", image: "debian-12-cloud@v1" },
       { name: "linux-client", image: "debian-12-cloud@v1" },
@@ -594,6 +597,14 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async listImageProfiles() {
       return { profiles: state.imageProfiles, warnings: [] };
+    },
+    async listTemplates() {
+      return { templates: state.templates, warnings: [] };
+    },
+    async getTemplate(id) {
+      const t = state.templates.find((x) => x.id === id);
+      if (!t) throw notFound(`template '${id}'`);
+      return t;
     },
     async getTwinConfig(id) {
       const d = state.documents[id];

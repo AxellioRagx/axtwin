@@ -1,0 +1,29 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: datacenter-rack
+  builtin: true
+  label: Datacenter rack
+  description: A top-of-rack switch with web, app and database tiers on one server LAN.
+  icon: rack
+  params:
+    - { name: web, label: Web servers, type: int, default: 2, min: 0, max: 50 }
+    - { name: app, label: App servers, type: int, default: 2, min: 0, max: 50 }
+    - { name: db, label: Database servers, type: int, default: 1, min: 0, max: 20 }
+    - { name: prefix, label: Name prefix, type: name, default: rack }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: uplink, device: "{prefix}-tor" }
+  fragment:
+    segments:
+      - { name: "{prefix}-srv", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-tor", kind: switch, role: l2-switch, net: "{prefix}-srv" }
+      - { name: "{prefix}-web", role: web-tier, profile: linux-server, count: "{web}", net: "{prefix}-srv" }
+      - { name: "{prefix}-app", role: app-tier, profile: linux-server, count: "{app}", net: "{prefix}-srv" }
+      - { name: "{prefix}-db", role: db-tier, profile: linux-server, count: "{db}", net: "{prefix}-srv" }
+    assignments:
+      - { node: "{prefix}-web", persona: web-tier }
+      - { node: "{prefix}-db", persona: db-tier }
+  layout:
+    "{prefix}-tor": { x: 0, y: 0 }

@@ -1,0 +1,36 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: office-segment
+  builtin: true
+  label: Office segment
+  description: A user LAN with workstations and a printer, behind one switch.
+  icon: office
+  params:
+    - { name: workstations, label: Workstations, type: int, default: 20, min: 1, max: 500 }
+    - { name: windows_share, label: "Windows %", type: percent, default: 80 }
+    - { name: prefix, label: Name prefix, type: name, default: office }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: uplink, device: "{prefix}-sw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-lan", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-sw", kind: switch, role: l2-switch, net: "{prefix}-lan" }
+      - name: "{prefix}-ws"
+        role: corp-workstation
+        profile: windows-client
+        count: "{round(workstations * windows_share / 100)}"
+        net: "{prefix}-lan"
+      - name: "{prefix}-lx"
+        role: power-user-dev
+        profile: linux-client
+        count: "{workstations - round(workstations * windows_share / 100)}"
+        net: "{prefix}-lan"
+      - { name: "{prefix}-printer", role: printer, profile: linux-server, net: "{prefix}-lan" }
+    assignments:
+      - { node: "{prefix}-ws", persona: corp-workstation }
+      - { node: "{prefix}-lx", persona: power-user-dev }
+  layout:
+    "{prefix}-sw": { x: 0, y: 0 }

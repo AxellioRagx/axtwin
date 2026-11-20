@@ -46,7 +46,7 @@ import { useWhoami } from "../../api/whoami";
 import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { Target } from "../../api/types";
-import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, LayoutAnnotation, LayoutDoc, LayoutWrite, ImageProfile, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidationFinding } from "../../api/types";
+import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, LayoutAnnotation, LayoutDoc, LayoutWrite, ImageProfile, Persona, Template, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidationFinding } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
@@ -87,6 +87,8 @@ import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, 
 import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
+import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
+import { TemplatePopover, TemplatesSection } from "./add/Templates";
 import { refOfItem } from "./add/AddPanel";
 import { SaveAsDialog } from "./SaveAsDialog";
 import { moveMember } from "./edit/members";
@@ -389,9 +391,16 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     (signal) => api.listImageProfiles(signal).then((p) => ({ profiles: p.profiles, note: null }), (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}` })),
     [],
   );
+  // Templates (§5): built-in and saved, one read; `templatesVersion` re-reads after a save (phase 3).
+  const [templatesVersion] = useState(0);
+  const templateLoad = useLoad<{ templates: Template[]; note: string | null }>(
+    (signal) => api.listTemplates(signal).then((t) => ({ templates: t.templates, note: t.warnings.length ? `templates: ${t.warnings.join("; ")}` : null }), (e: unknown) => ({ templates: [], note: `templates not listed: ${errorText(e)}` })),
+    [templatesVersion],
+  );
   const personas = personaLoad.data?.personas ?? [];
   const imageProfiles = profileLoad.data?.profiles ?? [];
-  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note].filter(Boolean).join("; ") || null;
+  const templates = useMemo(() => templateLoad.data?.templates ?? [], [templateLoad.data]);
+  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
@@ -447,6 +456,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [view, setView] = useState<View>("design");
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
   /** An Add-panel drop waiting on its popover (docs/design/canvas-add-panel.md §4.1): nothing is written until it closes. */
+  /** The devices the canvas selects once drawn: a template's open ports after its drop (§5.2). */
+  const [highlight, setHighlight] = useState<{ names: string[]; n: number } | null>(null);
+  /** A template drop waiting on its settings form (§5.2). */
+  const [pendingTemplate, setPendingTemplate] = useState<{ template: Template; at: { x: number; y: number } | null; screen: { x: number; y: number } } | null>(null);
   const [pendingDrop, setPendingDrop] = useState<{ item: PaletteItem; target: DropTarget; at: { x: number; y: number } | null; screen: { x: number; y: number } } | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
   /** The working-copy poll's last failure; the next good poll clears it (R3-9). */
@@ -822,6 +835,15 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
       const target: DropTarget = segment ? { segment } : via && "router" in via ? { router: via.router } : { pane: true };
       const where = screen ?? { x: 80, y: 80 };
+      if (item.kind === "template") {
+        const template = templates.find((t) => t.id === item.id);
+        if (!template) {
+          setBlocked(`template ${item.id} is no longer in the catalog`);
+          return;
+        }
+        setPendingTemplate({ template, at, screen: where });
+        return;
+      }
       if (item.kind === "tool" && item.tool === "internet") {
         const router = "router" in target ? target.router : null;
         if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files) === null) rememberAdd(item);
@@ -833,7 +855,27 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
       setPendingDrop({ item, target, at, screen: where });
     },
-    [edit, imageProfiles],
+    [edit, imageProfiles, templates],
+  );
+  // A template lands as ONE command (§5.2): expanded, copied in by the duplicate-subtree engine, laid
+  // out where it was dropped, its open ports selected so they stand out for wiring.
+  const commitTemplate = useCallback(
+    (values: Values) => {
+      const p = pendingTemplate;
+      setPendingTemplate(null);
+      if (!p) return;
+      let drop: TemplateDrop | null = null;
+      const reason = edit(`add template ${p.template.label}`, (d, m) => {
+        drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at);
+        return drop.files;
+      });
+      if (reason || !drop) return;
+      const done: TemplateDrop = drop;
+      rememberAdd({ kind: "template", id: p.template.id, label: p.template.label });
+      if (Object.keys(done.positions).length) onPinMany(done.positions);
+      if (done.ports.length) setHighlight((h) => ({ names: done.ports, n: (h?.n ?? 0) + 1 }));
+    },
+    [pendingTemplate, edit, imageProfiles, onPinMany],
   );
   const commitDrop = useCallback(
     (c: DropCommit) => {
@@ -1405,8 +1447,9 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,
       onAnnotations: setAnnotations,
+      highlight,
     };
-  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin]);
+  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -1886,8 +1929,23 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data && model
               ? {
-                  palette: <AddPanel personas={personas} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} />,
-                  quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} onPick={pick} onClose={close} />,
+                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} disabled={Boolean(locked)} />} />,
+                  quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} templates={templates} onPick={pick} onClose={close} />,
+                  ...(pendingTemplate
+                    ? {
+                        overlay: (
+                          <TemplatePopover
+                            key={`${pendingTemplate.template.id}:${pendingTemplate.screen.x}:${pendingTemplate.screen.y}`}
+                            template={pendingTemplate.template}
+                            profiles={imageProfiles}
+                            at={pendingTemplate.screen}
+                            where={pendingTemplate.at ? "here" : "at the centre"}
+                            onCommit={commitTemplate}
+                            onCancel={() => setPendingTemplate(null)}
+                          />
+                        ),
+                      }
+                    : {}),
                   ...(pendingDrop
                     ? {
                         overlay: (

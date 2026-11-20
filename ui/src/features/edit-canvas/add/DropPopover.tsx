@@ -8,13 +8,14 @@
  * or a click outside commit (Esc and outside keep the defaults), Cancel drops nothing -- so the
  * drop and every choice here are ONE undo step.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ImageProfile, Persona } from "../../../api/types";
 import type { TeModel } from "../edit/te";
 import type { PaletteItem } from "../edit/EditContext";
 import { DEVICE_CARDS, defaultRole, imageFor, missingPeers, peerOffer, personaBlurb, personaLabel, profileFor, rolesFor, type CardId, type Os, type PeerOffer } from "./catalog";
 import type { DeviceDrop, DropTarget } from "./drop";
+import { usePopoverAt } from "./usePopoverAt";
 
 export type DropCommit = { kind: "device"; spec: DeviceDrop } | { kind: "tap"; segment: string; sensors: string[] };
 
@@ -62,20 +63,6 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [schedule, setSchedule] = useState("");
   const [peers, setPeers] = useState<PeerOffer[]>([]);
   const [tapSensors, setTapSensors] = useState(sensors[0] ?? "");
-  const box = useRef<HTMLDivElement>(null);
-  // Opened at the drop point, kept inside the canvas: moved up / left when it would overflow it.
-  const [pos, setPos] = useState(at);
-  useLayoutEffect(() => {
-    const el = box.current;
-    const shell = el?.offsetParent as HTMLElement | null;
-    if (!el || !shell) return;
-    const h = el.offsetHeight;
-    const w = el.offsetWidth;
-    const top = Math.max(8, Math.min(at.y, shell.clientHeight - h - 8));
-    const left = Math.max(8, Math.min(at.x, shell.clientWidth - w - 8));
-    if (top !== pos.y || left !== pos.x) setPos({ x: left, y: top });
-  });
-
   const groups = useMemo(() => (card ? rolesFor(card, os, personas, traffic) : []), [card, os, personas, traffic]);
   const persona = personas.find((p) => p.id === role) ?? null;
   const profile = card ? profileFor(card, os) : null;
@@ -131,27 +118,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
     if (c) onCommit(c);
     else onCancel();
   };
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
-
-  // Esc or a click outside keeps the defaults: the drop is written as it stands.
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (box.current && !box.current.contains(e.target as Node)) commitRef.current();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        commitRef.current();
-      }
-    };
-    document.addEventListener("mousedown", onDown, true);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("mousedown", onDown, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, []);
+  const { box, pos } = usePopoverAt(at, commit);
 
   const title = item.kind === "tool" ? item.label : def!.label;
   return (

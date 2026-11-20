@@ -1,7 +1,7 @@
 # The canvas "Add" panel: devices, roles and templates
 
-**Status:** D1–D4 signed off 2026-11-20. Phase 1 (devices) built 2026-11-20.
-Phases 2 and 3 not yet built. Phases are in §9.
+**Status:** D1–D4 signed off 2026-11-20. Phase 1 (devices) and phase 2
+(built-in templates) built 2026-11-20. Phase 3 not yet built. Phases are in §9.
 
 **Loop step:** **customize** (step 3). A user must be able to design a twin
 by hand on the canvas, not only through Claude writing catalog files.

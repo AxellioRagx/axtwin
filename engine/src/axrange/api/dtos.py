@@ -2373,6 +2373,27 @@ class PersonaDTO(BaseModel):
     blurb: str = ""
 
 
+class TemplateDTO(BaseModel):
+    """A canvas template (docs/design/canvas-add-panel.md §5): the file's
+    `template:` mapping as written (settings not applied; the canvas and
+    `axrange.api.templates.expand` apply them)."""
+
+    id: str
+    builtin: bool = False
+    label: str
+    description: str = ""
+    icon: str = ""
+    params: list[dict[str, Any]] = []
+    ports: list[dict[str, Any]] = []
+    fragment: dict[str, Any] = {}
+    layout: dict[str, Any] = {}
+
+
+class TemplateListDTO(BaseModel):
+    templates: list[TemplateDTO]
+    warnings: list[str] = []
+
+
 class ImageProfileDTO(BaseModel):
     """One image profile (docs/design/canvas-add-panel.md §4.3): the image a
     dropped device gets; `image: null` when the profile names none."""

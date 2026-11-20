@@ -8,13 +8,15 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 
-import type { Persona } from "../../../api/types";
+import type { Persona, Template } from "../../../api/types";
 import type { PaletteItem } from "../edit/EditContext";
 import { PALETTE_MIME, useAddTarget } from "./AddContext";
 import { DEVICE_CARDS, FAVOURITES_KEY, RECENT_KEY, TOOLS, readRefs, refKey, searchAdd, toggleFavourite, writeRefs, type AddHit, type AddRef, type CardId, type ToolId } from "./catalog";
 
 export interface AddPanelProps {
   personas: readonly Persona[];
+  /** The templates the search covers too (their cards are the `templates` section). */
+  templateList?: readonly Template[];
   /** The design-health hints (`catalog.ts` `healthHints`). */
   health: readonly string[];
   disabled: boolean;
@@ -37,19 +39,21 @@ export function refOfItem(i: PaletteItem): AddRef | null {
 }
 
 export function itemOfHit(h: AddHit): PaletteItem {
-  return h.kind === "device" ? { kind: "device", id: h.card, card: h.card, role: h.role, os: h.os, label: h.label } : { kind: "tool", id: h.tool, tool: h.tool, label: h.label };
+  if (h.kind === "device") return { kind: "device", id: h.card, card: h.card, role: h.role, os: h.os, label: h.label };
+  if (h.kind === "template") return { kind: "template", id: h.template, label: h.label };
+  return { kind: "tool", id: h.tool, tool: h.tool, label: h.label };
 }
 
 export const cardItem = (card: CardId): PaletteItem => ({ kind: "device", id: card, card, label: DEVICE_CARDS.find((c) => c.id === card)!.label });
 export const toolItem = (tool: ToolId): PaletteItem => ({ kind: "tool", id: tool, tool, label: TOOLS.find((t) => t.id === tool)!.label });
 
 /** One draggable, clickable entry of the panel. */
-export function AddEntry({ item, detail, disabled, testId, favourite, onFavourite, onPick }: { item: PaletteItem; detail?: string; disabled: boolean; testId: string; favourite?: boolean; onFavourite?: () => void; onPick?: (item: PaletteItem) => void }) {
+export function AddEntry({ item, detail, disabled, testId, favourite, onFavourite, onPick, media }: { item: PaletteItem; detail?: string; disabled: boolean; testId: string; favourite?: boolean; onFavourite?: () => void; onPick?: (item: PaletteItem) => void; media?: ReactNode }) {
   const target = useAddTarget();
   const pick = onPick ?? ((i: PaletteItem) => target?.addHere(i));
   return (
     <li
-      className={`cv-add-entry${disabled ? " disabled" : ""}`}
+      className={`cv-add-entry${disabled ? " disabled" : ""}${media ? " has-media" : ""}`}
       draggable={!disabled}
       data-testid={testId}
       data-kind={item.kind}
@@ -64,6 +68,7 @@ export function AddEntry({ item, detail, disabled, testId, favourite, onFavourit
         if (!disabled) pick(item);
       }}
     >
+      {media ? <span className="cv-add-media">{media}</span> : null}
       <span className="cv-add-label">{item.label}</span>
       {detail ? <span className="cv-add-detail muted">{detail}</span> : null}
       {onFavourite ? (
@@ -91,19 +96,19 @@ export function AddHits({ hits, disabled, onPick }: { hits: readonly AddHit[]; d
     <ul className="cv-add-list" aria-label="Search results">
       {hits.slice(0, 12).map((h) => {
         const item = itemOfHit(h);
-        return <AddEntry key={`${h.kind}:${h.kind === "device" ? `${h.card}:${h.role ?? ""}` : h.tool}`} item={item} detail={h.detail} disabled={disabled} testId="add-hit" {...(onPick ? { onPick } : {})} />;
+        return <AddEntry key={`${h.kind}:${h.kind === "device" ? `${h.card}:${h.role ?? ""}` : h.kind === "template" ? h.template : h.tool}`} item={item} detail={h.detail} disabled={disabled} testId="add-hit" {...(onPick ? { onPick } : {})} />;
       })}
     </ul>
   );
 }
 
-export function AddPanel({ personas, health, disabled, note, templates }: AddPanelProps) {
+export function AddPanel({ personas, templateList = [], health, disabled, note, templates }: AddPanelProps) {
   const target = useAddTarget();
   const [query, setQuery] = useState("");
   const [favourites, setFavourites] = useState<AddRef[]>(() => readRefs(FAVOURITES_KEY));
   // Read when the panel opens (it mounts with the popover); a drop's commit writes it.
   const [recent] = useState<AddRef[]>(() => readRefs(RECENT_KEY));
-  const hits = useMemo(() => searchAdd(query, personas), [query, personas]);
+  const hits = useMemo(() => searchAdd(query, personas, templateList), [query, personas, templateList]);
   const favKeys = new Set(favourites.map(refKey));
   const toggle = (item: PaletteItem) => {
     const ref = refOfItem(item);

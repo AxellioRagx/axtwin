@@ -1,0 +1,30 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: ot-cell
+  builtin: true
+  label: OT cell
+  description: PLCs, an HMI and a historian behind a protocol gateway, the cell's IT/OT conduit.
+  icon: ot
+  params:
+    - { name: plcs, label: PLCs, type: int, default: 4, min: 1, max: 100 }
+    - { name: prefix, label: Name prefix, type: name, default: cell }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: it-side, device: "{prefix}-sw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-ot", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-sw", kind: switch, role: l2-switch, net: "{prefix}-ot" }
+      - { name: "{prefix}-gwy", role: protocol-gateway, profile: linux-server, net: "{prefix}-ot" }
+      - { name: "{prefix}-plc", role: plc, profile: linux-server, count: "{plcs}", net: "{prefix}-ot" }
+      - { name: "{prefix}-hmi", role: hmi, profile: linux-server, net: "{prefix}-ot" }
+      - { name: "{prefix}-hist", role: historian, profile: linux-server, net: "{prefix}-ot" }
+    assignments:
+      - { node: "{prefix}-gwy", persona: protocol-gateway }
+      - { node: "{prefix}-plc", persona: plc }
+      - { node: "{prefix}-hmi", persona: hmi }
+      - { node: "{prefix}-hist", persona: historian }
+  layout:
+    "{prefix}-sw": { x: 0, y: 0 }

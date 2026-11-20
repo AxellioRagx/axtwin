@@ -23,6 +23,8 @@ import type {
   LayoutWrite,
   PersonaList,
   ImageProfileList,
+  Template,
+  TemplateList,
   PlanSummary,
   ProbeResult,
   SourceRunRequest,
@@ -104,6 +106,9 @@ export interface Api {
   listPersonas(signal?: AbortSignal): Promise<PersonaList>;
   /** The Add panel's image profiles (card + OS -> image), read-only. */
   listImageProfiles(signal?: AbortSignal): Promise<ImageProfileList>;
+  /** The canvas templates (built-in and saved), `docs/design/canvas-add-panel.md` §5. */
+  listTemplates(signal?: AbortSignal): Promise<TemplateList>;
+  getTemplate(id: string, signal?: AbortSignal): Promise<Template>;
   // The edit model (`api/Spec.md` A2, A3): the document, Save / Save-As, and a deploy's working copy.
   /** The twin-config with its `document` (the bundle's text files); 404 when the catalog has no such entry. */
   getTwinConfig(id: string, signal?: AbortSignal): Promise<TwinConfigDetail>;
@@ -198,6 +203,8 @@ export function makeApi(request: Requester): Api {
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
     listImageProfiles: (signal) => request("GET", "/api/image-profiles", { signal }),
+    listTemplates: (signal) => request("GET", "/api/templates", { signal }),
+    getTemplate: (id, signal) => request("GET", `/api/templates/${enc(id)}`, { signal }),
     // The server includes the bundle `document` (the canvas's edit mode) only
     // for a caller its write policy accepts; the summary is open.
     getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),

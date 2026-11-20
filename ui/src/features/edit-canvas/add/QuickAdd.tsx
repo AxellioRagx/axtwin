@@ -5,14 +5,14 @@
  */
 import { useMemo, useState } from "react";
 
-import type { Persona } from "../../../api/types";
+import type { Persona, Template } from "../../../api/types";
 import type { PaletteItem } from "../edit/EditContext";
 import { AddEntry, AddHits, cardItem, itemOfHit, toolItem } from "./AddPanel";
 import { DEVICE_CARDS, TOOLS, searchAdd } from "./catalog";
 
-export function QuickAdd({ personas, onPick, onClose }: { personas: readonly Persona[]; onPick(item: PaletteItem): void; onClose(): void }) {
+export function QuickAdd({ personas, templates = [], onPick, onClose }: { personas: readonly Persona[]; templates?: readonly Template[]; onPick(item: PaletteItem): void; onClose(): void }) {
   const [query, setQuery] = useState("");
-  const hits = useMemo(() => searchAdd(query, personas), [query, personas]);
+  const hits = useMemo(() => searchAdd(query, personas, templates), [query, personas, templates]);
   return (
     <div
       className="cv-popover cv-quick"

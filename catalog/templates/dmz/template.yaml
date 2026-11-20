@@ -1,0 +1,24 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: dmz
+  builtin: true
+  label: DMZ
+  description: A firewall with a public web server and a reverse proxy behind it.
+  icon: dmz
+  params:
+    - { name: prefix, label: Name prefix, type: name, default: dmz }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: outside, device: "{prefix}-fw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-net", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-fw", kind: router, role: firewall, profile: router, net: "{prefix}-net" }
+      - { name: "{prefix}-web", role: dmz-web, profile: linux-server, net: "{prefix}-net" }
+      - { name: "{prefix}-proxy", role: reverse-proxy, profile: linux-server, net: "{prefix}-net" }
+    assignments:
+      - { node: "{prefix}-web", persona: dmz-web }
+  layout:
+    "{prefix}-fw": { x: 0, y: 0 }
