@@ -29,8 +29,8 @@ export function AppFrame() {
   const { pathname } = useLocation();
   const inImprints = pathname === "/imprints" || pathname.startsWith("/imprints/");
   const inDiscovery = pathname === "/discovery" || pathname.startsWith("/discovery/") || inImprints;
-  // `/` and `/canvas/new` are the untitled design; `/canvas/<id>` and `/twins/<id>/canvas` a named one.
-  const isCanvas = pathname === "/" || /^\/canvas\/[^/]+$/.test(pathname) || /^\/twins\/[^/]+\/canvas$/.test(pathname);
+  // `/` and `/canvas/new` are the untitled design; `/canvas/<id>` and `/twins/<id>/canvas` a named one; `/canvas/drafts/<id>` a draft.
+  const isCanvas = pathname === "/" || /^\/canvas\/[^/]+$/.test(pathname) || /^\/canvas\/drafts\/[^/]+$/.test(pathname) || /^\/twins\/[^/]+\/canvas$/.test(pathname);
   const signin = signinHref(whoami.signin_url);
   return (
     <WhoamiContext.Provider value={whoami}>

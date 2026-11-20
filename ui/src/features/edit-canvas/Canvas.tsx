@@ -485,6 +485,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const [conduitFrom, setConduitFrom] = useState<string | null>(null);
   // A handle drag (the attach gesture) is in flight: every bus's target handle grows to its whole lane.
   const [connecting, setConnecting] = useState(false);
+  /** The node a handle drag started on (the gesture's `from` end). */
+  const connectFromRef = useRef<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuSubject } | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -1035,8 +1037,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const onConnect = useCallback(
     (c: Connection) => {
       if (!edit || !editing) return;
-      const from = connectEndOf(rf.getNode(c.source));
-      const to = connectEndOf(rf.getNode(c.target));
+      // The drag's own start is the `from` end (React Flow may hand a source-to-source pair back swapped).
+      const [fromId, toId] = connectFromRef.current && c.target === connectFromRef.current ? [c.target, c.source] : [c.source, c.target];
+      const from = connectEndOf(rf.getNode(fromId));
+      const to = connectEndOf(rf.getNode(toId));
       if (from && to && edit.onConnectIntent) {
         edit.onConnectIntent(connectIntent(edit.model.te, from, to));
         return;
@@ -1550,7 +1554,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             onSelectionChange={onSelectionChange}
             onSelectionEnd={onSelectionEnd}
             onConnect={onConnect}
-            onConnectStart={() => setConnecting(true)}
+            onConnectStart={(_e, p) => {
+              connectFromRef.current = p.nodeId ?? null;
+              setConnecting(true);
+            }}
             onConnectEnd={onConnectEnd}
             connectionMode={ConnectionMode.Loose}
             onDrop={onDrop}

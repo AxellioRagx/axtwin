@@ -483,7 +483,7 @@ g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
    in flight, every router / switch / implied switch is a drop target (its whole box), lit under the pointer. */
 .canvas-shell.editing .cv-device:hover .react-flow__handle-bottom { opacity: 1; }
 .canvas-shell.editing.connecting .cv-implied .react-flow__handle-top,
-.canvas-shell.editing.connecting .cv-router:not(.cv-implied) .react-flow__handle-bottom:not(.connectingfrom) { width: 100%; height: 100%; border-radius: 6px; left: 0; top: 0; bottom: auto; transform: none; pointer-events: all; opacity: 1; background: transparent; border: none; }
+.canvas-shell.editing.connecting .cv-router:not(.cv-implied) .react-flow__handle-bottom.source:not(.connectingfrom) { width: 100%; height: 100%; border-radius: 6px; left: 0; top: 0; bottom: auto; transform: none; pointer-events: all; opacity: 1; background: transparent; border: none; }
 .canvas-shell.editing.connecting .react-flow__handle.connectingto { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 2px solid var(--accent); }
 .canvas-shell.editing.connecting .react-flow__handle.connectingto:not(.valid) { outline-color: var(--bad); }
 .cv-connect-hint.refused { color: var(--bad); }

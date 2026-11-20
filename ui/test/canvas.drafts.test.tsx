@@ -30,6 +30,8 @@ describe("a draft on the canvas", () => {
     renderAt(api, "/canvas/drafts/corp-auth-draft");
     await screen.findAllByTestId("canvas-host");
     expect(screen.getByTestId("draft-label").textContent).toBe("draft");
+    // The canvas frame (its one top bar holds the title and the exits), as on any canvas route.
+    expect(window.document.querySelector(".frame.canvas-frame")).not.toBeNull();
     expect(screen.getByTestId("state-pill").textContent).toContain("draft of corp-auth");
     expect(screen.queryByTestId("deploy-open")).toBeNull();
     // A failing draft: Replace stays closed; Save draft writes the draft only.
