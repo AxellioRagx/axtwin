@@ -822,7 +822,6 @@ export function TrunkEdge(e: E) {
  *  inspector can show its row. */
 export function LinkEdge(e: E) {
   const overlay = useContext(OverlayContext);
-  const labels = useContext(LabelsContext);
   const routed = useTreeRoute(e);
   const d = e.data;
   if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
@@ -834,8 +833,9 @@ export function LinkEdge(e: E) {
     // A segment only routers are on (a transit, fab-link): one thick router-to-router wire, its
     // segment a pill (name · CIDR) on the drop into the child router.
     return (
-      <g data-testid="canvas-seglink" data-segment={d.segment} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
-        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.cidr ? `${d.segment} · ${d.cidr}` : d.segment} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
+      <g data-testid="canvas-seglink" data-segment={d.segment} data-source={d.source ?? undefined} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+        {/* C1: the pill (name · CIDR) shows at every Labels setting; C2: unconfirmed under the overlay is a "?" on it, never a dash. */}
+        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={`${overlay && d.source === "unconfirmed" ? "? " : ""}${d.cidr ? `${d.segment} · ${d.cidr}` : d.segment}`} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
         <EdgeFindingBadge k={`segment:${d.segment}`} x={labelX} y={labelY - 14} />
       </g>
     );

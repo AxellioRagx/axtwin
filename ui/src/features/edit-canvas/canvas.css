@@ -159,7 +159,10 @@
 .cv-host { position: relative; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--bg); color: var(--ink); font-size: 13px; white-space: nowrap; overflow: visible; cursor: grab; }
 .cv-host .cv-ring { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--ev, var(--line)); flex: none; color: var(--ink); }
 .cv-host .cv-ring svg { width: 14px; height: 14px; }
-.cv-host .cv-host-label { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 10.5px; line-height: 1.1; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 85%, transparent); max-width: 96px; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+/* C3: a host's label is cut to its column (the 30 px icon + the 14 px gap between hosts) so two under one
+   switch never overlap; hovered or selected it shows whole, above its neighbours. */
+.cv-host .cv-host-label { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 10.5px; line-height: 1.1; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 85%, transparent); max-width: calc(100% + 14px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; box-sizing: border-box; }
+.cv-host:hover .cv-host-label, .cv-host.selected .cv-host-label { max-width: none; z-index: 6; background: var(--bg); }
 .cv-host.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .cv-host.selected .cv-host-label { color: var(--accent); }
 /* ONE badge style: the `×N` sits inside the icon's bounds at its bottom-right. */
@@ -410,7 +413,8 @@ table.cv-matrix th:first-child { text-align: left; }
 .canvas-shell.overlay .cv-ov-unconfirmed { outline: 2px dashed #e08a1e; outline-offset: 1px; }
 .canvas-shell.overlay .cv-router.cv-ov-asserted, .canvas-shell.overlay .cv-router.cv-ov-authored, .canvas-shell.overlay .cv-router.cv-ov-unconfirmed { outline: none; }
 /* an edge wears its state in its stroke, never an outline (an outline on a <g> is its whole bounding box) */
-.canvas-shell.overlay g.cv-ov-edge-unconfirmed .react-flow__edge-path.cv-link { stroke-dasharray: 6 4; }
+/* C2: a transit (a seglink) is never dashed by the overlay; an unconfirmed one says so with a "?" on its pill. */
+.canvas-shell.overlay g.cv-ov-edge-unconfirmed:not(.cv-seglink) .react-flow__edge-path.cv-link { stroke-dasharray: 6 4; }
 .canvas-shell.overlay g.cv-ov-edge-asserted .react-flow__edge-path.cv-link { stroke-width: 3; }
 .canvas-shell.overlay .cv-router.cv-ov-asserted .cv-icon-box, .canvas-shell.overlay .cv-router.cv-ov-authored .cv-icon-box { box-shadow: 0 0 0 2px var(--accent); }
 .canvas-shell.overlay .cv-router.cv-ov-unconfirmed .cv-icon-box { border-style: dashed; }

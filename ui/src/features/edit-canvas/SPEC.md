@@ -308,6 +308,10 @@ criteria of its own beyond them.
   router -> pane makes a LAN segment; a full mesh of 4 makes 6 transits, a linked pair is refused;
   the free layout keeps a dropped position, draws every edge point to point and gives a
   triangle's three transits three different paths; the mode toggle is saved with the layout.
+- **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
+  pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
+  dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +
+  gap) and shown whole on hover or selection.
 - **Acceptance (eyes):** 3 routers on an empty canvas can be wired as a triangle in 3 drags and
   pass Check once each has a role and an image.
 - **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
