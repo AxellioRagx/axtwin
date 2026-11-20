@@ -4,99 +4,99 @@
 start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse than none,
 because it will be believed. Earlier handoffs: docs/handoffs/<YYYY-MM>.md. -->
 
-**Last updated:** 2026-11-17 (trex-test v2: SMB file transfers, AD, internal/external boundary; live on dev45; Phase B note still awaiting sign-off) ·
-**Branch:** `wip/trex-crowd`, cut from `wip/design-platforms-canvas` at `083d78c` (the user's
-choice: the repo has no `main`; `master` and `wip/api-discovery-runs` are older). Local commits
-only, not pushed. Rule: commit each piece as it lands, staged by path; push only when asked.
+**Last updated:** 2026-11-20 (discovery round trip on pace-test converged to a fixed point) ·
+**Branch:** `wip/design-platforms-canvas`, HEAD `7bc870c`, **10 commits ahead of origin, not
+pushed** (rule: commit locally, push only when asked). Note: the sessions of 2026-11-18/19
+(source Test connection, TLS toggle, run pre-fill, imprint versioning, axquery `/api/flows`,
+merge of `wip/trex-crowd` at `5d91500`) left no handoff; their story is in `git log` only.
 
 ## What this session did
 
-Earlier the same day, on `wip/design-platforms-canvas` (pushed): investigated a corp-twin-native
-destroy that looked stuck (it was clean; the canvas then read the twin invalid), fixed the
-canvas checks (CV-040 group-member link ends, parked-through-hosts) and added live destroy
-progress (`GET /api/deploys/{id}/destroy-progress`), commit `083d78c`.
+The user asked to replace the standing twin with a simple, brisk one, tap it to the sensor,
+discover an imprint through `XPress-SW-Reader` (axquery), cast it, compare with the original and
+fix the pipeline until it converges. Destroyed `trex-test-cba811f5` (clean, 14 resources);
+built and deployed `catalog/twins/pace-test` (router, bind9/nginx/Samba, 4 clients on `drive:
+command`, tap on `srv`); ran the round trip several times; fixed 8 defects (commits `89c6e68`
+`95695ff` `b837754` `bb6911b` `2d5f4f8`, comparators `f328ea4`); deployed the cast live
+(relocated) and re-discovered it. Full table: `catalog/twins/pace-test/README.md`.
 
-Then the TRex crowd brief, Phase A, on `wip/trex-crowd`:
-- `614784f` the `trex-astf` persona driver (`personas/drivers/trex_astf.py`), pinned to TRex
-  **v3.08** after reading the release's own `trex.astf.api`; DRIVE_KINDS/PSN-030 widened.
-- `a930d7d`, `b41ff98` the `catalog/twins/trex-test` bundle (gateways declared on segments).
-- `7225247` the cps-ratio nudge (a TRex v3.08 `KxuNuRand` abort, reproduced with astf-sim)
-  and `stats` carried through `GET /api/deploys/{id}/health?host=`.
-- Golden template `trex-astf` (manifest and binding in `~/axr-product/deploy-dev45/images/`,
-  untracked there; recipe restated in the twin README), built on dev45 as template **102**.
-- `docs/design/crowd-node.md`: the Phase B0 design note. **Stop here for sign-off.**
+## Current state
 
-2026-11-17, the user's request (SMB as multi-packet sessions with file transfer, add AD, SMB
-server on lan-b, HTTP/TLS/DNS answered by a separate external node behind a boundary):
-- `15b074c` driver: per-template `servers:` ranges (port+range association), `reply:` steps
-  (server-sent bytes), `size`/`fill` padding on send/reply.
-- `506dbcc` twin: `scripts/gen-smb-sessions.py` generates SMB 3.1.1 sessions (NTLMv2/SPNEGO
-  login as CROWD\alice / CROWD\bob, tree connect, create, 64 KiB reads or writes, close,
-  logoff) into the client persona; new node trex-ext on segment `inet` (192.0.2.0/24, TEST-NET
-  ranges behind it); dc01 (Windows 2022, AD DS crowd.axr.lab, users via `identity:`,
-  `prepare-dc.ps1` adds fs01/fs02 A records); gw nftables rule drops new connections from inet.
-  The boundary is topology + addressing + router policy (no schema field; no schema change).
-- Replaced the standing deploy at the user's choice: `trex-test-7758a202` destroyed clean.
-
-## Verified, and how
-
-- **Live on dev45, deploy `trex-test-cba811f5` (2026-11-17):** 70/70 ops; every template
-  answered by the intended side (SMB only by trex-server, web/DNS only by trex-ext); sink
-  `gre-cap` +5,150 pps / 44 Mbit/s; dev45 capture shows three GRE keys (lan-a all, lan-b SMB
-  only, perimeter web/DNS only), 0 malformed; SMB read and write sessions decoded end to end;
-  no inbound SYN at the perimeter; DC records and users read back by `qm guest exec`.
-  Details in `catalog/twins/trex-test/README.md` (Live acceptance). The first topology's
-  acceptance (`trex-test-9df9ca02`) is kept there too.
-- **Engine:** `test_trex_astf.py` 48 pass, 1 skip (the real-release check needs `TREX_HOME`; it passed with v3.08 for the SMB profile). The full
-  suite is 4443 pass and 3 fail, all from the user's untracked `catalog/twins/*`; with those
-  set aside, the catalog suites pass 42/42. **UI:** not touched; no rebuild needed.
-- **Serve:** :8080 restarted (user-asked, 2026-11-18) for the MTU change, now pid 2378767 (recipe in memory).
-- **dev45 now: trex-test is STANDING** as `trex-test-cba811f5` (te/tap/tfc completed),
-  feeding XPress-SW-A. It is not a leftover. Template 102 `img-trex-astf` is kept on purpose.
+- **Converged.** Structure: the cast equals pace-test (2 segments, 4 clients, dns-resolver 53,
+  web-tier 80/443, file-server 445, all real daemons, lan→srv conduit). The re-discovered cast's
+  imprint has the same hosts/roles/listen sets. Traffic, post driver fix (hour 23:00–24:00):
+  both twins deliver their declared rates within 0.5%; re-casting that hour gives exactly
+  `personas/pace-client.yaml`'s cadences (5s med / 10s / 10s / 30s / 15s).
+- **Tests:** discovery 2505 pass, 1 skip. Engine 4514 pass, 3 fail — all from untracked
+  `catalog/twins/*` folders (the user's, plus this session's `pace-cast`, `pace-cast-r73`);
+  pre-existing class (registry/bundle-layout tests).
+- **dev45 now: two STANDING twins, on purpose, both traffic on, both tapped to XPress-SW-A:**
+  `pace-test-1f4a6c96` (tap `tap-pace-test-1f4a6c96-2bf5e29a`, tfc re-applied 23:01 on the fixed
+  driver) and `pace-cast-r73-7b02f2b7` (10.73.0/1.0/24 + sink 10.200.254.0/24; tap on its server
+  segment only, `tap-pace-cast-r73-7b02f2b7-211bde6e`). trex-test is gone; template 102
+  `img-trex-astf` is still kept.
+- **Serve NOT restarted** (pid 2614679 runs pre-`2d5f4f8` engine). tfc applied through the CLI
+  renders the fixed client; tfc applied through the API/console still renders the OLD loop until
+  a user-asked restart. aximprint is a subprocess from the editable install, so API casts already
+  use the new cast code.
 
 ## Work in progress
 
-None half-edited. Phase B is not started, by the brief's rule.
+None half-edited. `catalog/twins/pace-cast/` and `pace-cast-r73/` are API cast output (untracked,
+like `test1`): keep or delete is the user's call.
 
 ## Next steps (ordered)
 
-1. The user signs off (or amends) `docs/design/crowd-node.md` D1–D7 before any Phase B code.
-2. Locate the DNS loss at ×2 (seen again on v2: 16,353 of 108,655 unanswered): capture during
-   ×2 and compare the lan-a and perimeter tap counts of UDP/53.
-   Also: gw's `axr-crowd-routes.service` is enabled but `inactive` (script ran routes.sh directly).
-3. Open items carried in the note: TRex EMU for on-link ranges; the image build's smoke test
-   (its exporter op is config-class, and the build executor has no config backend); the
-   Debian `configure-router` static-route handler.
+1. Ask the user what to do with the two standing twins; teardown when told:
+   `.venv/bin/axrange te destroy <id> --allow-destroy --db ~/.axrange/state.db` (cascades tap/tfc).
+2. Serve restart (only when asked) so console-applied traffic gets the anchored client — recipe
+   in memory `axrange-serve-restart-recipe`.
+3. Optional live 1.0 proof: re-cast from a post-fix, original-only imprint (the reader mixes both
+   twins in one PIT — suppress 10.73.* by assertions or stop the cast's tfc for an hour), re-apply
+   the cast's tfc, compare an hour with `discovery/scripts/compare_imprints.py --map
+   10.72.1=10.73.0,10.72.2=10.73.1`.
+4. Carried from 2026-11-17 (trex): DNS loss at ×2 (needs trex-test redeployed); gw
+   `axr-crowd-routes.service` enabled but inactive; TRex EMU for on-link ranges; image-build
+   smoke test (exporter op is config-class, no config backend); Debian `configure-router`
+   static-route handler.
 
 ## Open questions / decisions pending
 
-
-- Phase B sign-off (above). Merge or push of `wip/trex-crowd`: the user's call.
-- Carried forward: the serve's auth mode (`none` on 0.0.0.0); corp-apcn-reader-20261028 is
-  still invalid, with no twin.yaml.
+- Push / merge of `wip/design-platforms-canvas` (10 ahead): the user's call.
+- Cast tap plan binds EVERY segment; the source vantage was one segment, so a re-capture of a
+  cast double-counts routed flows. Should the cast tap only where the source was observed? Not
+  decided; worked around by tapping manually.
+- `_cadence_for`/`pace_for` clamp at 600 s over-offers rare background emits (cast file-server →
+  sink TLS 16/h vs 0.5/h observed). Relax the clamp? Not decided.
+- The cast does not reproduce the source resolver's recursion to root servers (~20 flows/h).
+- Carried: Phase B sign-off of `docs/design/crowd-node.md` D1–D7 (status since the merge
+  unknown); serve auth mode `none` on 0.0.0.0; `corp-apcn-reader-20261028` still invalid.
 
 ## Mental model / gotchas
 
-- **Router legs:** a pinned router-leg `ip:` records NO segment gateway, so hosts get no
-  default route. Declare `gateway:` on the segment and leave the router legs unpinned.
-- **Capability vocabulary:** `requires:` keywords are a closed set (STR-110); an image may
-  `provides:` anything.
-- **Image build:** it fails at its smoke test for every image (leaving a VM, zone, vnet and
-  bridge; clean with `axrange te destroy <id> --db /tmp/axr-imgsmoke-*/smoke-state.db
-  --allow-destroy`). Build with `--skip-smoke`.
-- **TRex in the guest:** the daemon and the controller are two transient units per side, and
-  the NIC is flushed for TRex and restored on stop. The persona schedule lives in knobs,
-  because assignment `schedule:` takes only 24x7 / business-hours.
-- **Tap GRE:** since 2026-11-17 the transport runs at MTU 1600 and full-size mirrored frames are ONE outer packet (o2 zone `mtu`, plus the attach-gre-tunnel runtime assert). dev45's o2 zone `o2zbe2d1` was set to `mtu 1600` on 2026-11-18 at the user's go-ahead (legs first, then the zone), so `o2v7dc98` keeps 1600 through SDN reloads. Older captures have two outer IPv4 fragments per full-size frame. Decapsulate a dev45
-  capture with reassembly (the session's scratchpad `gre_decap.py`, now with a per-key split; restate it if needed).
-- **ASTF:** two server templates on one port need an association by port+IP range (else
-  "Two server template with port 445"); the NetBIOS length must include the fill bytes.
-- Carried forward: build `ui/` to `dist.new` and swap; engine changes need the serve restart;
-  find the serve pid with `pgrep -af 'axrange serve' | grep -v bash`.
+- **Reader timing:** XPress-SW-Reader (`src-69243c4e`, https://10.80.72.40/axquery) indexes
+  HOURLY chunks, available ~1 min after the hour. Rate quantiles in a PIT need ≥4 windows
+  (`_RATE_MIN_WINDOWS`), so a 1–3 h imprint has none — the cast now paces from `ir_edge.flows`.
+- **axquery labels TLS `tls`**, Zeek `ssl`; both are in `_IR_PROTO_ALIASES["https"]` now.
+- **Lab sensors:** `axrange tap deploy` (CLI) does not read `AXRANGE_TARGETS` lab sensors
+  ("unknown sensor 'XPress-SW-A'"); apply taps through `POST /api/taps`. `te destroy` takes no
+  `--images`. CLI `tfc deploy <path>` loads the bundle's own `personas/`.
+- **CLI discovery by hand:** `. ~/.axrange/pace-rt/env.sh` (0600; pulls the reader API key from
+  `~/.axrange/discovery.db` and sets TLS-verify off), then `aximprint ingest --plugin axquery
+  --source axquery:https://10.80.72.40/axquery --from/--to ...`. Scratch stores under
+  `~/.axrange/pace-rt/`.
+- **Gateway fold:** an entity at network+1 with role None/`generic-endpoint` and no listen set
+  is folded into `gw` (axRange gives router legs network+1). A role-bearing `.1` is kept.
+- **Persona clients** (scripted/command/browser) are held to a jitter-free anchor; the scripted
+  golden hashes in two engine tests were re-pinned for that on purpose.
+- Carried: router legs — declare `gateway:` on the segment, leave legs unpinned; `requires:` is
+  a closed vocabulary; image build fails at smoke test (build with `--skip-smoke`); tap GRE runs
+  at MTU 1600 (dev45 zone `o2zbe2d1`); ASTF needs port+range association for two templates on
+  one port. Build `ui/` to `dist.new` and swap; engine changes need the serve restart.
 
 ## Environment
 
 One venv at `.venv/` (engine + discovery editable), node 22 for `ui/`, live state in
-`~/.axrange/` (targets file `~/.axrange/targets.yaml`). Images root
-`~/axr-product/deploy-dev45`. TRex v3.08 tarball sha256 `d2ac7362…4972b5f`. dev45 API
-10.80.76.108:8006; sink XPress-SW-A management 10.80.72.43 (`fxadmin`).
+`~/.axrange/` (targets `~/.axrange/targets.yaml`; logs `~/.axrange/pace-*-{te,tap,tfc}-*.log`).
+Images root `~/axr-product/deploy-dev45`. dev45 API 10.80.76.108:8006; sink XPress-SW-A mgmt
+10.80.72.43 (`fxadmin`; `ip -s link show gre-cap` for the RX counter).
