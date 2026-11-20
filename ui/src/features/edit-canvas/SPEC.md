@@ -167,7 +167,17 @@ wears a halo, so a line never runs across a name. A transit keeps its pill on
 its own line at the midpoint; one that would cover a node's name or another
 pill is nudged along its line (up to ±30% of its length), then off it, never
 onto a name. Every transit, in the free layout and the tree, wears the one
-neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue. The layout bar's
+neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue.
+**Placement of dropped nodes (2026-11-20, round 2, `add/placeDrop.ts`):** in
+the free layout everything a drop or a template makes gets a pin near the drop
+point: a device the drop or the template's layout placed keeps that spot; a
+new segment's implied switch stands just above its first host (or just below
+the router it hangs from); a host group stands in the row under its switch
+(the real switch carrying its segment, else the implied one) with the tree's
+spacing, continuing a row the segment already has; a template's layout applies
+relative to the drop point, and its hosts, which the layout does not name, join
+that row. Nothing a drop creates is left without a position (they had landed
+at the canvas's top-left corner). The tree keeps its own placement. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 
@@ -309,6 +319,16 @@ criteria of its own beyond them.
     with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close or an in-app link (XTwin, Open,
     the top menu) leaves it; letting an untitled design go drops its browser copy.
     The browser's Back is not guarded (no data router).
+    **Clean rule (2026-11-20, round 2):** an untitled design is clean when its document is at its
+    blank start (a clone never is) and it has no live layout pin and no annotation. A pin whose node
+    no longer exists (removed, or undone away) is dormant on a design kept in this browser: kept, so a
+    redo puts its node back where it stood, but neither an unsaved change nor "something on the
+    canvas". The layout bar's count is the same rule: what differs (live pins, annotations, the mode)
+    from the layout as last loaded, saved or discarded to -- not a tally of gestures. Undone back to
+    its blank start, the untitled design's browser copy (stack and layout) is cleared, so the next New
+    opens empty.
+  - Selection after a document change (an edit, an undo, a redo): pruned to what still exists;
+    nothing left is no selection, and the inspector shows the Twin summary.
 - **Automated, on-demand Check and drafts (2026-11-20, *`canvas.edit.test.tsx`*,
   *`canvas.exits.test.tsx`*, *`canvas.drafts.test.tsx`*, *`canvas.subtree.test.tsx`*):**
   - No `POST /api/validate` fires on load or on an edit; the badge reads `unchecked`, then
@@ -338,6 +358,12 @@ criteria of its own beyond them.
   for its routers sorted; every transit wears `TRANSIT_HUE`; a pill is nudged off a name; a
   drag from a router's ring makes a transit, from its icon draws nothing (it moves), and in
   Connect mode a drag from the icon makes a transit; a ring dropped on a segment attaches.
+- **Automated, round 2 placement and clean rule (2026-11-20, *`canvas.dropplace.test.tsx`*,
+  *`canvas.clean.test.tsx`*):** a File server with "Add 5 workstations" dropped on the empty
+  canvas and the Branch office template each land with every node within a template's box of the
+  drop point (no edge longer than it); routers placed, linked and undone back to empty leave no
+  layout change, no leave prompt and nothing in browser storage, and a redo restores the router's
+  spot; a selection undone away shows the Twin summary.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +

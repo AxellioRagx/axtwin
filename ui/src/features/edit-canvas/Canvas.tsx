@@ -1126,8 +1126,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       // while the page re-places after a duplicate) is not a marquee. A pane click clears it first.
       if (selectionRef.current.kind === "subtree") return;
       const data = sel.map((n) => n.data as CanvasNode["data"]);
-      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : ""));
-      const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
+      // Only what the document still has: an undo that took the selected nodes away is echoed back
+      // by React Flow before they leave its store, and must not put them back in the selection.
+      const te = edit.model.te;
+      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : "")).filter((n) => te.nodes.some((x) => x.name === n));
+      const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : "")).filter((n) => te.segments.some((x) => x.name === n));
+      if (hosts.length + segs.length < 2) return;
       const next: Selection = hosts.length ? { kind: "node", names: hosts } : segs.length ? { kind: "segment", names: segs } : { kind: "none" };
       if (JSON.stringify(next) !== JSON.stringify(selectionRef.current)) edit.onSelection(next);
     },

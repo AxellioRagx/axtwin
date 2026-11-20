@@ -48,6 +48,7 @@ import {
   type WorkingDoc,
 } from "./edit/document";
 import type { Files } from "./edit/commands";
+import type { TeModel } from "./edit/te";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
@@ -72,6 +73,39 @@ export type Selection =
   /** A device and everything below it (§6). */
   | { kind: "subtree"; root: string }
   | { kind: "annotation"; id: string };
+
+/** The selection with what no longer exists in the document left out (2026-11-20, round 2: an undo
+ *  took branch-gw and branch-sw away and the Selection tab still listed them). Nothing left is no
+ *  selection -- the Twin summary. An annotation is not the document's: kept. Returns `sel` itself
+ *  when nothing changed. Pure. */
+export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null }): Selection {
+  const te = model.te;
+  const node = (n: string) => te.nodes.find((x) => x.name === n);
+  switch (sel.kind) {
+    case "node":
+    case "segment": {
+      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) : te.segments.some((s) => s.name === n)));
+      if (names.length === sel.names.length) return sel;
+      return names.length ? { ...sel, names } : { kind: "none" };
+    }
+    case "leg":
+      return node(sel.node)?.nets.some((l) => l.segment === sel.segment) ? sel : { kind: "none" };
+    case "link":
+      return te.links.some((l) => l.index === sel.index) ? sel : { kind: "none" };
+    case "conduit":
+      return te.conduits.some((c) => c.index === sel.index) ? sel : { kind: "none" };
+    case "tap":
+      return model.tap?.bindings.some((b) => b.index === sel.index) ? sel : { kind: "none" };
+    case "member": {
+      const n = node(sel.node);
+      return n && sel.index <= n.countValue ? sel : { kind: "none" };
+    }
+    case "subtree":
+      return node(sel.root) ? sel : { kind: "none" };
+    default:
+      return sel;
+  }
+}
 
 export interface SidePanelProps {
   twinId: string;

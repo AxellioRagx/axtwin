@@ -6,8 +6,14 @@
  * the precondition -- never a write per drag. `discard` returns to the layout
  * as last loaded or saved. On a 412 the fresh document's etag is taken so the
  * next `save` replaces the other console's layout with this one, said so.
+ *
+ * What counts as unsaved (2026-11-20, round 2) is a DIFF, not a tally of gestures: the pins, the
+ * annotations and the mode as they stand against the document as last loaded or saved. A pin whose
+ * node no longer exists (`isLive` says no -- removed, or undone away) is dormant: it is kept, so a
+ * redo brings its node back where it stood, but it is not a change, and it is not "anything on the
+ * canvas" (`livePins`). The page's leave guard and the layout bar read this one rule.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../../../api/client";
 import type { Api } from "../../../api/discovery";
@@ -39,13 +45,37 @@ export function pinsOf(doc: LayoutDoc | null): Pins {
   return doc && doc.plane === CANVAS_PLANE ? doc.pins : NO_PINS;
 }
 
+/** How many pin keys differ between two pin sets (added, removed or moved), counting only the keys `isLive` keeps. */
+export function pinChanges(a: Readonly<Record<string, { x: number; y: number }>>, b: Readonly<Record<string, { x: number; y: number }>>, isLive: (key: string) => boolean = () => true): number {
+  let n = 0;
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (!isLive(k)) continue;
+    const p = a[k];
+    const q = b[k];
+    if (!p || !q || p.x !== q.x || p.y !== q.y) n++;
+  }
+  return n;
+}
+
+/** How many annotations differ between two lists (added, removed or changed), by id. */
+function annotationChanges(a: readonly LayoutAnnotation[], b: readonly LayoutAnnotation[]): number {
+  const byId = (xs: readonly LayoutAnnotation[]) => new Map(xs.map((x) => [x.id, JSON.stringify(x)]));
+  const A = byId(a);
+  const B = byId(b);
+  let n = 0;
+  for (const k of new Set([...A.keys(), ...B.keys()])) if (A.get(k) !== B.get(k)) n++;
+  return n;
+}
+
 export interface LayoutDraft {
   /** The document as last loaded or saved (its etag is the next save's precondition). */
   doc: LayoutDoc | null;
   pins: Pins;
   annotations: Annotation[];
-  /** Moves and annotation changes since the last load or save. */
+  /** What differs from the document as last loaded or saved: live pins, annotations, the mode. */
   changes: number;
+  /** The pins whose node still exists (`isLive`): what is on the canvas, the dormant ones left out. */
+  livePins: Pins;
   saving: boolean;
   error: unknown;
   /** What a failed save means for the next one, when there is something to say. */
@@ -65,11 +95,15 @@ export interface LayoutDraft {
   relayout(): void;
 }
 
-export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: string, loaded: LayoutDoc | null): LayoutDraft {
+export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: string, loaded: LayoutDoc | null, isLive: ((key: string) => boolean) | null = null): LayoutDraft {
   const [doc, setDoc] = useState<LayoutDoc | null>(null);
+  // What the draft is measured against: the document as last loaded, saved or discarded to (a 412
+  // takes the other console's etag into `doc`, not its pins into the base).
+  const [base, setBase] = useState<LayoutDoc | null>(null);
   const [pins, setPins] = useState<Pins>(NO_PINS);
   const [annotations, setAnnotationsState] = useState<Annotation[]>([]);
-  const [changes, setChanges] = useState(0);
+  // Bumped by every gesture: only to re-render; what is unsaved is the diff below.
+  const [, setChanges] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -80,6 +114,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
   useEffect(() => {
     if (!loaded) return;
     setDoc(loaded);
+    setBase(loaded);
     setPins(pinsOf(loaded));
     setAnnotationsState(fromLayoutList(loaded.annotations));
     setModeState(loaded.mode ?? null);
@@ -120,6 +155,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     try {
       const saved = await api.putLayout(id, layoutWrite(docRef.current, id, pinsRef.current, annotationsRef.current.map(toLayout), modeRef.current));
       setDoc(saved);
+      setBase(saved);
       setChanges(0);
       setSavedAt(new Date().toISOString());
       return true;
@@ -146,6 +182,7 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
 
   const discard = useCallback(() => {
     const current = docRef.current;
+    setBase(current);
     setPins(pinsOf(current));
     setAnnotationsState(fromLayoutList(current?.annotations ?? []));
     setModeState(current?.mode ?? null);
@@ -153,6 +190,12 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     setError(null);
     setNote(null);
   }, []);
+
+  const changes = useMemo(() => {
+    const live = isLive ?? (() => true);
+    return pinChanges(pinsOf(base), pins, live) + annotationChanges(fromLayoutList(base?.annotations ?? []).map(toLayout), annotations.map(toLayout)) + ((base?.mode ?? null) !== mode ? 1 : 0);
+  }, [base, pins, annotations, mode, isLive]);
+  const livePins = useMemo<Pins>(() => (isLive ? Object.fromEntries(Object.entries(pins).filter(([k]) => isLive(k))) : pins), [pins, isLive]);
 
   // Leaving the page with unsaved moves asks first.
   useEffect(() => {
@@ -164,5 +207,5 @@ export function useLayoutDraft(api: Pick<Api, "putLayout" | "getLayout">, id: st
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [changes]);
 
-  return { doc, pins, annotations, changes, saving, error, note, savedAt, mode, setMode, onPin, onPinMany, setAnnotations, save, discard, relayout };
+  return { doc, pins, livePins, annotations, changes, saving, error, note, savedAt, mode, setMode, onPin, onPinMany, setAnnotations, save, discard, relayout };
 }

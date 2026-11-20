@@ -88,6 +88,7 @@ import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } fro
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
+import { placeDropped } from "./add/placeDrop";
 import { TemplatePopover, TemplatesSection } from "./add/Templates";
 import { buildTemplate, carriedBindings, proposeTemplate, readMyTemplates, rememberMyTemplate, type Proposal } from "./add/saveTemplate";
 import { SaveTemplateDialog } from "./add/SaveTemplateDialog";
@@ -95,7 +96,7 @@ import { refOfItem } from "./add/AddPanel";
 import { SaveAsDialog } from "./SaveAsDialog";
 import { moveMember } from "./edit/members";
 import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
-import { Checks, SidePanel, checksBadge, knownSensors, type FabricResult, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
+import { Checks, SidePanel, checksBadge, knownSensors, pruneSelection, type FabricResult, type ProvenanceAction, type ProvenanceSubject, type Selection } from "./SidePanel";
 
 interface Loaded {
   twin: TwinSummary;
@@ -281,10 +282,11 @@ export function readUntitled(): UntitledKept | null {
   }
 }
 
-/** Keep the untitled design: a blank one with nothing done is not kept; a clone always is. */
-export function writeUntitled(files: Files, stack: Stack, origin: UntitledOrigin): void {
+/** Keep the untitled design: a blank one -- nothing done, or undone back to its blank start
+ *  (`blank`) -- is not kept, so the next New opens empty; a clone always is. */
+export function writeUntitled(files: Files, stack: Stack, origin: UntitledOrigin, blank = false): void {
   try {
-    if (!origin.source && stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
+    if (!origin.source && (blank || (stack.done.length === 0 && stack.undone.length === 0))) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
     else localStorage.setItem(undoKey(UNTITLED_SCOPE), JSON.stringify({ files, stack, teFile: origin.teFile, source: origin.source }));
   } catch {
     // no storage: the untitled design lives for the page only
@@ -435,7 +437,18 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // ---- positions and annotations: the layout side-car as a draft (Phase 1) ----
   // Moves and annotation changes stay on the canvas; the side-car is written
   // only by "Save layout" (or alongside a document Save / Persist).
-  const draft = useLayoutDraft(api, id, layout.data);
+  const editor = useEditor();
+  // A pin whose node no longer exists (removed, or undone away) is dormant on a design kept in this
+  // browser (the untitled one, a draft): kept for a redo, but neither an unsaved change nor
+  // "something on the canvas" (2026-11-20: undone back to empty, the canvas still asked to leave).
+  const liveTe = browserLayout ? (editor.model?.te ?? null) : null;
+  const isLive = useMemo(() => {
+    if (!liveTe) return null;
+    const names = new Set(liveTe.nodes.map((n) => n.name));
+    const cidrs = new Set(liveTe.segments.map((s) => s.cidr));
+    return (key: string) => (key.startsWith("host:") ? names.has(key.slice(5)) : key.startsWith("segment:") ? cidrs.has(key.slice(8)) : true);
+  }, [liveTe]);
+  const draft = useLayoutDraft(api, id, layout.data, isLive);
   const { pins, annotations, onPin, onPinMany, setAnnotations } = draft;
   // The pins as they are now, for handlers memoized without them (the duplicate's drop).
   const pinsRef = useRef(pins);
@@ -444,19 +457,29 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const saveLayout = draft.save;
   // The untitled design's (or a draft's) layout is kept in this browser as it changes (it has no side-car to save to).
   const leavingLayout = useRef(false);
+  // Written as it stands once loaded -- the live pins only, so a design undone back to empty leaves
+  // nothing behind for the next New to reopen.
+  const layoutLoaded = draft.doc !== null;
+  const livePins = draft.livePins;
   useEffect(() => {
-    if (!browserLayout || leavingLayout.current || draft.changes === 0) return;
-    writeUntitledLayout(pins, annotations.map(toLayout), untitled ? UNTITLED_SCOPE : draftScope(id), draft.mode);
-  }, [browserLayout, untitled, id, pins, annotations, draft.changes, draft.mode]);
+    if (!browserLayout || leavingLayout.current || !layoutLoaded) return;
+    writeUntitledLayout(livePins, annotations.map(toLayout), untitled ? UNTITLED_SCOPE : draftScope(id), draft.mode);
+  }, [browserLayout, untitled, id, livePins, annotations, layoutLoaded, draft.mode]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [initialViewport] = useState(() => readViewport(scopeId));
 
   // ---- the editor (Phase 2) ----
-  const editor = useEditor();
   const [config, setConfig] = useState<DeployConfig | null>(null);
   const [detail, setDetail] = useState<TwinConfigDetail | null>(null);
   const [view, setView] = useState<View>("design");
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
+  // After every document change (an edit, an undo, a redo) the selection keeps only what still
+  // exists; nothing left is no selection, and the inspector shows the Twin summary.
+  const docModel = editor.model;
+  useEffect(() => {
+    if (!docModel) return;
+    setSelection((cur) => pruneSelection(cur, docModel));
+  }, [docModel]);
   /** An Add-panel drop waiting on its popover (docs/design/canvas-add-panel.md §4.1): nothing is written until it closes. */
   /** Save as template (§5.3): the proposal for the selection, while its dialog is open. */
   const [saveTpl, setSaveTpl] = useState<{ proposal: Proposal; stripped: string[]; busy: boolean; error: string | null } | null>(null);
@@ -690,8 +713,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const leaving = useRef(false);
   useEffect(() => {
     if (!untitled || !editor.files || leaving.current) return;
-    writeUntitled(editor.files, editor.stack, origin);
-  }, [untitled, editor.files, editor.stack, origin]);
+    writeUntitled(editor.files, editor.stack, origin, Boolean(untitledSeed && sameFiles(editor.files, untitledSeed.files)));
+  }, [untitled, editor.files, editor.stack, origin, untitledSeed]);
 
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {
@@ -751,6 +774,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // says otherwise; every catalog twin (authored or cast) and every deployed one opens in the tree
   // (2026-11-20: a finished twin opened free and lost its structure).
   const layoutMode: LayoutMode = draft.mode ?? (untitled || isDraft ? "free" : "tree");
+  const layoutModeRef = useRef(layoutMode);
+  layoutModeRef.current = layoutMode;
   // The rail's Fan-out (§7.6): how many implied switches a carrier shows before folding the rest.
   const [fan, setFan] = useState<number>(TREE_FAN_DEFAULT);
 
@@ -872,14 +897,20 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       setPendingTemplate(null);
       if (!p) return;
       let drop: TemplateDrop | null = null;
+      let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
       const reason = edit(`add template ${p.template.label}`, (d, m) => {
         drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at);
+        span = { before: m.te, after: readDoc({ ...d, files: drop.files }).te };
         return drop.files;
       });
       if (reason || !drop) return;
       const done: TemplateDrop = drop;
       rememberAdd({ kind: "template", id: p.template.id, label: p.template.label });
-      if (Object.keys(done.positions).length) onPinMany(done.positions);
+      // The free layout: every node of the fragment near the drop point, the hosts included (the
+      // template's layout names only some of them), so nothing it made is left at the origin.
+      const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
+      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }) : done.positions;
+      if (Object.keys(positions).length) onPinMany(positions);
       if (done.ports.length) setHighlight((h) => ({ names: done.ports, n: (h?.n ?? 0) + 1 }));
     },
     [pendingTemplate, edit, imageProfiles, onPinMany],
@@ -895,20 +926,28 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
       const s = c.spec;
       let placed: string[] = [];
+      let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
       const where = "segment" in s.target ? ` on ${s.target.segment}` : "router" in s.target ? ` under ${s.target.router}` : "";
       const label = `add ${p.item.label}${s.role ? ` (${s.role})` : ""}${s.count > 1 ? ` ×${s.count}` : ""}${where}`;
       const reason = edit(label, (d, m) => {
         const r = applyDeviceDrop(d, m, s);
         placed = r.names;
+        span = { before: m.te, after: readDoc({ ...d, files: r.files }).te };
         return r.files;
       });
       if (reason) return;
       const rolePersona = s.role ? personas.find((x) => x.id === s.role) : undefined;
       rememberAdd({ ...p.item, card: s.card, role: s.role, os: s.os, label: rolePersona ? personaLabel(rolePersona) : s.role ?? p.item.label });
-      // A device dropped on the pane stands where it landed (free layout); a host on a segment hangs off it.
-      if (p.at && placed[0] && !("segment" in s.target)) onPin(`host:${placed[0]}`, { x: Math.round(p.at.x), y: Math.round(p.at.y) });
+      // A device dropped on the pane stands where it landed; a host on a segment hangs off it.
+      const first = placed[0];
+      const fixed: Record<string, { x: number; y: number }> = p.at && first && !("segment" in s.target) ? { [`host:${first}`]: { x: Math.round(p.at.x), y: Math.round(p.at.y) } } : {};
+      // The free layout: everything the drop made -- its new segment's implied switch, the peers --
+      // stands near the drop point too (2026-11-20: they landed at the canvas's top-left corner).
+      const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
+      if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }));
+      else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
-    [pendingDrop, edit, onPin, personas],
+    [pendingDrop, edit, onPin, onPinMany, personas],
   );
 
   // ---- exits ----
@@ -1479,7 +1518,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Unsaved work asks before it is left: an untitled design with anything on it (it exists only in this
   // browser), an undeployed design or a draft with unsaved changes, or a deployed twin's edits not yet
   // pushed (kept in this browser, but not on the twin).
-  const untitledWork = untitled && (editor.dirty || Object.keys(pins).length > 0 || annotations.length > 0);
+  // The one "is anything unsaved" rule the guard and the layout bar share: an untitled design is
+  // clean when its document is at its blank start (or a clone's: never clean) and it has no live pin
+  // and no annotation -- a pin for a node that no longer exists does not count (`isLive`).
+  const untitledWork = untitled && (editor.dirty || Object.keys(draft.livePins).length > 0 || annotations.length > 0);
   useLeaveGuard(
     untitledWork || (!untitled && !deployed && editor.dirty) || unsynced,
     untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : unsynced ? "The working copy has edits not pushed to the twin (Apply or Persist push them); they stay in this browser. Leave anyway?" : "The design has unsaved changes. Leave without saving them?",
