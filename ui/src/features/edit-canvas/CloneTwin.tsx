@@ -10,15 +10,15 @@ import { renamedFiles } from "./edit/document";
 import { pinsOf } from "./edit/useLayoutDraft";
 
 /**
- * `/canvas/new?from=<id>` (Open's Duplicate): the twin's saved twin-config --
+ * `/canvas/new?from=<id>` (Open's Clone): the twin's saved twin-config --
  * the catalog's baseline, not a deploy's working copy -- becomes the untitled
  * design, its ids renamed to the placeholder, its layout pins and annotations
  * carried along; then the page moves to `/canvas/new`, the untitled canvas,
  * which reads it from the browser. Nothing is written to the server: the
- * duplicate reaches the catalog on its first Save, a Save-As under a new id,
+ * clone reaches the catalog on its first Save, a Save-As under a new id,
  * and the source twin is never changed.
  */
-export function DuplicateTwin({ from }: { from: string }) {
+export function CloneTwin({ from }: { from: string }) {
   const api = useApi();
   const navigate = useNavigate();
   const [error, setError] = useState<unknown>(null);
@@ -26,7 +26,7 @@ export function DuplicateTwin({ from }: { from: string }) {
     const ctl = new AbortController();
     (async () => {
       const detail = await api.getTwinConfig(from, ctl.signal);
-      if (!detail.document) throw new Error(`the API serves twin-config '${from}' without its document (it serves one only to a caller that may write); sign in to duplicate it`);
+      if (!detail.document) throw new Error(`the API serves twin-config '${from}' without its document (it serves one only to a caller that may write); sign in to clone it`);
       const doc = detail.document;
       const layout = await api.getLayout(from, ctl.signal).catch(() => null);
       if (ctl.signal.aborted) return;
@@ -40,16 +40,16 @@ export function DuplicateTwin({ from }: { from: string }) {
     return () => ctl.abort();
   }, [api, from, navigate]);
   return (
-    <div className="panel" style={{ margin: 24 }} data-testid="duplicate-twin">
+    <div className="panel" style={{ margin: 24 }} data-testid="clone-twin">
       {error ? (
         <>
-          <ErrorLine error={error} prefix={`could not duplicate ${from}`} />
+          <ErrorLine error={error} prefix={`could not clone ${from}`} />
           <p>
             <Link to="/">Start a blank design</Link>
           </p>
         </>
       ) : (
-        <p className="muted">Duplicating {from}…</p>
+        <p className="muted">Cloning {from}…</p>
       )}
     </div>
   );

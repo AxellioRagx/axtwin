@@ -192,8 +192,8 @@ describe("Open", () => {
     const dialog = await openDialog();
     const rows = await within(dialog).findAllByTestId("open-row");
     expect(rows.map((r) => within(r).getAllByRole("link")[0]!.textContent)).toEqual(["corp-auth", "corp-live", "corp-cast"]);
-    // The picker view of the Twins list: the twin's link (the canvas) and Duplicate, nothing else.
-    expect(rows.map((r) => within(r).getAllByRole("link").map((a) => a.textContent))).toEqual([["corp-auth", "Duplicate"], ["corp-live", "Duplicate"], ["corp-cast", "Duplicate"]]);
+    // The picker view of the Twins list: the twin's link (the canvas) and Clone, nothing else.
+    expect(rows.map((r) => within(r).getAllByRole("link").map((a) => a.textContent))).toEqual([["corp-auth", "Clone"], ["corp-live", "Clone"], ["corp-cast", "Clone"]]);
     expect(within(dialog).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(rows.map((r) => r.dataset["deployed"] ?? "")).toEqual(["", "true", ""]);
     await waitFor(() => expect(within(rows[1]!).getByTestId("twin-deploy").textContent).toContain("te ✓"));
@@ -237,7 +237,7 @@ describe("Open", () => {
   });
 });
 
-describe("Duplicate (Open's action)", () => {
+describe("Clone (Open's action)", () => {
   it("starts an untitled copy of a twin, edited and saved as a new twin; the source is untouched", async () => {
     const { api, state } = seeded();
     const before = state.documents["corp-auth"]!.files["te.yaml"]!;
@@ -246,7 +246,7 @@ describe("Duplicate (Open's action)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
     const dialog = await openDialog();
     await within(dialog).findAllByTestId("open-row");
-    fireEvent.click(within(dialog).getByRole("link", { name: "Duplicate corp-auth" }));
+    fireEvent.click(within(dialog).getByRole("link", { name: "Clone corp-auth" }));
 
     // The untitled canvas, drawing corp-auth's design; unsaved from the start, nothing written.
     await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan"]));
@@ -295,8 +295,8 @@ describe("Duplicate (Open's action)", () => {
   it("says why when the twin cannot be read, with the way to a blank design", async () => {
     const { api } = seeded();
     renderAt(api, "/canvas/new?from=nope");
-    const box = await screen.findByTestId("duplicate-twin");
-    await waitFor(() => expect(box.textContent).toContain("could not duplicate nope"));
+    const box = await screen.findByTestId("clone-twin");
+    await waitFor(() => expect(box.textContent).toContain("could not clone nope"));
     expect(within(box).getByRole("link", { name: "Start a blank design" }).getAttribute("href")).toBe("/");
   });
 });

@@ -198,7 +198,7 @@ criteria of its own beyond them.
   - Open (the bar's Open…, Ctrl+O): the Twins page's list as a searchable
     picker -- origin, deploy state per tier; a pick (its link or the row)
     opens it on the canvas.
-  - Duplicate (Open's one row action, `/canvas/new?from=<id>`): the twin's
+  - Clone (Open's one row action, `/canvas/new?from=<id>`): the twin's
     saved twin-config (the catalog baseline, not a deploy's working copy) and
     its layout become the untitled design, ids renamed, nothing written; it is
     unsaved from the start (the guard applies, a reload keeps it), the pill

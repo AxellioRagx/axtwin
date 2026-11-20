@@ -228,11 +228,11 @@ function untitledLayoutKey(): string {
   return `axr-canvas-layout:${UNTITLED_SCOPE}`;
 }
 
-/** What an untitled design was started from: blank (no source), or a duplicate of a catalog twin. */
+/** What an untitled design was started from: blank (no source), or a clone of a catalog twin. */
 export interface UntitledOrigin {
-  /** The te file's path (a duplicate keeps its source's). */
+  /** The te file's path (a clone keeps its source's). */
   teFile: string;
-  /** The twin it duplicates, or null for a blank design. */
+  /** The twin it clones, or null for a blank design. */
   source: string | null;
 }
 
@@ -242,7 +242,7 @@ export interface UntitledKept extends UntitledOrigin {
 }
 
 /** The untitled design as this browser last held it: the files, the stack that ends at them (empty
- *  for a duplicate not yet edited), and where it started. */
+ *  for a clone not yet edited), and where it started. */
 export function readUntitled(): UntitledKept | null {
   try {
     const raw = localStorage.getItem(undoKey(UNTITLED_SCOPE));
@@ -258,7 +258,7 @@ export function readUntitled(): UntitledKept | null {
   }
 }
 
-/** Keep the untitled design: a blank one with nothing done is not kept; a duplicate always is. */
+/** Keep the untitled design: a blank one with nothing done is not kept; a clone always is. */
 export function writeUntitled(files: Files, stack: Stack, origin: UntitledOrigin): void {
   try {
     if (!origin.source && stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(UNTITLED_SCOPE));
@@ -324,7 +324,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const scopeId = untitled ? UNTITLED_SCOPE : id;
   // The untitled design's blank start: what its edits are measured against (dirty) until Save-As.
   const untitledSeed = useMemo(() => (untitled ? { id: UNTITLED_ID, te_file: "te.yaml", files: blankDesignFiles({ id: UNTITLED_ID }) } : null), [untitled]);
-  // Where the untitled design started (blank, or a duplicate of a catalog twin): read with it, kept with it.
+  // Where the untitled design started (blank, or a clone of a catalog twin): read with it, kept with it.
   const [origin, setOrigin] = useState<UntitledOrigin>({ teFile: "te.yaml", source: null });
   const { data, error, loading, reload } = useLoad<Loaded>(async (signal) => {
     // Untitled: nothing is stored on the server yet, so nothing is read.
@@ -475,7 +475,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       // The untitled design as this browser left it (a reload), else its blank start.
       const kept = readUntitled();
       setOrigin({ teFile: kept?.teFile ?? untitledSeed.te_file, source: kept?.source ?? null });
-      // Measured against the blank start: a duplicate is unsaved work from its first moment.
+      // Measured against the blank start: a clone is unsaved work from its first moment.
       editor.load({ id: untitledSeed.id, teFile: kept?.teFile ?? untitledSeed.te_file, files: kept?.files ?? untitledSeed.files }, { saved: untitledSeed.files });
       if (kept) editor.restoreStack(kept.stack);
     } else if (document) {

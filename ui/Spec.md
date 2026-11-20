@@ -14,7 +14,7 @@ The console is titled **XTwin** (axRange until 2026-10-31, axTwin until
 after the X of the Axellio wordmark. XTwin, top left, is the home link: `/` is
 the design canvas over an untitled design held in the browser until its first
 Save, a Save-As through A3 (`/canvas/new` is the same page; Open's
-*Duplicate* starts the untitled design from a copy of a catalog twin). The top menu is the loop's other areas: **Discovery** (Sources,
+*Clone* starts the untitled design from a copy of a catalog twin). The top menu is the loop's other areas: **Discovery** (Sources,
 Runs and Imprints beneath it), **Twins** and **Targets**; there is no Canvas
 menu. An existing twin opens on the canvas through the canvas bar's *Open…*
 (Ctrl+O) -- the Twins list as a searchable picker -- or a twin's Canvas link;
