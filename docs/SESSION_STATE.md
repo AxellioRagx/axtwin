@@ -5,8 +5,8 @@ start (`/catchup`). Keep it under 8 KB and about NOW. A stale handoff is worse t
 because it will be believed. Earlier handoffs: docs/handoffs/<YYYY-MM>.md. -->
 
 **Last updated:** 2026-11-20 (discovery round trip on pace-test converged to a fixed point) ·
-**Branch:** `wip/design-platforms-canvas`, HEAD `7bc870c`, **10 commits ahead of origin, not
-pushed** (rule: commit locally, push only when asked). Note: the sessions of 2026-11-18/19
+**Branch:** `wip/design-platforms-canvas`, pushed to origin at the user's request (2026-11-20,
+through this handoff's commit; rule: commit locally, push only when asked). Note: the sessions of 2026-11-18/19
 (source Test connection, TLS toggle, run pre-fill, imprint versioning, axquery `/api/flows`,
 merge of `wip/trex-crowd` at `5d91500`) left no handoff; their story is in `git log` only.
 
@@ -62,7 +62,7 @@ like `test1`): keep or delete is the user's call.
 
 ## Open questions / decisions pending
 
-- Push / merge of `wip/design-platforms-canvas` (10 ahead): the user's call.
+- Merge of `wip/design-platforms-canvas` (pushed): the user's call.
 - Cast tap plan binds EVERY segment; the source vantage was one segment, so a re-capture of a
   cast double-counts routed flows. Should the cast tap only where the source was observed? Not
   decided; worked around by tapping manually.
