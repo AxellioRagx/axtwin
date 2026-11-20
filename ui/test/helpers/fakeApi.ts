@@ -25,6 +25,8 @@ import type {
   ProbeResult,
   TwinConfigDetail,
   TwinConfigDocument,
+  DraftCheck,
+  DraftDetail,
   ValidateResult,
   ValidationFinding,
   TwinSummary,
@@ -138,6 +140,8 @@ export interface FakeState {
   personas: Persona[];
   /** The twin-config documents (`api/Spec.md` A3), by id: the baseline each editor opens. */
   documents: Record<string, TwinConfigDocument>;
+  /** The drafts area (`api/Spec.md` A3d), by id: documents kept without the validation gate. */
+  drafts: Record<string, { document: TwinConfigDocument; origin: string | null; last_check: DraftCheck | null; created_at: string; updated_at: string }>;
   /** What `GET /api/deploys` lists. */
   deploys: DeploySummary[];
   /** The images the fake's manifests know; an image outside it is an error finding (default: every image a seeded document names). */
@@ -199,6 +203,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     twinConfigs: [],
     personas: [],
     documents: {},
+    drafts: {},
     deploys: [],
     exits: {},
     replayFails: {},
@@ -610,6 +615,40 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       for (const d of state.deploys) if (d.scenario_id === id) delete state.workingCopies[d.deploy_id];
       return detailOf(existing);
     },
+    async listDrafts() {
+      return { drafts: Object.keys(state.drafts).sort().map((id) => draftOf(id, false)) };
+    },
+    async getDraft(id) {
+      if (!state.drafts[id]) throw notFound(`draft '${id}'`);
+      return draftOf(id, true);
+    },
+    async createDraft(body) {
+      state.writes.push({ op: "create-draft", id: body.id, body });
+      const id = body.id ?? "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) throw new ApiError({ kind: "bad-request", status: 400, message: `'id' ${JSON.stringify(id)} is not a usable draft id`, url: "" });
+      if (state.drafts[id] || state.documents[id] || state.twins[id]) throw new ApiError({ kind: "conflict", status: 409, message: `'${id}' is already a twin or a draft; a draft never overwrites`, url: "" });
+      const teFile = teFileOf(body.files);
+      const te = readTe(body.files[teFile] ?? "");
+      if (te.id !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `document declares twin_config.id '${te.id}' but is written as '${id}'`, url: "" });
+      const at = stamp();
+      state.drafts[id] = { document: { id, te_file: teFile, files: { ...body.files }, skipped: [] }, origin: body.origin ?? null, last_check: body.last_check ?? null, created_at: at, updated_at: at };
+      return draftOf(id, true);
+    },
+    async putDraft(id, body) {
+      state.writes.push({ op: "put-draft", id, body });
+      const d = state.drafts[id];
+      if (!d) throw notFound(`draft '${id}'`);
+      d.document = { ...d.document, files: { ...body.files } };
+      if (body.origin !== undefined && body.origin !== null) d.origin = body.origin;
+      d.last_check = body.last_check ?? null;
+      d.updated_at = stamp();
+      return draftOf(id, true);
+    },
+    async deleteDraft(id) {
+      state.writes.push({ op: "delete-draft", id });
+      if (!state.drafts[id]) throw notFound(`draft '${id}'`);
+      delete state.drafts[id];
+    },
     async listDeploys() {
       return { deploys: [...state.deploys], warnings: [] };
     },
@@ -775,6 +814,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     if (bad.length) {
       throw new ApiError({ kind: "unprocessable", status: 422, message: `twin-config '${id}' fails validation (${bad.length} error(s)): ${bad[0]!.rule_id} ${bad[0]!.message}`, detail: { code: "invalid", findings: bad }, url: "" });
     }
+  }
+
+  function draftOf(id: string, withDocument: boolean): DraftDetail {
+    const d = state.drafts[id]!;
+    const te = readTe(d.document.files[d.document.te_file] ?? "");
+    return { id, origin: d.origin, description: te.description, created_at: d.created_at, updated_at: d.updated_at, last_check: d.last_check, draft: true, ...(withDocument ? { document: { ...d.document, files: { ...d.document.files } }, warnings: [] } : {}) };
   }
 
   function detailOf(d: TwinConfigDocument): TwinConfigDetail {

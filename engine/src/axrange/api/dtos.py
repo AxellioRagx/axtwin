@@ -2555,6 +2555,45 @@ class TwinConfigWriteRequest(BaseModel):
     files: dict[str, str]
 
 
+class DraftCheckDTO(BaseModel):
+    """The last validation the console ran on a draft (`api/Spec.md` A3d)."""
+
+    disposition: str
+    errors: int = 0
+    warnings: int = 0
+    checked_at: Optional[str] = None
+
+
+class DraftWriteRequest(BaseModel):
+    """`POST /api/drafts` (`id` required, must be new) and `PUT
+    /api/drafts/{id}` (`id`, if given, must match the path). No validation."""
+
+    id: Optional[str] = None
+    files: dict[str, str]
+    origin: Optional[str] = None
+    last_check: Optional[DraftCheckDTO] = None
+
+
+class DraftSummaryDTO(BaseModel):
+    id: str
+    origin: Optional[str] = None
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
+    last_check: Optional[DraftCheckDTO] = None
+    draft: bool = True
+
+
+class DraftListDTO(BaseModel):
+    drafts: list[DraftSummaryDTO]
+
+
+class DraftDetailDTO(DraftSummaryDTO):
+    # Only on a read the policy accepts (a bundle holds lab passwords).
+    document: Optional[TwinConfigDocumentDTO] = None
+    warnings: list[str] = []
+
+
 class PendingChangeDTO(BaseModel):
     """One file that differs between the baseline and the working copy, and
     what Apply may do about it (`docs/design/topology-layers.md` §4, three

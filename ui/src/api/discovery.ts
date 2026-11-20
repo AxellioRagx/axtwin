@@ -35,6 +35,9 @@ import type {
   TwinConfigDetail,
   TwinConfigList,
   TwinConfigWrite,
+  DraftDetail,
+  DraftList,
+  DraftWrite,
   TwinDeployRequest,
   TwinList,
   TwinSummary,
@@ -105,6 +108,13 @@ export interface Api {
   createTwinConfig(body: TwinConfigWrite): Promise<TwinConfigDetail>;
   /** Save (undeployed) or Persist (from a working copy): overwrite the baseline. */
   putTwinConfig(id: string, body: TwinConfigWrite): Promise<TwinConfigDetail>;
+  // Drafts (`api/Spec.md` A3d): a document kept without the validation gate, never deployable.
+  listDrafts(signal?: AbortSignal): Promise<DraftList>;
+  getDraft(id: string, signal?: AbortSignal): Promise<DraftDetail>;
+  /** A new draft under `body.id`; an id a twin or a draft already holds is refused. */
+  createDraft(body: DraftWrite): Promise<DraftDetail>;
+  putDraft(id: string, body: DraftWrite): Promise<DraftDetail>;
+  deleteDraft(id: string): Promise<void>;
   /** The deploys the API knows; the canvas reads which of them stand on a twin. */
   listDeploys(signal?: AbortSignal): Promise<DeployList>;
   /** The working copy with its per-change classification. */
@@ -189,6 +199,11 @@ export function makeApi(request: Requester): Api {
     getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),
     createTwinConfig: (body) => request("POST", "/api/twin-configs", { body }),
     putTwinConfig: (id, body) => request("PUT", `/api/twin-configs/${enc(id)}`, { body }),
+    listDrafts: (signal) => request("GET", "/api/drafts", { signal }),
+    getDraft: (id, signal) => request("GET", `/api/drafts/${enc(id)}`, { signal }),
+    createDraft: (body) => request("POST", "/api/drafts", { body }),
+    putDraft: (id, body) => request("PUT", `/api/drafts/${enc(id)}`, { body }),
+    deleteDraft: (id) => request("DELETE", `/api/drafts/${enc(id)}`, {}),
     listDeploys: (signal) => request("GET", "/api/deploys", { signal }),
     getDeployConfig: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/config`, { signal }),
     putDeployConfig: (deployId, files) => request("PUT", `/api/deploys/${enc(deployId)}/config`, { body: { files } }),

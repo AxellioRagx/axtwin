@@ -3,17 +3,18 @@
  * modals", now the floating inspector's Selection tab): the selected node
  * group, segment, attachment or annotation, or the twin's own properties
  * when nothing is selected. `Checks` is the inspector's other tab: the
- * validation state and -- on a deployed twin -- every pending change with
+ * last on-demand Check and -- on a deployed twin -- every pending change with
  * the blast radius the API classified it with (*live · traffic*, *live · taps*
  * or *re-plan*; `docs/design/topology-layers.md` §4). Every
- * field writes through the editor's `apply`, which blocks an invalid edit
- * with its reason (shown on the canvas's strip, not here).
+ * field writes through the editor's `apply`, which refuses only a request
+ * the command cannot express (the reason shows on the canvas's strip).
  */
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "../../api/types";
+import type { PendingChange, Persona, ValidationFinding } from "../../api/types";
 import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
+import { checkBadge, checkStatus, findingTarget, targetKey, type CheckRecord } from "./edit/check";
 import {
   addSpan,
   addTap,
@@ -95,12 +96,6 @@ export interface SidePanelProps {
   annotations: Annotation[];
   onAnnotation(id: string, patch: Partial<Annotation>): void;
   onRemoveAnnotation(id: string): void;
-  /** The API's refusal of the last write, verbatim, or null. */
-  serverReason: string | null;
-  /** The API's latest document validate for the files on screen, or null while none has answered. */
-  validation: { result: ValidateResult | null; error: unknown } | null;
-  /** A validate is in flight or owed for the files on screen. */
-  validating: boolean;
   /** On a deployed twin: the API's classification of every pending change. */
   changes: PendingChange[] | null;
   /** The reason the last edit was blocked, shown until the next edit. */
@@ -183,13 +178,15 @@ export function SidePanel(p: SidePanelProps) {
   );
 }
 
-/** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
- *  baseline's text (a pending change is one file's delta), when the page has
- *  the baseline and the canvas is not locked. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined; taps?: TapSensorProps | undefined }) {
+/** The inspector's Checks tab: the last Check (on demand, `edit/check.ts`) with its findings --
+ *  a click on one selects and zooms to the element it names -- the taps that need a sensor, and
+ *  on a deployed twin the pending changes. `onDiscard(path)` puts one file back to the
+ *  baseline's text (a pending change is one file's delta), when the page has the baseline and
+ *  the canvas is not locked. */
+export function Checks(p: Pick<SidePanelProps, "model" | "changes"> & { check: CheckRecord | null; files: Files | null; checking: boolean; onCheck(): void; onFinding?: ((f: ValidationFinding) => void) | undefined; onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined; taps?: TapSensorProps | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
-      <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
+      <Validation model={p.model} check={p.check} files={p.files} checking={p.checking} onCheck={p.onCheck} onFinding={p.onFinding} />
       {p.taps ? <TapsNeedSensor model={p.model} {...p.taps} /> : null}
       {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
       {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} fallback={p.provenance.fallback ?? "authored"} /> : null}
@@ -275,19 +272,10 @@ function ProvenanceSummary({ model, filter, onFilter, fallback }: { model: DocMo
   );
 }
 
-/** The validation state word: the canvas's structural findings, the API's
- *  refusal and the API's document validate, folded into one of three. */
-export function validationState(p: Pick<SidePanelProps, "serverReason" | "validation" | "validating"> & { findings: ValidationFinding[] }): "invalid" | "validating" | "valid" {
-  const local = p.findings.filter((f) => f.severity === "error");
-  const apiErrors = (p.validation?.result?.findings ?? []).filter((f) => f.severity === "error");
-  const apiFailed = p.validation !== null && (p.validation.error !== null || apiErrors.length > 0);
-  return local.length || p.serverReason || apiFailed ? "invalid" : p.validating ? "validating" : "valid";
-}
-
-/** What the Checks tab wears on its strip: the validation state word (the
- *  gate's answer at a glance, without opening the tab). */
-export function checksBadge(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating">): string {
-  return validationState({ findings: p.model.findings, serverReason: p.serverReason, validation: p.validation, validating: p.validating });
+/** What the Checks tab wears on its strip: the Check's state word (`unchecked`, `valid`,
+ *  `invalid (N)`, `changed since check`), the gate's answer at a glance. */
+export function checksBadge(p: { check: CheckRecord | null; files: Files | null; checking?: boolean }): string {
+  return p.checking ? "checking…" : checkBadge(p.check, p.files);
 }
 
 // ---------------------------------------------------------------------------
@@ -330,42 +318,52 @@ function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono, list }:
   );
 }
 
-/** The validation state: the canvas's structural findings (instant) and the
- *  API's document validate (the gate), each finding with its rule and place. */
-function Validation({ findings, serverReason, validation, validating }: { findings: ValidationFinding[]; serverReason: string | null; validation: SidePanelProps["validation"]; validating: boolean }) {
-  const local = findings.filter((f) => f.severity === "error");
-  const api = validation?.result?.findings ?? [];
-  const state = validationState({ findings, serverReason, validation, validating });
+/** The last Check: its state word, the Check button (Ctrl+Enter), and every finding with its rule
+ *  and place; a finding that names an element is a button that selects and zooms to it. */
+function Validation({ model, check, files, checking, onCheck, onFinding }: { model: DocModel; check: CheckRecord | null; files: Files | null; checking: boolean; onCheck(): void; onFinding?: ((f: ValidationFinding) => void) | undefined }) {
+  const status = checkStatus(check, files);
+  const word = checking ? "checking…" : checkBadge(check, files);
+  const findings = check?.result?.findings ?? [];
   return (
     <section className="cv-side-section" data-testid="validation">
-      <h3>Validation</h3>
-      <p className={state === "valid" ? "ok" : state === "invalid" ? "error" : "muted"} role="status" data-testid="validation-word">
-        {state}
-      </p>
-      {validation?.error ? <p className="error">the API could not validate: {errorText(validation.error)}</p> : null}
-      {local.length ? (
-        <p className="muted" data-testid="validation-local">
-          canvas: {local.length} error{local.length === 1 ? "" : "s"} the API's pass does not cover (the twin IR's own rules)
+      <h3>Check</h3>
+      <div className="row cv-inline">
+        <p className={status === "valid" ? "ok" : status === "invalid" ? "error" : "muted"} role="status" data-testid="validation-word" data-status={status}>
+          {word}
         </p>
-      ) : null}
-      {validation?.result && !validating ? (
+        <button type="button" onClick={onCheck} disabled={checking || !files} data-testid="check-tab-run" title="validate the files on screen (Ctrl+Enter)">
+          {checking ? "Checking…" : "Check"}
+        </button>
+      </div>
+      {status === "unchecked" ? <p className="muted hint">nothing validates while you edit: Check judges the files on screen, and Save needs a passing Check on unchanged files</p> : null}
+      {status === "changed" ? <p className="muted hint">the files changed since the last Check; its findings below are for the files it judged</p> : null}
+      {check?.error ? <p className="error">the API could not validate: {errorText(check.error)}</p> : null}
+      {check?.result ? (
         <p className="muted" data-testid="validation-api">
-          API: {validation.result.disposition.toLowerCase()} · {validation.result.errors} error{validation.result.errors === 1 ? "" : "s"}, {validation.result.warnings} warning{validation.result.warnings === 1 ? "" : "s"}
+          {check.result.disposition.toLowerCase()} · {check.result.errors} error{check.result.errors === 1 ? "" : "s"}, {check.result.warnings} warning{check.result.warnings === 1 ? "" : "s"}
         </p>
       ) : null}
       <ul className="cv-findings" data-testid="findings">
-        {local.map((f, i) => (
-          <li key={`l${i}`} data-testid="finding" data-rule={f.rule_id}>
-            <span className="mono">{f.rule_id}</span> <span className="badge bad">error</span> {f.message}
-            {f.location ? <span className="muted"> · {f.location}</span> : null}
-          </li>
-        ))}
-        {api.filter((f) => !local.some((l) => l.rule_id === f.rule_id && l.message === f.message)).map((f, i) => (
-          <li key={`a${i}`} data-testid="finding" data-rule={f.rule_id} data-severity={f.severity}>
-            <span className="mono">{f.rule_id}</span> <span className="badge">{f.severity}</span> {f.message}
-            {f.location ? <span className="muted"> · {f.location}</span> : null}
-          </li>
-        ))}
+        {findings.map((f, i) => {
+          const target = findingTarget(f, model);
+          const body = (
+            <>
+              <span className="mono">{f.rule_id}</span> <span className={`badge${f.severity === "error" ? " bad" : ""}`}>{f.severity}</span> {f.message}
+              {f.location ? <span className="muted"> · {f.location}</span> : null}
+            </>
+          );
+          return (
+            <li key={i} data-testid="finding" data-rule={f.rule_id} data-severity={f.severity} data-target={target ? targetKey(target) : undefined}>
+              {target && onFinding ? (
+                <button type="button" className="cv-link-row cv-finding-row" onClick={() => onFinding(f)} title="select it on the canvas and zoom to it">
+                  {body}
+                </button>
+              ) : (
+                body
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

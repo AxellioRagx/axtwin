@@ -16,7 +16,7 @@ import { segmentAt, connectionToAttach } from "../src/features/edit-canvas/Canva
 import { paletteItems, standingDeploy } from "../src/features/edit-canvas/CanvasPage";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { classify } from "./helpers/fakeApi";
-import { CAST_ROSTER, DEPLOY, PERSONAS, TFC, ann, clickPane, commit, document, enabled, host, hosts, item, openPalette, panel, seeded, segment, segments, settle, tab, teText, twinYaml } from "./helpers/canvasFixtures";
+import { CAST_ROSTER, DEPLOY, PERSONAS, TFC, ann, check, checkStatus, clickPane, commit, document, enabled, host, hosts, item, openPalette, panel, seeded, segment, segments, settle, tab, teText, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -44,7 +44,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
     expect(screen.getByTestId("palette-hint").textContent).not.toContain("armed");
     expect(host("web01-1").dataset["address"]).toBe("10.1.2.10");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
 
     fireEvent.click(await enabled("Save"));
     await screen.findByTestId("clean-marker");
@@ -69,7 +69,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(p).getByRole("button", { name: "Duplicate" }));
     await waitFor(() => expect(hosts()).toEqual(["web01", "ws01", "ws01-1"]));
     expect(host("ws01-1").dataset["address"]).toBe("10.1.1.10");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
     // Again: the next free address, not the same one.
     fireEvent.click(host("ws01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Duplicate onto segment"), { target: { value: "net-dmz" } });
@@ -132,41 +132,43 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(await enabled("Save as"));
     await waitFor(() => expect(state.documents["corp-live-copy"]).toBeTruthy());
     expect(readTe(state.documents["corp-live-copy"]!.files["te.yaml"]!).segments.length).toBe(3);
-    // The baseline, the deploy and its working copy are untouched by a Save-As.
+    // The baseline, the deploy and its working copy are untouched by a Save-As (the edits were never pushed).
     expect(readTe(state.documents["corp-live"]!.files["te.yaml"]!).segments.length).toBe(2);
-    expect((await api.getDeployConfig("dep-1")).dirty).toBe(true);
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
   });
 
-  it("C3.4: an invalid edit is blocked with the validator's reason, and the API's refusal of a working copy reverts the edit", async () => {
+  it("C3.4: an invalid edit lands (nothing validates while editing); Check reports it with its rule, pinned on the segment; a 422 on Save shows as findings, the edit kept", async () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(segment("net-dmz"));
     const p = await panel().findByTestId("segment-panel");
     commit(within(p).getByLabelText("CIDR"), "10.1.1.5/24");
-    const blocked = await screen.findByTestId("blocked-reason");
-    expect(blocked.textContent).toContain("CV-012");
-    expect(blocked.textContent).toContain("'10.1.1.5/24' is not an IPv4 network address");
-    expect(segment("net-dmz").dataset["cidr"]).toBe("10.1.1.0/24");
-    expect(screen.getByTestId("clean-marker")).toBeTruthy();
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
-    // A node attached to a segment that is not there: the panel's attach list only offers real segments,
-    // so the check is the removal of a segment with a pinned address elsewhere -- still valid; and a bad address.
-    fireEvent.click(host("web01"));
-    const np = await panel().findByTestId("node-panel");
-    commit(within(np).getByLabelText("Address on net-dmz"), "10.9.9.9");
-    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("not a host address inside net-dmz");
+    await waitFor(() => expect(segment("net-dmz").dataset["cidr"]).toBe("10.1.1.5/24"));
+    expect(screen.queryByTestId("blocked-reason")).toBeNull();
+    expect(screen.getByTestId("dirty-marker")).toBeTruthy();
+    await check("invalid");
+    tab("Checks");
+    const f = screen.getAllByTestId("finding").find((x) => x.dataset["rule"] === "CV-012")!;
+    expect(f.textContent).toContain("'10.1.1.5/24' is not an IPv4 network address");
+    expect(f.dataset["target"]).toBe("segment:net-dmz");
+    expect(within(segment("net-dmz")).getByTestId("finding-badge").dataset["severity"]).toBe("error");
+    expect((screen.getByTestId("save") as HTMLButtonElement).disabled).toBe(true);
     r.unmount();
 
-    // The server's own refusal (A2.3): the PUT is refused, the edit reverted, the reason shown verbatim.
+    // The server re-validates on the write: its 422 becomes the Check's findings; the edit stays on screen.
     const refused = seeded();
-    renderAt(refused.api, "/twins/corp-live/canvas");
+    renderAt(refused.api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    refused.state.refuse.config = new (await import("../src/api/client")).ApiError({ kind: "unprocessable", status: 422, message: "twin-config 'corp-live' fails validation (1 error(s)): IMG-010 image 'win11-finance@v4' has no manifest", url: "" });
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
-    await screen.findByText(/IMG-010 image 'win11-finance@v4' has no manifest/);
-    await waitFor(() => expect(screen.getByTestId("clean-marker")).toBeTruthy());
+    await check("valid");
+    refused.state.refuse.twinConfigWrite = new (await import("../src/api/client")).ApiError({ kind: "unprocessable", status: 422, message: "twin-config 'corp-auth' fails validation (1 error(s))", detail: { code: "invalid", findings: [{ rule_id: "IMG-010", severity: "error", message: "node 'ws01': image 'win11-finance@v4' has no manifest", location: "layers.infra.nodes[3]" }] }, url: "" });
+    fireEvent.click(screen.getByTestId("save"));
+    await waitFor(() => expect(checkStatus()).toBe("invalid"));
+    tab("Checks");
+    expect(screen.getAllByTestId("finding").find((x) => x.dataset["rule"] === "IMG-010")!.dataset["target"]).toBe("node:ws01");
+    expect(screen.getByTestId("dirty-marker")).toBeTruthy();
     expect(state.writes.filter((w) => w.op === "put-deploy-config").length).toBe(0);
   });
 
@@ -178,13 +180,12 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("clean-marker").textContent).toBe("working copy equals the baseline");
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
-    const put = state.writes.find((w) => w.op === "put-deploy-config")!;
-    expect(put.id).toBe("dep-1");
-    // The baseline is untouched: the catalog read is the original.
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)"));
+    await settle();
+    // The edit stays in this browser: no PUT of the working copy, the baseline untouched.
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
     expect((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]).toBe(teText("corp-live"));
-    expect(readTe((await api.getDeployConfig("dep-1")).document.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
-    // Persist: the baseline becomes the working copy and the copy is clean.
+    // Persist (on a passing Check): pushes the working copy, then the baseline becomes it and the copy is clean.
     fireEvent.click(await enabled("Persist"));
     await screen.findByText("working copy equals the baseline");
     expect(readTe((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
@@ -200,6 +201,13 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(canvasA).getAllByTestId("palette-item").find((i) => i.dataset["kind"] === "segment")!);
     await waitFor(() => expect(within(canvasA).getByTestId("dirty-marker")).toBeTruthy());
     await settle();
+    // Local only until pushed: Apply (on a passing Check) pushes it; a topology change is then not applied.
+    expect((await api.getDeployConfig("dep-1")).dirty).toBe(false);
+    fireEvent.click(within(canvasA).getByTestId("check-run"));
+    const applyA = within(canvasA).getByRole("button", { name: "Apply" });
+    await waitFor(() => expect(applyA.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(applyA);
+    await within(canvasA).findByText(/pushed to the working copy, not applied: a pending change needs a re-plan/);
     expect((await api.getDeployConfig("dep-1")).dirty).toBe(true);
 
     // The second console reads the same working copy from the API.
@@ -247,21 +255,23 @@ describe("the design canvas, phase 2 (C3)", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
+    await settle();
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
+    // Apply (on a passing Check) pushes the edit to the working copy, then applies it.
+    fireEvent.click(await enabled("Apply"));
+    await screen.findByText(/applied via tfc/);
+    expect(state.writes.map((w) => w.op).filter((op) => op === "put-deploy-config" || op === "apply-deploy-config")).toEqual(["put-deploy-config", "apply-deploy-config"]);
+    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual({ tfc: "done" });
     tab("Checks");
-    await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
     expect(change.dataset["kind"]).toBe("traffic");
     expect(change.textContent).toContain("live");
     expect(change.textContent).toContain("tfc/default.yaml");
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
-    await screen.findByText(/applied via tfc/);
-    expect(state.writes.some((w) => w.op === "apply-deploy-config" && w.id === "dep-1")).toBe(true);
-    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual({ tfc: "done" });
     // A role change with the image unchanged is live as well, naming the role.
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
+    fireEvent.click(await enabled("Apply"));
+    await waitFor(() => expect(state.writes.filter((w) => w.op === "apply-deploy-config").length).toBe(2));
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(2));
     expect(screen.getAllByTestId("pending-change").find((c) => c.textContent!.includes("te.yaml"))!.textContent).toContain("ws01 → finance-ws");
@@ -272,6 +282,9 @@ describe("the design canvas, phase 2 (C3)", () => {
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(item("segment", "segment"));
+    // Apply pushes the edit; the API classifies it as topology, so it is pushed and not applied.
+    fireEvent.click(await enabled("Apply"));
+    await screen.findByText(/pushed to the working copy, not applied/);
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
@@ -298,9 +311,7 @@ describe("the design canvas, phase 2 (C3)", () => {
 
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "domain-controller");
-    tab("Checks");
-    await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
-    tab("Selection");
+    await waitFor(() => expect(screen.getByTestId("dirty-marker")).toBeTruthy());
     const promote = await panel().findByTestId("promote-role");
     expect(promote.textContent).toBe("Promote to assertion: ws01 is a domain-controller");
     fireEvent.click(promote);
@@ -368,7 +379,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(sp).getByTestId("merge-segments"));
     await waitFor(() => expect(segments()).toEqual(["net-lan"]));
     expect(hosts()).toEqual(["web01", "ws01"]);
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
   });
 
   it("the palette places N copies named {name}-{n}, each on the next free address; a persona item binds the selected group", async () => {
@@ -481,41 +492,83 @@ describe("the design canvas, phase 2 (C3)", () => {
 });
 
 describe("the document validate gate and the side-car annotations", () => {
-  it("every mutation is validated through POST /api/validate {document}: an error finding disables Save and is shown with its rule and place; a clean answer enables it", async () => {
+  it("validation is on demand: no validate request fires on edits; the badge reads unchecked, valid, changed since check; Save opens only on a passing Check of unchanged files", async () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    expect(checkStatus()).toBe("unchecked");
+    expect(screen.getByTestId("check-badge").textContent).toBe("unchecked");
+    // Edits: nothing is validated or written while editing.
+    fireEvent.click(item("segment", "segment"));
+    await waitFor(() => expect(segments().length).toBe(3));
+    fireEvent.click(host("ws01"));
+    commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
+    await settle();
+    expect(state.writes.filter((w) => w.op === "validate")).toEqual([]);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
+    // Check: one request on exactly the files on screen; valid; Save opens.
+    fireEvent.click(screen.getByTestId("check-run"));
+    await waitFor(() => expect(screen.getByTestId("check-badge").textContent).toBe("valid"));
     expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(false);
     tab("Checks");
-    expect(screen.getByTestId("validation-api").textContent).toBe("API: pass · 0 errors, 0 warnings");
-    // An image the manifests do not know passes the canvas's own check and fails the API's.
+    expect(screen.getByTestId("validation-api").textContent).toBe("pass · 0 errors, 0 warnings");
+    expect(screen.getByRole("tab", { name: /^Checks/ }).textContent).toContain("valid");
+    // One more edit: the check no longer covers the files, Save closes until the next Check.
+    tab("Selection");
+    fireEvent.click(host("ws01"));
+    commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "kiosk");
+    await waitFor(() => expect(screen.getByTestId("check-badge").textContent).toBe("changed since check"));
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    // Ctrl+Enter (no field focused) checks again.
+    (window.document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(checkStatus()).toBe("valid"));
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(2);
+    // Undo back to the checked text... is not the checked text any more: changed again.
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => expect(checkStatus()).toBe("changed"));
+  });
+
+  it("a failing Check (an image the manifests do not know) closes Save and Save as; only Save as draft stays open, and the draft does not touch the twin", async () => {
+    const { api, state } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     const p = await panel().findByTestId("node-panel");
     fireEvent.change(within(p).getByLabelText("Image"), { target: { value: "ubuntu-server-99@v1" } });
     fireEvent.blur(within(p).getByLabelText("Image"));
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("invalid"));
+    await check("invalid");
+    expect(screen.getByTestId("check-badge").textContent).toBe("invalid (1)");
     tab("Checks");
     const finding = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "IMG-010")!;
     expect(finding.textContent).toContain("image 'ubuntu-server-99@v1' has no manifest");
     expect(finding.textContent).toContain("twin_config.nodes[web01].image");
-    expect(screen.getByTestId("validation-api").textContent).toBe("API: fail · 1 error, 0 warnings");
-    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "x" } });
     expect(screen.getByRole("button", { name: "Save as" }).hasAttribute("disabled")).toBe(true);
-    const validated = state.writes.filter((w) => w.op === "validate");
-    expect((validated.at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]).toContain("ubuntu-server-99@v1");
-    // Another known image: the next answer is clean and the exits open (the document still differs from the saved one).
-    tab("Selection");
-    commit(within(panel().getByTestId("node-panel")).getByLabelText("Image"), "debian-12-cloud@v1");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
-    fireEvent.click(await enabled("Save"));
-    await screen.findByTestId("clean-marker");
-    // The API's answer is tied to the files it judged: until the next answer lands the state is "validating", never a stale "valid".
-    fireEvent.click(item("segment", "segment"));
-    expect(screen.getByTestId("validation-state").textContent).toBe("validating");
-    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    expect(screen.getByTestId("save-as-draft").hasAttribute("disabled")).toBe(false);
+    // Save as draft: the suggested id, checked against the catalog, then the draft call -- never the twin's own id.
+    fireEvent.click(screen.getByTestId("save-as-draft"));
+    const dlg = await screen.findByTestId("draft-dialog");
+    expect((within(dlg).getByLabelText("Id") as HTMLInputElement).value).toBe("corp-auth-draft");
+    fireEvent.change(within(dlg).getByLabelText("Id"), { target: { value: "corp-live" } });
+    expect((await within(dlg).findByTestId("saveas-problem")).textContent).toContain("already");
+    fireEvent.change(within(dlg).getByLabelText("Id"), { target: { value: "corp-auth-draft" } });
+    await waitFor(() => expect((within(dlg).getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(state.drafts["corp-auth-draft"]).toBeTruthy());
+    const created = state.writes.find((w) => w.op === "create-draft")!;
+    expect(created.id).toBe("corp-auth-draft");
+    expect(created.body).toMatchObject({ origin: "corp-auth", last_check: { disposition: "FAIL", errors: 1 } });
+    expect(readTe(state.drafts["corp-auth-draft"]!.document.files["te.yaml"]!).id).toBe("corp-auth-draft");
+    // The original twin is never touched.
+    expect(state.writes.some((w) => (w.op === "put-twin-config" || w.op === "create-twin-config") && w.id === "corp-auth")).toBe(false);
+    expect(state.documents["corp-auth"]!.files["te.yaml"]).toBe(teText("corp-auth"));
+    // The page is the draft now: labelled, no Deploy.
+    await screen.findByTestId("draft-label");
+    expect(screen.queryByTestId("deploy-open")).toBeNull();
   });
 
   it("layout changes stay on the canvas until Save layout; Discard puts them back; a document Save carries them", async () => {
@@ -792,7 +845,7 @@ describe("a router joins segments: it places without one", () => {
     await waitFor(() => expect(routers()).toEqual(["gw", "router"]));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();
     // Unattached is a WARNING (an error would have blocked the placement): the document stays saveable, the Checks tab says what is missing.
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
     tab("Checks");
     const cv024 = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-024")!;
     expect(cv024.textContent).toContain("router 'router' joins no segment yet");
@@ -806,8 +859,9 @@ describe("a router joins segments: it places without one", () => {
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-lan"]));
     // A router's leg is NOT pinned to the next free host address: the engine puts a lone router leg at the gateway (network+1).
     expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-lan") as HTMLInputElement).value).toBe("");
+    await check("valid");
     tab("Checks");
-    await waitFor(() => expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false));
+    expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false);
     // Armed, then a segment: that segment is the router's first leg.
     fireEvent.click(item("router", "router"));
     fireEvent.click(segment("net-dmz"));

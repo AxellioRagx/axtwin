@@ -256,6 +256,37 @@ the config holds them, null where it has none (R5-1, 2026-11-08).
   copy equals the baseline and `dirty` is false.
 - Both validate before writing; a read after a write returns the written
   document byte-for-byte equivalent.
+- A document that fails validation cannot be written here; it can be kept as
+  a draft instead (see A3d).
+
+**A3d — drafts.** A place for a twin-config document that FAILS validation,
+so an in-progress edit is not lost. A separate resource, not a flag on
+twin-configs: the A3 validation gate is untouched and a draft is outside every
+catalog and deploy path by construction. Built 2026-11-20 (`api/drafts.py`;
+tests `engine/tests/test_api_drafts.py`).
+- `GET /api/drafts` (sorted by id) and `GET /api/drafts/{id}` (the `document`
+  only on a read that sends the bearer token, as for A3; 404 when absent).
+- `POST /api/drafts` (201) `{id, files, origin?, last_check?}` and
+  `PUT /api/drafts/{id}` (overwrites the files, keeps `created_at` and, unless
+  given, `origin`; `last_check` is set from the body, null clears it) and
+  `DELETE /api/drafts/{id}` (204). Writes need the token. **No validation**:
+  only the id, the document's own `twin_config.id`, the file paths and `origin`
+  (a safe id, need not exist) are checked, each a 400. `POST` is 409 when a
+  draft or a twin already has the id; `POST /api/twin-configs` is 409 on a
+  draft's id, so ids are unique across both.
+- Storage: `<drafts_dir>/<id>/` holds the document files plus `.draft.json`
+  (`axr-draft/1`: `id`, `origin`, `created_at`, `updated_at`, `last_check`
+  `{disposition, errors, warnings, checked_at}`), which is not part of the
+  document. `drafts_dir` is `AXRANGE_DRAFTS_DIR` / `axrange serve --drafts-dir`;
+  unset, `drafts/` beside the twin write root. It may not be a twin search dir
+  (503 naming the setting).
+- **Never deployable.** `POST /api/deploys`, `POST /api/twins/{id}/plan` and
+  `.../deploy` refuse a draft id (not a twin) with 409 `detail.code: draft`.
+- **Promote** = A3 `PUT /api/twin-configs/{origin}` (or `POST` for a new twin),
+  validated there; the console then deletes the draft.
+- A3d.1 A document with an unknown image is a 422 on A3 and a 201 draft that
+  reads back byte-for-byte. A3d.2 A draft is in neither `GET /api/twins` nor
+  `GET /api/twin-configs`, and every deploy route refuses it with `draft`.
 
 **A4 — targets management.**
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target

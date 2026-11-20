@@ -158,6 +158,14 @@ class ApiSettings:
         )
     )
 
+    # Drafts root (`api/Spec.md` A3d): documents that FAIL validation, kept
+    # for later repair -- never in the twin catalog, never deployable.
+    # Empty -> `drafts/` beside the catalog's write root (`catalog/drafts`
+    # beside `catalog/twins`). Must not be one of the twin search dirs.
+    drafts_dir: str = field(
+        default_factory=lambda: os.environ.get("AXRANGE_DRAFTS_DIR", "")
+    )
+
     # Imprint-fixture catalog root (aximprint-integration Track C,
     # docs/WORK_ORDER_aximprint_console.md) -- read-only belief-store
     # fixtures under `<root>/<id>/` (point it at `twins/` for the real cast

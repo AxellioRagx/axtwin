@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { UNTITLED_SCOPE } from "../src/features/edit-canvas/CanvasPage";
-import { item, seeded, segments, settle } from "./helpers/canvasFixtures";
+import { check, item, seeded, segments, settle, tab } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -63,15 +63,20 @@ describe("New: an untitled canvas", () => {
     renderAt(api, "/canvas/new");
     await screen.findByTestId("rail-add");
     expect(saveButton().disabled).toBe(true);
-    expect(saveButton().title).toBe("add at least one segment before saving");
+    expect(saveButton().title).toContain("run Check first");
     expect(screen.getByTestId("empty-reason").textContent).toBe("add at least one segment before saving");
-    // No segment: nothing is sent to the validator, and no engine refusal is shown.
+    // Nothing is validated until Check; a Check of the empty design names the missing segment.
     await settle();
     expect(state.writes.filter((w) => w.op === "validate")).toEqual([]);
+    await check("invalid");
+    tab("Checks");
+    expect(screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-EMPTY")!.textContent).toContain("add at least one segment before saving");
+    expect(saveButton().disabled).toBe(true);
 
     await addFirstSegment();
     expect(screen.queryByTestId("empty-reason")).toBeNull();
-    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    await check("valid");
+    expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     const dialog = await screen.findByRole("dialog", { name: "Save design" });
     fireEvent.change(within(dialog).getByLabelText("Id"), { target: { value: "my-lab" } });
@@ -108,7 +113,8 @@ describe("New: an untitled canvas", () => {
     renderAt(api, "/canvas/new");
     await screen.findByTestId("rail-add");
     await addFirstSegment();
-    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    await check("valid");
+    expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     const dialog = await screen.findByRole("dialog", { name: "Save design" });
     const submit = within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement;
@@ -258,7 +264,8 @@ describe("Clone (Open's action)", () => {
     // Edit it, then Save: the id is suggested as <source>-copy.
     fireEvent.click(item("segment", "segment"));
     await waitFor(() => expect(segments().length).toBe(3));
-    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    await check("valid");
+    expect(saveButton().disabled).toBe(false);
     fireEvent.click(saveButton());
     const save = await screen.findByRole("dialog", { name: "Save design" });
     expect((within(save).getByLabelText("Id") as HTMLInputElement).value).toBe("corp-auth-copy");

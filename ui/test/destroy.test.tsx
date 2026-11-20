@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../src/api/client";
 import type { DeploySummary } from "../src/api/types";
 import { currentTier, destroyWord, standingTiers, type DestroyRun } from "../src/areas/shell/destroy";
-import { DEPLOY, host, panel, seeded } from "./helpers/canvasFixtures";
+import { DEPLOY, host, panel, seeded, enabled } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TFC: DeploySummary = { deploy_id: "tfc-dep-1-aa", scenario_id: "tfc-dep-1", status: "completed", started_at: 1700000200, updated_at: 1700000300, tier: "tfc", target: "dev45" };
@@ -167,7 +167,7 @@ describe("the canvas bar", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)"));
     fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
     const gate = dialog().getByTestId("destroy-dirty");
     expect(gate.textContent).toContain("Unapplied changes will be discarded.");
@@ -186,10 +186,8 @@ describe("the canvas bar", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)"));
+    fireEvent.click(await enabled("Apply"));
     await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("applied · unpersisted"));
     fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
     const gate = dialog().getByTestId("destroy-dirty");
@@ -207,9 +205,8 @@ describe("the canvas bar", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
-    const persist = screen.getByRole("button", { name: "Persist" });
-    await waitFor(() => expect(persist.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)"));
+    await enabled("Persist");
     fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
     fireEvent.click(dialog().getByTestId("destroy-persist-first"));
     await waitFor(() => expect(dialog().queryByTestId("destroy-dirty")).toBeNull());

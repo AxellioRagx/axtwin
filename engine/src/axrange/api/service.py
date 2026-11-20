@@ -2088,6 +2088,10 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
     if req.update and req.fresh:
         raise ApiError(400, "'update' and 'fresh' are mutually exclusive")
 
+    from axrange.api.drafts import refuse_if_draft
+
+    refuse_if_draft(settings, req.config if has_config else None)
+    refuse_if_draft(settings, req.imprint if has_imprint else None)
     config_warnings: list[str] = []
     if has_scenario:
         plan, cfg, ctx, ir, raw, sp, manifests = _build_plan_and_ctx(
@@ -4715,6 +4719,9 @@ def imprint_plan(settings: ApiSettings, imprint_id: str, *,
     # at its `[]` default.
     # `target` (`docs/design/targets-and-lab.md` §2.2, the deploy dialog's
     # Target select): plan against that target and attach its preflight.
+    from axrange.api.drafts import refuse_if_draft
+
+    refuse_if_draft(settings, imprint_id)
     if target:
         settings = _settings_for_named_target(settings, target)
     config_warnings: list[str] = []
@@ -4773,8 +4780,10 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
     AFTER the te deploy completes, in the CLI's order (tap, then tfc), each
     from the twin's own default (`run_follow_on`); recorded per te deploy
     and shown on its row's `follow_on`."""
+    from axrange.api.drafts import refuse_if_draft
     from axrange.api.follow_on import FOLLOW_ON_TIERS
 
+    refuse_if_draft(settings, imprint_id)
     unknown = sorted(set(req.follow_on) - set(FOLLOW_ON_TIERS))
     if unknown:
         raise ApiError(400, f"follow_on names {unknown}; the tiers that follow te are tap, tfc")
@@ -6885,9 +6894,13 @@ def twin_config_create(
     from axrange.twinconfig import TwinConfigNotFoundError
     from axrange.twinconfig.registry import resolve_twin_config_path
 
+    from axrange.api import drafts
+
     twin_id = (req.id or "").strip()
     if not twin_id or not _is_safe_catalog_ref(twin_id):
         raise ApiError(400, f"'id' {req.id!r} is not a usable twin-config id")
+    if drafts.exists(settings, twin_id):
+        raise ApiError(409, f"{twin_id!r} is an existing draft; ids are unique across twins and drafts")
     files = _normalized_files(req.files)
     try:
         resolve_twin_config_path(twin_id, catalog_dir=settings.twin_configs_dir or None, warnings=[])

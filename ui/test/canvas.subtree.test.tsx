@@ -161,7 +161,7 @@ describe("attach", () => {
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach } from "vitest";
 
-import { seeded, settle, twinYaml } from "./helpers/canvasFixtures";
+import { check, seeded, settle, tab, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 function withTwin(id: string, files: Record<string, string>) {
@@ -172,7 +172,8 @@ function withTwin(id: string, files: Record<string, string>) {
     twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
   });
 }
-const lastFiles = (state: ReturnType<typeof seeded>["state"]) => (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+/** The files on screen: a Check sends exactly them (nothing validates on its own any more). */
+const lastFiles = async (state: ReturnType<typeof seeded>["state"]) => (await check(), state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
 const device = (name: string) => screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === name)!;
 const hostIcon = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
 
@@ -200,20 +201,24 @@ describe("on the page", () => {
     fireEvent.keyDown(window, { key: "Enter" });
     await settle();
     expect(screen.queryByTestId("carry-ghost")).toBeNull();
-    // R3-2: the copy is held locally, parked: drawn and selected, never sent to the API to be refused.
+    // R3-2: the copy is parked: drawn with its badge and selected; it holds no edit, and Check reports it.
     await waitFor(() => expect(screen.getByTestId("subtree-panel").textContent).toContain("access-2"));
     expect(screen.getByTestId("subtree-panel").textContent).toContain("none (parked)");
     await waitFor(() => expect(screen.getAllByTestId("canvas-device").map((d) => d.dataset["nodeId"]).sort()).toEqual(["access", "access-2", "core"]));
     expect(within(device("access-2")).getByTestId("parked-badge").textContent).toBe("not attached");
-    expect(screen.getByTestId("parked-reason").textContent).toContain("access-2 is parked, not attached");
     expect(state.writes.filter((w) => w.op === "validate").length).toBe(validatesBefore);
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Save" }).getAttribute("title")).toContain("parked");
     expect(hostIcon("ws-2")).toBeTruthy(); // the copy's hosts came too; its taps never do
-    // One undo step removes the whole copy, and the hold lifts.
+    // Check: the parked switch is a finding, pinned on the device; Save stays closed.
+    await check("invalid");
+    tab("Checks");
+    const parked = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-PARK")!;
+    expect(parked.textContent).toContain("access-2 is parked, not attached");
+    expect(within(device("access-2")).getByTestId("finding-badge").dataset["severity"]).toBe("error");
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    // One undo step removes the whole copy; the next Check passes.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(screen.getAllByTestId("canvas-device").map((d) => d.dataset["nodeId"]).sort()).toEqual(["access", "core"]));
-    expect(screen.queryByTestId("parked-reason")).toBeNull();
+    await check("valid");
   });
   it("R3-2: a parked copy validates once attached, and the copy carries no tap", async () => {
     const TAP = "tap-plan:\n  target: sub\n  bindings:\n    - { selector: { scope: segment, target: a1 }, mode: exclusive, sensors: [s1] }\n";
@@ -223,13 +228,14 @@ describe("on the page", () => {
     fireEvent.click(device("access"), { altKey: true });
     fireEvent.keyDown(window, { key: "d", ctrlKey: true });
     fireEvent.keyDown(window, { key: "Enter" });
-    await screen.findByTestId("parked-reason");
+    await waitFor(() => expect(within(device("access-2")).getByTestId("parked-badge")).toBeTruthy());
     fireEvent.click(screen.getByTestId("rail-attach"));
     fireEvent.click(screen.getAllByTestId("canvas-router")[0]!);
     fireEvent.click(device("access-2"));
-    await waitFor(() => expect(screen.queryByTestId("parked-reason")).toBeNull());
+    await waitFor(() => expect(within(device("access-2")).queryByTestId("parked-badge")).toBeNull());
     await settle();
-    const files = lastFiles(state);
+    await check("valid");
+    const files = (await lastFiles(state));
     const te = readTe(files["te.yaml"]!);
     expect(te.nodes.map((n) => n.name)).toContain("access-2");
     expect(te.links.at(-1)).toMatchObject({ a: { device: "hq" }, b: { device: "access-2" }, mode: "trunk" });
@@ -244,7 +250,7 @@ describe("on the page", () => {
     fireEvent.change(within(sp).getByLabelText("Duplicate subtree onto device"), { target: { value: "core" } });
     fireEvent.click(within(sp).getByTestId("duplicate-subtree"));
     await settle();
-    const te = readTe(lastFiles(state)["te.yaml"]!);
+    const te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.links.at(-1)).toMatchObject({ a: { device: "core", port: "P2" }, b: { device: "access-2", port: "Po48" }, mode: "trunk", native: "a1-2" });
   });
   it("the attach tool between a device and a host writes an access link; between two devices a trunk", async () => {
@@ -255,7 +261,7 @@ describe("on the page", () => {
     fireEvent.click(device("core"));
     fireEvent.click(hostIcon("srv"));
     await settle();
-    let te = readTe(lastFiles(state)["te.yaml"]!);
+    let te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.links.at(-1)).toMatchObject({ a: { device: "core", port: "P2" }, b: { device: "srv", port: "eth1" }, mode: "access", vlans: ["b1"] });
     // A parked switch copy, then the tool from hq to it: a trunk carrying what the copy carries.
     fireEvent.click(device("access"), { altKey: true });
@@ -266,7 +272,7 @@ describe("on the page", () => {
     fireEvent.click(screen.getAllByTestId("canvas-router")[0]!);
     fireEvent.click(device("access-2"));
     await settle();
-    te = readTe(lastFiles(state)["te.yaml"]!);
+    te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.links.at(-1)).toMatchObject({ a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", vlans: ["a1-2", "a2-2"] });
   });
 });

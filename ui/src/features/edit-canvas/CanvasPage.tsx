@@ -11,20 +11,31 @@
  * deploy is running. The canvas draws the document, so every edit shows at
  * once; the evidence view draws what the API observed.
  *
- * Exits (`api/Spec.md`, "The edit model"): an undeployed config has Save and
- * Save-As; a deployed twin has Apply (only when every pending change the API
- * classified is live), Reset, Persist and Save-As, and a topology change
- * offers "redeploy from baseline". Every mutation is validated here first
- * and, on a deployed twin, by the API on the PUT of the working copy, whose
- * refusal reverts the edit and is shown verbatim. A cast twin's role change
- * or segment merge can be promoted to an assertion through the imprint's
- * seam, which re-casts and re-opens the working copy.
+ * Validation is ON DEMAND (`SPEC.md` "The edit model"): nothing validates or
+ * writes while the operator edits. Check (the bar's button, Ctrl+Enter) runs
+ * `POST /api/validate` on the files on screen and records them; every exit
+ * that overwrites a twin -- Save, Save As, Persist, Apply, Replace origin --
+ * opens only on a passing Check of exactly the files on screen, and the API
+ * validates again on the write (a 422 lands as the Check's findings). A
+ * document that fails can only be kept as a DRAFT (`api/Spec.md` A3d), a
+ * copy under its own id that never touches the twin it came from.
+ *
+ * A deployed twin's edits stay in this browser (the undo stack and the
+ * edited text survive a reload) until Apply or Persist pushes them to the
+ * working copy (A2) and runs the exit; Reset discards both. A cast twin's
+ * role change or segment merge can be promoted to an assertion through the
+ * imprint's seam, which re-casts and re-opens the working copy.
  *
  * `/canvas/new` is the same page over an UNTITLED design: a blank document
  * held in this browser (its undo stack and layout draft survive a reload),
- * no server read of a stored twin, no deploy. Its first Save is a Save-As
- * that names it in the catalog and moves the page to `/canvas/<id>`; until
- * it has a segment Save is held with the reason, as a parked copy holds it.
+ * no server read of a stored twin, no deploy. Its first save is a Save As
+ * (on a passing Check) that names it in the catalog and moves the page to
+ * `/canvas/<id>`, or a Save as draft.
+ *
+ * `/canvas/drafts/:id` is the page over a DRAFT: its document from the
+ * drafts area, its layout in this browser, no deploy. Save draft rewrites
+ * the draft; on a passing Check it can Replace its origin twin (A3 `PUT`,
+ * after a confirm) or Save As a new twin.
  */
 import type { Viewport } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,10 +46,11 @@ import { useWhoami } from "../../api/whoami";
 import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { Target } from "../../api/types";
-import type { CastRoster, DeployConfig, DeploySummary, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidateResult } from "../../api/types";
+import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidationFinding } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
+import { checkBadge, checkPasses, checkStatus, findingPins, findingTarget, localFindings, mergeFindings, refusalAsCheck, targetKey, type CheckRecord } from "./edit/check";
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
 import { useLeaveGuard } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
@@ -90,10 +102,10 @@ interface Loaded {
   config: DeployConfig | null;
   /** The catalog entry with its document (A3): the baseline. Null when the catalog has no document for this id. */
   detail: TwinConfigDetail | null;
+  /** On `/canvas/drafts/:id`: the draft with its document (A3d); null otherwise. */
+  draftRow: DraftDetail | null;
 }
 
-const SYNC_DELAY_MS = 250;
-const VALIDATE_DELAY_MS = 300;
 const POLL_MS = 5000;
 /** While an exit is in flight the poll runs at this pace, for the progress state. */
 const BUSY_POLL_MS = 1000;
@@ -112,13 +124,6 @@ export function annotationsWrite(current: LayoutDoc | null, id: string, annotati
   return { ...layoutWrite(current, id, pinsOf(current), annotations), annotations: [...annotations] };
 }
 
-/** The latest document validate (`POST /api/validate {document}`), tied to the files it judged. */
-export interface DocValidation {
-  files: Files;
-  result: ValidateResult | null;
-  error: unknown;
-}
-
 /** The twin's standing deploy: its newest `te` deploy that is running or completed. */
 export function standingDeploy(deploys: readonly DeploySummary[], twinId: string): DeploySummary | null {
   const mine = deploys.filter((d) => d.scenario_id === twinId && (d.tier ?? "te") === "te" && (d.status === "running" || d.status === "completed"));
@@ -135,6 +140,7 @@ export { tierStatus, tierWord } from "../../areas/shell/deployState";
  *  baseline". Two states instead: the copy's changes were applied and are not
  *  yet persisted, or the copy carries changes not applied. Pure. */
 export function docState(config: Pick<DeployConfig, "dirty" | "applied" | "updated_at"> | null, editorDirty: boolean, unsynced: boolean): "clean" | "syncing" | "applied" | "unapplied" {
+  // `syncing`: the edits on screen are in this browser only; Apply or Persist pushes them.
   if (unsynced) return "syncing";
   if (!(config?.dirty || editorDirty)) return "clean";
   if (config?.applied && config.updated_at && config.applied.at >= config.updated_at) return "applied";
@@ -212,20 +218,43 @@ export function readStoredStack(scope: string, files: Files | null): Stack | nul
   }
 }
 
-export function writeStoredStack(scope: string, stack: Stack): void {
+export function writeStoredStack(scope: string, stack: Stack, local?: { files: Files; base: Files }): void {
   try {
     if (stack.done.length === 0 && stack.undone.length === 0) localStorage.removeItem(undoKey(scope));
-    else localStorage.setItem(undoKey(scope), JSON.stringify({ stack }));
+    else localStorage.setItem(undoKey(scope), JSON.stringify(local ? { stack, files: local.files, base: local.base } : { stack }));
   } catch {
     // no storage: the stack lives for the page only
+  }
+}
+
+/** A deployed twin's edits not yet pushed (Apply / Persist push them), as this browser kept them:
+ *  restored only while the working copy is still the text they were made over (`base`) and the
+ *  stack still ends at them; another console's change to the copy drops them. */
+export function readStoredLocal(scope: string, server: Files | null): { stack: Stack; files: Files } | null {
+  if (!server) return null;
+  try {
+    const raw = localStorage.getItem(undoKey(scope));
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { stack?: Partial<Stack>; files?: Files; base?: Files };
+    if (!v.files || !v.base || !v.stack || !Array.isArray(v.stack.done) || !Array.isArray(v.stack.undone)) return null;
+    if (!sameFiles(v.base, server)) return null;
+    const stack = { done: v.stack.done, undone: v.stack.undone };
+    return stackFits(stack, v.files) ? { stack, files: v.files } : null;
+  } catch {
+    return null;
   }
 }
 
 /** The untitled design's browser scope: its files and stack (it has no server copy to fit a stack to). */
 export const UNTITLED_SCOPE = "twin:__untitled__";
 
-function untitledLayoutKey(): string {
-  return `axr-canvas-layout:${UNTITLED_SCOPE}`;
+function untitledLayoutKey(scope: string = UNTITLED_SCOPE): string {
+  return `axr-canvas-layout:${scope}`;
+}
+
+/** A draft's browser scope (its layout and stack): a draft has no layout side-car. */
+export function draftScope(id: string): string {
+  return `draft:${id}`;
 }
 
 /** What an untitled design was started from: blank (no source), or a clone of a catalog twin. */
@@ -268,11 +297,11 @@ export function writeUntitled(files: Files, stack: Stack, origin: UntitledOrigin
   }
 }
 
-/** The untitled design's layout draft, as a layout document nobody has saved. */
-function readUntitledLayout(): LayoutDoc {
-  const empty: LayoutDoc = { imprint_id: UNTITLED_ID, path: "", exists: false, etag: null, schema: LAYOUT_SCHEMA, imprint: UNTITLED_ID, pins: {}, plane: CANVAS_PLANE, annotations: [] };
+/** The untitled design's (or a draft's) layout, as a layout document nobody has saved. */
+function readUntitledLayout(scope: string = UNTITLED_SCOPE, id: string = UNTITLED_ID): LayoutDoc {
+  const empty: LayoutDoc = { imprint_id: id, path: "", exists: false, etag: null, schema: LAYOUT_SCHEMA, imprint: id, pins: {}, plane: CANVAS_PLANE, annotations: [] };
   try {
-    const raw = localStorage.getItem(untitledLayoutKey());
+    const raw = localStorage.getItem(untitledLayoutKey(scope));
     if (!raw) return empty;
     const v = JSON.parse(raw) as { pins?: LayoutDoc["pins"]; annotations?: LayoutAnnotation[] };
     return { ...empty, pins: v.pins ?? {}, annotations: Array.isArray(v.annotations) ? v.annotations : [] };
@@ -281,10 +310,10 @@ function readUntitledLayout(): LayoutDoc {
   }
 }
 
-export function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[]): void {
+export function writeUntitledLayout(pins: LayoutDoc["pins"], annotations: LayoutAnnotation[], scope: string = UNTITLED_SCOPE): void {
   try {
-    if (Object.keys(pins).length === 0 && annotations.length === 0) localStorage.removeItem(untitledLayoutKey());
-    else localStorage.setItem(untitledLayoutKey(), JSON.stringify({ pins, annotations }));
+    if (Object.keys(pins).length === 0 && annotations.length === 0) localStorage.removeItem(untitledLayoutKey(scope));
+    else localStorage.setItem(untitledLayoutKey(scope), JSON.stringify({ pins, annotations }));
   } catch {
     // no storage
   }
@@ -314,21 +343,28 @@ function readViewport(id: string): Viewport | null {
 
 type View = "design" | "evidence";
 
-export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
+export function CanvasPage({ untitled = false, draft: isDraft = false }: { untitled?: boolean; draft?: boolean } = {}) {
   const api = useApi();
   const whoami = useWhoami();
   const navigate = useNavigate();
   const params = useParams();
   const id = untitled ? UNTITLED_ID : (params.id ?? "");
-  // The browser-side scope for what is kept per design (the viewport): the untitled one has its own.
-  const scopeId = untitled ? UNTITLED_SCOPE : id;
+  // The browser-side scope for what is kept per design (the viewport): the untitled one and each draft have their own.
+  const scopeId = untitled ? UNTITLED_SCOPE : isDraft ? draftScope(id) : id;
+  // Where layouts live in this browser (no side-car): the untitled design's and a draft's.
+  const browserLayout = untitled || isDraft;
   // The untitled design's blank start: what its edits are measured against (dirty) until Save-As.
   const untitledSeed = useMemo(() => (untitled ? { id: UNTITLED_ID, te_file: "te.yaml", files: blankDesignFiles({ id: UNTITLED_ID }) } : null), [untitled]);
   // Where the untitled design started (blank, or a clone of a catalog twin): read with it, kept with it.
   const [origin, setOrigin] = useState<UntitledOrigin>({ teFile: "te.yaml", source: null });
   const { data, error, loading, reload } = useLoad<Loaded>(async (signal) => {
     // Untitled: nothing is stored on the server yet, so nothing is read.
-    if (untitled) return { twin: { id, as_of: "", hosts: 0, segments: 0, services: 0, personas: 0, mean_confidence: 0 }, tree: null, exportData: null, topology: null, cast: null, deploy: null, deploys: [], config: null, detail: null };
+    if (untitled) return { twin: { id, as_of: "", hosts: 0, segments: 0, services: 0, personas: 0, mean_confidence: 0 }, tree: null, exportData: null, topology: null, cast: null, deploy: null, deploys: [], config: null, detail: null, draftRow: null };
+    // A draft: its document from the drafts area, nothing from the catalog (it is not a twin) and no deploy.
+    if (isDraft) {
+      const draftRow = await api.getDraft(id, signal);
+      return { twin: { id, as_of: "", hosts: 0, segments: 0, services: 0, personas: 0, mean_confidence: 0 }, tree: null, exportData: null, topology: null, cast: null, deploy: null, deploys: [], config: null, detail: null, draftRow };
+    }
     const twin = await api.getTwin(id, signal);
     const tree = await api.getTwinTree(id, signal).catch(() => null);
     let exportData: TopologyExport | null = null;
@@ -350,8 +386,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     } catch (e) {
       if (!(e instanceof ApiError && e.kind === "not-found")) throw e;
     }
-    return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail };
-  }, [id, untitled]);
+    return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail, draftRow: null };
+  }, [id, untitled, isDraft]);
   // The palette's catalog -- every other twin's config -- loads when the palette is first
   // opened, not with the page (R3-6). It loaded beside the drawing: one listing (4 s server
   // side, every catalog YAML parsed) and a read of every config, a dozen requests holding the
@@ -375,7 +411,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(catalogLoad.data?.others ?? [])], [data?.detail, catalogLoad.data]);
   const personas = personaLoad.data?.personas ?? [];
   const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
-  const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : api.getLayout(id, signal)), [id, untitled]);
+  const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
   // overlay and the deployed bar's target chip. A refusal leaves them empty.
@@ -414,12 +450,12 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   pinsRef.current = pins;
   const layoutChanges = draft.changes;
   const saveLayout = draft.save;
-  // The untitled design's layout draft is kept in this browser as it changes (it has no side-car to save to).
+  // The untitled design's (or a draft's) layout is kept in this browser as it changes (it has no side-car to save to).
   const leavingLayout = useRef(false);
   useEffect(() => {
-    if (!untitled || leavingLayout.current || draft.changes === 0) return;
-    writeUntitledLayout(pins, annotations.map(toLayout));
-  }, [untitled, pins, annotations, draft.changes]);
+    if (!browserLayout || leavingLayout.current || draft.changes === 0) return;
+    writeUntitledLayout(pins, annotations.map(toLayout), untitled ? UNTITLED_SCOPE : draftScope(id));
+  }, [browserLayout, untitled, id, pins, annotations, draft.changes]);
   const [expanded, setExpanded] = useState<string[]>([]);
   const [initialViewport] = useState(() => readViewport(scopeId));
 
@@ -432,7 +468,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const [placing, setPlacing] = useState<PaletteItem | null>(null);
   const [copies, setCopies] = useState(1);
   const [blocked, setBlocked] = useState<string | null>(null);
-  const [serverReason, setServerReason] = useState<string | null>(null);
   /** The working-copy poll's last failure; the next good poll clears it (R3-9). */
   const [pollError, setPollError] = useState<unknown>(null);
   const [exitError, setExitError] = useState<unknown>(null);
@@ -446,6 +481,9 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   // Open (the bar's button, Ctrl+O) and the untitled design's first-Save prompt.
   const [openDialog, setOpenDialog] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
+  // Save as draft (always available) and the draft's Replace <origin> confirm.
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -458,8 +496,12 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const destroying = destroyRun?.phase === "running";
   const [deployRows, setDeployRows] = useState<DeploySummary[]>([]);
   const [saveAsId, setSaveAsId] = useState("");
-  const [validation, setValidation] = useState<DocValidation | null>(null);
-  const [validating, setValidating] = useState(false);
+  // The last Check (on demand): the files it judged and the merged answer.
+  const [check, setCheck] = useState<CheckRecord | null>(null);
+  const [checking, setChecking] = useState(false);
+  // A finding clicked in the Checks tab: the canvas zooms to the element it names.
+  const [focus, setFocus] = useState<{ key: string; n: number } | null>(null);
+  // The working copy's text as the server holds it (a deployed twin): what local edits are measured against.
   const synced = useRef<Files | null>(null);
   const deployed = Boolean(data?.deploy);
   const deployId = data?.deploy?.deploy_id ?? null;
@@ -470,7 +512,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     setConfig(data.config);
     setDetail(data.detail);
     setDeployRows(data.deploys);
-    const document = data.config?.document ?? data.detail?.document ?? untitledSeed;
+    const document = data.config?.document ?? data.draftRow?.document ?? data.detail?.document ?? untitledSeed;
+    setCheck(null);
     if (untitled && untitledSeed) {
       // The untitled design as this browser left it (a reload), else its blank start.
       const kept = readUntitled();
@@ -481,12 +524,18 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     } else if (document) {
       editor.load({ id: document.id, teFile: document.te_file, files: document.files });
       synced.current = { ...document.files };
-      // The same text as this browser last edited: its Undo comes back.
-      const stored = readStoredStack(data.config ? data.config.deploy_id : `twin:${id}`, document.files);
-      if (stored) editor.restoreStack(stored);
+      // A deployed twin's edits not yet pushed come back over the same working copy (they never left this browser).
+      const local = data.config ? readStoredLocal(data.config.deploy_id, document.files) : null;
+      if (local) {
+        editor.load({ id: document.id, teFile: document.te_file, files: local.files }, { saved: document.files });
+        editor.restoreStack(local.stack);
+      } else {
+        // The same text as this browser last edited: its Undo comes back.
+        const stored = readStoredStack(data.config ? data.config.deploy_id : isDraft ? draftScope(id) : `twin:${id}`, document.files);
+        if (stored) editor.restoreStack(stored);
+      }
     }
     setSelection({ kind: "none" });
-    setServerReason(null);
     setBlocked(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, id]);
@@ -504,48 +553,40 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     clearLegacyAnnotations(id);
   }, [layout.data, id, untitled, setAnnotations]);
 
-  // R3-2: a switch wired to nothing (a parked duplicate, a switch just placed) is held HERE: the
-  // document is neither validated by the API nor synced to a working copy until it is attached,
-  // and every exit says why. The copy is one undo step like any edit.
+  // R3-2: a switch wired to nothing (a parked duplicate, a switch just placed) is drawn with its
+  // "not attached" badge and reported by Check (`edit/check.ts`); it no longer holds any edit.
   const parked = useMemo(() => (editor.model ? parkedDevices(editor.model.te) : []), [editor.model]);
   const parkedKey = parked.join(",");
-  // An untitled design with no segment is not yet a document the engine accepts: Save waits, with the reason.
+  // An untitled design with no segment is not yet a document the engine accepts: a Check finding.
   const emptyReason = untitled && editor.model && editor.model.te.segments.length === 0 ? NO_SEGMENT_REASON : null;
-  const parkedReason = parked.length ? `${parked.join(", ")} ${parked.length === 1 ? "is" : "are"} parked, not attached: drop ${parked.length === 1 ? "it" : "them"} on a switch or router, or wire ${parked.length === 1 ? "it" : "them"} with the attach tool, before Apply or Save` : null;
 
-  // Every mutation is validated by the API through the document route after a
-  // short quiet spell; the exits are enabled only on a clean answer for the
-  // files as they stand. The structural check stays the instant hint.
-  useEffect(() => {
-    if (!editor.files || !editor.doc) return;
-    if (parkedKey || emptyReason) {
-      setValidation(null);
-      setValidating(false);
-      return;
-    }
+  // Check (on demand): the files on screen through `POST /api/validate`, the canvas's own findings
+  // folded in, recorded with exactly those files. Nothing else validates.
+  const checkSeq = useRef(0);
+  const runCheck = useCallback(async (): Promise<CheckRecord | null> => {
     const files = editor.files;
-    const docId = editor.doc.id;
-    const ctl = new AbortController();
-    setValidating(true);
-    const t = setTimeout(() => {
-      api.validateDocument({ id: docId, files }, ctl.signal).then(
-        (result) => {
-          if (ctl.signal.aborted) return;
-          setValidation({ files, result, error: null });
-          setValidating(false);
-        },
-        (e: unknown) => {
-          if (ctl.signal.aborted) return;
-          setValidation({ files, result: null, error: e });
-          setValidating(false);
-        },
-      );
-    }, VALIDATE_DELAY_MS);
-    return () => {
-      clearTimeout(t);
-      ctl.abort();
-    };
-  }, [editor.files, editor.doc, api, parkedKey, emptyReason]);
+    const doc = editor.doc;
+    const model = editor.model;
+    if (!files || !doc || !model) return null;
+    const seq = ++checkSeq.current;
+    setChecking(true);
+    const local = localFindings(model, parkedDevices(model.te), untitled && model.te.segments.length === 0 ? NO_SEGMENT_REASON : null);
+    let rec: CheckRecord;
+    try {
+      const result = await api.validateDocument({ id: doc.id, files });
+      rec = { files, result: mergeFindings(result, local), error: null };
+    } catch (e) {
+      rec = { files, result: null, error: e };
+    }
+    try {
+      if (seq === checkSeq.current) setCheck(rec);
+      return rec;
+    } finally {
+      if (seq === checkSeq.current) setChecking(false);
+    }
+  }, [api, editor, untitled]);
+  const runCheckRef = useRef(runCheck);
+  runCheckRef.current = runCheck;
 
   // R3-9: a banner about a refused or blocked edit clears on the next change that lands (an
   // edit, an Undo, a Redo, a reload): it described a document that is no longer on screen.
@@ -565,7 +606,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       }
       const reason = editor.apply(label, fn, options);
       setBlocked(reason);
-      if (!reason) setServerReason(null);
       return reason;
     },
     [editor, locked],
@@ -583,30 +623,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     if (!blocked) setFabricResult({ bridges: plan.bridges, notes: plan.notes, problems: plan.problems });
     return blocked;
   }, [api, editor, edit]);
-
-  // A deployed twin's edits sync to the working copy (A2) after a short quiet
-  // spell; the API validates and classifies, and a refusal reverts the edit.
-  const syncQueue = useRef<Promise<void>>(Promise.resolve());
-  useEffect(() => {
-    if (!deployed || !deployId || locked || !editor.files || parkedKey) return;
-    const files = editor.files;
-    if (synced.current && sameFiles(files, synced.current)) return;
-    const t = setTimeout(() => {
-      syncQueue.current = syncQueue.current.then(async () => {
-        try {
-          const cfg = await api.putDeployConfig(deployId, files);
-          synced.current = { ...files };
-          setConfig(cfg);
-          editor.markSaved(files);
-          setServerReason(null);
-        } catch (e) {
-          setServerReason(errorText(e));
-          if (synced.current) editor.undoUntil(synced.current);
-        }
-      });
-    }, SYNC_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [editor.files, deployed, deployId, locked, api, editor, parkedKey]);
 
   // Another console's edits or reset show up here (C3.6): a poll, and a Refresh
   // button. While an exit is in flight the poll runs faster and carries the
@@ -649,15 +665,21 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     return () => clearTimeout(t);
   }, [exitNote]);
 
-  // The stack is stored once the text is at rest on the server -- synced to
-  // the working copy, or saved to the catalog -- so the stored stack describes
-  // exactly the text a reload will get.
+  // The stack is stored once the text is at rest on the server (saved to the catalog or the
+  // drafts area), so the stored stack describes exactly the text a reload will get. A deployed
+  // twin's edits stay in this browser until Apply / Persist: they are stored with the stack and
+  // the working-copy text they were made over, and come back on a reload over that same copy.
   useEffect(() => {
     if (!editor.files || untitled) return;
-    const atRest = deployed ? Boolean(synced.current && sameFiles(editor.files, synced.current)) : !editor.dirty;
-    if (!atRest) return;
-    writeStoredStack(deployId ?? `twin:${id}`, editor.stack);
-  }, [deployed, deployId, id, untitled, editor.files, editor.dirty, editor.stack]);
+    if (deployed && deployId) {
+      const base = synced.current;
+      if (base && !sameFiles(editor.files, base)) writeStoredStack(deployId, editor.stack, { files: editor.files, base });
+      else writeStoredStack(deployId, editor.stack);
+      return;
+    }
+    if (editor.dirty) return;
+    writeStoredStack(isDraft ? draftScope(id) : `twin:${id}`, editor.stack);
+  }, [deployed, deployId, id, untitled, isDraft, editor.files, editor.dirty, editor.stack]);
   // The untitled design has no server text to be at rest on: every change is kept in this browser.
   // `leaving` stops the writes once a Save-As (or a let-go) has dropped it.
   const leaving = useRef(false);
@@ -673,7 +695,10 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       const target = e.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       const k = e.key.toLowerCase();
-      if (k === "o") {
+      if (k === "enter") {
+        e.preventDefault();
+        void runCheckRef.current();
+      } else if (k === "o") {
         e.preventDefault();
         setOpenDialog(true);
       } else if (k === "z" && !e.shiftKey) {
@@ -848,10 +873,12 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const filesRef = useRef(files);
   filesRef.current = files;
   const dirty = deployed ? Boolean(config?.dirty) || editor.dirty : editor.dirty;
-  const structurallyValid = model ? !model.findings.some((f) => f.severity === "error") : false;
-  // The gate: the API's latest answer, for exactly the files on screen, with no error.
-  const apiValid = Boolean(files && validation && validation.result && validation.result.errors === 0 && sameFiles(validation.files, files));
-  const valid = structurallyValid && apiValid && !parkedReason && !emptyReason;
+  // The gate (`edit/check.ts`): the last Check passed AND the files on screen are the ones it judged.
+  const valid = checkPasses(check, files);
+  const checkWord = checking ? "checking…" : checkBadge(check, files);
+  const checkState = checkStatus(check, files);
+  const gateReason = valid ? null : checkState === "unchecked" ? "run Check first (Ctrl+Enter): a save needs a passing Check" : checkState === "changed" ? "the files changed since the last Check: Check again" : "the last Check failed: fix the findings, or Save as draft";
+  // A deployed twin's edits not yet pushed to its working copy (Apply / Persist push them).
   const unsynced = deployed && Boolean(files && synced.current && !sameFiles(files, synced.current));
   const topologyPending = (config?.changes ?? []).some((c) => c.kind === "topology");
   const run = useCallback(
@@ -870,21 +897,43 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     },
     [],
   );
-  const save = () =>
+  // The server validates again on every write: a 422 lands as the Check's findings (on the files
+  // it refused), never as a rollback of the edit.
+  const asFindings = useCallback(
+    (e: unknown, written: Files) => {
+      const m = editor.model;
+      const refused = refusalAsCheck(e, written, m ? localFindings(m, parkedDevices(m.te), null) : []);
+      if (refused) setCheck(refused);
+    },
+    [editor.model],
+  );
+  const save = (rec: CheckRecord | null = check) =>
     run("save", async () => {
       if (!files) return null;
-      const d = await api.putTwinConfig(id, { id, files });
-      setDetail(d);
+      if (!checkPasses(rec, files)) throw new Error(rec && checkStatus(rec, files) === "invalid" ? "the Check failed: fix the findings, or Save as draft" : (gateReason ?? "run Check first"));
+      try {
+        const d = await api.putTwinConfig(id, { id, files });
+        setDetail(d);
+      } catch (e) {
+        asFindings(e, files);
+        throw e;
+      }
       editor.markSaved(files);
       const layoutSaved = layoutChanges > 0 ? await saveLayout() : null;
       return layoutSaved === null ? "saved" : layoutSaved ? "saved, layout too" : "saved; the layout was not (see above)";
     });
   const saveAs = () =>
     run("save-as", async () => {
-      if (!editor.doc) return null;
+      if (!editor.doc || !files) return null;
+      if (!checkPasses(check, files)) throw new Error(gateReason ?? "run Check first");
       const newId = saveAsId.trim();
       if (!newId) throw new Error("give the new twin-config an id");
-      await api.createTwinConfig({ id: newId, files: saveAsFiles(editor.doc, newId) });
+      try {
+        await api.createTwinConfig({ id: newId, files: saveAsFiles(editor.doc, newId) });
+      } catch (e) {
+        asFindings(e, files);
+        throw e;
+      }
       // The layout as it stands on screen -- the saved pins AND the unsaved moves
       // and annotations -- goes with the new twin, so Save-As drops no draft.
       let carried = true;
@@ -905,8 +954,14 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const saveUntitled = (newId: string, description: string) =>
     run("save-as", async () => {
       if (!editor.doc || !files) return null;
+      if (!checkPasses(check, files)) throw new Error(gateReason ?? "run Check first");
       const written = saveAsFiles(editor.doc, newId, { description });
-      await api.createTwinConfig({ id: newId, files: written });
+      try {
+        await api.createTwinConfig({ id: newId, files: written });
+      } catch (e) {
+        asFindings(e, files);
+        throw e;
+      }
       let carried = true;
       const hasLayout = Object.keys(pins).length > 0 || annotations.length > 0;
       if (hasLayout) {
@@ -930,9 +985,75 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       navigate(`/canvas/${encodeURIComponent(newId)}`, { replace: true });
       return `saved as ${newId}${hasLayout && !carried ? "; the layout draft could not be written there" : ""}`;
     });
+  // ---- drafts (`api/Spec.md` A3d) ----
+  // The twin a draft written from here may later replace: this twin, or a draft's own origin; an untitled design has none.
+  const draftOrigin = isDraft ? (data?.draftRow?.origin ?? null) : untitled ? null : id;
+  // The last Check, as the draft records it: only when it judged exactly these files.
+  const lastCheck = (written: Files | null): DraftCheck | null => {
+    if (!written || !check?.result || checkStatus(check, written) === "changed") return null;
+    return { disposition: check.result.disposition, errors: check.result.errors, warnings: check.result.warnings, checked_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z") };
+  };
+  // Save as draft: always open. A COPY under a new id, written without the validation gate; the
+  // twin (or working copy, or draft) on screen is never touched. The page moves to the draft.
+  const saveAsDraft = (newId: string) =>
+    run("save-draft", async () => {
+      if (!editor.doc || !files) return null;
+      const written = saveAsFiles(editor.doc, newId);
+      await api.createDraft({ id: newId, files: written, origin: draftOrigin, last_check: lastCheck(files) });
+      // The layout on screen goes with the draft (into this browser: a draft has no side-car).
+      writeUntitledLayout(pins, annotations.map(toLayout), draftScope(newId));
+      if (untitled) {
+        leaving.current = true;
+        leavingLayout.current = true;
+        clearUntitled();
+      }
+      setDraftOpen(false);
+      navigate(`/canvas/drafts/${encodeURIComponent(newId)}`);
+      return `saved as draft ${newId}${draftOrigin ? `; ${draftOrigin} is not changed` : ""}`;
+    });
+  // On a draft: Save draft rewrites it (no gate, nothing else touched).
+  const saveDraft = () =>
+    run("save", async () => {
+      if (!files) return null;
+      const d = await api.putDraft(id, { id, files, last_check: lastCheck(files) });
+      editor.markSaved(files);
+      return `draft saved${d.last_check ? ` · last check ${d.last_check.disposition.toLowerCase()}` : ""}`;
+    });
+  // On a passing draft: Replace <origin>, the twin's own A3 `PUT` (which validates again and
+  // snapshots the old baseline), after the explicit confirm. The draft is kept.
+  const replaceOrigin = () =>
+    run("replace", async () => {
+      const origin = data?.draftRow?.origin;
+      if (!origin || !editor.doc || !files) return null;
+      if (!checkPasses(check, files)) throw new Error(gateReason ?? "run Check first");
+      const written = saveAsFiles(editor.doc, origin);
+      try {
+        await api.putTwinConfig(origin, { id: origin, files: written });
+      } catch (e) {
+        asFindings(e, files);
+        throw e;
+      } finally {
+        setReplaceOpen(false);
+      }
+      return `replaced ${origin} with this draft (its old baseline is kept in its history); the draft is kept`;
+    });
   const applyExit = () =>
     run("apply", async () => {
-      if (!deployId) return null;
+      if (!deployId || !files) return null;
+      if (!checkPasses(check, files)) throw new Error(gateReason ?? "run Check first");
+      // Push the edits on screen to the working copy first (the API validates and classifies them), then apply.
+      if (unsynced) {
+        try {
+          const cfg = await api.putDeployConfig(deployId, files);
+          synced.current = { ...files };
+          setConfig(cfg);
+          editor.markSaved(files);
+          if (!cfg.apply_allowed) return `pushed to the working copy, not applied: ${cfg.changes.some((c) => c.kind === "topology") ? "a pending change needs a re-plan (Persist or Save As, then redeploy)" : "nothing in it is live"}`;
+        } catch (e) {
+          asFindings(e, files);
+          throw e;
+        }
+      }
       const r = await api.applyDeployConfig(deployId);
       setConfig(r.config);
       return `applied${r.applied.length ? ` via ${r.applied.join(", ")}` : ""}${Object.keys(r.roles).length ? ` · roles ${Object.entries(r.roles).map(([n, ro]) => `${n} → ${ro}`).join(", ")}` : ""}`;
@@ -969,10 +1090,21 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       (e: unknown) => setExitError(e),
     );
   };
-  const persist = () =>
+  const persist = (rec: CheckRecord | null = check) =>
     run("persist", async () => {
       if (!deployId || !files) return null;
-      await api.putTwinConfig(id, { id, files });
+      if (!checkPasses(rec, files)) throw new Error(rec && checkStatus(rec, files) === "invalid" ? "the Check failed: fix the findings, or Save as draft" : (gateReason ?? "run Check first"));
+      try {
+        // Push the edits on screen to the working copy, then make it the baseline.
+        if (unsynced) {
+          await api.putDeployConfig(deployId, files);
+          synced.current = { ...files };
+        }
+        await api.putTwinConfig(id, { id, files });
+      } catch (e) {
+        asFindings(e, files);
+        throw e;
+      }
       const cfg = await api.getDeployConfig(deployId);
       setConfig(cfg);
       setDetail(await api.getTwinConfig(id).catch(() => null));
@@ -1173,7 +1305,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
 
   const baselineModel = useMemo<DocModel | null>(() => (detail?.document ? readDoc({ id: detail.document.id, teFile: detail.document.te_file, files: detail.document.files }) : null), [detail]);
   // One pending change is one file's delta from the baseline: discarding it puts
-  // that file back to the baseline's text, as an edit (undoable, validated, synced).
+  // that file back to the baseline's text, as an edit (undoable; pushed by Apply / Persist).
   const baselineFiles = detail?.document?.files ?? null;
   const onDiscardChange = useCallback(
     (path: string) => {
@@ -1199,7 +1331,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     if (layout.error) out.push(`positions are not saved for this twin: ${errorText(layout.error)}`);
     else if (draft.doc && draft.doc.exists && draft.doc.plane !== CANVAS_PLANE) out.push(`the saved positions were drawn on another plane (${draft.doc.plane ?? "unstamped"}) and are not applied; the next Save layout saves on this one`);
     if (built?.kind === "authored") out.push("authored twin: no observed evidence, no traffic to overlay");
-    if (built?.kind === "design") out.push(untitled ? "design view: an untitled design, kept in this browser until its first Save" : deployed ? "design view: the working copy" : "design view: the twin config");
+    if (built?.kind === "design") out.push(untitled ? "design view: an untitled design, kept in this browser until its first Save" : isDraft ? `design view: a draft${data?.draftRow?.origin ? ` of ${data.draftRow.origin}` : ""} (never deployed; its layout is kept in this browser)` : deployed ? "design view: the working copy (edits stay in this browser until Apply or Persist)" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push(whoami.can_write ? "read-only: the catalog serves no document for this twin" : "read-only: the API serves this twin's document only to a caller that may write; sign in to edit it");
     if (placement?.unplaced) out.push(`${placement.unplaced} local entit${placement.unplaced === 1 ? "y" : "ies"} in no segment: observed on this network but bound to no subnet the cast could place`);
@@ -1207,7 +1339,22 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
     const legacy = editor.doc && model ? legacyLayout(editor.doc, model) : [];
     if (legacy.length) out.push(`legacy cast layout: read through ${legacy.join(", ")} (a re-cast files it as te.yaml, tfc/default.yaml, tap/default.yaml)`);
     return out;
-  }, [layout.error, draft.doc, built, data, designAvailable, deployed, untitled, annotations.length, whoami.can_write, placement?.unplaced, editor.doc, model]);
+  }, [layout.error, draft.doc, built, data, designAvailable, deployed, untitled, isDraft, annotations.length, whoami.can_write, placement?.unplaced, editor.doc, model]);
+
+  // The last Check's findings pinned on the elements they name, while they describe the model on
+  // screen (a check of other files still pins: the badge says "changed since check").
+  const pins_ = useMemo(() => (model && check?.result ? findingPins(check.result.findings, model) : new Map()), [model, check]);
+  // A finding clicked in the Checks tab: select the element it names and zoom to it.
+  const onFinding = useCallback(
+    (f: ValidationFinding) => {
+      if (!model) return;
+      const t = findingTarget(f, model);
+      if (!t) return;
+      setSelection(t.kind === "node" ? { kind: "node", names: [t.name] } : t.kind === "segment" ? { kind: "segment", names: [t.name] } : t.kind === "link" ? { kind: "link", index: t.index } : { kind: "tap", index: t.index });
+      setFocus((cur) => ({ key: targetKey(t), n: (cur?.n ?? 0) + 1 }));
+    },
+    [model],
+  );
 
   const editProps = useMemo<CanvasEditProps | undefined>(() => {
     if (!model || built?.kind !== "design") return undefined;
@@ -1268,11 +1415,12 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
   const exit = config?.exit ?? null;
   const exitWord = destroying ? destroyWord(destroyRun) : exit ? `${exit.kind === "reset" ? "resetting" : "applying"}… ${exit.tier ? `replaying ${exit.tier}` : "starting"} · ${Math.round(exit.elapsed_s)} s${exit.cancel_requested ? " · cancel requested" : ""}` : busy ? `${busy}…` : null;
   // Unsaved work asks before it is left: an untitled design with anything on it (it exists only in this
-  // browser), or an undeployed design with unsaved changes. A deployed twin's edits are already on its working copy.
+  // browser), an undeployed design or a draft with unsaved changes, or a deployed twin's edits not yet
+  // pushed (kept in this browser, but not on the twin).
   const untitledWork = untitled && (editor.dirty || Object.keys(pins).length > 0 || annotations.length > 0);
   useLeaveGuard(
-    untitledWork || (!untitled && !deployed && editor.dirty),
-    untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : "The design has unsaved changes. Leave without saving them?",
+    untitledWork || (!untitled && !deployed && editor.dirty) || unsynced,
+    untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : unsynced ? "The working copy has edits not pushed to the twin (Apply or Persist push them); they stay in this browser. Leave anyway?" : "The design has unsaved changes. Leave without saving them?",
     untitled
       ? () => {
           leaving.current = true;
@@ -1291,6 +1439,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
         </span>
       ) : untitled ? (
         <span className="muted">layout: written with the design's first Save</span>
+      ) : isDraft ? (
+        <span className="muted">layout: kept in this browser</span>
       ) : draft.savedAt ? (
         <span className="muted" role="status">
           layout saved
@@ -1298,7 +1448,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
       ) : (
         <span className="muted">layout</span>
       )}
-      {untitled ? null : (
+      {browserLayout ? null : (
         <>
           <button type="button" className="primary" onClick={() => void saveLayout()} disabled={layoutChanges === 0 || draft.saving} title="write the positions and annotations to the layout side-car">
             {draft.saving ? "Saving…" : "Save layout"}
@@ -1332,6 +1482,11 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
         <h1 className="cv-title">
           {untitled ? (
             <span title={origin.source ? `a copy of ${origin.source}, not saved to the catalog yet: the first Save names it (${origin.source} is not changed)` : "not saved to the catalog yet: the first Save names it"}>Untitled</span>
+          ) : isDraft ? (
+            <span title={`draft ${id}${data?.draftRow?.origin ? ` of ${data.draftRow.origin}` : ""}: kept without the validation gate, never deployed`}>
+              {id}
+              <span className="cv-draft-label" data-testid="draft-label">draft</span>
+            </span>
           ) : (
             <Link to={`/twins/${encodeURIComponent(id)}`} title={`Twin ${id}: the summary page`}>
               {id}
@@ -1345,7 +1500,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             -- the te tier alone read "completed" over a failed traffic playout. The bar must not wrap at 1622 px. */}
         {built || data ? (
           <span className={`badge cv-pill${mode === "read-only" ? " read-only" : ""}${anyFailed ? " failed" : ""}`} title={teRow ? `deploy ${teRow.deploy_id}: te ${teRow.status}${Object.entries(tiers).map(([t, st]) => ` · ${t} ${st}${tierReason(deployRows, teRow.deploy_id, t) ? ` (${tierReason(deployRows, teRow.deploy_id, t)})` : ""}`).join("")}` : "no deploy stands on this twin"} data-testid="state-pill">
-            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : untitled ? (origin.source ? `untitled · copy of ${origin.source}` : "untitled design") : deployed ? "working copy" : "twin config"}</span> : null}
+            {built ? <span>{built.kind === "cast" ? "cast · observed evidence" : built.kind === "authored" ? "authored" : untitled ? (origin.source ? `untitled · copy of ${origin.source}` : "untitled design") : isDraft ? (data?.draftRow?.origin ? `draft of ${data.draftRow.origin}` : "draft") : deployed ? "working copy" : "twin config"}</span> : null}
             {built && data ? " · " : null}
             {data ? (
               <span data-testid="mode">
@@ -1361,6 +1516,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
                   </>
                 ) : untitled ? (
                   " · not saved yet"
+                ) : isDraft ? (
+                  " · never deployed"
                 ) : (
                   " · undeployed"
                 )}
@@ -1392,12 +1549,12 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
           <div className="cv-exits" data-testid="exits">
             {/* The document's state word: the two deployed states say whether the changes reached the twin, not only that they differ from the baseline. */}
             {dirty ? (
-              <span className={`cv-dirty${state === "applied" ? " applied" : ""}`} data-testid="dirty-marker" data-state={state} title={deployed ? (state === "applied" ? "every change in the working copy was applied to the running twin; the baseline does not have them yet (Persist)" : state === "syncing" ? "the edit is on its way to the working copy" : "the working copy carries changes the twin does not run yet (Apply)") : "unsaved changes"}>
-                ● {deployed ? (state === "syncing" ? (parkedReason ? "editing… (held here: a parked copy is not attached)" : "editing… (syncing to the working copy)") : state === "applied" ? "applied · unpersisted" : "unapplied changes") : "unsaved changes"}
+              <span className={`cv-dirty${state === "applied" ? " applied" : ""}`} data-testid="dirty-marker" data-state={state} title={deployed ? (state === "applied" ? "every change in the working copy was applied to the running twin; the baseline does not have them yet (Persist)" : state === "syncing" ? "the edits are in this browser only: Apply or Persist pushes them (each needs a passing Check)" : "the working copy carries changes the twin does not run yet (Apply)") : "unsaved changes"}>
+                ● {deployed ? (state === "syncing" ? "local edits (not pushed)" : state === "applied" ? "applied · unpersisted" : "unapplied changes") : "unsaved changes"}
               </span>
             ) : (
               <span className="cv-clean" data-testid="clean-marker" data-state="clean">
-                {untitled ? "not saved yet" : deployed ? "working copy equals the baseline" : "saved"}
+                {untitled ? "not saved yet" : isDraft ? "draft saved" : deployed ? "working copy equals the baseline" : "saved"}
               </span>
             )}
             <span className="cv-exit-group" role="group" aria-label="History">
@@ -1408,17 +1565,37 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
                 ↷
               </button>
             </span>
-            {!deployed ? (
+            {/* Check (on demand, Ctrl+Enter): the only validation; its badge says whether the files on screen are the ones it passed. */}
+            <span className="cv-exit-group" role="group" aria-label="Check">
+              <button type="button" onClick={() => void runCheck()} disabled={checking || !files} data-testid="check-run" title="validate the files on screen (Ctrl+Enter)">
+                {checking ? "Checking…" : "Check"}
+              </button>
+              <span className={`cv-check-badge ${checking ? "checking" : checkState}`} role="status" data-testid="check-badge" data-status={checking ? "checking" : checkState}>
+                {checkWord}
+              </span>
+            </span>
+            {isDraft ? (
+              <span className="cv-exit-group" role="group" aria-label="Draft">
+                <button type="button" className="primary" onClick={saveDraft} disabled={!dirty || busy !== null} data-testid="save-draft" title="write the draft (no validation gate; nothing else is touched)">
+                  Save draft
+                </button>
+                {data?.draftRow?.origin ? (
+                  <button type="button" onClick={() => { setExitError(null); setReplaceOpen(true); }} disabled={!valid || busy !== null} data-testid="replace-origin" title={gateReason ?? `overwrite ${data.draftRow.origin} with this draft (asks first)`}>
+                    Replace {data.draftRow.origin}
+                  </button>
+                ) : null}
+              </span>
+            ) : !deployed ? (
               <span className="cv-exit-group" role="group" aria-label="Twin config">
                 {untitled ? (
                   <button type="button" className="primary" onClick={() => {
                       setExitError(null);
                       setSaveAsOpen(true);
-                    }} disabled={!valid || busy !== null} title={emptyReason ?? parkedReason ?? "name the design and write it to the catalog"} data-testid="save-untitled">
+                    }} disabled={!valid || busy !== null} title={gateReason ?? "name the design and write it to the catalog"} data-testid="save-untitled">
                     Save
                   </button>
                 ) : (
-                  <button type="button" className="primary" onClick={save} disabled={!dirty || !valid || busy !== null} title={parkedReason ?? undefined}>
+                  <button type="button" className="primary" onClick={() => void save()} disabled={!dirty || !valid || busy !== null} title={gateReason ?? "overwrite the twin with the files on screen"} data-testid="save">
                     Save
                   </button>
                 )}
@@ -1430,13 +1607,13 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
               </span>
             ) : (
               <span className="cv-exit-group" role="group" aria-label="Working copy">
-                <button type="button" className="primary" onClick={applyExit} disabled={!config?.dirty || !config.apply_allowed || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title={parkedReason ?? (topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the live changes onto the running twin")}>
+                <button type="button" className="primary" onClick={applyExit} disabled={!(config?.dirty || unsynced) || (!unsynced && !config?.apply_allowed) || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title={gateReason ?? (topologyPending ? "a pending change needs a re-plan: Persist or Save-As, then redeploy" : "push the edits to the working copy and onto the running twin")}>
                   Apply
                 </button>
-                <button type="button" onClick={() => void resetExit()} disabled={!config?.dirty || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title="discard the working copy; what it applied is replayed from the baseline">
+                <button type="button" onClick={() => void resetExit()} disabled={!(config?.dirty || unsynced) || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title="discard the working copy and the edits in this browser; what it applied is replayed from the baseline">
                   Reset
                 </button>
-                <button type="button" onClick={persist} disabled={!config?.dirty || unsynced || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying}>
+                <button type="button" onClick={() => void persist()} disabled={!(config?.dirty || unsynced) || !valid || busy !== null || Boolean(locked) || Boolean(exit) || destroying} title={gateReason ?? "push the edits to the working copy and make it the baseline"}>
                   Persist
                 </button>
                 <button type="button" onClick={() => void refresh()} disabled={busy !== null}>
@@ -1472,11 +1649,16 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
               }}
             >
               <input type="text" aria-label="Save as id" placeholder="save as id" value={saveAsId} onChange={(e) => setSaveAsId(e.target.value)} disabled={busy !== null} />
-              <button type="submit" disabled={!saveAsId.trim() || !valid || busy !== null}>
+              <button type="submit" disabled={!saveAsId.trim() || !valid || busy !== null} title={gateReason ?? "a new twin under this id"}>
                 Save as
               </button>
             </form>
             )}
+            {whoami.can_write ? (
+              <button type="button" className="cv-exit-group" onClick={() => { setExitError(null); setDraftOpen(true); }} disabled={busy !== null || !files} data-testid="save-as-draft" title={`keep a copy under a new id without the validation gate${draftOrigin ? `; ${draftOrigin} is not changed` : ""}`}>
+                Save as draft…
+              </button>
+            ) : null}
             {exitWord ? (
               <span className="cv-progress" role="status" data-testid="exit-progress">
                 <span className="cv-spinner" aria-hidden="true" />
@@ -1497,7 +1679,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             <h2 style={{ marginTop: 0 }}>Deploy {id}</h2>
             <DeployFlow
               twinId={id}
-              hold={dirty ? { reason: "The design has unsaved changes; the deploy runs the saved twin.", action: { label: "Save", run: save } } : null}
+              hold={dirty ? { reason: "The design has unsaved changes; the deploy runs the saved twin. Save checks it first and saves only on a pass.", action: { label: "Save", run: async () => { const rec = await runCheck(); await save(rec); } } } : null}
               remap={async (location, to) => {
                 const reason = edit(`remap sensor at ${location} to ${to}`, (d) => remapFiles(d.files, location, to));
                 if (reason) throw new Error(reason);
@@ -1526,6 +1708,36 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
           onClose={() => setSaveAsOpen(false)}
         />
       ) : null}
+      {draftOpen ? (
+        <SaveAsDialog
+          kind="draft"
+          origin={draftOrigin}
+          suggestedId={`${untitled ? (origin.source ?? "untitled") : isDraft ? (data?.draftRow?.origin ?? id) : id}-draft`}
+          busy={busy === "save-draft"}
+          error={exitError ? exitErrorText(exitError) : null}
+          onSave={(newId) => void saveAsDraft(newId)}
+          onClose={() => setDraftOpen(false)}
+        />
+      ) : null}
+      {replaceOpen && isDraft && data?.draftRow?.origin ? (
+        <div className="modal-backdrop" data-testid="replace-backdrop">
+          <div className="modal panel" role="dialog" aria-modal="true" aria-label={`Replace ${data.draftRow.origin}`} data-testid="replace-dialog">
+            <h2 style={{ marginTop: 0 }}>Replace {data.draftRow.origin}?</h2>
+            <p>
+              The twin <span className="mono">{data.draftRow.origin}</span> is overwritten with this draft (its current baseline is kept in its history). The API validates the draft again first; the draft itself is kept.
+            </p>
+            {exitError && busy === null ? <div className="error" role="alert">{exitErrorText(exitError)}</div> : null}
+            <div className="row-actions">
+              <button type="button" className="danger" onClick={replaceOrigin} disabled={!valid || busy !== null} data-testid="replace-confirm">
+                {busy === "replace" ? "Replacing…" : `Replace ${data.draftRow.origin}`}
+              </button>
+              <button type="button" onClick={() => setReplaceOpen(false)} disabled={busy !== null}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {destroyOpen && data?.deploy ? (
         <DestroyDialog
           twinId={id}
@@ -1534,7 +1746,7 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
           run={destroyRun}
           dirty={dirty}
           dirtyKind={state === "applied" ? "applied" : "unapplied"}
-          onPersistFirst={() => void persist()}
+          onPersistFirst={() => void runCheck().then((rec) => persist(rec))}
           onConfirm={() => destroyer.start(data.deploy!.deploy_id, standingTiers(deployRows, data.deploy!.deploy_id))}
           onClose={() => {
             setDestroyOpen(false);
@@ -1554,11 +1766,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             </button>
           </div>
         ) : null}
-        {editProps && parkedReason ? (
-          <p className="notice" role="status" data-testid="parked-reason">
-            {parkedReason}
-          </p>
-        ) : null}
         {editProps && emptyReason ? (
           <p className="notice" role="status" data-testid="empty-reason">
             {emptyReason}
@@ -1569,7 +1776,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             blocked: {blocked}
           </div>
         ) : null}
-        {editProps ? <ErrorLine error={serverReason} prefix="the API refused the document" /> : null}
         {draft.note ? <p className="notice" role="status" data-testid="layout-note">{draft.note}</p> : null}
         {exitNote ? (
           <p className="notice" role="status" data-testid="exit-note">
@@ -1602,6 +1808,8 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
             notes={notes}
             locked={Boolean(locked)}
             layoutBar={layoutBar}
+            findings={pins_}
+            focus={focus}
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={paletteNote} onOpen={wantCatalog} /> } : {})}
             {...(editProps && model
@@ -1630,9 +1838,6 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
                           setAnnotations(annotations.filter((a) => a.id !== aid));
                           setSelection({ kind: "none" });
                         }}
-                        serverReason={serverReason}
-                        validation={validation && files && sameFiles(validation.files, files) ? validation : null}
-                        validating={validating || !(validation && files && sameFiles(validation.files, files))}
                         changes={deployed ? (config?.changes ?? []) : null}
                         blocked={blocked}
                         onRenamed={(kind, from, to) => setSelection((sel) => (sel.kind === kind ? { kind, names: sel.names.map((n) => (n === from ? to : n)) } : sel))}
@@ -1649,21 +1854,18 @@ export function CanvasPage({ untitled = false }: { untitled?: boolean } = {}) {
                     checks: (
                       <Checks
                         model={model}
-                        serverReason={serverReason}
-                        validation={validation && files && sameFiles(validation.files, files) ? validation : null}
-                        validating={validating || !(validation && files && sameFiles(validation.files, files))}
+                        check={check}
+                        files={files}
+                        checking={checking}
+                        onCheck={() => void runCheck()}
+                        onFinding={onFinding}
                         changes={deployed ? (config?.changes ?? []) : null}
                         onDiscard={deployed && baselineFiles && !locked ? onDiscardChange : undefined}
                         provenance={{ filter: provFilter, onFilter: setProvFilter, fallback: defaultSource }}
                         taps={{ filter: provFilter, onFilter: setProvFilter, sensors: knownSensors(model, declaredSensors), locked, apply: edit }}
                       />
                     ),
-                    checksBadge: checksBadge({
-                      model,
-                      serverReason,
-                      validation: validation && files && sameFiles(validation.files, files) ? validation : null,
-                      validating: validating || !(validation && files && sameFiles(validation.files, files)),
-                    }),
+                    checksBadge: checksBadge({ check, files, checking }),
                   },
                 }
               : {})}

@@ -42,10 +42,11 @@ page's list, `areas/twins/TwinList.tsx`, as a picker).
 
 | Writes | Route |
 |---|---|
-| undeployed config: Save / Save-As | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
+| undeployed config: Save / Save-As (each on a passing Check) | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
 | untitled design: first Save (a Save-As), its layout draft | A3 `POST /api/twin-configs`, `PUT /api/twins/{id}/layout` |
-| deployed twin: working copy, Apply / Reset / Persist | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
-| every mutation, before Apply or Save is enabled | `POST /api/validate` |
+| deployed twin: Apply / Persist push the working copy, then run; Reset | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
+| Save as draft (always), Save draft, a draft's Replace <origin> | A3d `POST\|PUT /api/drafts[/{id}]`; Replace is A3 `PUT /api/twin-configs/{origin}` |
+| Check (the bar's button, Ctrl+Enter) -- on demand only | `POST /api/validate` |
 | positions and annotations | `PUT` of the layout document, ETag-guarded, on an explicit **Save layout** (or with a document Save / Persist) -- never a write per drag |
 
 The twin config never carries presentation. Positions, free text and shapes
@@ -67,6 +68,35 @@ the lifted tiered engine, undo/redo from a command stack over the working copy.
 **Modes.** Edit mode when the twin is undeployed or the working copy is open;
 view mode, canvas locked except annotations, while its deploy is running —
 the same two-mode discipline CORE's GUI uses.
+
+**The edit model: on-demand Check, explicit saves (2026-11-20).** Nothing
+validates and nothing is written while the operator edits. A command refuses
+only a request it cannot express (a node that no longer exists); anything it
+can write lands, incomplete or not -- a parked switch included (its `not
+attached` badge stays). **Check** (the bar's button, Ctrl+Enter when no field
+has focus) sends the files on screen to `POST /api/validate`, folds in the
+canvas's own structural findings (`validate.ts`), each parked switch
+(`CV-PARK`) and an empty untitled design (`CV-EMPTY`), and records the answer
+with exactly those files (`edit/check.ts`). Its badge (bar and Checks tab):
+`unchecked`, `valid`, `invalid (N)`, `changed since check`. Findings are
+pinned as badges on the device, segment, link or tap they name (the canvas's
+own by location, the engine's by the names they quote) and listed in the
+Checks tab, where a click selects the element and zooms to it.
+Every exit that overwrites a twin -- **Save** (A3 `PUT`), **Save As**,
+**Persist**, **Apply**, a draft's **Replace <origin>** -- opens only while the
+last Check passed AND the files are the ones it judged; the API validates
+again on the write and a 422 lands as the Check's findings, never as a
+rollback. **Save layout** stays separate and needs no Check. **Save as
+draft** is always open: a copy under a new id (suggested `<id>-draft`,
+checked against the twins and drafts) written to the drafts area (A3d)
+without the gate; the twin it came from is never touched. A draft
+(`/canvas/drafts/:id`, labelled `draft`, layout kept in this browser, no
+Deploy) has **Save draft** and, on a passing Check, **Replace <origin>**
+after an explicit confirm. On a **deployed** twin edits stay in this browser
+(the undo stack and the edited text survive a reload while the working copy
+is the text they were made over); Apply and Persist push the working copy
+and then run; a failing edit can only go to a draft; the poll still adopts
+another console's change but never over local edits.
 
 **Two kinds of edit, classified by the API, shown by the canvas.** An
 attribute edit (persona, intensity, schedule, cadence, tap binding, a role
@@ -131,11 +161,9 @@ assertion (a cast twin's role change or segment merge through
 rect, ellipse, line, per-item lock, hide-all). Not in Phase 2: the layout
 menu's hierarchical / force / radial presets, helper lines while dragging,
 per-attachment styles, icon sets and node resize, Ctrl+C/V/D, PNG/SVG
-export, the run-time row. **2026-10-31:** every mutation is validated by
-`POST /api/validate {document}` (debounced; Save, Save-As, Persist and Apply
-open only on a clean answer for the files on screen, the findings shown with
-rule and location; the canvas's structural check stays the instant hint and
-the working-copy PUT's refusal the backstop), and annotations live in the
+export, the run-time row. **2026-10-31** (superseded 2026-11-20 by the
+on-demand Check above): every mutation was validated by
+`POST /api/validate {document}`, debounced. Annotations live in the
 layout side-car's `annotations` list (positioned SVG snippets with lock and
 hidden flags, written with the pins, a set an earlier build kept in
 localStorage migrated once; the server refuses script,
@@ -187,10 +215,10 @@ criteria of its own beyond them.
     read of a stored twin (twin, tree, topology, cast, deploys, twin-config,
     layout), no Deploy. Its files, undo stack and layout draft are kept in this
     browser (`twin:__untitled__`) and survive a reload.
-  - Segment gate: with no segment, Save is disabled with "add at least one
-    segment before saving" and the document is not sent to the validator; the
-    engine's rule is not relaxed and no segment is added behind the operator.
-  - Save-As on first save: Save asks for an id (the API's id rule and the
+  - Segment gate: with no segment, a Check fails with "add at least one
+    segment before saving" (`CV-EMPTY`) and Save stays closed; the engine's
+    rule is not relaxed and no segment is added behind the operator.
+  - Save-As on first save (on a passing Check; Save as draft is the other first save): Save asks for an id (the API's id rule and the
     catalog's ids checked before any request) and an optional description
     (`twin_config.description`, `twin.description`); A3 writes it, the layout
     draft and the undo stack move to the new id, the browser copy is dropped,
@@ -204,10 +232,24 @@ criteria of its own beyond them.
     unsaved from the start (the guard applies, a reload keeps it), the pill
     says "copy of <id>", and the first Save suggests `<id>-copy`. The source
     twin is never written.
-  - Unsaved guard: a non-blank untitled design, or an undeployed design with
-    unsaved changes, asks before a reload/close or an in-app link (XTwin, Open,
+  - Unsaved guard: a non-blank untitled design, an undeployed design or a draft
+    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close or an in-app link (XTwin, Open,
     the top menu) leaves it; letting an untitled design go drops its browser copy.
     The browser's Back is not guarded (no data router).
+- **Automated, on-demand Check and drafts (2026-11-20, *`canvas.edit.test.tsx`*,
+  *`canvas.exits.test.tsx`*, *`canvas.drafts.test.tsx`*, *`canvas.subtree.test.tsx`*):**
+  - No `POST /api/validate` fires on load or on an edit; the badge reads `unchecked`, then
+    `valid` after Check, then `changed since check` after one more edit; Ctrl+Enter checks.
+  - Save (and Save As, Persist, Apply) is disabled unless the last Check is valid and the files
+    are unchanged since it; a 422 on the write lands as the Check's findings, the edit kept.
+  - A failing Check leaves only Save as draft open; the draft call (`POST /api/drafts`) carries
+    the draft's own id and the origin, and the original twin is not written.
+  - A draft's Replace <origin> needs a passing Check of unchanged files and the confirm; it is the
+    origin's own `PUT`, the document renamed to the origin's id; the draft is kept.
+  - A deployed twin's edits make no `PUT` of the working copy until Apply or Persist; they survive
+    a reload over the same copy and are dropped when the copy changed meanwhile.
+  - Findings pin on the element they name (a node, a segment, a link, a tap, a parked switch);
+    a click on one in the Checks tab selects it. Drafts are labelled in Open and on the Twins list.
 - **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
   router get distinct lane y's and exit x's; the hosts and role bands of one switch (real or
   implied) share a lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge
@@ -424,9 +466,8 @@ Track B — the hierarchical device tree (brief "Canvas rendering"):
 Track C — duplicate subtree and console polish:
 
 - [x] R3-2: a switch no router reaches (a parked duplicate, a switch just placed — `edit/subtree.ts`
-      `parkedDevices`; a down link carries nothing) holds the document HERE: no API validate,
-      no working-copy sync, a `not attached` badge, a strip line and every exit (Save, Apply,
-      Persist, Save as) disabled with the reason; it validates and syncs again once attached.
+      `parkedDevices`; a down link carries nothing) wears a `not attached` badge and is a Check
+      finding (`CV-PARK`, from 2026-11-20; it used to hold every edit and exit HERE).
       The copy is one undo step; taps never copy; a parked copy keeps what its original's
       uplink carried as its own ports, so the attach tool trunks exactly those. A new box that
       would land on a settled one moves right into free space — `canvas.subtree.test.tsx`,
@@ -457,8 +498,8 @@ or dropped-on segment as its first leg; the pane menu offers *Place Router
 here* while one is armed. A group copied from a router stays a router
 (`PaletteItem.nodeKind`). Its legs are the attach gesture or the node
 panel's *Attach to segment*. An unattached router is a **warning** (CV-024,
-`validate.ts`), not an error, because every edit must leave the document
-free of errors and an error here would make a router impossible to place.
+`validate.ts`), not an error: a router is placed first and attached after,
+and a Check of a design mid-way should not fail for it.
 
 ## Shell and chrome
 
@@ -545,11 +586,10 @@ page, not a card in one:
   `Inspector` in `chrome.tsx`, 300 px, `top-right`; a node click opens
   *Selection* (in read-only mode the graph's facts for the host, router or
   segment; in edit mode `SidePanel.tsx`'s panels). A fourth tab, *Checks*,
-  holds what the old panel also carried — the validation state and, on a
-  deployed twin, the pending changes — and wears the validation word
-  (`valid` / `invalid` / `validating`) as its badge so the gate reads at a
-  glance. The blocked-edit reason and the API's refusal of the document
-  moved to the canvas's message strip. The placement warnings (segments
+  holds what the old panel also carried — the last Check and, on a
+  deployed twin, the pending changes — and wears the Check's word
+  (`unchecked` / `valid` / `invalid (N)` / `changed since check`) as its badge so the gate reads at a
+  glance. The reason a command refused a request is on the canvas's message strip. The placement warnings (segments
   behind "+N more", pairs not drawn) are the dismissible strip bottom-left;
   the page's notes (authored twin, cast omissions, layout on another plane,
   annotation count) are the *Notes* tab. The inspector's width is per tab
@@ -811,8 +851,7 @@ one its `confidence`.
    segment -- with free ports at both ends; a parked device dragged onto
    another device attaches the same way. A parked switch is CV-048 on the
    canvas and NET-140 in the engine, but the expander refuses it outright,
-   so on a **deployed** twin the working copy's sync reverts a parked copy
-   with the reason in the strip: duplicate onto a device there. **Built
+   so a Check fails on it (`CV-PARK`) until it is attached. **Built
    2026-11-08**: Ctrl+D (or the menu) carries a floating copy under the cursor
    that says where it would land; a press drops it on a switch or router (a
    trunk) or on the canvas (parked, its root pinned where it landed); dropped

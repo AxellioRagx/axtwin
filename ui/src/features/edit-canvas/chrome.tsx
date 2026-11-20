@@ -136,7 +136,7 @@ export function Inspector(p: InspectorProps) {
           return (
             <button key={t.id} type="button" role="tab" className={`cv-tab${p.open === t.id ? " active" : ""}`} aria-selected={p.open === t.id} onClick={() => p.onOpen(p.open === t.id ? null : t.id)}>
               {t.label}
-              {badge ? <span className={`cv-tab-badge${t.id === "checks" ? ` ${badge}` : ""}`} data-testid={t.id === "checks" ? "validation-state" : undefined}>{badge}</span> : null}
+              {badge ? <span className={`cv-tab-badge${t.id === "checks" ? ` ${badge.split(" ")[0]}` : ""}`} data-testid={t.id === "checks" ? "validation-state" : undefined}>{badge}</span> : null}
             </button>
           );
         })}

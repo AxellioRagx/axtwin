@@ -1,11 +1,11 @@
 /**
- * The canvas's own structural check of the working twin config, run on every
- * mutation so an edit that cannot be right is blocked in place with a reason
+ * The canvas's own structural check of the working twin config, reported by
+ * the on-demand Check (`check.ts`) beside the API's answer; it blocks no edit
  * (`ui/Spec.md` C3.4). It mirrors the engine's loader rules the canvas can
  * know without the image manifests -- names, CIDRs, attachments, counts,
  * pinned addresses -- and is NEVER the last word: the API validates the
- * document through the validator proper on every `PUT` of a working copy
- * and on Save / Save-As, and its refusal is shown verbatim. Pure.
+ * document through the validator proper on Check and again on every write
+ * (Save, Save-As, Persist, Apply's push), and its refusal is shown. Pure.
  */
 import type { ValidationFinding } from "../../../api/types";
 import { isIpv4 } from "../model/keys";

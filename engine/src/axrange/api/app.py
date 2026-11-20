@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from axrange.api import auth as _auth
 from axrange.api import console_files as _console_files  # noqa: F401 -- see below
 from axrange.api import discovery as _discovery
-from axrange.api import dtos, service
+from axrange.api import drafts, dtos, service
 from axrange.api.service import ApiError
 from axrange.api.settings import ApiSettings
 
@@ -361,6 +361,45 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         config_id: str, req: dtos.TwinConfigWriteRequest,
     ) -> dtos.TwinConfigDetailDTO:
         return service.twin_config_write(settings, config_id, req)
+
+    # ---- drafts (`api/Spec.md` A3d): documents that FAIL validation, kept
+    # outside the twin catalog; never deployable. No validation gate here. ----
+    @app.get("/api/drafts", response_model=dtos.DraftListDTO)
+    @_ro
+    def drafts_list() -> dtos.DraftListDTO:
+        return drafts.list_drafts(settings)
+
+    @app.get("/api/drafts/{draft_id}", response_model=dtos.DraftDetailDTO)
+    @_ro
+    def draft_detail(draft_id: str, request: Request) -> dtos.DraftDetailDTO:
+        return drafts.draft_detail(
+            settings, draft_id, include_document=_is_authorized(policy, request),
+        )
+
+    @app.post(
+        "/api/drafts",
+        response_model=dtos.DraftDetailDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_create(req: dtos.DraftWriteRequest) -> dtos.DraftDetailDTO:
+        return drafts.draft_create(settings, req)
+
+    @app.put(
+        "/api/drafts/{draft_id}",
+        response_model=dtos.DraftDetailDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_write(draft_id: str, req: dtos.DraftWriteRequest) -> dtos.DraftDetailDTO:
+        return drafts.draft_write(settings, draft_id, req)
+
+    @app.delete(
+        "/api/drafts/{draft_id}", status_code=204, response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_delete(draft_id: str) -> Response:
+        drafts.draft_delete(settings, draft_id)
+        return Response(status_code=204)
 
     # ---- twins (`docs/design/imprint-twin-split.md`): the catalog of
     # deployable twin definitions -- cast from an imprint, or authored. These

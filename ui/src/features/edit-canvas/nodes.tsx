@@ -24,8 +24,24 @@ import { SWITCH_ROLES, switchBadge } from "./model/roles";
 import { encodePoints, type Point } from "./canvas/legs";
 import { dropPoint, midOf, roundedPath } from "./canvas/orthogonal";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
+import type { FindingPin } from "./edit/check";
 import { useEdit } from "./edit/EditContext";
 import { Icon, RoleIcon } from "./icons";
+
+/** The last Check's findings pinned on the elements they name (`edit/check.ts` `findingPins`),
+ *  keyed `node:<group>`, `segment:<name>`, `link:<i>`, `tap:<i>`; empty when nothing was checked. */
+export const FindingsContext = createContext<ReadonlyMap<string, FindingPin>>(new Map());
+
+/** The pin a Check's findings put on one element: a count in the worst severity's colour, the messages on hover. */
+export function FindingBadge({ k }: { k: string }) {
+  const pin = useContext(FindingsContext).get(k);
+  if (!pin) return null;
+  return (
+    <span className={`cv-finding-badge ${pin.severity}`} data-testid="finding-badge" data-key={k} data-severity={pin.severity} title={pin.messages.join("\n")}>
+      {pin.messages.length}
+    </span>
+  );
+}
 
 /** The level of detail (`model/detail.ts`), read by the nodes and edges
  *  through context so a zoom crossing never rebuilds the node array. At
@@ -176,6 +192,7 @@ export function ImpliedSwitchNode(p: P) {
         <span className="badge cv-segment-count" title={hostsWord} data-testid="segment-count">{d.hosts}</span>
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`segment:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -354,6 +371,7 @@ export function HostNode(p: P) {
       </span>
       {sw ? <span className="cv-role-badge" data-testid="role-badge" title={`role: ${d.role}`}>{switchBadge(d.role!)}</span> : null}
       <ProvenanceMark source={d.source} confidence={d.confidence} />
+      <FindingBadge k={`node:${d.nodeId}`} />
       {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
       {group && group.countValue > 1 ? (
         <span className={`badge cv-count-badge${group.members.length ? " has-overrides" : ""}${edit?.membersOpen.has(d.nodeId) ? " open" : ""}`} data-testid="count-badge" data-overrides={group.members.length || undefined} title={`${group.countValue} instances (count: ${String(group.count)})${group.members.length ? `; ${group.members.length} with a role override` : ""}; double-click for the members`} onDoubleClick={(e) => { e.stopPropagation(); edit?.onToggleMembers(d.nodeId); }}>
@@ -440,9 +458,10 @@ export function DeviceNode(p: P) {
       <span className="cv-icon-box" aria-hidden="true">
         {d.deviceKind === "switch" ? <Icon.switch /> : <Icon.router />}
         <span className="cv-role-badge cv-device-badge" data-testid="device-badge">{d.badge}</span>
-        {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: attach it to a switch or router before Apply or Save">not attached</span> : null}
+        {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: not attached to a switch or router; a Check reports it">not attached</span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`node:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -479,6 +498,7 @@ export function TapNode(p: P) {
     <div className={`cv-tap${p.selected ? " selected" : ""}${overlay ? " cv-ov-tap" : ""}${dim}`} data-sensors={d.sensors.length} data-source={d.source ?? "authored"} data-testid="canvas-tap" data-tap={d.id} data-target={d.target} data-scope={d.scope} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : " (no sensor named)"}`}>
       <span className="cv-tap-chip">tap</span>
       <ProvenanceMark source={d.source} />
+      <FindingBadge k={`tap:${d.id}`} />
       <Handles />
     </div>
   );
@@ -542,6 +562,7 @@ export function RouterNode(p: P) {
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`node:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -769,6 +790,7 @@ export function LinkEdge(e: E) {
     return (
       <g data-testid="canvas-seglink" data-segment={d.segment} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
         <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.cidr ? `${d.segment} · ${d.cidr}` : d.segment} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
+        <EdgeFindingBadge k={`segment:${d.segment}`} x={labelX} y={labelY - 14} />
       </g>
     );
   }
@@ -776,6 +798,20 @@ export function LinkEdge(e: E) {
   return (
     <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
       <BaseEdge id={e.id} path={path} className={`cv-link${e.selected ? " selected" : ""}${weak ? " cv-link-weak" : ""}`} style={{ ...e.style, stroke: d.hue }} label={e.selected ? d.label : undefined} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+      <EdgeFindingBadge k={`link:${d.index}`} x={labelX} y={labelY} />
+    </g>
+  );
+}
+
+/** A Check's pin on an edge (a link, a transit segment): a dot with the count at the edge's label point. */
+function EdgeFindingBadge({ k, x, y }: { k: string; x: number; y: number }) {
+  const pin = useContext(FindingsContext).get(k);
+  if (!pin) return null;
+  return (
+    <g className={`cv-finding-badge-edge ${pin.severity}`} data-testid="finding-badge" data-key={k} data-severity={pin.severity} transform={`translate(${x}, ${y})`}>
+      <title>{pin.messages.join("\n")}</title>
+      <circle r={8} />
+      <text textAnchor="middle" dy="0.35em">{pin.messages.length}</text>
     </g>
   );
 }

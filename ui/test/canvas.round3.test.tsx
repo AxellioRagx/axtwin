@@ -11,7 +11,8 @@ import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph } from "../src/features/edit-canvas/edit/document";
 import { readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
-import { provenanceCounts, validationState } from "../src/features/edit-canvas/SidePanel";
+import { provenanceCounts } from "../src/features/edit-canvas/SidePanel";
+import { checkBadge, checkStatus, mergeFindings } from "../src/features/edit-canvas/edit/check";
 import { CANVAS_PLANE } from "../src/features/edit-canvas/canvas/plane";
 import { item, openPalette, seeded, segments, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
@@ -74,10 +75,14 @@ describe("R3-1: a missing source reads by the twin's origin", () => {
 
 describe("R3-3: warnings are not invalid", () => {
   it("a pass with warnings and no canvas error reads valid", () => {
-    const validation = { files: {}, error: null, result: { disposition: "PASS_WITH_WARNINGS", exit_code: 0, passes_run: [1], errors: 0, warnings: 1, findings: [{ rule_id: "OVR-020", severity: "warning", message: "unused", location: null }] } };
-    expect(validationState({ findings: [{ rule_id: "CV-099", severity: "warning", message: "w", location: null }], serverReason: null, validation, validating: false } as Parameters<typeof validationState>[0])).toBe("valid");
-    // A canvas error is still an error, and the Checks tab says whose it is.
-    expect(validationState({ findings: [{ rule_id: "CV-012", severity: "error", message: "not IPv4", location: null }], serverReason: null, validation, validating: false } as Parameters<typeof validationState>[0])).toBe("invalid");
+    const files = { "te.yaml": "x" };
+    const result = { disposition: "PASS_WITH_WARNINGS", exit_code: 0, passes_run: [1], errors: 0, warnings: 1, findings: [{ rule_id: "OVR-020", severity: "warning", message: "unused", location: null }] };
+    const warned = mergeFindings(result, [{ rule_id: "CV-099", severity: "warning", message: "w", location: null }]);
+    expect(checkStatus({ files, result: warned, error: null }, files)).toBe("valid");
+    // A canvas error is still an error: the Check fails with it.
+    const failed = mergeFindings(result, [{ rule_id: "CV-012", severity: "error", message: "not IPv4", location: null }]);
+    expect(checkStatus({ files, result: failed, error: null }, files)).toBe("invalid");
+    expect(checkBadge({ files, result: failed, error: null }, files)).toBe("invalid (1)");
   });
 });
 

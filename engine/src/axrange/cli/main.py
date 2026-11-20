@@ -1038,6 +1038,10 @@ def _build_parser() -> argparse.ArgumentParser:
                               "(default: ./twins after the legacy ./twin-configs; "
                               "--twin-configs-dir is the old spelling; docs/WORK_ORDER_"
                               "console_selector_and_stale_deploys.md)")
+    p_serve.add_argument("--drafts-dir", dest="drafts_dir", default=None,
+                         help="Where documents that fail validation are kept as drafts "
+                              "(env AXRANGE_DRAFTS_DIR; default: drafts/ beside the twin "
+                              "catalog's write root; never a twin search dir)")
     p_serve.add_argument("--targets", dest="targets_file", default=None,
                          help="Cluster targets file (YAML: targets: [{name, adapter_config, "
                               "db, nodes?}], first = default; env AXRANGE_TARGETS). Unset: "
@@ -4282,6 +4286,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         api_token=args.api_token,
         spa_dir=args.spa_dir,
         twin_configs_dir=args.twin_configs_dir,
+        drafts_dir=args.drafts_dir,
         imprints_dir=args.imprints_dir,
         targets_file=getattr(args, "targets_file", None),
         extra_dbs=getattr(args, "extra_dbs", None),

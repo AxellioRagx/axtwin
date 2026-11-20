@@ -20,6 +20,10 @@ import { useLoad } from "../shell/useLoad";
  *   and its one action, Clone, starts an untitled design from a copy of it. A row's move is a click on its link, so the canvas's
  *   unsaved-work guard sees it. A deployed twin opens on its working copy
  *   (Apply / Reset / Persist), which the Deploy column says.
+ *
+ * Both views list the DRAFTS beneath (`GET /api/drafts`, `api/Spec.md` A3d),
+ * each labelled `draft` with the twin it may replace: a draft opens on the
+ * canvas and is never deployed (no Deploy action).
  */
 export type TwinListProps = { mode: "manage" } | { mode: "pick"; onPick: () => void };
 
@@ -32,6 +36,19 @@ export function TwinList(props: TwinListProps) {
   const deploys = useLoad<DeploySummary[] | null>((signal) => api.listDeploys(signal).then((d) => d.deploys).catch(() => null), []);
   const reloadDeploys = deploys.reload;
   const [query, setQuery] = useState("");
+  // The drafts: a second, optional read (an API without the drafts area lists none).
+  const drafts = useLoad((signal) => api.listDrafts(signal).then((d) => d.drafts).catch(() => []), []);
+  const [draftError, setDraftError] = useState<unknown>(null);
+  const draftRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = drafts.data ?? [];
+    return q ? list.filter((d) => d.id.toLowerCase().includes(q) || (d.origin ?? "").toLowerCase().includes(q)) : list;
+  }, [drafts.data, query]);
+  const deleteDraft = (id: string) => {
+    if (!window.confirm(`Delete draft ${id}? Its document is removed; no twin is touched.`)) return;
+    setDraftError(null);
+    api.deleteDraft(id).then(() => drafts.reload(), (e: unknown) => setDraftError(e));
+  };
   const all = twins.data?.imprints ?? [];
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -156,6 +173,58 @@ export function TwinList(props: TwinListProps) {
             })}
           </tbody>
         </table>
+      ) : null}
+      <ErrorLine error={draftError} prefix="could not delete the draft" />
+      {draftRows.length > 0 ? (
+        <>
+          <h2>Drafts</h2>
+          <table className={`list${pick ? " compact" : ""}`} aria-label="Drafts">
+            <thead>
+              <tr>
+                <th>Draft</th>
+                <th>Origin</th>
+                <th>Last check</th>
+                <th>Last changed</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {draftRows.map((d) => {
+                const to = `/canvas/drafts/${encodeURIComponent(d.id)}`;
+                return (
+                  <tr key={d.id} data-testid="draft-row" title="a draft: kept without the validation gate, never deployed">
+                    <td>
+                      <Link className="navlink" to={to} onClick={pick ? props.onPick : undefined}>
+                        {d.id}
+                      </Link>
+                      <span className="cv-draft-label" data-testid="draft-label">draft</span>
+                    </td>
+                    <td>{d.origin ? <>draft of <span className="mono">{d.origin}</span></> : <span className="muted">no origin</span>}</td>
+                    <td>{d.last_check ? `${d.last_check.disposition.toLowerCase()}${d.last_check.errors ? ` · ${d.last_check.errors} error${d.last_check.errors === 1 ? "" : "s"}` : ""}` : <span className="muted">unchecked</span>}</td>
+                    <td>
+                      <When value={d.updated_at} />
+                    </td>
+                    <td>
+                      {pick ? null : (
+                        <span className="row-actions">
+                          <Link className="linkbutton" to={to}>
+                            Canvas
+                          </Link>
+                          <button className="quiet" type="button" disabled title="a draft is never deployed: replace its origin, or Save As a new twin, from the canvas">
+                            Deploy
+                          </button>
+                          <button className="quiet" type="button" onClick={() => deleteDraft(d.id)} aria-label={`Delete draft ${d.id}…`}>
+                            Delete…
+                          </button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
       ) : null}
       {!pick && skipped.length > 0 ? (
         <>

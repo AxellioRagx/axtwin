@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ApiError } from "../src/api/client";
 import type { DeploySummary } from "../src/api/types";
 import { docState, exitErrorText, tierStatus } from "../src/features/edit-canvas/CanvasPage";
-import { DEPLOY, host, panel, seeded, tab } from "./helpers/canvasFixtures";
+import { DEPLOY, enabled, host, panel, seeded, tab } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TFC_FAILED: DeploySummary = { deploy_id: "tfc-dep-1-aa", scenario_id: "tfc-dep-1", status: "failed", started_at: 1700000200, updated_at: 1700000300, tier: "tfc", target: "dev45" };
@@ -98,15 +98,15 @@ describe("the document's state after Apply", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("unapplied"));
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
+    // The edit is in this browser only until Apply pushes it.
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("syncing"));
+    expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)");
+    fireEvent.click(await enabled("Apply"));
     await screen.findByText(/applied via tfc/);
     await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("applied"));
     expect(screen.getByTestId("dirty-marker").textContent).toContain("applied · unpersisted");
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "corp-workstation" } });
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("unapplied"), { timeout: 2000 });
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("syncing"), { timeout: 2000 });
   });
 
   it("docState: clean, syncing, applied (the copy unchanged since the apply), unapplied", () => {
@@ -126,9 +126,7 @@ describe("Reset is best effort, and exits in flight", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
+    fireEvent.click(await enabled("Apply"));
     await screen.findByText(/applied via tfc/);
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
     const err = await screen.findByTestId("exit-error");
@@ -163,9 +161,7 @@ describe("Reset is best effort, and exits in flight", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
+    fireEvent.click(await enabled("Apply"));
     const err = await screen.findByTestId("exit-error");
     expect(err.textContent).toContain("busy: apply on deploy dep-1 is in progress (replaying tfc)");
     fireEvent.click(within(err).getByLabelText("Dismiss"));
@@ -191,33 +187,37 @@ describe("the bar and the strip", () => {
 });
 
 describe("the command stack survives a reload, and a pending change can be discarded on its own", () => {
-  it("Undo is back after a reload of the same working copy, and gone once the copy changed meanwhile", async () => {
-    const { api } = seeded();
+  it("a deployed twin's edits stay in this browser across a reload, Undo with them; gone once the copy changed meanwhile", async () => {
+    const { api, state } = seeded();
     const first = renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Undo" }).getAttribute("title")).toBe("undo: persona of web01"));
-    // Synced: the stack is stored under the copy's updated_at.
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("unapplied"));
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("syncing"));
     first.unmount();
-    renderAt(api, "/twins/corp-live/canvas");
+    // Reloaded over the same working copy: the local edit and its Undo come back; nothing was PUT.
+    const second = renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     await waitFor(() => expect(screen.getByRole("button", { name: "Undo" }).getAttribute("title")).toBe("undo: persona of web01"));
+    expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("syncing");
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await screen.findByText("working copy equals the baseline");
-    // The copy moves under this browser (another console's PUT): the stored stack no longer applies.
+    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("syncing"));
+    second.unmount();
+    // The copy moves under this browser (another console's PUT): the kept edits no longer apply.
     const cfg = await api.getDeployConfig("dep-1");
     await api.putDeployConfig("dep-1", { ...cfg.document.files, "tfc/default.yaml": cfg.document.files["tfc/default.yaml"]! + "    - node: ws01\n      persona: generic-endpoint\n" });
-    screen.getByTestId("canvas").remove();
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    await waitFor(() => expect(screen.getAllByTestId("dirty-marker").at(-1)!.dataset["state"]).toBe("unapplied"));
-    expect(screen.getAllByRole("button", { name: "Undo" }).at(-1)!.hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").dataset["state"]).toBe("unapplied"));
+    expect(screen.getByRole("button", { name: "Undo" }).hasAttribute("disabled")).toBe(true);
   });
 
-  it("Discard on a pending change puts that file back to the baseline, as an undoable edit", async () => {
-    const { api } = seeded();
+  it("deployed edits make no PUT until Apply or Persist; Discard on a pending change puts that file back to the baseline, as an undoable edit", async () => {
+    const { api, state } = seeded();
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
@@ -225,15 +225,21 @@ describe("the command stack survives a reload, and a pending change can be disca
     fireEvent.click(host("ws01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), { target: { value: "finance-ws" } });
     fireEvent.keyDown(within(panel().getByTestId("node-panel")).getByLabelText("Role"), { key: "Enter" });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
+    fireEvent.click(await enabled("Apply"));
+    await screen.findByText(/applied via/);
+    expect(state.writes.filter((w) => w.op === "put-deploy-config").length).toBe(1);
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(2));
     const tfc = screen.getAllByTestId("pending-change").find((c) => c.textContent!.includes("tfc/default.yaml"))!;
     fireEvent.click(within(tfc).getByTestId("discard-change"));
-    await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
-    expect(screen.getByTestId("pending-change").textContent).toContain("te.yaml");
     expect(screen.getByRole("button", { name: "Undo" }).getAttribute("title")).toBe("undo: discard changes to tfc/default.yaml");
-    fireEvent.click(within(screen.getByTestId("pending-change")).getByTestId("discard-change"));
-    await screen.findByText("none: the working copy equals the baseline");
+    const te = screen.getAllByTestId("pending-change").find((c) => c.textContent!.includes("te.yaml"))!;
+    fireEvent.click(within(te).getByTestId("discard-change"));
+    // Both discards are local; Persist (on a passing Check) pushes them: the copy equals the baseline again.
+    fireEvent.click(await enabled("Persist"));
     await screen.findByText("working copy equals the baseline");
+    expect(state.writes.filter((w) => w.op === "put-deploy-config").length).toBe(2);
   });
 });

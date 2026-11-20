@@ -165,6 +165,9 @@ are binding on every session.
   them only when a seam on the critical path requires it.
 - Git: outbound push on explicit request; inbound sync (fetch/pull/clone) is the
   user's own manual step.
+- Twins are created and changed through the API (or the canvas), not by editing
+  `catalog/twins` files directly; a file edited by hand gets
+  `axrange te validate --config <id>` before it is committed.
 
 ## Live-deploy data is not project data
 

@@ -14,7 +14,7 @@ import { documentGraph, readDoc, type WorkingDoc } from "../src/features/edit-ca
 import { applyFabricPlan, isBridgeVm } from "../src/features/edit-canvas/edit/fabric";
 import { readTap, spanOn } from "../src/features/edit-canvas/edit/tap";
 import { readTe } from "../src/features/edit-canvas/edit/te";
-import { seeded, settle, twinYaml } from "./helpers/canvasFixtures";
+import { check, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const CORP = resolve(__dirname, "../../catalog/twins/corp-twin");
@@ -131,7 +131,7 @@ describe("the inspector's offer", () => {
       twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
     });
   }
-  const lastTe = (state: ReturnType<typeof seeded>["state"]) => readTe((state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]!);
+  const lastTe = async (state: ReturnType<typeof seeded>["state"]) => (await check(), readTe((state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]!));
   const select = async (name: string) => {
     const el = (await screen.findAllByTestId(/^canvas-(host|router|device)$/)).find((x) => x.dataset["nodeId"] === name);
     if (!el) throw new Error(JSON.stringify([...document.querySelectorAll("[data-node-id]")].map((x) => `${x.getAttribute("data-testid")}:${x.getAttribute("data-node-id")}`)));
@@ -148,16 +148,16 @@ describe("the inspector's offer", () => {
     fireEvent.click(run);
     await settle();
     await waitFor(() => expect(state.writes.some((w) => w.op === "fabric-conversion")).toBe(true));
-    await waitFor(() => expect(lastTe(state).nodes.find((n) => n.name === "sw1")?.kind).toBe("switch"));
-    const te = lastTe(state);
+    await waitFor(async () => expect((await lastTe(state)).nodes.find((n) => n.name === "sw1")?.kind).toBe("switch"));
+    const te = (await lastTe(state));
     expect(te.segments.map((s) => s.name)).toEqual(["lan"]);
     expect(te.nodes.find((n) => n.name === "ws")!.nets).toEqual([{ segment: "lan", ip: null }]);
     expect(te.links).toHaveLength(1);
     expect((await screen.findByTestId("convert-fabric-notes")).textContent).toContain("a note from the engine");
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
     await settle();
-    await waitFor(() => expect(lastTe(state).nodes.find((n) => n.name === "sw1")?.kind).toBe("host"));
-    expect(lastTe(state).segments.map((s) => s.name)).toEqual(["lan", "lan-access"]);
+    await waitFor(async () => expect((await lastTe(state)).nodes.find((n) => n.name === "sw1")?.kind).toBe("host"));
+    expect((await lastTe(state)).segments.map((s) => s.name)).toEqual(["lan", "lan-access"]);
   });
 
   it("shows the refusal in place and changes nothing", async () => {
@@ -165,11 +165,10 @@ describe("the inspector's offer", () => {
     renderAt(api, "/twins/mini-bridge/canvas");
     const panel = await select("sw1");
     await settle();
-    await waitFor(() => expect(state.writes.some((w) => w.op === "validate")).toBe(true));
-    const before = state.writes.filter((w) => w.op === "validate").length;
+    const before = JSON.stringify(await lastTe(state));
     fireEvent.click(within(panel).getByTestId("convert-fabric-run"));
     expect((await within(panel).findByTestId("convert-fabric-error")).textContent).toContain("no bridge VM");
     await settle();
-    expect(state.writes.filter((w) => w.op === "validate").length).toBe(before);
+    expect(JSON.stringify(await lastTe(state))).toBe(before);
   });
 });

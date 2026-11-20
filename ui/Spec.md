@@ -48,7 +48,7 @@ seam, everything else exists today):
 | T0 — v0 loop | twin-configs list/detail, topology, inventory, targets, deploys create/run/status, tfc, taps, **A6** metrics |
 | C1 — discovery | **A7** sources (save / test / run), **A1** plugins + runs, imprints detail. **Built 2026-10-27** (sources, probe, run-and-poll, open the imprint); pcap/`cast` views not yet |
 | C2 — view twin | covered by T0. **Built 2026-10-30** (the design canvas, `features/edit-canvas`, phase 1: cast and authored graphs, positions, the traffic overlay) |
-| C3 — edit twin | validate, **A2** working copy, **A3** twin-config create/update. **Built 2026-10-30** (canvas phase 2: palette, attaching, the command stack, the side panel, Save / Save-As / Apply / Reset / Persist, promote to assertion); the per-mutation `POST /api/validate` is the canvas's own structural check plus the API's validation on every working-copy `PUT` and on Save, because that route validates catalog ids, not documents |
+| C3 — edit twin | validate, **A2** working copy, **A3** twin-config create/update. **Built 2026-10-30** (canvas phase 2: palette, attaching, the command stack, the side panel, Save / Save-As / Apply / Reset / Persist, promote to assertion); validation is on demand since 2026-11-20: Check (`POST /api/validate {document}`) on the files on screen gates every overwrite; **A3d** drafts keep a failing document |
 | C4 — targets | targets list, **A4** create/update/delete |
 | C5 — tweak + promote | **A2** apply/reset, **A3** update |
 | C6 — inventory | deploys list, **A5** `origin=platform` |
@@ -58,7 +58,11 @@ seam, everything else exists today):
 **The editor's model** (defined in `api/Spec.md`, "The edit model"): the editor
 works on a deployed twin's server-side **working copy**, never the baseline, and
 offers four exits — **Apply**, **Reset**, **Persist**, **Save-As**. An undeployed
-config has no working copy and offers Save and Save-As only. A discovered imprint
+config has no working copy and offers Save and Save-As only. Edits stay in the
+browser until an exit; nothing validates or writes per edit. Every exit that
+overwrites a twin needs a passing **Check** of the files on screen; a failing
+document can only be kept as a **draft** (`api/Spec.md` A3d), a copy under its own
+id that is never deployed and may later replace its origin. A discovered imprint
 is cast first and then edited as a twin-config; the imprint assertions path stays
 behind the provenance view and is not a second editor.
 
@@ -249,14 +253,15 @@ Save is a Save-As through A3), Open… in the canvas bar, `/canvas/:id`
 - C3.3 (auto) Save-As under a new name, from both an undeployed config and a
   deployed twin's working copy, appears in the list and reopens identical; a
   name that already exists is refused with the reason shown. **Built 2026-10-30.**
-- C3.4 (auto) An edit that would produce an invalid config is blocked with the
-  validator's reason surfaced in the editor. **Built 2026-10-30** (the canvas's
-  structural check blocks in place; the API's refusal of a working-copy `PUT`
-  reverts the edit and is shown verbatim).
+- C3.4 (auto) An invalid config is reported by Check with the validator's reason,
+  pinned on the element it names, and no overwrite is possible until a Check passes;
+  only Save as draft stays open. **Built 2026-10-30; on demand since 2026-11-20**
+  (edits are no longer blocked or reverted; a 422 on a write lands as findings).
 - C3.5 (auto) Editing a **deployed** twin shows a dirty marker and leaves the
-  baseline view unchanged until Persist. **Built 2026-10-30.**
+  baseline view unchanged until Persist. **Built 2026-10-30**; since 2026-11-20 the
+  edits stay in the browser (no working-copy `PUT`) until Apply or Persist pushes them.
 - C3.6 (auto) Reset clears the marker and shows baseline; a second console open
-  on the same deploy shows the same state. **Built 2026-10-30** (two mounted
+  on the same deploy shows the same state once it is pushed. **Built 2026-10-30** (two mounted
   consoles over one fake control plane; the second polls and has a Refresh).
 
 **C4 — deploy targets:**

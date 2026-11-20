@@ -54,10 +54,11 @@ import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
 import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
 import type { Selection } from "./SidePanel";
+import type { FindingPin } from "./edit/check";
 import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
 import { DEVICE_H, DEVICE_W } from "./layout/geometry";
 import { twoOctetPrefix } from "./model/keys";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, FindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -137,6 +138,21 @@ export interface CanvasProps {
   inspector?: { selection: ReactNode; checks: ReactNode | null; checksBadge: string | null };
   /** The deployed (or default) target's lab, for the rail's Lab overlay (targets-and-lab §2.3); absent: no toggle. */
   lab?: LabSource | null;
+  /** The last Check's findings pinned on the elements they name (`edit/check.ts`). */
+  findings?: ReadonlyMap<string, FindingPin>;
+  /** Zoom to the element a finding names (`node:<group>`, `segment:<name>`, `link:<i>`, `tap:<i>`); `n` re-fires it. */
+  focus?: { key: string; n: number } | null;
+}
+
+const NO_FINDINGS: ReadonlyMap<string, FindingPin> = new Map();
+
+/** The finding key a canvas node answers to (`nodes.tsx` `FindingBadge` reads the same), or null. */
+export function findingKeyOf(d: CanvasNode["data"]): string | null {
+  if (d.kind === "host") return `node:${d.nodeId}`;
+  if (d.kind === "device" || d.kind === "router") return `node:${d.name}`;
+  if (d.kind === "segment") return `segment:${d.name}`;
+  if (d.kind === "tap") return `tap:${d.id}`;
+  return null;
 }
 
 const DEFAULT_GLOW_SECONDS = 8;
@@ -329,7 +345,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector, lab = null }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -1155,6 +1171,26 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     [rf, setNodes],
   );
 
+  // A finding clicked in the Checks tab: zoom to the element it names (a link or a transit
+  // segment by its two ends). The page has already selected it.
+  const focusN = focus?.n ?? 0;
+  useEffect(() => {
+    if (!focus) return;
+    const ids = rf.getNodes().filter((n) => findingKeyOf(n.data) === focus.key).map((n) => n.id);
+    if (!ids.length) {
+      for (const e of rf.getEdges()) {
+        const d = e.data as { kind?: string; index?: number; segment?: string } | undefined;
+        if ((d?.kind === "link" && `link:${d.index}` === focus.key) || (d?.kind === "seglink" && `segment:${d.segment}` === focus.key)) ids.push(e.source, e.target);
+      }
+    }
+    if (!ids.length) return;
+    // Selected on the canvas too (the inspector stays on Checks, so the next finding is one click away).
+    const own = rf.getNodes().filter((n) => findingKeyOf(n.data) === focus.key).map((n) => n.id);
+    if (own.length) setNodes((ns) => ns.map((n) => ({ ...n, selected: own.includes(n.id) })));
+    void rf.fitView({ nodes: ids.map((id) => ({ id })), duration: 300, maxZoom: FIT_MAX_ZOOM, padding: 0.4 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusN]);
+
   const find = useCallback(() => {
     const r = resolveSearch(graph, query);
     setFindNote(r.note);
@@ -1341,6 +1377,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry]);
 
   return (
+    <FindingsContext.Provider value={findings}>
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
@@ -1554,6 +1591,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       </DetailContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
+    </FindingsContext.Provider>
   );
 }
 

@@ -692,6 +692,44 @@ export interface TwinConfigWrite {
   files: Record<string, string>;
 }
 
+/** A draft's last Check, as the canvas recorded it when it wrote the draft (`api/Spec.md` A3d). */
+export interface DraftCheck {
+  disposition: string;
+  errors: number;
+  warnings: number;
+  checked_at?: string | null;
+}
+
+/** One row of `GET /api/drafts`: a document kept WITHOUT the validation gate, outside the twin
+ *  catalog, never deployable. `origin` is the twin a passing draft may replace. */
+export interface DraftSummary {
+  id: string;
+  origin?: string | null;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_check?: DraftCheck | null;
+  draft: true;
+}
+
+export interface DraftList {
+  drafts: DraftSummary[];
+}
+
+/** `GET /api/drafts/{id}`: the row with its document (only for a caller that may write). */
+export interface DraftDetail extends DraftSummary {
+  document?: TwinConfigDocument | null;
+  warnings?: string[];
+}
+
+/** `POST /api/drafts` (a new id) and `PUT /api/drafts/{id}`: no validation gate. */
+export interface DraftWrite {
+  id?: string;
+  files: Record<string, string>;
+  origin?: string | null;
+  last_check?: DraftCheck | null;
+}
+
 /** Three kinds from 2026-11-07 (`docs/design/topology-layers.md` §4): `traffic` and `taps`
  *  are LIVE (the tier's playout re-applies), `topology` needs a re-plan, `inert` is carried
  *  by Persist. `attribute` was the earlier single live kind. */

@@ -154,7 +154,19 @@ export const commit = (input: HTMLElement, value: string) => {
   fireEvent.keyDown(input, { key: "Enter" });
 };
 export const settle = () => act(() => new Promise((r) => setTimeout(r, 350)));
+/** The bar's Check (on demand): run it and wait for its answer; `expect` asserts the badge's status after. */
+export async function check(want?: "valid" | "invalid" | "unchecked" | "changed") {
+  fireEvent.click(screen.getByTestId("check-run"));
+  await waitFor(() => expect(screen.getByTestId("check-badge").dataset["status"]).not.toBe("checking"));
+  if (want) await waitFor(() => expect(screen.getByTestId("check-badge").dataset["status"]).toBe(want));
+}
+/** The Check badge's status (`unchecked`, `valid`, `invalid`, `changed`, `checking`). */
+export const checkStatus = () => screen.getByTestId("check-badge").dataset["status"];
+/** A button once it is enabled. The exits that overwrite a twin wait on a passing Check of the files
+ *  on screen, so -- as an operator does -- Check runs first when the files are not the ones last checked. */
 export const enabled = async (name: string) => {
+  const badge = screen.queryByTestId("check-badge");
+  if (badge && badge.dataset["status"] !== "valid" && badge.dataset["status"] !== "checking") await check();
   await waitFor(() => expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(false));
   return screen.getByRole("button", { name });
 };

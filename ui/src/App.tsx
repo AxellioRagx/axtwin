@@ -38,6 +38,7 @@ export function App({ api }: { api: Api }) {
           <Route path="/targets" element={<TargetsPage />} />
           <Route path="/canvas" element={<Navigate to="/" replace />} />
           <Route path="/canvas/new" element={<NewCanvas />} />
+          <Route path="/canvas/drafts/:id" element={<CanvasPage key="draft" draft />} />
           <Route path="/canvas/:id" element={<CanvasPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

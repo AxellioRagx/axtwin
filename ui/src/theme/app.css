@@ -225,3 +225,6 @@ button.quiet:hover { color: var(--bad); }
 .preflight-msg { color: var(--bad); }
 .preflight-loc { font-size: 12px; }
 .preflight-remap select { padding: 2px 6px; }
+
+/* A draft (api/Spec.md A3d): labelled wherever it is listed or open. */
+.cv-draft-label { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 11px; line-height: 16px; border: 1px dashed var(--warn, #b7791f); color: var(--warn, #b7791f); vertical-align: middle; }

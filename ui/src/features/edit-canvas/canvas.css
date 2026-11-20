@@ -455,3 +455,15 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-lab-chip .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* Compact keeps the host icons (the switches' leaves) but not their captions. */
 .canvas-shell.compact .cv-host-label { display: none; }
+
+/* A Check's findings pinned on the element they name (edit/check.ts): a count, red for an error, amber for a warning. */
+.cv-finding-badge { position: absolute; top: -6px; right: -6px; z-index: 5; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; font-size: 10px; line-height: 16px; text-align: center; color: #fff; background: var(--warn, #b7791f); pointer-events: auto; cursor: help; }
+.cv-finding-badge.error { background: var(--bad, #c53030); }
+.cv-finding-badge-edge circle { fill: var(--warn, #b7791f); }
+.cv-finding-badge-edge.error circle { fill: var(--bad, #c53030); }
+.cv-finding-badge-edge text { fill: #fff; font-size: 10px; }
+.cv-finding-row { text-align: left; width: 100%; }
+.cv-tab-badge.changed, .cv-check-badge.changed { background: var(--warn, #b7791f); color: #fff; }
+.cv-check-badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11.5px; line-height: 18px; white-space: nowrap; background: color-mix(in srgb, currentColor 14%, transparent); }
+.cv-check-badge.valid { background: var(--ok); color: #fff; }
+.cv-check-badge.invalid { background: var(--bad); color: #fff; }

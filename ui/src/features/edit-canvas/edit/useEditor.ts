@@ -1,17 +1,17 @@
 /**
  * The editor's state in React: the working files, the command stack and
- * the models read from them. `apply` runs a pure mutation, blocks it when
- * the canvas's own validator finds an error (the reason is returned, the
- * document untouched), stamps what it created or changed `source: authored`
- * (`provenance.ts`), and otherwise records it so Ctrl+Z restores the
- * pre-edit text byte-for-byte.
+ * the models read from them. `apply` runs a pure mutation -- refused only
+ * when the command cannot express the request (it throws: a node that no
+ * longer exists), never because the result is incomplete or invalid
+ * (validation is the on-demand Check, `check.ts`) -- stamps what it created
+ * or changed `source: authored` (`provenance.ts`), and records it so Ctrl+Z
+ * restores the pre-edit text byte-for-byte.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { EMPTY_STACK, record, redo as redoCmd, sameFiles, undo as undoCmd, type Files, type Stack } from "./commands";
 import { readDoc, type DocModel, type WorkingDoc } from "./document";
 import { stampAuthored } from "./provenance";
-import { firstReason } from "./validate";
 
 export interface ApplyOptions {
   /** false: the edit writes text that is not the canvas's (a discard back to the baseline), so nothing is stamped authored. */
@@ -72,9 +72,6 @@ export function useEditor(): Editor {
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
       }
-      const nextModel = readDoc({ ...curDoc, files: next });
-      const reason = firstReason(nextModel.findings);
-      if (reason) return reason;
       const stack = record(cur.stack, label, cur.files, next);
       if (stack === cur.stack) return null;
       const s = { ...cur, files: next, stack };

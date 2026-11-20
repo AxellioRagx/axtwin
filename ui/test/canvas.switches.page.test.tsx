@@ -11,7 +11,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { readTe } from "../src/features/edit-canvas/edit/te";
-import { hosts, item, seeded, segment, segments, settle, twinYaml } from "./helpers/canvasFixtures";
+import { check, hosts, item, seeded, segment, segments, settle, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const CT = readFileSync(resolve(__dirname, "../../catalog/twins/canvas-test/te.yaml"), "utf8");
@@ -25,7 +25,8 @@ function withTwin(id: string, te: string) {
   });
 }
 /** The files of the last API validate: what the editor holds after the edit. */
-const lastFiles = (state: ReturnType<typeof seeded>["state"]) => (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+/** The files on screen: a Check sends exactly them (nothing validates on its own any more). */
+const lastFiles = async (state: ReturnType<typeof seeded>["state"]) => (await check(), state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
 const device = (name: string) => screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === name)!;
 const router = (name: string) => screen.getAllByTestId("canvas-router").find((d) => d.dataset["nodeId"] === name)!;
 
@@ -52,7 +53,7 @@ describe("Insert switch", () => {
     await waitFor(() => expect(device("sw-servers")).toBeTruthy());
     expect(segments()).toEqual(["office"]);
     expect(within(await screen.findByTestId("node-panel")).getAllByTestId("carried-segment").map((r) => r.dataset["segment"])).toEqual(["servers"]);
-    const te = readTe(lastFiles(state)["te.yaml"]!);
+    const te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.nodes.find((n) => n.name === "sw-servers")).toMatchObject({ kind: "switch", source: "authored" });
     expect(te.links.map((l) => `${l.a.device}>${l.b.device} ${l.mode}`)).toEqual(["gw>sw-servers trunk", "sw-servers>file-server access"]);
     await waitFor(() => expect(state.writes.filter((w) => w.op === "validate").length).toBeGreaterThan(validatesBefore));
@@ -70,7 +71,7 @@ describe("Insert switch", () => {
     fireEvent.click(within(await screen.findByTestId("context-menu")).getByRole("button", { name: "Insert switch" }));
     await settle();
     await waitFor(() => expect(device("sw-office")).toBeTruthy());
-    expect(readTe(lastFiles(state)["te.yaml"]!).links.map((l) => `${l.a.device}>${l.b.device}`)).toEqual(["gw>sw-office"]);
+    expect(readTe((await lastFiles(state))["te.yaml"]!).links.map((l) => `${l.a.device}>${l.b.device}`)).toEqual(["gw>sw-office"]);
   });
 });
 
@@ -83,7 +84,7 @@ describe("placement infers the segment", () => {
     fireEvent.click(router("gw"));
     await settle();
     await waitFor(() => expect(segments()).toEqual(["office", "segment-3", "servers"]));
-    const te = readTe(lastFiles(state)["te.yaml"]!);
+    const te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.segments.find((s) => s.name === "segment-3")?.cidr).toBe("10.70.21.0/24");
     expect(te.nodes.find((n) => n.name === "gw")!.nets.map((l) => l.segment)).toContain("segment-3");
     const placed = te.nodes.find((n) => n.image === "debian-12-cloud@v1" && n.nets[0]?.segment === "segment-3");
@@ -111,7 +112,7 @@ describe("placement infers the segment", () => {
     fireEvent.click(device("core"));
     await settle();
     // The trunk's native, users.
-    const after = readTe(lastFiles(state)["te.yaml"]!);
+    const after = readTe((await lastFiles(state))["te.yaml"]!);
     const placed = after.nodes.find((n) => n.name !== "pc" && n.image === "debian-12-cloud@v1")!;
     expect(placed.nets.map((l) => l.segment)).toEqual(["users"]);
     // The picker moves pc to the other VLAN, re-addressed there.
@@ -122,6 +123,6 @@ describe("placement infers the segment", () => {
     expect(picker.value).toBe("voice");
     fireEvent.change(picker, { target: { value: "users" } });
     await settle();
-    await waitFor(() => expect(readTe(lastFiles(state)["te.yaml"]!).nodes.find((n) => n.name === "pc")!.nets).toEqual([{ segment: "users", ip: "10.50.1.11" }]), { timeout: 3000 });
+    await waitFor(async () => expect(readTe((await lastFiles(state))["te.yaml"]!).nodes.find((n) => n.name === "pc")!.nets).toEqual([{ segment: "users", ip: "10.50.1.11" }]), { timeout: 3000 });
   });
 });
