@@ -98,6 +98,25 @@ is the text they were made over); Apply and Persist push the working copy
 and then run; a failing edit can only go to a draft; the poll still adopts
 another console's change but never over local edits.
 
+**Conduits in the design view (2026-11-20).** Every `conduits[]` entry is
+drawn in Design view as a thin dotted connector labelled `conduit` between
+its two segments' anchors (implied or real switch, or the fold that holds
+one), on the arc geometry, never through a box; a conduit no node implements
+(no node with a leg on BOTH segments -- the engine's expansion refuses it) is
+drawn in the warning colour. Observed flows stay evidence (Light-up or a
+selection). Selecting a conduit opens its panel: whether it is implemented,
+*Add a router leg to fix* (a router on one segment gets a leg on the other),
+Remove, and its provenance. Declare one from a segment's menu (*Declare
+conduit to…*, then a click on the other segment). Each is one undo step
+(`te.ts` `addConduit` / `removeConduit`); removing or renaming a segment
+carries its conduits with it. **Findings on the canvas:** the API answers a
+document problem found while expanding (the conduit cross-check, a leg on an
+unknown segment, a bad link) as a FAIL finding with a `subject`, not as a
+failed request; the canvas pins each finding on the element its subject (else
+its location, else the names it quotes) names, and a fold that hides one
+wears the count. "The API could not validate" is left for a request that
+failed (network, 5xx); a 4xx on Check is a failing finding with its reason.
+
 **Two kinds of edit, classified by the API, shown by the canvas.** An
 attribute edit (persona, intensity, schedule, cadence, tap binding, a role
 change that keeps the image) applies live through the tier's playout; a
@@ -248,6 +267,11 @@ criteria of its own beyond them.
     origin's own `PUT`, the document renamed to the origin's id; the draft is kept.
   - A deployed twin's edits make no `PUT` of the working copy until Apply or Persist; they survive
     a reload over the same copy and are dropped when the copy changed meanwhile.
+  - Conduits (*`canvas.conduits.test.tsx`*): every conduit is an arc of the design placement;
+    an unimplemented one draws dotted, labelled and warning-coloured with its `TC-CONDUIT` finding
+    pinned; Check returns that finding (not a failed request) and it selects the conduit; Remove
+    and *Add a router leg to fix* each clear it by the next Check; *Declare conduit to…* adds one
+    (one undo step each).
   - Findings pin on the element they name (a node, a segment, a link, a tap, a parked switch);
     a click on one in the Checks tab selects it. Drafts are labelled in Open and on the Twins list.
 - **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one

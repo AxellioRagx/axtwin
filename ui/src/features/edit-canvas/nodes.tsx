@@ -26,11 +26,26 @@ import { dropPoint, midOf, roundedPath } from "./canvas/orthogonal";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
 import type { FindingPin } from "./edit/check";
 import { useEdit } from "./edit/EditContext";
+import { conduitImplemented } from "./edit/te";
 import { Icon, RoleIcon } from "./icons";
 
 /** The last Check's findings pinned on the elements they name (`edit/check.ts` `findingPins`),
  *  keyed `node:<group>`, `segment:<name>`, `link:<i>`, `tap:<i>`; empty when nothing was checked. */
 export const FindingsContext = createContext<ReadonlyMap<string, FindingPin>>(new Map());
+
+/** Findings on elements a fold hides, counted on the fold node (keyed by its node id). */
+export const FoldFindingsContext = createContext<ReadonlyMap<string, { count: number; severity: "error" | "warning" }>>(new Map());
+
+/** The count a fold wears for the findings on what it hides. */
+function FoldFindingBadge({ id }: { id: string }) {
+  const pin = useContext(FoldFindingsContext).get(id);
+  if (!pin) return null;
+  return (
+    <span className={`cv-finding-badge ${pin.severity}`} data-testid="finding-badge-fold" data-severity={pin.severity} title={`${pin.count} finding${pin.count === 1 ? "" : "s"} behind this fold`}>
+      {pin.count}
+    </span>
+  );
+}
 
 /** The pin a Check's findings put on one element: a count in the worst severity's colour, the messages on hover. */
 export function FindingBadge({ k }: { k: string }) {
@@ -236,6 +251,7 @@ export function HostFoldNode(p: P) {
       >
         {d.open ? "fold" : `+${d.hidden}`}
       </button>
+      <FoldFindingBadge id={p.id} />
       <Handles />
     </div>
   );
@@ -617,6 +633,7 @@ export function OverflowNode(p: P) {
     <div className={`cv-overflow${d.label && !d.expanded ? " cv-site-fold" : ""}`} data-testid="canvas-overflow" data-fold={d.siteKey} data-expanded={d.expanded || undefined} style={{ width: p.width, height: p.height }} title={d.expanded ? "fold these back" : d.label ? `site ${d.label}: click to show its segments` : "show the rest of this branch"}>
       <span>{d.expanded ? (d.label ? `${d.label} · fold` : `fold ${d.hidden} back`) : d.label ? d.label : `+${d.hidden} more`}</span>
       <span className="muted">{d.expanded ? "click to collapse" : `${d.label ? "" : `of ${d.total} segments · `}${d.hosts ?? 0} host${d.hosts === 1 ? "" : "s"}`}</span>
+      <FoldFindingBadge id={p.id} />
       <Handles />
     </div>
   );
@@ -681,6 +698,8 @@ type E = EdgeProps<CanvasEdge>;
 export function ArcEdge(e: E) {
   const glow = useContext(GlowContext);
   const detail = useContext(DetailContext);
+  const edit = useEdit();
+  const findings = useContext(FindingsContext);
   const d = e.data;
   if (!d || d.kind !== "arc") return null;
   const dx = Math.abs(e.targetX - e.sourceX);
@@ -688,6 +707,30 @@ export function ArcEdge(e: E) {
   const base = Math.max(e.sourceY, e.targetY) + depth;
   const path = `M ${e.sourceX} ${e.sourceY} C ${e.sourceX} ${base}, ${e.targetX} ${base}, ${e.targetX} ${e.targetY}`;
   const lit = glow.arcs.has(d.key);
+  // The design view: a declared conduit is a thin dotted connector labelled "conduit", in the warning
+  // colour when no node implements it (a leg on BOTH segments -- the engine refuses that).
+  const conduits = edit && d.arcKind === "asserted" ? (d.conduits ?? []) : [];
+  if (conduits.length) {
+    const open = conduits.filter((c) => !conduitImplemented(edit!.model.te, c.a, c.b));
+    const keys = conduits.map((c) => `conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}`);
+    const pinned = keys.map((k) => findings.get(k)).filter((p): p is FindingPin => Boolean(p));
+    const pin = pinned.length ? { severity: pinned.some((p) => p.severity === "error") ? "error" : "warning", messages: pinned.flatMap((p) => p.messages) } : null;
+    const label = `conduit${conduits.length > 1 ? ` ×${conduits.length}` : ""}${open.length ? " · no router joins both" : ""}`;
+    const title = conduits.map((c) => `${c.a} ↔ ${c.b}${conduitImplemented(edit!.model.te, c.a, c.b) ? "" : " (no node on both segments)"}`).join("\n");
+    return (
+      <g data-testid="canvas-conduit" data-key={d.key} data-open={open.length || undefined} data-conduits={conduits.map((c) => `${c.a}|${c.b}`).join(",")} className={`cv-conduit${open.length ? " open" : ""}${e.selected ? " selected" : ""}`}>
+        <title>{title}</title>
+        <BaseEdge id={e.id} path={path} className="cv-arc cv-arc-conduit" label={label} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg interactionWidth={12} />
+        {pin ? (
+          <g className={`cv-finding-badge-edge ${pin.severity}`} data-testid="finding-badge" data-key={keys[0]} data-severity={pin.severity} transform={`translate(${(e.sourceX + e.targetX) / 2}, ${base - 22})`}>
+            <title>{pin.messages.join("\n")}</title>
+            <circle r={8} />
+            <text textAnchor="middle" dy="0.35em">{pin.messages.length}</text>
+          </g>
+        ) : null}
+      </g>
+    );
+  }
   return (
     <g data-testid="canvas-arc" data-key={d.key} className={lit ? "glow" : ""}>
       <BaseEdge id={e.id} path={path} style={e.style} className={`cv-arc cv-arc-${d.arcKind}${lit ? " glow" : ""}`} label={detail === "full" ? d.label : undefined} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg />

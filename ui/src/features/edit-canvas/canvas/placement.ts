@@ -172,7 +172,8 @@ export type AnnotationData = { kind: "annotation"; ann: Annotation };
 export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData | AnnotationData | DeviceData | TapData | HostFoldData;
 export type CanvasNode = Node<CanvasData, string>;
 
-export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
+/** `conduits`: the declared conduits an asserted arc carries, by segment names (the design view draws and selects them). */
+export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string; conduits?: Array<{ a: string; b: string }> };
 /** A router's leg onto a bus (rule 2): a vertical drop in the router's hue.
  *  `folded`: the leg goes to a group's `+N more` lane for `folded` hidden
  *  segments at once (one edge, not one per hidden segment); it names no

@@ -60,7 +60,14 @@ through the same path Save-As / Persist / the working-copy PUT use (the twin
 config expanded and validated with the real manifests, every tier file parsed
 by its playout's loader, the twin-local personas loaded), answering the same
 findings shape; pure, nothing written; `document` is exclusive with the id
-fields. **Built 2026-10-30** (`service.validate_document`, tests
+fields. A document problem found while expanding / cross-checking (an unjoined
+conduit `TC-CONDUIT`, an unknown segment on a node's net `TC-NODE-SEGMENT`,
+duplicate node ids `TC-NODE-DUP`, a bad `links[]` entry `TC-LINK`, any other
+expansion refusal `EXPAND-000`) is the ANSWER -- `200`, disposition `FAIL`, an
+`error` finding -- not a failed request. A finding carries an optional
+`subject` `{kind: segment|node|conduit|link|tap, name, from, to, index}` (null
+keys unused: node/segment use `name`, conduit `from`/`to`, link/tap `index`);
+null for `EXPAND-000`. A wrong identity or a bad path stays `400`. **Built 2026-10-30** (`service.validate_document`, tests
 `engine/tests/test_api_edit_model.py`). The layout document (`axr-layout/1`)
 gained an optional `annotations` list for the canvas's text and shapes
 (`console_files._canonical_annotations`, svg refused by name when it carries
@@ -256,7 +263,9 @@ the config holds them, null where it has none (R5-1, 2026-11-08).
   copy equals the baseline and `dirty` is false.
 - Both validate before writing; a read after a write returns the written
   document byte-for-byte equivalent.
-- A document that fails validation cannot be written here; it can be kept as
+- A document that fails validation (an expansion problem too) is refused `422`
+  with `detail.findings` (same finding shape, `subject` included) and cannot
+  be written here; it can be kept as
   a draft instead (see A3d).
 
 **A3d — drafts.** A place for a twin-config document that FAILS validation,

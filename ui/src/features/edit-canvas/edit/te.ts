@@ -92,6 +92,18 @@ export interface TeNode {
   otherKeys: string[];
 }
 
+/** A `conduits[]` entry: a declared inter-segment path (`twinconfig/schema.py` `TwinConfigConduit`). The
+ *  engine's expansion refuses one that no node implements (a node with a leg on BOTH segments). */
+export interface TeConduit {
+  from: string;
+  to: string;
+  source: TeSource | null;
+  confidence: number | null;
+  vantage: string | null;
+  /** The list index, for edits that address the entry. */
+  index: number;
+}
+
 export interface TeModel {
   id: string | null;
   description: string | null;
@@ -99,6 +111,7 @@ export interface TeModel {
   segments: TeSegment[];
   nodes: TeNode[];
   links: TeLink[];
+  conduits: TeConduit[];
   /** What the reader could not make sense of; the engine's validator says more. */
   problems: string[];
 }
@@ -139,7 +152,7 @@ function numberOf(raw: YNode | null): number | null {
 }
 
 export function emptyTe(problem?: string): TeModel {
-  return { id: null, description: null, params: {}, segments: [], nodes: [], links: [], problems: problem ? [problem] : [] };
+  return { id: null, description: null, params: {}, segments: [], nodes: [], links: [], conduits: [], problems: problem ? [problem] : [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +289,20 @@ export function readTe(text: string): TeModel {
       });
     });
   }
-  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, links, problems };
+  const conduits: TeConduit[] = [];
+  const cs = get(tc, "conduits");
+  if (cs && cs.kind === "seq") {
+    cs.items.forEach((it, index) => {
+      const from = scalarText(get(it.value, "from"));
+      const to = scalarText(get(it.value, "to"));
+      if (!from || !to) {
+        problems.push(`conduit at line ${it.line + 1} needs a from and a to segment`);
+        return;
+      }
+      conduits.push({ from, to, source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")), vantage: scalarText(get(it.value, "vantage")), index });
+    });
+  }
+  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, links, conduits, problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +320,7 @@ class TeText {
     if (!tc || tc.kind !== "map") throw new Error("the twin config has no `twin_config:` mapping to edit");
     return tc;
   }
-  seq(key: "segments" | "nodes" | "links"): YSeq | null {
+  seq(key: "segments" | "nodes" | "links" | "conduits"): YSeq | null {
     const s = get(this.tc, key);
     if (!s) return null;
     if (s.kind !== "seq") {
@@ -323,7 +349,7 @@ class TeText {
 /** Where a new item of a list goes, and at what indent, matching the list's
  *  own style; for an empty or absent list, a fresh `key:` line is written
  *  under `twin_config` and the indent follows the mapping's. */
-function listSlot(t: TeText, key: "segments" | "nodes" | "links"): { at: number; dashIndent: number; blankBefore: boolean } {
+function listSlot(t: TeText, key: "segments" | "nodes" | "links" | "conduits"): { at: number; dashIndent: number; blankBefore: boolean } {
   const seq = t.seq(key);
   if (seq && !seq.flow && seq.items.length) {
     const last = seq.items[seq.items.length - 1]!;
@@ -341,7 +367,7 @@ function listSlot(t: TeText, key: "segments" | "nodes" | "links"): { at: number;
     return { at: e.line + 1, dashIndent: tc.indent + 2, blankBefore: false };
   }
   // No list at all: put one after the last entry that precedes it in the usual order.
-  const order = ["id", "description", "params", "segments", "nodes", "links"];
+  const order = ["id", "description", "params", "segments", "conduits", "nodes", "links"];
   const idx = order.indexOf(key);
   let at = contentEnd(t.lines, tc.end);
   for (const prior of tc.entries) {
@@ -402,6 +428,11 @@ export function renameSegment(text: string, from: string, to: string): string {
     if (n.nets.some((x) => x.segment === from)) {
       out = setNodeNets(out, n.name, n.nets.map((x) => (x.segment === from ? { ...x, segment: to } : x)));
     }
+  }
+  // A conduit names its segments too.
+  for (const c of model.conduits) {
+    if (c.from === from) out = setConduitEnd(out, c.index, "from", to);
+    if (c.to === from) out = setConduitEnd(out, c.index, "to", to);
   }
   return out;
 }
@@ -720,5 +751,50 @@ export function setLinkField(text: string, index: number, key: "mode" | "state" 
       if (e.end > e.line + 1) removeSpan(t.lines, e.line + 1, e.end, m.indent);
     }
   } else if (raw !== null) insertLines(t.lines, contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}${key}: ${raw}`]);
+  return t.out();
+}
+
+// ---------------------------------------------------------------------------
+// Conduits
+// ---------------------------------------------------------------------------
+/** Append a `conduits[]` entry (`source: authored`, as everything the canvas writes). */
+export function addConduit(text: string, from: string, to: string): string {
+  const t = new TeText(text);
+  const slot = listSlot(t, "conduits");
+  const pad = " ".repeat(slot.dashIndent + 2);
+  insertLines(t.lines, slot.at, [`${" ".repeat(slot.dashIndent)}- from: ${encodeScalar(from)}`, `${pad}to: ${encodeScalar(to)}`, `${pad}source: authored`]);
+  return t.out();
+}
+
+/** Remove the `conduits[]` entry at `index` (the whole key when it is the last). */
+export function removeConduit(text: string, index: number): string {
+  const t = new TeText(text);
+  const seq = t.seq("conduits");
+  const it = seq?.items[index];
+  if (!seq || !it) throw new Error(`no conduit at index ${index}`);
+  if (seq.items.length === 1) {
+    const e = entry(t.tc, "conduits");
+    if (e) removeSpan(t.lines, e.start, e.end, t.tc.indent);
+  } else removeSpan(t.lines, it.start, it.end, seq.indent);
+  return t.out();
+}
+
+/** True when some node has a leg on BOTH segments: the engine's expansion refuses a conduit no node implements. */
+export function conduitImplemented(te: Pick<TeModel, "nodes">, a: string, b: string): boolean {
+  return te.nodes.some((n) => n.nets.some((l) => l.segment === a) && n.nets.some((l) => l.segment === b));
+}
+
+/** Point one end of the `conduits[]` entry at `index` at another segment. */
+export function setConduitEnd(text: string, index: number, key: "from" | "to", segment: string): string {
+  const t = new TeText(text);
+  const it = t.seq("conduits")?.items[index];
+  if (!it || it.value.kind !== "map") throw new Error(`no conduit at index ${index}`);
+  const m = it.value;
+  if (m.flow) rewriteFlowMap(t.lines, m, key, encodeScalar(segment));
+  else {
+    const e = entry(m, key);
+    if (!e) throw new Error(`conduit ${index} has no '${key}'`);
+    replaceValueOnLine(t.lines, e, encodeScalar(segment));
+  }
   return t.out();
 }

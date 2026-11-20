@@ -383,58 +383,63 @@ def _check_links(
     ports_used: dict[tuple[str, str], str] = {}
     members_by_id = _group_member_ids(specs_by_name)
     for i, link in enumerate(links):
-        what = f"twin_config.links[{i}] ({_link_label(link)})"
-        if link.mode not in LINK_MODES:
-            raise TwinConfigShapeError(
-                f"{what}: mode {link.mode!r} is not one of {', '.join(LINK_MODES)}"
-            )
-        if link.state is not None and link.state not in LINK_STATES:
-            raise TwinConfigShapeError(
-                f"{what}: state {link.state!r} is not one of {', '.join(LINK_STATES)}"
-            )
-        if link.native and link.mode != "trunk":
-            raise TwinConfigShapeError(f"{what}: `native:` is a trunk's field")
-        if link.mode == "access" and len(link.vlans) != 1:
-            raise TwinConfigShapeError(
-                f"{what}: an access link carries exactly one segment in `vlans:` "
-                f"(found {len(link.vlans)})"
-            )
-        if link.mode == "trunk" and not link.vlans and not link.native:
-            raise TwinConfigShapeError(f"{what}: a trunk names the segments it carries")
-        for seg in _link_segments(link):
-            if seg not in seg_names:
-                raise TwinConfigShapeError(f"{what}: unknown segment {seg!r}")
-        if link.a.device == link.b.device:
-            raise TwinConfigShapeError(f"{what}: both ends are {link.a.device!r}")
-        for end in (link.a, link.b):
-            if not end.port or not end.port.strip():
-                raise TwinConfigShapeError(f"{what}: {end.device!r} has a blank port")
-            spec = specs_by_name.get(end.device)
-            if spec is None and end.device in members_by_id:
-                # A group member by its instance id (`corp-workstation01`):
-                # the link wires that one instance (native-switches §12 S1,
-                # Authority: user, 2026-11-12).
-                spec = members_by_id[end.device]
-            elif spec is not None and _spec_count(spec) > 1:
+        try:
+            what = f"twin_config.links[{i}] ({_link_label(link)})"
+            if link.mode not in LINK_MODES:
                 raise TwinConfigShapeError(
-                    f"{what}: {end.device!r} is a count > 1 group -- a link names "
-                    "one device; name a member by its instance id "
-                    f"({', '.join(instance_ids(spec.name, _spec_count(spec))[:2])}, ...) "
-                    "or attach the group to a segment with `net:`"
+                    f"{what}: mode {link.mode!r} is not one of {', '.join(LINK_MODES)}"
                 )
-            if spec is None:
+            if link.state is not None and link.state not in LINK_STATES:
                 raise TwinConfigShapeError(
-                    f"{what}: {end.device!r} is not an emitted node (unknown, or "
-                    "excluded by `when:`)"
+                    f"{what}: state {link.state!r} is not one of {', '.join(LINK_STATES)}"
                 )
-            key = (end.device, end.port)
-            if key in ports_used:
+            if link.native and link.mode != "trunk":
+                raise TwinConfigShapeError(f"{what}: `native:` is a trunk's field")
+            if link.mode == "access" and len(link.vlans) != 1:
                 raise TwinConfigShapeError(
-                    f"{what}: port {end.port!r} on {end.device!r} is already used "
-                    f"by {ports_used[key]}"
+                    f"{what}: an access link carries exactly one segment in `vlans:` "
+                    f"(found {len(link.vlans)})"
                 )
-            ports_used[key] = _link_label(link)
-        _check_provenance(what, link)
+            if link.mode == "trunk" and not link.vlans and not link.native:
+                raise TwinConfigShapeError(f"{what}: a trunk names the segments it carries")
+            for seg in _link_segments(link):
+                if seg not in seg_names:
+                    raise TwinConfigShapeError(f"{what}: unknown segment {seg!r}")
+            if link.a.device == link.b.device:
+                raise TwinConfigShapeError(f"{what}: both ends are {link.a.device!r}")
+            for end in (link.a, link.b):
+                if not end.port or not end.port.strip():
+                    raise TwinConfigShapeError(f"{what}: {end.device!r} has a blank port")
+                spec = specs_by_name.get(end.device)
+                if spec is None and end.device in members_by_id:
+                    # A group member by its instance id (`corp-workstation01`):
+                    # the link wires that one instance (native-switches §12 S1,
+                    # Authority: user, 2026-11-12).
+                    spec = members_by_id[end.device]
+                elif spec is not None and _spec_count(spec) > 1:
+                    raise TwinConfigShapeError(
+                        f"{what}: {end.device!r} is a count > 1 group -- a link names "
+                        "one device; name a member by its instance id "
+                        f"({', '.join(instance_ids(spec.name, _spec_count(spec))[:2])}, ...) "
+                        "or attach the group to a segment with `net:`"
+                    )
+                if spec is None:
+                    raise TwinConfigShapeError(
+                        f"{what}: {end.device!r} is not an emitted node (unknown, or "
+                        "excluded by `when:`)"
+                    )
+                key = (end.device, end.port)
+                if key in ports_used:
+                    raise TwinConfigShapeError(
+                        f"{what}: port {end.port!r} on {end.device!r} is already used "
+                        f"by {ports_used[key]}"
+                    )
+                ports_used[key] = _link_label(link)
+            _check_provenance(what, link)
+        except TwinConfigShapeError as e:
+            if e.rule_id is None:
+                e.rule_id, e.subject = "TC-LINK", {"kind": "link", "index": i}
+            raise
 
 
 def _spec_count(spec: TwinConfigNode) -> int:
@@ -882,7 +887,8 @@ def _build_ir(
     dupes = sorted(nid for nid, n in seen_ids.items() if n > 1)
     if dupes:
         raise TwinConfigShapeError(
-            f"twin_config {tc.id!r}: duplicate node id(s) after count fan-out: {dupes}"
+            f"twin_config {tc.id!r}: duplicate node id(s) after count fan-out: {dupes}",
+            rule_id="TC-NODE-DUP", subject={"kind": "node", "name": dupes[0]},
         )
 
     # node_id -> the row explaining why it is NOT here, for the identity/data
@@ -901,7 +907,9 @@ def _build_ir(
         for leg in inst.legs:
             if leg.segment not in seg_by_name:
                 raise TwinConfigShapeError(
-                    f"node {inst.node_id!r} references unknown segment {leg.segment!r}"
+                    f"node {inst.node_id!r} references unknown segment {leg.segment!r}",
+                    rule_id="TC-NODE-SEGMENT",
+                    subject={"kind": "node", "name": inst.node_id},
                 )
 
     # ---- Gate 2, segment half (work order §4.3 step 3) -------------------
@@ -1161,7 +1169,9 @@ def _build_ir(
             raise TwinConfigShapeError(
                 f"twin_config {tc.id!r}: conduit {c.from_!r}->{c.to!r} has no "
                 "node attached to BOTH segments -- add a multi-homed router "
-                "leg on both, or drop the conduit"
+                "leg on both, or drop the conduit",
+                rule_id="TC-CONDUIT",
+                subject={"kind": "conduit", "from_": c.from_, "to": c.to},
             )
 
     # ---- identity:/data: references (work order §4.3 step 6, D2) ---------

@@ -50,7 +50,7 @@ import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, 
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
-import { checkBadge, checkPasses, checkStatus, findingPins, findingTarget, localFindings, mergeFindings, refusalAsCheck, targetKey, type CheckRecord } from "./edit/check";
+import { conduitOf, checkBadge, checkPasses, checkStatus, findingPins, findingTarget, localFindings, mergeFindings, refusalAsCheck, targetKey, type CheckRecord } from "./edit/check";
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
 import { useLeaveGuard } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
@@ -70,7 +70,7 @@ import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
-import { addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -576,7 +576,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       const result = await api.validateDocument({ id: doc.id, files });
       rec = { files, result: mergeFindings(result, local), error: null };
     } catch (e) {
-      rec = { files, result: null, error: e };
+      // A 4xx is the API refusing THIS document (a shape it cannot read): a failing Check with that
+      // reason as its finding. Only a request that failed (network, 5xx) is "could not validate".
+      if (e instanceof ApiError && typeof e.status === "number" && e.status >= 400 && e.status < 500) {
+        const finding: ValidationFinding = { rule_id: `API-${e.status}`, severity: "error", message: e.message, location: null };
+        rec = { files, result: mergeFindings({ disposition: "FAIL", exit_code: 1, passes_run: [], errors: 1, warnings: 0, findings: [finding] }, local), error: null };
+      } else rec = { files, result: null, error: e };
     }
     try {
       if (seq === checkSeq.current) setCheck(rec);
@@ -1350,7 +1355,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       if (!model) return;
       const t = findingTarget(f, model);
       if (!t) return;
-      setSelection(t.kind === "node" ? { kind: "node", names: [t.name] } : t.kind === "segment" ? { kind: "segment", names: [t.name] } : t.kind === "link" ? { kind: "link", index: t.index } : { kind: "tap", index: t.index });
+      if (t.kind === "conduit") {
+        const c = conduitOf(model, t);
+        if (c) setSelection({ kind: "conduit", index: c.index });
+      } else setSelection(t.kind === "node" ? { kind: "node", names: [t.name] } : t.kind === "segment" ? { kind: "segment", names: [t.name] } : t.kind === "link" ? { kind: "link", index: t.index } : { kind: "tap", index: t.index });
       setFocus((cur) => ({ key: targetKey(t), n: (cur?.n ?? 0) + 1 }));
     },
     [model],
@@ -1379,6 +1387,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         const done: { name: string; skipped: string[] } = made;
         setSelection({ kind: "node", names: [done.name] });
       },
+      onAddConduit: (from, to) => void edit(`declare conduit ${from} ↔ ${to}`, (d, m) => addConduit(d, m, from, to)),
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),

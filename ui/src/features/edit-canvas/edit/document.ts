@@ -17,8 +17,11 @@ import type { Files } from "./commands";
 import { MANIFEST, readManifest, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
+  addConduit as teAddConduit,
   addLink as teAddLink,
   addNode,
+  conduitImplemented,
+  removeConduit as teRemoveConduit,
   addSegment as teAddSegment,
   copyNames,
   emptyTe,
@@ -148,7 +151,8 @@ export function documentTree(te: TeModel, id: string): TwinTree {
 }
 
 export function documentGraph(model: DocModel, id: string): AuthoredGraph {
-  return authoredGraph(documentTopology(model.te, id), documentTree(model.te, id));
+  // The document's own conduits: drawn in the design view as declared connectors (`canvas/pairs.ts`).
+  return authoredGraph(documentTopology(model.te, id), documentTree(model.te, id), model.te.conduits.map((c) => ({ from: c.from, to: c.to })));
 }
 
 // ---------------------------------------------------------------------------
@@ -327,9 +331,27 @@ export function removeSegment(doc: WorkingDoc, model: DocModel, name: string): F
   for (const n of model.te.nodes) {
     if (n.nets.some((l) => l.segment === name)) text = setNodeNets(text, n.name, n.nets.filter((l) => l.segment !== name));
   }
+  // A conduit naming it goes with it (the engine refuses one whose segment is gone), last index first.
+  for (const c of [...model.te.conduits].reverse()) if (c.from === name || c.to === name) text = teRemoveConduit(text, c.index);
   text = teRemoveSegment(text, name);
   return { ...doc.files, [doc.teFile]: text };
 }
+
+/** Declare a conduit between two segments of the twin (one undo step). Refused for a segment that is
+ *  not there, a segment with itself, or a pair already declared (either direction). */
+export function addConduit(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {
+  for (const s of [from, to]) if (!model.te.segments.some((x) => x.name === s)) throw new Error(`no segment named '${s}'`);
+  if (from === to) throw new Error("a conduit joins two different segments");
+  if (model.te.conduits.some((c) => (c.from === from && c.to === to) || (c.from === to && c.to === from))) throw new Error(`a conduit between ${from} and ${to} is already declared`);
+  return withTe(doc, (t) => teAddConduit(t, from, to));
+}
+
+export function removeConduit(doc: WorkingDoc, model: DocModel, index: number): Files {
+  if (!model.te.conduits.some((c) => c.index === index)) throw new Error(`no conduit at index ${index}`);
+  return withTe(doc, (t) => teRemoveConduit(t, index));
+}
+
+export { conduitImplemented };
 
 /** Merge segment `from` into `to`: every leg moves over, `from` goes. */
 export function mergeSegments(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {

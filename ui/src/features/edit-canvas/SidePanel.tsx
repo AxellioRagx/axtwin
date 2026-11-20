@@ -16,6 +16,8 @@ import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
 import { checkBadge, checkStatus, findingTarget, targetKey, type CheckRecord } from "./edit/check";
 import {
+  conduitImplemented,
+  removeConduit,
   addSpan,
   addTap,
   attach,
@@ -63,6 +65,8 @@ export type Selection =
   | { kind: "link"; index: number }
   /** A tap binding, by its index in the tap plan (§8). */
   | { kind: "tap"; index: number }
+  /** A `conduits[]` entry, by its list index. */
+  | { kind: "conduit"; index: number }
   /** One member of a `×N` group (§5). */
   | { kind: "member"; node: string; index: number }
   /** A device and everything below it (§6). */
@@ -169,6 +173,7 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "segment" && selection.names.length > 1 ? <SegmentsPanel {...p} names={selection.names} /> : null}
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
+      {selection.kind === "conduit" ? <ConduitPanel {...p} index={selection.index} /> : null}
       {selection.kind === "tap" ? <TapPanel {...p} index={selection.index} /> : null}
       {selection.kind === "member" ? <MemberPanel {...p} node={selection.node} index={selection.index} /> : null}
       {selection.kind === "subtree" ? <SubtreePanel {...p} root={selection.root} /> : null}
@@ -1469,6 +1474,70 @@ function TapWhere(p: SidePanelProps & { b: TapBinding }) {
 
 /** A `links[]` entry (the device tree, topology-layers §2.3): its two ports,
  *  mode, the segments it carries, its state -- all editable -- and provenance. */
+/** A declared conduit (`conduits[]`): its two segments, whether a node implements it (a leg on BOTH --
+ *  the engine refuses it otherwise), the fix (a router on one segment gets a leg on the other), Remove,
+ *  and its provenance. */
+function ConduitPanel(p: SidePanelProps & { index: number }) {
+  const c = p.model.te.conduits.find((x) => x.index === p.index);
+  const [router, setRouter] = useState("");
+  if (!c) return <p className="muted">no conduit at index {p.index}</p>;
+  const ro = p.locked;
+  const ok = conduitImplemented(p.model.te, c.from, c.to);
+  // Routers on exactly one of the two segments, and the leg each would need.
+  const fixes = p.model.te.nodes
+    .filter((n) => n.kind === "router")
+    .flatMap((n) => {
+      const onFrom = n.nets.some((l) => l.segment === c.from);
+      const onTo = n.nets.some((l) => l.segment === c.to);
+      return onFrom !== onTo ? [{ router: n.name, missing: onFrom ? c.to : c.from }] : [];
+    });
+  const chosen = fixes.find((f) => f.router === router) ?? fixes[0] ?? null;
+  return (
+    <section className="cv-side-section" data-testid="conduit-panel">
+      <h3>
+        Conduit <span className="mono">{c.from} ↔ {c.to}</span>
+      </h3>
+      <p className={ok ? "muted" : "warn-line"} data-testid="conduit-state">
+        {ok ? "implemented: a node has a leg on both segments" : "no node has a leg on both segments: the engine refuses this conduit until one does"}
+      </p>
+      {!ok ? (
+        fixes.length ? (
+          <div className="row cv-inline" data-testid="conduit-fix">
+            <select aria-label="Router to fix the conduit" value={chosen?.router ?? ""} disabled={ro} onChange={(e) => setRouter(e.target.value)}>
+              {fixes.map((f) => (
+                <option key={f.router} value={f.router}>
+                  {f.router} (+ leg on {f.missing})
+                </option>
+              ))}
+            </select>
+            <button type="button" disabled={ro || !chosen} onClick={() => chosen && p.apply(`attach ${chosen.router} to ${chosen.missing}`, (d, m) => attach(d, m, chosen.router, chosen.missing))}>
+              Add a router leg to fix
+            </button>
+          </div>
+        ) : (
+          <p className="muted hint">no router is on either segment: attach a router to both, or remove the conduit</p>
+        )
+      ) : null}
+      <h4>Provenance</h4>
+      <dl className="facts">
+        <dt>Source</dt>
+        <dd data-testid="conduit-source">{c.source ?? "authored"}{typeof c.confidence === "number" ? ` (${c.confidence.toFixed(2)})` : ""}</dd>
+        {c.vantage ? (
+          <>
+            <dt>Vantage</dt>
+            <dd className="mono">{c.vantage}</dd>
+          </>
+        ) : null}
+      </dl>
+      <div className="row-actions">
+        <button type="button" className="danger" disabled={ro} data-testid="conduit-remove" onClick={() => { if (p.apply(`remove conduit ${c.from} ↔ ${c.to}`, (d, m) => removeConduit(d, m, c.index)) === null) p.onSelect?.({ kind: "none" }); }}>
+          Remove
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function LinkPanel(p: SidePanelProps & { index: number }) {
   const link = p.model.te.links[p.index];
   if (!link) return <p className="muted">no link at index {p.index}</p>;

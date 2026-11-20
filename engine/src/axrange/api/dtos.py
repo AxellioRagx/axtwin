@@ -138,11 +138,31 @@ class NodeDetailDTO(BaseModel):
 # --------------------------------------------------------------------------
 # Findings DTO (validate) — §4
 # --------------------------------------------------------------------------
+class FindingSubjectDTO(BaseModel):
+    """What a finding is ABOUT, for the canvas to mark: `segment` / `node`
+    use `name`; `conduit` uses `from` / `to` (segment names); `link` / `tap`
+    use `index` (position in `links[]` / the tap plan). Unused keys are null.
+    The wire key `from` is a Python keyword, so the field is `from_` with
+    alias `from` (accepted and emitted as `from`)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: str  # segment | node | conduit | link | tap
+    name: Optional[str] = None
+    from_: Optional[str] = Field(default=None, alias="from")
+    to: Optional[str] = None
+    index: Optional[int] = None
+
+
 class FindingDTO(BaseModel):
+    """One validator / expansion / tier-loader finding. `subject` (optional)
+    names the twin-config element it is about, when known."""
+
     rule_id: str
     severity: str  # error | warning | info
     message: str
     location: Optional[str] = None
+    subject: Optional[FindingSubjectDTO] = None
 
 
 class PreflightDTO(BaseModel):

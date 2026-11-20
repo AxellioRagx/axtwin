@@ -798,6 +798,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const te = readTe(text);
       if (te.id !== id) findings.push({ rule_id: "DOC-002", severity: "error", message: `document declares twin_config.id '${te.id}' but is validated as '${id}'`, location: "twin_config.id" });
       findings.push(...validateTe(te));
+      // The engine's expansion cross-check (`TC-CONDUIT`): a conduit no node implements, with its subject.
+      for (const c of te.conduits) {
+        const both = te.nodes.some((n) => n.nets.some((l) => l.segment === c.from) && n.nets.some((l) => l.segment === c.to));
+        if (!both) findings.push({ rule_id: "TC-CONDUIT", severity: "error", message: `config '${id}': twin_config '${id}': conduit '${c.from}' -> '${c.to}' has no node attached to BOTH segments -- add a multi-homed router leg on both, or drop the conduit`, location: `twin_config.conduits[${c.from}->${c.to}]`, subject: { kind: "conduit", name: null, from: c.from, to: c.to, index: null } });
+      }
       const known = new Set(state.images ?? Object.values(state.documents).flatMap((d) => readTe(d.files[d.te_file] ?? "").nodes.map((n) => n.image)));
       for (const n of te.nodes) if (n.image && !known.has(n.image)) findings.push({ rule_id: "IMG-010", severity: "error", message: `node '${n.name}': image '${n.image}' has no manifest under the images root`, location: `twin_config.nodes[${n.name}].image` });
     }

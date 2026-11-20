@@ -40,11 +40,15 @@ logger = logging.getLogger(__name__)
 class ApiError(Exception):
     """A service-layer failure with an HTTP-ish status hint."""
 
-    def __init__(self, status: int, message: str, *, detail: Any = None) -> None:
+    def __init__(self, status: int, message: str, *, detail: Any = None,
+                 finding: Optional["dtos.FindingDTO"] = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
         self.detail = detail
+        # Set when the refusal is a DOCUMENT problem (a twin-config that does
+        # not expand): `POST /api/validate` answers it as this finding.
+        self.finding = finding
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +736,8 @@ def _resolve_config_scenario_path(
             warnings=warnings,
         )
     except TwinConfigError as e:
-        raise ApiError(400, f"config {config_id!r}: {e}")
+        raise ApiError(400, f"config {config_id!r}: {e}",
+                       finding=_expand_finding(config_id, e))
 
     if settings.images_root:
         images_root = Path(settings.images_root)
@@ -741,6 +746,21 @@ def _resolve_config_scenario_path(
     else:
         images_root = Path.cwd()
     return sp, images_root, source_dir
+
+
+def _expand_finding(config_id: str, e: Exception) -> dtos.FindingDTO:
+    """An expansion refusal as a finding: the error's own structured
+    `rule_id` / `subject` when it carries them (`TwinConfigShapeError`), else
+    the generic `EXPAND-000` with no subject."""
+    subj = getattr(e, "subject", None)
+    location = None
+    if subj and subj.get("kind") == "conduit":
+        location = f"twin_config.conduits[{subj.get('from_')}->{subj.get('to')}]"
+    return dtos.FindingDTO(
+        rule_id=getattr(e, "rule_id", None) or "EXPAND-000", severity="error",
+        message=f"config {config_id!r}: {e}", location=location,
+        subject=dtos.FindingSubjectDTO(**subj) if subj else None,
+    )
 
 
 def _resolve_imprint_scenario_path(
@@ -6740,14 +6760,30 @@ def _validate_twin_document(
             settings, twin_configs_dir=str(td),
             images_root=str(_effective_images_root(settings)),
         )
-        result = validate(scratch, config=twin_id, target=target)
+        try:
+            result = validate(scratch, config=twin_id, target=target)
+        except ApiError as e:
+            if e.finding is None:
+                raise
+            if raise_on_fail:
+                raise ApiError(
+                    422, e.message,
+                    detail={"code": "invalid",
+                            "findings": [e.finding.model_dump(by_alias=True)]},
+                ) from e
+            # A document problem found while expanding: the ANSWER, not a failure.
+            return dtos.ValidateResultDTO(
+                disposition="FAIL", exit_code=1, passes_run=[], errors=1,
+                warnings=0, findings=[e.finding],
+            )
         if result.disposition == "FAIL" and raise_on_fail:
             raise ApiError(
                 422, f"twin-config {twin_id!r} fails validation "
                 f"({result.errors} error(s))",
                 detail={
                     "code": "invalid",
-                    "findings": [f.model_dump() for f in result.findings if f.severity == "error"],
+                    "findings": [f.model_dump(by_alias=True)
+                                 for f in result.findings if f.severity == "error"],
                 },
             )
         try:

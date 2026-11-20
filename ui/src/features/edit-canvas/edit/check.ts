@@ -75,11 +75,17 @@ export function refusalAsCheck(e: unknown, files: Files, local: readonly Validat
 }
 
 /** What a finding names on the canvas: a device (node group), a segment, a link or a tap. */
-export type FindingTarget = { kind: "node"; name: string } | { kind: "segment"; name: string } | { kind: "link"; index: number } | { kind: "tap"; index: number };
+export type FindingTarget = { kind: "node"; name: string } | { kind: "segment"; name: string } | { kind: "link"; index: number } | { kind: "tap"; index: number } | { kind: "conduit"; from: string; to: string };
 
 /** The key a canvas element answers to (`nodes.tsx` reads its own the same way). */
 export function targetKey(t: FindingTarget): string {
+  if (t.kind === "conduit") return `conduit:${t.from < t.to ? `${t.from}|${t.to}` : `${t.to}|${t.from}`}`;
   return t.kind === "link" || t.kind === "tap" ? `${t.kind}:${t.index}` : `${t.kind}:${t.name}`;
+}
+
+/** The `conduits[]` entry a conduit target names, either direction, or undefined. */
+export function conduitOf(model: DocModel, t: { from: string; to: string }) {
+  return model.te.conduits.find((c) => (c.from === t.from && c.to === t.to) || (c.from === t.to && c.to === t.from));
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -89,7 +95,22 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  *  locations index the EXPANDED IR, so its findings are matched by the names they quote
  *  (a member like `web01` resolves to its group), nodes before segments, longest name first. */
 export function findingTarget(f: ValidationFinding, model: DocModel): FindingTarget | null {
+  // The engine's own word first (`subject`, `api/Spec.md` validate), when it names something on the canvas.
+  const sub = f.subject;
+  if (sub) {
+    const name = sub.name ?? "";
+    if (sub.kind === "node") {
+      const n = model.te.nodes.find((x) => x.name === name) ?? nodeOfEnd(model.te, name)?.node;
+      if (n) return { kind: "node", name: n.name };
+    }
+    if (sub.kind === "segment" && model.te.segments.some((s) => s.name === name)) return { kind: "segment", name };
+    if (sub.kind === "conduit" && sub.from && sub.to) return { kind: "conduit", from: sub.from, to: sub.to };
+    if (sub.kind === "link" && typeof sub.index === "number" && model.te.links[sub.index]) return { kind: "link", index: sub.index };
+    if (sub.kind === "tap" && typeof sub.index === "number" && model.tap?.bindings.some((b) => b.index === sub.index)) return { kind: "tap", index: sub.index };
+  }
   const loc = f.location ?? "";
+  const conduit = /twin_config\.conduits\[([^\]]+?)->([^\]]+)\]/.exec(loc);
+  if (conduit) return { kind: "conduit", from: conduit[1]!.trim(), to: conduit[2]!.trim() };
   const named = /twin_config\.(nodes|segments)\[([^\]]+)\]/.exec(loc);
   if (named) {
     const name = named[2]!;

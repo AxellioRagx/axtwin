@@ -58,7 +58,7 @@ import type { FindingPin } from "./edit/check";
 import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
 import { DEVICE_H, DEVICE_W } from "./layout/geometry";
 import { twoOctetPrefix } from "./model/keys";
-import { crossingText, DetailContext, edgeTypes, FindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, FindingsContext, FoldFindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -75,6 +75,8 @@ export interface CanvasEditProps {
   onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia): void;
   /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
   onInsertSwitch?(segment: string): void;
+  /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
+  onAddConduit?(from: string, to: string): void;
   onAttach(node: string, segment: string): void;
   /** An existing chip was dropped onto another segment. */
   onMove(node: string, segment: string): void;
@@ -461,6 +463,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const [alt, setAlt] = useState(false);
   const [attachArmed, setAttachArmed] = useState(false);
   const [attachFrom, setAttachFrom] = useState<string | null>(null);
+  // "Declare conduit to…": the segment it starts from, until the next segment click (Esc cancels).
+  const [conduitFrom, setConduitFrom] = useState<string | null>(null);
   // A handle drag (the attach gesture) is in flight: every bus's target handle grows to its whole lane.
   const [connecting, setConnecting] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(true);
@@ -628,6 +632,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         setCarry(null);
         setAttachArmed(false);
         setAttachFrom(null);
+        setConduitFrom(null);
         edit.onPlacing(null);
         setMenu(null);
         setPopover(null);
@@ -893,6 +898,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       const d = node.data;
       const cur = selectionRef.current;
+      // "Declare conduit to…" armed: the clicked segment (an implied switch, or the one segment a real switch carries) is its other end.
+      if (editing && conduitFrom && edit.onAddConduit && (d.kind === "segment" || d.kind === "device")) {
+        const to = d.kind === "segment" ? d.name : switchSegment(edit.model.te, d.name).segment;
+        if (to && to !== conduitFrom) {
+          edit.onAddConduit(conduitFrom, to);
+          setConduitFrom(null);
+          return;
+        }
+      }
       if (d.kind === "tap") {
         select({ kind: "tap", index: Number(d.id) }, [node.id]);
         return;
@@ -949,14 +963,25 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         setAttachFrom(name);
       }
     },
-    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, selectSubtree, legAt, graph],
+    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, conduitFrom, select, selectSubtree, legAt, graph],
   );
 
   // A click on a link edge (the device tree, §2.3) selects it for the inspector's link row.
   const onEdgeClick = useCallback(
     (_e: React.MouseEvent, edge: Edge) => {
-      const d = edge.data as { kind?: string; index?: number } | undefined;
-      if (!edit || !d || d.kind !== "link" || typeof d.index !== "number") return;
+      const d = edge.data as { kind?: string; index?: number; conduits?: Array<{ a: string; b: string }> } | undefined;
+      if (!edit || !d) return;
+      // A declared conduit's arc: its (first) conduit.
+      if (d.kind === "arc" && d.conduits?.length) {
+        const p = d.conduits[0]!;
+        const c = edit.model.te.conduits.find((x) => (x.from === p.a && x.to === p.b) || (x.from === p.b && x.to === p.a));
+        if (c) {
+          select({ kind: "conduit", index: c.index }, []);
+          setInspectorTab("selection");
+        }
+        return;
+      }
+      if (d.kind !== "link" || typeof d.index !== "number") return;
       select({ kind: "link", index: d.index }, []);
     },
     [edit, select],
@@ -1094,6 +1119,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // The edges are controlled, so the selected leg's flag is derived here.
   // The legs are structure and always drawn; an arc is evidence, drawn only
   // while lit by the overlay or touching the selection.
+  // The arc a selected conduit is drawn on (its anchors' key).
+  const selectedConduitKey = (() => {
+    if (edit?.selection.kind !== "conduit") return null;
+    const c = edit.model.te.conduits.find((x) => x.index === (edit.selection as { index: number }).index);
+    if (!c) return null;
+    return (placement.edges.find((e) => e.type === "arc" && (e.data as { conduits?: Array<{ a: string; b: string }> } | undefined)?.conduits?.some((p) => (p.a === c.from && p.b === c.to) || (p.a === c.to && p.b === c.from)))?.data as { key?: string } | undefined)?.key ?? null;
+  })();
   const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : edit?.selection.kind === "link" ? [`link:${edit.selection.index}`] : [];
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
@@ -1110,11 +1142,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     void fansOpen;
     const others = placement.edges.flatMap((e) => {
       if (e.type === "leg" && e.data?.kind === "leg") return [];
-      if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+      // A declared conduit is structure in the design view: always drawn (and selectable); observed pairs stay evidence.
+      if (e.type === "arc") return e.data?.kind === "arc" && ((edit && e.data.arcKind === "asserted") || arcShown(e.data.key, scope, glow.arcs)) ? [edit && e.data.arcKind === "asserted" && selectedConduitKey === e.data.key ? { ...e, selected: true } : e] : [];
       return [selectedLegs.includes(e.id) ? { ...e, selected: true } : e];
     });
     return [...others, ...structural.map((e) => (selectedLegs.includes(e.id) ? { ...e, selected: true } : e))];
-  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen, Boolean(edit), selectedConduitKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rehomeTarget = legDrag?.over ?? null;
   // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
@@ -1171,6 +1204,42 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     [rf, setNodes],
   );
 
+  // A finding on an element a fold hides is counted on the fold: a segment behind a `+N more` / site
+  // fold (its anchor is the fold), a host behind its switch's `+N` (or its segment's fold).
+  const foldFindings = useMemo(() => {
+    const out = new Map<string, { count: number; severity: "error" | "warning" }>();
+    if (!findings.size) return out;
+    const ids = new Set(placement.nodes.map((n) => n.id));
+    const drawn = new Set(placement.nodes.map((n) => findingKeyOf(n.data)).filter((k): k is string => k !== null));
+    const bump = (id: string, sev: "error" | "warning") => {
+      const cur = out.get(id) ?? { count: 0, severity: "warning" as const };
+      out.set(id, { count: cur.count + 1, severity: cur.severity === "error" || sev === "error" ? "error" : "warning" });
+    };
+    const foldOfSegment = (seg: string): string | null => {
+      const a = placement.anchorByName[seg];
+      return a && a !== seg && ids.has(a) ? a : null;
+    };
+    for (const [key, pin] of findings) {
+      if (drawn.has(key)) continue;
+      const n = pin.messages.length;
+      for (let i = 0; i < n; i++) {
+        if (key.startsWith("segment:")) {
+          const f = foldOfSegment(key.slice(8));
+          if (f) bump(f, pin.severity);
+        } else if (key.startsWith("node:") && edit) {
+          const seg = edit.model.te.nodes.find((x) => x.name === key.slice(5))?.nets[0]?.segment;
+          if (!seg) continue;
+          const f = foldOfSegment(seg);
+          const sw = placement.anchorByName[seg] === seg ? ID.segment(seg) : placement.anchorByName[seg];
+          const hostFold = sw ? `hostfold:${sw}` : null;
+          if (f) bump(f, pin.severity);
+          else if (hostFold && ids.has(hostFold)) bump(hostFold, pin.severity);
+        }
+      }
+    }
+    return out;
+  }, [findings, placement, edit]);
+
   // A finding clicked in the Checks tab: zoom to the element it names (a link or a transit
   // segment by its two ends). The page has already selected it.
   const focusN = focus?.n ?? 0;
@@ -1180,7 +1249,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (!ids.length) {
       for (const e of rf.getEdges()) {
         const d = e.data as { kind?: string; index?: number; segment?: string } | undefined;
-        if ((d?.kind === "link" && `link:${d.index}` === focus.key) || (d?.kind === "seglink" && `segment:${d.segment}` === focus.key)) ids.push(e.source, e.target);
+        const conduitHit = d?.kind === "arc" && (e.data as { conduits?: Array<{ a: string; b: string }> }).conduits?.some((c) => `conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}` === focus.key);
+        if ((d?.kind === "link" && `link:${d.index}` === focus.key) || (d?.kind === "seglink" && `segment:${d.segment}` === focus.key) || conduitHit) ids.push(e.source, e.target);
       }
     }
     if (!ids.length) return;
@@ -1370,6 +1440,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
       if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
       if (edit.onInsertSwitch) items.push({ label: "Insert switch", run: () => edit.onInsertSwitch!(t.name) });
+      if (edit.onAddConduit) items.push({ label: "Declare conduit to… (then click the other segment)", run: () => setConduitFrom(t.name) });
       items.push({ label: "Add a segment in this site", run: () => edit.onAddSegment(t.name) });
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
@@ -1378,6 +1449,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
   return (
     <FindingsContext.Provider value={findings}>
+    <FoldFindingsContext.Provider value={foldFindings}>
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
       <DetailContext.Provider value={detail}>
@@ -1557,6 +1629,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
               <circle cx={legDrag.to.x} cy={legDrag.to.y} r={4} style={{ fill: legDrag.hue || "var(--accent)" }} />
             </svg>
           ) : null}
+          {conduitFrom ? <div className="cv-rehome-hint muted" role="status" data-testid="conduit-hint">conduit from {conduitFrom}: click the other segment · Esc cancels</div> : null}
           {legDrag ? <div className="cv-rehome-hint muted" role="status">{legDrag.over && legDrag.over !== legDrag.segment ? `drop: ${legDrag.node} ${legDrag.segment} → ${legDrag.over}` : `drag ${legDrag.node}'s ${legDrag.segment} port onto another bus · Esc cancels`}</div> : null}
           {carry ? (
             <div className="cv-carry-ghost" role="status" data-testid="carry-ghost" data-target={carry.target ? ("attachTo" in carry.target ? `device:${carry.target.attachTo}` : `park:${carry.target.prefix ?? ""}`) : undefined} style={{ left: carry.x + 14, top: carry.y + 14 }}>
@@ -1591,6 +1664,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       </DetailContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
+    </FoldFindingsContext.Provider>
     </FindingsContext.Provider>
   );
 }

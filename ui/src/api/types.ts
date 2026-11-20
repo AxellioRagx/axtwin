@@ -985,11 +985,22 @@ export interface TargetList {
   targets: Target[];
 }
 
+/** What a finding is about (`api/Spec.md`, validate): a segment or node by name, a conduit by its two
+ *  segments, a link or tap by index. Absent on findings the engine cannot tie to one element. */
+export interface FindingSubject {
+  kind: "segment" | "node" | "conduit" | "link" | "tap" | string;
+  name?: string | null;
+  from?: string | null;
+  to?: string | null;
+  index?: number | null;
+}
+
 export interface ValidationFinding {
   rule_id: string;
   severity: "error" | "warning" | "info" | string;
   message: string;
   location?: string | null;
+  subject?: FindingSubject | null;
 }
 
 /** `POST /api/fabric-conversion`: a document's bridge VMs converted to native switches as one fabric

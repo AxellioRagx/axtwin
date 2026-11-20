@@ -30,6 +30,8 @@ export interface DrawnPair {
   pairs: number;
   hasTraffic: boolean;
   strokeWidth: number;
+  /** The declared conduits this curve carries, by segment names (an asserted curve only). */
+  conduits: Array<{ a: string; b: string }>;
 }
 
 export interface PairSelection {
@@ -56,7 +58,7 @@ export function selectPairs(graph: ConsoleGraph, anchorOf: (segment: string) => 
   for (const p of graph.trafficPairs) volume.set(arcKey(p.a, p.b), p);
   const agg = new Map<string, DrawnPair>();
   let internalPairs = 0;
-  const add = (sa: string, sb: string, kind: DrawnPair["kind"], bytes: number, flows: number): boolean => {
+  const add = (sa: string, sb: string, kind: DrawnPair["kind"], bytes: number, flows: number, conduit?: { a: string; b: string }): boolean => {
     const ka = anchorOf(sa);
     const kb = anchorOf(sb);
     if (!ka || !kb) return false;
@@ -66,7 +68,8 @@ export function selectPairs(graph: ConsoleGraph, anchorOf: (segment: string) => 
     }
     const [a, b] = norm(ka, kb);
     const key = arcKey(a, b);
-    const e = agg.get(key) ?? { a, b, key, kind, bytes: 0, flows: 0, pairs: 0, hasTraffic: false, strokeWidth: HAIRLINE };
+    const e = agg.get(key) ?? { a, b, key, kind, bytes: 0, flows: 0, pairs: 0, hasTraffic: false, strokeWidth: HAIRLINE, conduits: [] };
+    if (conduit) e.conduits.push(conduit);
     e.bytes += bytes;
     e.flows += flows;
     e.pairs += 1;
@@ -79,7 +82,7 @@ export function selectPairs(graph: ConsoleGraph, anchorOf: (segment: string) => 
     const k = arcKey(c.a, c.b);
     if (asserted.has(k)) continue;
     const v = volume.get(k);
-    if (add(c.a, c.b, "asserted", v?.bytes ?? 0, v?.flows ?? 0)) asserted.add(k);
+    if (add(c.a, c.b, "asserted", v?.bytes ?? 0, v?.flows ?? 0, { a: c.a, b: c.b })) asserted.add(k);
   }
   for (const p of graph.trafficPairs) if (!asserted.has(arcKey(p.a, p.b))) add(p.a, p.b, "observed", p.bytes, p.flows);
   const all = [...agg.values()];

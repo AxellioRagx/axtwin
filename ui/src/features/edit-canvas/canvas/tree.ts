@@ -994,7 +994,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const pairSel = selectPairs(graph, (name) => anchorByName[name] ?? null, { showAll: options.showAllPairs === true });
   const boxOfAnchor = (a: string): string => (anchorByName[a] === a ? ID.segment(a) : a);
   for (const p of pairSel.drawn) {
-    edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}` } });
+    edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}`, ...(p.kind === "asserted" ? { conduits: p.conduits } : {}) } });
   }
 
   return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, siteSegments, rows: rowsOut, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
