@@ -12,7 +12,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { CastRoster, DeploySummary } from "../src/api/types";
-import { segmentAt, connectionToAttach } from "../src/features/edit-canvas/Canvas";
+import { segmentAt } from "../src/features/edit-canvas/Canvas";
 import { standingDeploy } from "../src/features/edit-canvas/CanvasPage";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { classify } from "./helpers/fakeApi";
@@ -425,10 +425,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(tools().getByRole("button", { name: "Attach: click a host" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(tools().getByRole("button", { name: "Attach" })).toBeTruthy();
-    // A handle drag from a host to a segment bus is the same gesture.
-    expect(connectionToAttach({ source: "host:ws01", target: "vsw:net-dmz" })).toEqual({ node: "ws01", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "router:gw", target: "vsw:net-dmz" })).toEqual({ node: "gw", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "vsw:net-dmz", target: "host:ws01" })).toBeNull();
+    // A connect drag from a host to a segment's switch is the same attach (`canvas.connect.test.tsx`).
   });
 
   it("view mode while the deploy is running: locked except annotations, which go to the side-car", async () => {

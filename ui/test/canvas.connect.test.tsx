@@ -8,7 +8,8 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { freeLayout, FREE_FAN } from "../src/features/edit-canvas/canvas/free";
+import { alongLine, freeEdgeEnds, freeLayout, FREE_FAN, ICON_BOX, placePills, type PillAt } from "../src/features/edit-canvas/canvas/free";
+import { TRANSIT_HUE } from "../src/features/edit-canvas/canvas/hues";
 import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { connectEndOf } from "../src/features/edit-canvas/Canvas";
 import { nextFreeTransit, transitEnds } from "../src/features/edit-canvas/edit/allocate";
@@ -113,10 +114,84 @@ describe("the free layout", () => {
   it("a triangle's three transits are three edges between three different router pairs (no shared path), each with its pill", () => {
     const p = place(triangle());
     const seglinks = p.edges.filter((e) => e.data?.kind === "seglink");
-    expect(seglinks.map((e) => (e.data as { segment: string }).segment).sort()).toEqual(["r1--r2", "r2--r3", "r3--r1"]);
+    expect(seglinks.map((e) => (e.data as { segment: string }).segment).sort()).toEqual(["r1--r2", "r1--r3", "r2--r3"]);
     const ends = seglinks.map((e) => [e.source, e.target].sort().join("|"));
     expect(new Set(ends).size).toBe(3);
     expect(ends.every((x) => x.split("|").every((id) => id.startsWith("router:")))).toBe(true);
+  });
+});
+
+describe("free layout: point to point between icons (2026-11-20, round 2)", () => {
+  const PINS = { "host:r1": { x: 0, y: 0 }, "host:r2": { x: 420, y: 0 }, "host:r3": { x: 210, y: 320 } };
+  /** A triangle built by three drags, each `[from, to]`. */
+  const built = (drags: Array<[string, string]>) => {
+    let d: { id: string; teFile: string; files: Record<string, string> } = doc(TE(["r1", "r2", "r3"]));
+    for (const [a, b] of drags) d = { ...d, files: connectRouters(d, readDoc(d), a, b).files };
+    const m = readDoc(d);
+    const g = documentGraph(m, "tri");
+    return freeLayout(placeTree(buildGraph(g.exportData, g.cast), PINS, { extraLegs: g.extraLegs, uplinks: g.uplinks, tree: g.tree, fan: FREE_FAN }));
+  };
+  /** Each transit's drawing, by segment: its two ends (canonical order) and its pill's spot. */
+  const drawing = (p: ReturnType<typeof built>) => {
+    const ends = freeEdgeEnds(p);
+    return Object.fromEntries(
+      p.edges.filter((e) => e.data?.kind === "seglink").map((e) => {
+        const d = e.data as { segment: string; pill?: PillAt };
+        const x = ends.get(e.id)!;
+        return [d.segment, { p: x.p, q: x.q, pill: d.pill }];
+      }),
+    );
+  };
+  const iconCentre = (p: ReturnType<typeof built>, name: string) => {
+    const n = p.nodes.find((x) => x.id === `router:${name}`)!;
+    return { x: n.position.x + n.width! / 2, y: n.position.y + n.height! - ICON_BOX / 2 };
+  };
+
+  it("in a 3-router triangle every edge end lies on its router icon's outline (within 2 px), and the drawing is the same whichever way each link was dragged", () => {
+    const forward = built([["r1", "r2"], ["r2", "r3"], ["r3", "r1"]]);
+    const backward = built([["r2", "r1"], ["r3", "r2"], ["r1", "r3"]]);
+    const f = drawing(forward);
+    expect(Object.keys(f).sort()).toEqual(["r1--r2", "r1--r3", "r2--r3"]);
+    for (const [seg, x] of Object.entries(f)) {
+      const [a, b] = seg.split("--");
+      // Each end on one of the two routers' circles (r = 17), the two ends on different routers.
+      const on = (pt: { x: number; y: number }, r: string) => Math.abs(Math.hypot(pt.x - iconCentre(forward, r).x, pt.y - iconCentre(forward, r).y) - ICON_BOX / 2) <= 2;
+      expect((on(x.p, a!) && on(x.q, b!)) || (on(x.p, b!) && on(x.q, a!))).toBe(true);
+      // The pill on its own line: at most ±30% from the midpoint.
+      expect(Math.abs((x.pill?.t ?? 0.5) - 0.5)).toBeLessThanOrEqual(0.3 + 1e-9);
+    }
+    expect(drawing(backward)).toEqual(f);
+  });
+
+  it("a transit is named for its two routers sorted, whichever way it was dragged", () => {
+    const d = doc(TE(["router-1", "router-2"]));
+    expect(connectIntent(readDoc(d).te, { kind: "router", name: "router-2" }, { kind: "router", name: "router-1" })).toMatchObject({ kind: "transit", name: "router-1--router-2" });
+  });
+
+  it("every transit wears the one transit colour, in the free layout and the tree", () => {
+    const p = built([["r1", "r2"], ["r2", "r3"], ["r3", "r1"]]);
+    const seglinks = p.edges.filter((e) => e.data?.kind === "seglink");
+    expect(seglinks.map((e) => (e.data as { hue: string }).hue)).toEqual([TRANSIT_HUE, TRANSIT_HUE, TRANSIT_HUE]);
+  });
+
+  it("a pill that would cover a name moves along its line (never onto the name)", () => {
+    const line = { id: "a", p: { x: 0, y: 0 }, q: { x: 400, y: 0 }, text: "r1--r2 · 10.254.0.0/30" };
+    const w = line.text.length * 6.3 + 12;
+    const clear = (at: PillAt, name: { l: number; r: number; t: number; b: number }) => {
+      const c = alongLine(line.p, line.q, at);
+      return c.x + w / 2 < name.l || c.x - w / 2 > name.r || c.y - 9 > name.b || c.y + 9 < name.t;
+    };
+    const name = { l: 170, r: 230, t: -10, b: 10 };
+    const at = placePills([line], [name], []).get("a")!;
+    expect(at).toMatchObject({ off: 0 });
+    expect(at.t).not.toBe(0.5);
+    expect(Math.abs(at.t - 0.5)).toBeLessThanOrEqual(0.3);
+    expect(clear(at, name)).toBe(true);
+    // A name too wide to clear along the line: the pill steps off it, still never on the name.
+    const wide = { l: 60, r: 340, t: -10, b: 10 };
+    const off = placePills([line], [wide], []).get("a")!;
+    expect(off.off).not.toBe(0);
+    expect(clear(off, wide)).toBe(true);
   });
 });
 
@@ -154,6 +229,66 @@ describe("on the page", () => {
     // One undo takes all three back.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(screen.queryByTestId("dirty-marker")).toBeNull());
+  });
+
+  /** A press on `from`, a move and a release on `to` (the canvas's connect drag runs on pointer events). */
+  const drag = (from: Element, to: Element) => {
+    const o = { button: 0, pointerId: 1, isPrimary: true, pointerType: "mouse" };
+    fireEvent.pointerDown(from, { ...o, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(to, { ...o, clientX: 220, clientY: 140 });
+    fireEvent.pointerUp(to, { ...o, clientX: 220, clientY: 140 });
+  };
+  const wrapper = (name: string) => router(name).closest(".react-flow__node")!;
+  const undoTitle = () => screen.getByRole("button", { name: "Undo" }).getAttribute("title");
+
+  it("connect zones: every router wears a ring that says 'drag to connect'; a drag from the ring makes a transit", async () => {
+    const { api } = withTriangle();
+    renderAt(api, "/twins/tri/canvas");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
+    const ring = within(router("r1")).getByTestId("connect-ring");
+    expect(ring.getAttribute("title")).toBe("drag to connect");
+    expect(ring.dataset["connectZone"]).toBe("ring");
+    expect(router("r1").querySelectorAll(".cv-connect-ring .cv-connect-dot")).toHaveLength(4);
+    drag(ring, router("r2"));
+    await waitFor(() => expect(undoTitle()).toBe("undo: connect r1 — r2 (transit 10.254.0.0/30)"));
+  });
+
+  it("a drag from the icon moves the node: it draws no link, and the node stays draggable", async () => {
+    const { api } = withTriangle();
+    renderAt(api, "/twins/tri/canvas");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
+    const before = undoTitle();
+    expect(wrapper("r1").className).toContain("draggable");
+    drag(router("r1").querySelector(".cv-icon-box")!, router("r2"));
+    expect(screen.queryByTestId("connect-hint")).toBeNull();
+    expect(undoTitle()).toBe(before);
+  });
+
+  it("the Connect tool (C): a drag from anywhere on a device, the icon included, makes a transit; nodes do not move; Esc returns to Select", async () => {
+    const { api } = withTriangle();
+    renderAt(api, "/twins/tri/canvas");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
+    fireEvent.keyDown(window, { key: "c" });
+    expect(screen.getByTestId("canvas").dataset["tool"]).toBe("connect");
+    expect(screen.getByTestId("rail-connect").getAttribute("aria-pressed")).toBe("true");
+    expect(wrapper("r1").className).not.toContain("draggable");
+    drag(router("r1").querySelector(".cv-icon-box")!, router("r3"));
+    await waitFor(() => expect(undoTitle()).toBe("undo: connect r1 — r3 (transit 10.254.0.0/30)"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("canvas").dataset["tool"]).toBe("select");
+    fireEvent.click(screen.getByTestId("rail-connect"));
+    expect(screen.getByTestId("canvas").dataset["tool"]).toBe("connect");
+    fireEvent.keyDown(window, { key: "v" });
+    expect(screen.getByTestId("canvas").dataset["tool"]).toBe("select");
+  });
+
+  it("a drag from a router's ring onto a segment's switch attaches the router there", async () => {
+    const { api } = withTriangle();
+    renderAt(api, "/twins/tri/canvas");
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
+    const lan = screen.getAllByTestId("canvas-segment").find((x) => x.dataset["name"] === "lan")!;
+    drag(within(router("r2")).getByTestId("connect-ring"), lan);
+    await waitFor(() => expect(undoTitle()).toBe("undo: attach r2 to lan"));
   });
 
   it("the layout mode toggles, and the choice is saved with the layout", async () => {

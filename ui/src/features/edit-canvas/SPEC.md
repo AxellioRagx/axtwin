@@ -121,11 +121,20 @@ its location, else the names it quotes) names, and a fold that hides one
 wears the count. "The API could not validate" is left for a request that
 failed (network, 5xx); a 4xx on Check is a failing finding with its reason.
 
-**Connect gestures (2026-11-20, `edit/connect.ts`).** In edit mode every
-router, switch and host shows its handle on hover; the drag decides what it
-makes, one undo step each, with a live hint ("new transit r1--r2
-10.254.0.0/30") and the target lit: **router -> router** a transit segment
-`<a>--<b>` (`-2`, `-3` when taken), the next free `/30` of the transit pool
+**Connect gestures (2026-11-20, `edit/connect.ts`).** In edit mode hovering
+a router, switch or host shows its **connect zone**: a dashed ring around its
+icon with four dots, titled "drag to connect". For a router or switch the
+ring is the connect zone (crosshair) and the icon the move zone (move
+cursor); a host's ring likewise. A drag that starts on the ring draws a link;
+one that starts on the icon moves the node. The rail's **Connect** tool (C)
+makes a drag from anywhere on a device draw a link instead of moving it (no
+node moves while it is on); Esc or V returns to Select. The gesture is the
+canvas's own pointer drag (a rubber line from the icon), not React Flow's
+handle drag: handles only anchor edges. The drop decides what it makes, one
+undo step each, with a live hint ("new transit r1--r2 10.254.0.0/30") and the
+device under the pointer lit: **router -> router** a transit segment
+`<a>--<b>`, the two router names sorted so the drag's direction does not show
+(`-2`, `-3` when taken; existing names untouched), the next free `/30` of the transit pool
 (`10.254.0.0/16`), `zone_type: vlan` (as the catalog's transit, datacenter's
 `fab-link`), a leg for each router at the `/30`'s `.1` and `.2`; a pair that
 already shares a segment is refused with the reason. **router -> empty pane** a
@@ -148,8 +157,17 @@ corrected the same day: finished twins had opened free):
 every box stays where it was dropped or dragged (its pin in the side-car), the
 first placement the tree's own, nothing folds, and every edge is drawn point
 to point (straight, a router's legs from the router itself, each host's
-access edge from its switch, hued by segment as in the tree; never a comb);
-transits keep their pill. The layout bar's
+access edge from its switch, hued by segment as in the tree; never a comb).
+**Edge drawing (2026-11-20, round 2):** every device-to-device edge (transit,
+leg, link) runs from the centre of one ICON to the centre of the other,
+clipped at each icon's outline (a router's circle, a switch's rounded box, a
+host's circle); no fixed top/bottom handle, and the same line whichever end
+the drag started from. Free edges draw under the nodes, and a device's name
+wears a halo, so a line never runs across a name. A transit keeps its pill on
+its own line at the midpoint; one that would cover a node's name or another
+pill is nudged along its line (up to ±30% of its length), then off it, never
+onto a name. Every transit, in the free layout and the tree, wears the one
+neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 
@@ -187,7 +205,7 @@ canvas — the first two are what neither incumbent documents.
 | Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover writes the drop and every choice as one undo step. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
-| Attaching (the twin's "linking") | drag a host onto a segment or from a host's handle to a segment bus; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | RF handles + app state machine |
+| Attaching (the twin's "linking") | drag a host onto a segment or from a host's connect ring to a segment's switch; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | app pointer drag + state machine |
 | | per-attachment label modes (all / selected / hidden); straight, bezier and orthogonal styles with curvature; colour, width, dash; state colours | RF, RF+ for labels and state |
 | | right-click on an attachment: capture, suspend, style, detach; impairment badge once the IR has an impairment concept | app; impairment API |
 | Node visuals | SVG icon sets and custom upload; resize; run-state tint and badges (locked, capturing, dirty); label style and position; hover card with address, role, evidence ring | RF+ |
@@ -315,6 +333,11 @@ criteria of its own beyond them.
   router -> pane makes a LAN segment; a full mesh of 4 makes 6 transits, a linked pair is refused;
   the free layout keeps a dropped position, draws every edge point to point and gives a
   triangle's three transits three different paths; the mode toggle is saved with the layout.
+  Round 2: in a 3-router triangle every edge end lies on its router icon's outline (within
+  2 px) and the drawing is the same whichever way each link was dragged; a transit is named
+  for its routers sorted; every transit wears `TRANSIT_HUE`; a pill is nudged off a name; a
+  drag from a router's ring makes a transit, from its icon draws nothing (it moves), and in
+  Connect mode a drag from the icon makes a transit; a ring dropped on a segment attaches.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +

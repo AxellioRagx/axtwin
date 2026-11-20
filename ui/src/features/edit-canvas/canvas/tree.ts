@@ -57,7 +57,7 @@ import { compareCidr, twoOctetPrefix } from "../model/keys";
 import { switchBadge } from "../model/roles";
 import type { ExtraLeg, TreeLink, TreeStructure } from "./authored";
 import { BUS_ICON, OVERFLOW_LANE_H } from "./bus";
-import { HUE_GREY, hueOf } from "./hues";
+import { HUE_GREY, hueOf, TRANSIT_HUE } from "./hues";
 import { routeOrthogonal, type Box, type RouteRequest } from "./orthogonal";
 import { selectPairs } from "./pairs";
 import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
@@ -854,7 +854,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const p of pairs) {
     const [a, b] = shallow(p.a, p.b);
     const seg = graph.segmentByName.get(p.segment);
-    edges.push({ id: TREE_ID.segLink(`${p.segment}:${b}`), type: "link", source: nodeIdOf(a), target: nodeIdOf(b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "seglink", segment: p.segment, cidr: seg?.observedCidr ?? "", a, b, hue: hueOfDevice(a), source: source(p.segment), label: `${p.segment}${seg ? ` · ${seg.observedCidr}` : ""}` } });
+    edges.push({ id: TREE_ID.segLink(`${p.segment}:${b}`), type: "link", source: nodeIdOf(a), target: nodeIdOf(b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "seglink", segment: p.segment, cidr: seg?.observedCidr ?? "", a, b, hue: TRANSIT_HUE, source: source(p.segment), label: `${p.segment}${seg ? ` · ${seg.observedCidr}` : ""}` } });
   }
   // The links (§2.3): between two devices, or from a device to a host's icon (its switch, or the fold, when not drawn).
   const drawnIds = new Set(nodes.map((n) => n.id));

@@ -18,15 +18,12 @@ import {
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
-  ConnectionMode,
-  useConnection,
   useNodesInitialized,
   useNodesState,
   useOnViewportChange,
   useReactFlow,
   useStore,
   useStoreApi,
-  type Connection,
   type Edge,
   type Node,
   type NodeChange,
@@ -40,6 +37,7 @@ import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
 import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
+import { iconOf } from "./canvas/free";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
@@ -353,13 +351,6 @@ export function connectEndOf(node: Pick<CanvasNode, "data"> | undefined | null):
   return null;
 }
 
-/** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
-export function connectionToAttach(c: Pick<Connection, "source" | "target">): { node: string; segment: string } | null {
-  const node = c.source.startsWith("host:") ? c.source.slice(5) : c.source.startsWith("router:") ? c.source.slice(7) : null;
-  const segment = c.target.startsWith(ID.segment("")) ? c.target.slice(ID.segment("").length) : null;
-  return node && segment ? { node, segment } : null;
-}
-
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
 /** What a context menu is about: a node, a leg, a segment, or the empty pane
  *  (with the flow position under the pointer). */
@@ -405,7 +396,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // ---- the chrome (`SPEC.md` "Shell and chrome"): the rail's tool, which
   // popover is open, which inspector tab is open (null = the tab strip only;
   // a click on a node opens Selection), and the read-only selection.
-  const [tool, setTool] = useState<"select" | "pan">("select");
+  // Connect (C, edit mode): a drag from anywhere on a device draws a link instead of moving it; Esc or V returns to Select.
+  const [tool, setTool] = useState<"select" | "pan" | "connect">("select");
   // Space held: pan with any button while it is down (a trackpad has no middle button).
   const [spaceHeld, setSpaceHeld] = useState(false);
   useEffect(() => {
@@ -523,10 +515,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const [attachFrom, setAttachFrom] = useState<string | null>(null);
   // "Declare conduit to…": the segment it starts from, until the next segment click (Esc cancels).
   const [conduitFrom, setConduitFrom] = useState<string | null>(null);
-  // A handle drag (the attach gesture) is in flight: every bus's target handle grows to its whole lane.
-  const [connecting, setConnecting] = useState(false);
-  /** The node a handle drag started on (the gesture's `from` end). */
-  const connectFromRef = useRef<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuSubject } | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -700,6 +688,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const down = (e: KeyboardEvent) => {
       if (e.key === "Alt") setAlt(true);
       if (e.key === "Escape") {
+        setTool((t) => (t === "connect" ? "select" : t));
         setCarry(null);
         setAttachArmed(false);
         setAttachFrom(null);
@@ -793,6 +782,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // React Flow (no marquee, no pan) by stopping the native mousedown in the capture phase.
   const [legDrag, setLegDrag] = useState<{ node: string; segment: string; hue: string; from: { x: number; y: number }; to: { x: number; y: number }; over: string | null } | null>(null);
   const legDragRef = useRef<typeof legDrag>(null);
+  // ---- the connect drag (2026-11-20, round 2): a press on a device's connect zone -- a router's or
+  // switch's ring, a host's dots -- or anywhere on a device while the Connect tool is on, draws a
+  // rubber line from its icon; released on another device or a segment it makes what
+  // `edit/connect.ts` says (a transit, an attach, a link), on the empty pane a router's new LAN. The
+  // icon itself stays the move zone. Our own gesture, not React Flow's handle drag: it starts from
+  // any zone, and it runs (and is tested) without layout.
+  const [wire, setWire] = useState<{ from: string; end: ConnectEnd; down: { x: number; y: number }; start: { x: number; y: number }; to: { x: number; y: number }; over: string | null; moved: boolean } | null>(null);
+  const wireRef = useRef<typeof wire>(null);
+  wireRef.current = wire;
   // ---- §6.2 / §6.3: Ctrl+D (or the menu) carries a floating copy of the subtree under the cursor;
   // a press drops it -- onto a switch or router (a trunk), or on the canvas (parked where it lands,
   // re-allocated under the site it lands under); Enter parks it in place, Esc or the right button cancels.
@@ -860,6 +858,26 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         return;
       }
       if (!editing || !edit || e.button !== 0) return;
+      if (tool !== "pan" && !spaceHeld) {
+        const el = e.target instanceof Element ? e.target : null;
+        const nodeEl = el?.closest(".react-flow__node");
+        const zone = el?.closest("[data-connect-zone]");
+        const nodeId = nodeEl?.getAttribute("data-id") ?? null;
+        const node = nodeId && (zone || tool === "connect") ? rf.getNode(nodeId) : undefined;
+        const end = connectEndOf(node);
+        if (node && nodeId && end && end.kind !== "segment" && end.kind !== "pane") {
+          const shell = shellRef.current?.getBoundingClientRect();
+          const abs = absolutePosition(rf.getNodes(), nodeId) ?? node.position;
+          const icon = iconOf({ type: node.type, kind: node.data.kind, x: abs.x, y: abs.y, w: node.measured?.width ?? node.width ?? 0, h: node.measured?.height ?? node.height ?? 0 });
+          const c = rf.flowToScreenPosition({ x: icon.cx, y: icon.cy });
+          const at = { x: e.clientX - (shell?.left ?? 0), y: e.clientY - (shell?.top ?? 0) };
+          setWire({ from: nodeId, end, down: { x: e.clientX, y: e.clientY }, start: { x: c.x - (shell?.left ?? 0), y: c.y - (shell?.top ?? 0) }, to: at, over: null, moved: false });
+          // Kept from React Flow: no node drag, no marquee (the native mousedown is stopped below too).
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       const id = legUnder(e.target, e.clientX, e.clientY);
       const parts = id ? legParts(id) : null;
       if (!parts || parts.kind !== "leg") return;
@@ -872,14 +890,69 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       setLegDrag({ node: parts.node, segment: parts.segment, hue, from, to, over: null });
       e.preventDefault();
     },
-    [editing, edit, legUnder, rf, dropCarry],
+    [editing, edit, legUnder, rf, dropCarry, tool, spaceHeld],
   );
   const onShellMouseDownCapture = useCallback((e: React.MouseEvent) => {
-    if (legDragRef.current || carryRef.current) {
+    if (legDragRef.current || carryRef.current || wireRef.current) {
       e.stopPropagation();
       e.preventDefault();
     }
   }, []);
+  const wireOn = wire !== null;
+  useEffect(() => {
+    if (!wireOn) return;
+    const shellEl = shellRef.current;
+    /** The node under the pointer (by hit-test where the browser has one, else the event's target), not the one the drag left. */
+    const nodeUnder = (e: PointerEvent): string | null => {
+      const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(e.clientX, e.clientY) : null;
+      const el = hit ?? (e.target instanceof Element ? e.target : null);
+      const id = el?.closest(".react-flow__node")?.getAttribute("data-id") ?? null;
+      return id && id !== wireRef.current?.from ? id : null;
+    };
+    const lit = (id: string | null) => {
+      shellEl?.querySelectorAll(".react-flow__node.cv-wire-over").forEach((n) => n.classList.remove("cv-wire-over"));
+      if (id) shellEl?.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`)?.classList.add("cv-wire-over");
+    };
+    const move = (e: PointerEvent) => {
+      const box = shellEl?.getBoundingClientRect();
+      const over = nodeUnder(e);
+      lit(over);
+      setWire((w) => (w ? { ...w, to: { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }, over, moved: w.moved || Math.hypot(e.clientX - w.down.x, e.clientY - w.down.y) > 4 } : w));
+    };
+    const up = (e: PointerEvent) => {
+      const w = wireRef.current;
+      lit(null);
+      setWire(null);
+      if (!w || !edit?.onConnectIntent) return;
+      const moved = w.moved || Math.hypot(e.clientX - w.down.x, e.clientY - w.down.y) > 4;
+      if (!moved) return; // a press and release in place: the click (React Flow's) selects
+      const over = nodeUnder(e);
+      const to = over ? connectEndOf(rf.getNode(over)) : null;
+      if (to) {
+        edit.onConnectIntent(connectIntent(edit.model.te, w.end, to));
+        return;
+      }
+      // Off any node, inside the canvas: a router's new LAN where it was dropped; anything else springs back.
+      const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(e.clientX, e.clientY) : (e.target instanceof Element ? e.target : null);
+      if (over || w.end.kind !== "router" || !hit || !shellEl?.contains(hit) || hit.closest(".react-flow__node")) return;
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      edit.onConnectIntent(connectIntent(edit.model.te, w.end, { kind: "pane" }), { x: Math.round(at.x), y: Math.round(at.y) });
+    };
+    const cancel = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        lit(null);
+        setWire(null);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, [wireOn, edit, rf]);
   useEffect(() => {
     if (!legDrag) return;
     const move = (e: PointerEvent) => {
@@ -1068,39 +1141,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const root = marqueeSubtree(edit.model, picked);
     if (root) selectSubtree(root);
   }, [edit, rf, selectSubtree]);
-
-  // A handle drag (B1): what it makes is decided by its two ends (`edit/connect.ts`); dropped on
-  // the empty pane, a router gets a new LAN segment where it was dropped.
-  const onConnect = useCallback(
-    (c: Connection) => {
-      if (!edit || !editing) return;
-      // The drag's own start is the `from` end (React Flow may hand a source-to-source pair back swapped).
-      const [fromId, toId] = connectFromRef.current && c.target === connectFromRef.current ? [c.target, c.source] : [c.source, c.target];
-      const from = connectEndOf(rf.getNode(fromId));
-      const to = connectEndOf(rf.getNode(toId));
-      if (from && to && edit.onConnectIntent) {
-        edit.onConnectIntent(connectIntent(edit.model.te, from, to));
-        return;
-      }
-      const a = connectionToAttach(c);
-      if (a) edit.onAttach(a.node, a.segment);
-    },
-    [edit, editing, rf],
-  );
-  const onConnectEnd = useCallback(
-    (e: MouseEvent | TouchEvent, state: { isValid: boolean | null; fromNode: { id: string } | null; toNode: { id: string } | null }) => {
-      setConnecting(false);
-      if (!edit || !editing || !edit.onConnectIntent || state.toNode || !state.fromNode) return;
-      const target = (e.target as Element | null)?.closest?.(".react-flow__node");
-      if (target) return; // dropped on a node with no handle under it: nothing to make
-      const from = connectEndOf(rf.getNode(state.fromNode.id));
-      if (!from || from.kind !== "router") return;
-      const pt = "changedTouches" in e ? e.changedTouches[0]! : e;
-      const at = rf.screenToFlowPosition({ x: pt.clientX, y: pt.clientY });
-      edit.onConnectIntent(connectIntent(edit.model.te, from, { kind: "pane" }), { x: Math.round(at.x), y: Math.round(at.y) });
-    },
-    [edit, editing, rf],
-  );
 
   /** Where an Add-panel item lands at `at` (§7.1 drop rules): on the segment or switch under it, on a
    *  router (a new segment under it), else on the empty pane. One path for a drag, a click and the quick-add. */
@@ -1455,6 +1495,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       switch (e.key) {
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
+        case "c": if (edit && !locked) setTool("connect"); break;
         case "f": void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }); break;
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
@@ -1493,6 +1534,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const editTools: RailButton[] | null = edit
     ? [
         { name: "Add to the design", key: "A", icon: <Icon.plus />, pressed: popover === "palette", onClick: () => togglePopover("palette"), testId: "rail-add" },
+        { name: "Connect", key: "C", icon: <Icon.connect />, pressed: tool === "connect", disabled: !editing, onClick: () => setTool((t) => (t === "connect" ? "select" : "connect")), testId: "rail-connect" },
         { name: attachArmed ? (attachFrom ? `Attach ${attachFrom} → click a segment` : "Attach: click a host") : "Attach", icon: <Icon.attach />, pressed: attachArmed, disabled: !editing, onClick: () => { setAttachArmed((a) => !a); setAttachFrom(null); }, testId: "rail-attach" },
         { name: "Snap to grid", icon: <Icon.snap />, pressed: snap, onClick: () => setSnap((v) => !v), testId: "rail-snap" },
         { name: "Show grid", icon: <Icon.grid />, pressed: grid, onClick: () => setGrid((g) => !g), testId: "rail-grid" },
@@ -1597,13 +1639,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           onMouseMove={onShellMouseMove}
           onPointerDownCapture={onShellPointerDownCapture}
           onMouseDownCapture={onShellMouseDownCapture}
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${carry ? " carrying" : ""}${overlay ? " overlay" : ""}`}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${wire ? " connecting" : ""}${tool === "connect" ? " connect-tool" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${carry ? " carrying" : ""}${overlay ? " overlay" : ""}`}
           data-testid="canvas"
           data-overlay={overlay ? "on" : "off"}
           data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
           data-detail-mode={detailMode}
           data-panning={tool === "pan" || spaceHeld ? "true" : "false"}
+          data-tool={tool}
           data-locked={locked ? "true" : "false"}
           data-color-mode={colorMode}
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
@@ -1637,8 +1680,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             colorMode={colorMode}
-            nodesDraggable={!locked}
-            nodesConnectable={editing}
+            nodesDraggable={!locked && tool !== "connect"}
+            nodesConnectable={false}
             elementsSelectable
             panOnDrag={tool === "pan" || spaceHeld ? true : [1]}  // select mode: middle button pans; the right button is the pane menu
             selectionOnDrag={tool === "select" && !spaceHeld}
@@ -1654,13 +1697,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             onEdgeClick={onEdgeClick}
             onSelectionChange={onSelectionChange}
             onSelectionEnd={onSelectionEnd}
-            onConnect={onConnect}
-            onConnectStart={(_e, p) => {
-              connectFromRef.current = p.nodeId ?? null;
-              setConnecting(true);
-            }}
-            onConnectEnd={onConnectEnd}
-            connectionMode={ConnectionMode.Loose}
             onDrop={onDrop}
             onDragOver={(e) => {
               if (editing) {
@@ -1681,7 +1717,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             {...viewportProps}
           >
             {grid ? <Background gap={GRID} /> : null}
-            {edit && editing ? <ConnectHint te={edit.model.te} /> : null}
             <MiniMap pannable zoomable nodeStrokeWidth={2} position="bottom-right" />
             <Panel position="top-left" className="cv-chrome-left">
               <Rail view={viewTools} edit={editTools}>
@@ -1779,6 +1814,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
               <circle cx={legDrag.to.x} cy={legDrag.to.y} r={4} style={{ fill: legDrag.hue || "var(--accent)" }} />
             </svg>
           ) : null}
+          {wire && wire.moved ? (
+            <svg className="cv-rubber" aria-hidden="true" data-testid="connect-rubber" data-over={wire.over ?? undefined}>
+              <line x1={wire.start.x} y1={wire.start.y} x2={wire.to.x} y2={wire.to.y} style={{ stroke: "var(--accent)" }} />
+              <circle cx={wire.to.x} cy={wire.to.y} r={4} style={{ fill: "var(--accent)" }} />
+            </svg>
+          ) : null}
+          {wire && wire.moved && edit ? <WireHint te={edit.model.te} from={wire.end} over={wire.over ? connectEndOf(rf.getNode(wire.over)) : null} /> : null}
           {conduitFrom ? <div className="cv-rehome-hint muted" role="status" data-testid="conduit-hint">conduit from {conduitFrom}: click the other segment · Esc cancels</div> : null}
           {legDrag ? <div className="cv-rehome-hint muted" role="status">{legDrag.over && legDrag.over !== legDrag.segment ? `drop: ${legDrag.node} ${legDrag.segment} → ${legDrag.over}` : `drag ${legDrag.node}'s ${legDrag.segment} port onto another bus · Esc cancels`}</div> : null}
           {carry ? (
@@ -1888,17 +1930,14 @@ function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel
 
 /** The live hint while a handle is dragged (B1): what the drop would make, from the node under the
  *  pointer (or the empty pane). */
-function ConnectHint({ te }: { te: DocModel["te"] }) {
-  const c = useConnection<CanvasNode>();
-  if (!c.inProgress) return null;
-  const from = connectEndOf(c.fromNode as unknown as CanvasNode);
-  if (!from) return null;
-  const to = c.toNode ? connectEndOf(c.toNode as unknown as CanvasNode) : ({ kind: "pane" } as const);
-  if (!to) return null;
-  const i = connectIntent(te, from, to);
+/** The connect drag's live hint: what dropping here would make (`edit/connect.ts`), or why not. */
+function WireHint({ te, from, over }: { te: DocModel["te"]; from: ConnectEnd; over: ConnectEnd | null }) {
+  const i = connectIntent(te, from, over ?? { kind: "pane" });
+  // Off a device, only a router makes something (a new LAN); anything else just springs back.
+  const text = !over && from.kind !== "router" && from.kind !== "pane" ? `drop ${from.name} on a router, a switch or a segment · Esc cancels` : intentHint(i);
   return (
     <div className={`cv-rehome-hint cv-connect-hint${i.kind === "refused" ? " refused" : ""}`} role="status" data-testid="connect-hint" data-intent={i.kind}>
-      {intentHint(i)}
+      {text}
     </div>
   );
 }

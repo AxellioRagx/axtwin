@@ -3,7 +3,7 @@
  * on the canvas MAKES, as pure commands over the working document -- one undo step each, a batch
  * (chain / ring / mesh / hub) one step for all of it.
  *
- * - router -> router: a TRANSIT segment `<a>--<b>` (de-duped `-2`, `-3`), the next free `/30` of the
+ * - router -> router: a TRANSIT segment `<a>--<b>`, the two names sorted (de-duped `-2`, `-3`), the next free `/30` of the
  *   transit pool (`allocate.ts` `TRANSIT_POOL`), `zone_type: vlan` as the catalog's transits use,
  *   and a leg for each router pinned at the `/30`'s `.1` and `.2`. Two routers already sharing a
  *   segment are already linked: refused with the reason.
@@ -79,7 +79,9 @@ export function connectIntent(te: TeModel, from: ConnectEnd, to: ConnectEnd, poo
     if (routersLinked(te, from.name, to.name)) return { kind: "refused", reason: `${from.name} and ${to.name} are already linked (they share a segment)` };
     const cidr = nextFreeTransit(te.segments.map((s) => s.cidr), pool);
     if (!cidr) return { kind: "refused", reason: `the transit pool ${pool} is full` };
-    return { kind: "transit", a: from.name, b: to.name, cidr, name: freeName(te, `${from.name}--${to.name}`) };
+    // The name sorts its two routers, so the drag's direction does not show in it (2026-11-20).
+    const [x, y] = [from.name, to.name].sort();
+    return { kind: "transit", a: from.name, b: to.name, cidr, name: freeName(te, `${x}--${y}`) };
   }
   if (from.kind === "switch" || to.kind === "switch") return { kind: "link", a: from.name, b: to.name };
   if (from.kind === "host" && to.kind === "host") return { kind: "refused", reason: "two hosts join through a segment or a switch" };

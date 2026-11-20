@@ -14,7 +14,7 @@
  * drop in that hue, an observed arc with a `log(bytes)` width, and the fixed
  * chrome (Internet). Nothing here edits anything.
  */
-import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, getStraightPath, useInternalNode, type EdgeProps, type NodeProps } from "@xyflow/react";
+import { BaseEdge, Handle, NodeResizer, Position, getSmoothStepPath, useInternalNode, type EdgeProps, type NodeProps } from "@xyflow/react";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import { ARC_DEPTH_MAX, ARC_DEPTH_MIN, ARC_DEPTH_PER_DX } from "./layout/geometry";
@@ -24,6 +24,7 @@ import { SWITCH_ROLES, switchBadge } from "./model/roles";
 import { encodePoints, type Point } from "./canvas/legs";
 import { dropPoint, midOf, roundedPath } from "./canvas/orthogonal";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
+import { alongLine, canonicalEnds, iconOf, type PillAt } from "./canvas/free";
 import type { FindingPin } from "./edit/check";
 import { useEdit } from "./edit/EditContext";
 import { conduitImplemented } from "./edit/te";
@@ -111,18 +112,35 @@ export interface Glow {
 export const NO_GLOW: Glow = { hosts: new Set(), arcs: new Set() };
 export const GlowContext = createContext<Glow>(NO_GLOW);
 
-/** Every node offers the three handles the edges attach to. In edit mode a
- *  host's or router's bottom handle is a connection SOURCE and a bus's top
- *  handle a TARGET -- dragging one to the other is the attach gesture;
- *  read-only, none accepts a connection. */
-function Handles({ role = "none" }: { role?: "host" | "segment" | "none" }) {
-  const edit = useEdit();
-  const live = Boolean(edit && !edit.locked);
+/** Every node offers the three handles the edges attach to. They only anchor edges (the tree's
+ *  routes, the smoothstep fallback): no handle starts or ends a connection -- the connect zones below do. */
+function Handles(_: { role?: "host" | "segment" | "none" } = {}) {
   return (
     <>
-      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={live && role === "segment"} />
-      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={live && role === "host"} />
+      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={false} />
       <Handle type="target" position={Position.Bottom} id={HANDLE.bottomIn} isConnectable={false} />
+    </>
+  );
+}
+
+/** A device's connect zone (2026-11-20, round 2): the ring around a router's or switch's icon (the
+ *  icon itself is the move zone) or around a host, with four dots that show on hover. A press on it
+ *  starts the canvas's connect drag (`Canvas.tsx`, `data-connect-zone`); edit mode only. */
+function ConnectRing({ shape }: { shape: "circle" | "box" | "host" }) {
+  const edit = useEdit();
+  if (!edit || edit.locked) return null;
+  // Two layers: the zone (on top, hollowed by its clip-path so the icon under its middle stays the
+  // move zone) takes the press; the dashed ring and its dots under it are drawn only.
+  return (
+    <>
+      <span className={`cv-connect-ring cv-connect-${shape}`} aria-hidden="true">
+        <i className="cv-connect-dot top" />
+        <i className="cv-connect-dot right" />
+        <i className="cv-connect-dot bottom" />
+        <i className="cv-connect-dot left" />
+      </span>
+      <span className={`cv-connect-zone cv-connect-${shape} nodrag`} data-connect-zone="ring" data-testid="connect-ring" title="drag to connect" />
     </>
   );
 }
@@ -382,6 +400,7 @@ export function HostNode(p: P) {
       onDragOver={edit && !edit.locked && group ? (e) => { if (draggingMember && draggingMember.from !== d.nodeId) { e.preventDefault(); e.stopPropagation(); } } : undefined}
       onDrop={edit && !edit.locked && group ? (e) => { const m = draggingMember; if (!m || m.from === d.nodeId) return; draggingMember = null; e.preventDefault(); e.stopPropagation(); edit.onMoveMember(m.from, m.index, d.nodeId); } : undefined}
     >
+      <ConnectRing shape="host" />
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
         {sw ? <Icon.switch /> : <RoleIcon label={d.roleLabel} />}
       </span>
@@ -472,6 +491,7 @@ export function DeviceNode(p: P) {
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.ports.length ? `${d.ports.length} port${d.ports.length === 1 ? "" : "s"}` : `${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}`}</span>
       <span className="cv-icon-box" aria-hidden="true">
+        <ConnectRing shape={d.deviceKind === "switch" ? "box" : "circle"} />
         {d.deviceKind === "switch" ? <Icon.switch /> : <Icon.router />}
         <span className="cv-role-badge cv-device-badge" data-testid="device-badge">{d.badge}</span>
         {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: not attached to a switch or router; a Check reports it">not attached</span> : null}
@@ -574,6 +594,7 @@ export function RouterNode(p: P) {
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
       <span className="cv-icon-box" aria-hidden="true">
+        <ConnectRing shape="circle" />
         <Icon.router />
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
@@ -760,6 +781,21 @@ function useTreeRoute(e: E): Point[] | null {
   return Math.abs(a.x - ra.x) < 0.5 && Math.abs(a.y - ra.y) < 0.5 && Math.abs(b.x - rb.x) < 0.5 && Math.abs(b.y - rb.y) < 0.5 ? route.points : null;
 }
 
+/** A free-layout edge's two ends (`canvas/free.ts`): centre to centre between the two icons, clipped
+ *  at each outline, in canonical order (the smaller node id's end first) so the line is the same
+ *  whichever way it was dragged; read from the live nodes, so it follows a drag. Null off the free layout. */
+function useFreeEnds(e: E): { p: Point; q: Point; flipped: boolean } | null {
+  const free = Boolean((e.data as { free?: boolean } | undefined)?.free);
+  const src = useInternalNode(e.source);
+  const dst = useInternalNode(e.target);
+  if (!free || !src || !dst) return null;
+  const icon = (n: NonNullable<typeof src>) =>
+    iconOf({ type: n.type, kind: (n.data as { kind?: string }).kind, x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured?.width ?? n.width ?? 0, h: n.measured?.height ?? n.height ?? 0 });
+  return canonicalEnds(e.source, e.target, icon(src), icon(dst));
+}
+
+const straight = (p: Point, q: Point) => `M ${p.x} ${p.y} L ${q.x} ${q.y}`;
+
 /** The radius of the port dot where a drop meets its bus. */
 export const PORT_DOT = 3.5;
 
@@ -781,14 +817,15 @@ export function LegEdge(e: E) {
   const kind = e.data?.kind;
   const tree = useTreeRoute(e);
   const routed = tree;
-  // The free layout (B2): point to point, a straight line between the two handles.
-  const free = Boolean((e.data as { free?: boolean } | undefined)?.free);
+  // The free layout (B2): icon centre to icon centre, clipped at both outlines (`canvas/free.ts`).
+  const fe = useFreeEnds(e);
   // No route (an end was dragged): an orthogonal smoothstep between the handles, never a diagonal through a box.
-  const step = routed ? null : free ? getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY }) : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
-  const pts: Point[] = routed ?? [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }];
+  const step = routed || fe ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const pts: Point[] = routed ?? (fe ? (fe.flipped ? [fe.q, fe.p] : [fe.p, fe.q]) : [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }]);
   // A router's leg labels its own drop into the target; every other edge its route's middle.
   const mid = src?.type === "router" ? dropPoint(pts) : midOf(pts);
-  const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : [step![0], step![1], step![2]];
+  const freeMid = fe ? alongLine(fe.p, fe.q, { t: 0.5, off: 0 }) : null;
+  const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : fe ? [straight(fe.p, fe.q), freeMid!.x, freeMid!.y] : [step![0], step![1], step![2]];
   const folded = kind === "leg" || kind === "stub" ? ((e.data as { folded?: number }).folded ?? 0) : 0;
   const parts = folded || (kind !== "leg" && kind !== "stub") ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
@@ -805,7 +842,7 @@ export function LegEdge(e: E) {
   // A real switch's first access edge of each segment keeps its VLAN label on (§7.1 rule 1).
   const vlan = kind === "leg" ? (e.data as { vlan?: string }).vlan : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} data-vlan={vlan} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
+    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} data-free={fe ? "true" : undefined} data-vlan={vlan} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
       <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${cls}`} style={hue ? { ...e.style, stroke: hue } : e.style} label={vlan && !e.selected ? vlan : label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
       {dot ? <circle className={`cv-port${kind === "stub" ? " cv-port-stub" : ""}`} cx={end.x} cy={end.y} r={PORT_DOT} style={hue ? { fill: hue, stroke: hue } : undefined} data-testid="port-dot" /> : null}
     </g>
@@ -826,17 +863,19 @@ export function TrunkEdge(e: E) {
 export function LinkEdge(e: E) {
   const overlay = useContext(OverlayContext);
   const routed = useTreeRoute(e);
+  const fe = useFreeEnds(e);
   const d = e.data;
   if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
   // A transit segment's pill sits on its own drop into the child router; a link labels its middle.
   const mid = routed ? (d.kind === "seglink" ? dropPoint(routed) : midOf(routed)) : null;
-  const free = Boolean((d as { free?: boolean }).free);
-  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : free ? getStraightPath({ sourceX: e.sourceX, sourceY: e.sourceY, targetX: e.targetX, targetY: e.targetY }) : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  // The free layout: icon to icon, the pill on its own line where `freeLayout` found it room.
+  const pillAt = fe ? alongLine(fe.p, fe.q, ((d as { pill?: PillAt }).pill ?? { t: 0.5, off: 0 })) : null;
+  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : fe && pillAt ? [straight(fe.p, fe.q), pillAt.x, pillAt.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   if (d.kind === "seglink") {
     // A segment only routers are on (a transit, fab-link): one thick router-to-router wire, its
     // segment a pill (name · CIDR) on the drop into the child router.
     return (
-      <g data-testid="canvas-seglink" data-segment={d.segment} data-source={d.source ?? undefined} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+      <g data-testid="canvas-seglink" data-segment={d.segment} data-path={fe ? path : undefined} data-source={d.source ?? undefined} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
         {/* C1: the pill (name · CIDR) shows at every Labels setting; C2: unconfirmed under the overlay is a "?" on it, never a dash. */}
         <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={`${overlay && d.source === "unconfirmed" ? "? " : ""}${d.cidr ? `${d.segment} · ${d.cidr}` : d.segment}`} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
         <EdgeFindingBadge k={`segment:${d.segment}`} x={labelX} y={labelY - 14} />

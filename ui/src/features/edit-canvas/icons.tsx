@@ -141,6 +141,14 @@ export const Icon = {
       <path d="M8 3v10M3 8h10" />
     </Svg>
   ),
+  /** The rail's Connect tool: two nodes and the wire a drag draws between them. */
+  connect: () => (
+    <Svg>
+      <circle cx="3.5" cy="12.5" r="2" />
+      <circle cx="12.5" cy="3.5" r="2" />
+      <path d="M5 11l6-6" strokeDasharray="2 1.5" />
+    </Svg>
+  ),
   attach: () => (
     <Svg>
       <circle cx="4" cy="4" r="2" />

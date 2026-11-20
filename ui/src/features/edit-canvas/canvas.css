@@ -24,7 +24,7 @@
   --float-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
 }
 .canvas-shell .react-flow { background: var(--bg); }
-.canvas-shell .react-flow__handle { opacity: 0; width: 6px; height: 6px; min-width: 0; min-height: 0; pointer-events: none; }
+.canvas-shell .react-flow__handle { opacity: 0; width: 6px; height: 6px; min-width: 0; min-height: 0; pointer-events: none !important; }
 
 /* ---- the floating chrome (SPEC.md "Shell and chrome"): one translucent
    treatment for the rail, its popovers, the inspector, the strip, the
@@ -205,6 +205,9 @@
 .cv-wan-badge { position: absolute; top: -7px; right: -7px; width: 15px; height: 15px; border-radius: 50%; background: var(--panel); border: 1px solid var(--muted); display: inline-flex; align-items: center; justify-content: center; color: var(--ink); }
 .cv-wan-badge svg { width: 9px; height: 9px; }
 .cv-icon-sub { font-size: 11px; white-space: nowrap; }
+/* A device's name and sub line wear a halo of the canvas colour, so an edge that passes under them
+   (the free layout draws its edges under the nodes) never runs across their text. */
+.cv-router .cv-icon-name, .cv-router .cv-icon-sub { background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 3px; padding: 0 3px; }
 .cv-router.selected .cv-icon-box, .cv-router.cv-armed .cv-icon-box { box-shadow: 0 0 0 2px var(--accent); }
 .canvas-shell.compact .cv-router .cv-icon-sub { display: none; }
 .cv-overflow { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; border: 1px dashed var(--muted); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 12.5px; cursor: pointer; }
@@ -359,18 +362,6 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-strip .cv-dismiss { float: right; margin-left: 8px; padding: 0 5px; border: none; background: none; color: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
 
 .cv-edit-tools { gap: 6px; }
-/* Edit mode: the handles work (a host's bottom dot drags a leg onto a
-   segment's top bar) but show only where they matter -- on hover, while the
-   attach gesture is armed, or on a segment that is a target -- so a hundred
-   chips do not wear a hundred blue dots. */
-.canvas-shell.editing .react-flow__handle { opacity: 0; pointer-events: all; background: var(--accent); transition: opacity 0.12s ease; }
-.canvas-shell.editing .cv-host:hover .react-flow__handle-bottom, .canvas-shell.editing .cv-router:hover .react-flow__handle-bottom, .canvas-shell.editing .cv-host.selected .react-flow__handle-bottom, .canvas-shell.editing.attaching .cv-host .react-flow__handle-bottom, .canvas-shell.editing.attaching .cv-router .react-flow__handle-bottom { opacity: 1; }
-/* A bus's target handle is a dot on its line until a handle drag is in flight (the
-   shell's `connecting`): then it is the whole lane, so the connection dropped anywhere
-   on the lane lands. Otherwise it takes no pointer events, so the lane itself drags. */
-.canvas-shell.editing .cv-segment .react-flow__handle-top { top: auto; bottom: -3px; left: 50%; pointer-events: none; }
-.canvas-shell.editing.connecting .cv-segment .react-flow__handle-top { width: 100%; height: 100%; border-radius: 6px; left: 0; top: 0; bottom: auto; transform: none; pointer-events: all; opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.canvas-shell.editing .cv-segment.cv-target .react-flow__handle-top { opacity: 1; }
 .cv-segment.cv-target { border-radius: 6px; box-shadow: 0 0 0 2px var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .cv-host.cv-armed { box-shadow: 0 0 0 2px var(--accent); }
 .react-flow__edge-path.cv-leg.selected, g.selected .react-flow__edge-path.cv-leg { stroke: var(--accent); stroke-width: 2.5; }
@@ -521,13 +512,29 @@ g.cv-conduit.selected .react-flow__edge-path.cv-arc-conduit { stroke: var(--acce
 g.cv-conduit .react-flow__edge-text { font-size: 10px; }
 g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
 
-/* Connect by dragging (B1): every router, switch and host shows its handle on hover; while a drag is
-   in flight, every router / switch / implied switch is a drop target (its whole box), lit under the pointer. */
-.canvas-shell.editing .cv-device:hover .react-flow__handle-bottom { opacity: 1; }
-.canvas-shell.editing.connecting .cv-implied .react-flow__handle-top,
-.canvas-shell.editing.connecting .cv-router:not(.cv-implied) .react-flow__handle-bottom.source:not(.connectingfrom) { width: 100%; height: 100%; border-radius: 6px; left: 0; top: 0; bottom: auto; transform: none; pointer-events: all; opacity: 1; background: transparent; border: none; }
-.canvas-shell.editing.connecting .react-flow__handle.connectingto { background: color-mix(in srgb, var(--accent) 18%, transparent); outline: 2px solid var(--accent); }
-.canvas-shell.editing.connecting .react-flow__handle.connectingto:not(.valid) { outline-color: var(--bad); }
+/* Connect by dragging (2026-11-20, round 2). The handles only anchor edges; the gesture starts on a
+   connect zone: a router's or switch's ring around its icon (the icon itself is the move zone) and a
+   host's ring, each showing its four dots on hover ("drag to connect"); with the Connect tool on, a
+   press anywhere on a device starts it. The device under the pointer is lit while a drag is in flight. */
+.cv-connect-ring, .cv-connect-zone { position: absolute; inset: -8px; border-radius: 50%; box-sizing: border-box; }
+.cv-connect-ring { border: 1.5px dashed transparent; pointer-events: none; }
+.cv-connect-ring.cv-connect-box, .cv-connect-zone.cv-connect-box { border-radius: 13px; }
+.cv-connect-ring.cv-connect-host, .cv-connect-zone.cv-connect-host { inset: -7px; }
+/* The zone takes the press only on the ring: hollowed (even-odd) to the icon's own outline. */
+.cv-connect-zone { z-index: 3; cursor: crosshair; }
+.cv-connect-zone.cv-connect-circle { clip-path: path(evenodd, "M25 0A25 25 0 1 1 25 50A25 25 0 1 1 25 0ZM25 8A17 17 0 1 0 25 42A17 17 0 1 0 25 8Z"); }
+.cv-connect-zone.cv-connect-box { clip-path: path(evenodd, "M13 0H37A13 13 0 0 1 50 13V37A13 13 0 0 1 37 50H13A13 13 0 0 1 0 37V13A13 13 0 0 1 13 0ZM16 8H34A8 8 0 0 1 42 16V34A8 8 0 0 1 34 42H16A8 8 0 0 1 8 34V16A8 8 0 0 1 16 8Z"); }
+.cv-connect-zone.cv-connect-host { clip-path: path(evenodd, "M22 0A22 22 0 1 1 22 44A22 22 0 1 1 22 0ZM22 7A15 15 0 1 0 22 37A15 15 0 1 0 22 7Z"); }
+.cv-connect-dot { position: absolute; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); border: 1.5px solid var(--panel); box-sizing: border-box; opacity: 0; transform: translate(-50%, -50%); transition: opacity 0.12s ease; pointer-events: none; }
+.cv-connect-dot.top { left: 50%; top: 0; }
+.cv-connect-dot.right { left: 100%; top: 50%; }
+.cv-connect-dot.bottom { left: 50%; top: 100%; }
+.cv-connect-dot.left { left: 0; top: 50%; }
+.canvas-shell.editing .react-flow__node:hover .cv-connect-ring { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.canvas-shell.editing .react-flow__node:hover .cv-connect-dot, .canvas-shell.connect-tool .cv-connect-dot { opacity: 1; }
+.canvas-shell.editing .cv-router .cv-icon-box, .canvas-shell.editing .cv-host { cursor: move; }
+.canvas-shell.editing.connect-tool .react-flow__node, .canvas-shell.editing.connect-tool .react-flow__node * { cursor: crosshair; }
+.canvas-shell.connecting .react-flow__node.cv-wire-over .cv-icon-box, .canvas-shell.connecting .react-flow__node.cv-wire-over .cv-host { box-shadow: 0 0 0 3px var(--accent); }
 .cv-connect-hint.refused { color: var(--bad); }
 /* Save as template (docs/design/canvas-add-panel.md §5.3). */
 .cv-save-template { max-width: 640px; max-height: 85vh; overflow: auto; }
