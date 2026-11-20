@@ -40,5 +40,25 @@ so it can stand beside this twin on the same sensor).
 | client drive | command | scripted (filler bytes) | command (dig/curl/smbclient/ping) |
 | DNS / HTTP / HTTPS / SMB / ICMP per client per min | 96 / 12 / 12 / 4 / 8 nominal (≈70 / 9 / 9 / 3.4 / 6.4 observed) | 0.2 each, no HTTPS rate, no ICMP | 80 / 10 / 10 / 3.6 / 7.1 |
 
+The cast deployed live beside this twin as `pace-cast-r73-7b02f2b7` (119 ops ok), tapped on its
+server segment, running its own synthesized personas (dig/curl/smbclient/ping, 0 fails; SMB
+through the cast's Samba recipe). Re-discovered, its imprint has the same hosts, roles and listen
+sets as this twin's (4 generic-endpoint; dns-resolver 53/udp, web-tier 80+443, file-server 445).
+
+**The driver fix and the fixed point.** Both twins in one hour before the persona-client cadence
+fix (22:00–23:00 UTC): cast/original flows 0.87–0.92 on every client protocol, because both
+clients under-delivered their declared cadence (this twin 96 → ~76 DNS/min). After the fix
+(re-applied 23:01, read 23:00–24:00), per client per hour:
+
+| | DNS | HTTP | HTTPS | ICMP | SMB |
+|---|---|---|---|---|---|
+| this twin, declared / seen | 5,760 / 5,743 | 720 / 719 | 720 / 719 | 480 / 481 | 240 / 240 |
+| cast, declared / seen | 4,800 / 4,789 | 600 / 598 | 600 / 600 | 424 / 424 | 218 / 219 |
+
+Each twin now delivers its declared rate within 0.5%. The cast's declared rates are this twin's
+PRE-fix observed rates; re-casting the post-fix hour (this twin's slice) yields `dns cyclic:5s
+med, http/https cyclic:10s low, smb cyclic:30s low, icmp cyclic:15s low` -- exactly
+`personas/pace-client.yaml`. Twin → capture → imprint → cast is a fixed point.
+
 Remaining, by design: 53/tcp is not declared (never observed); the cast's tap plan binds every
 segment, where this twin taps only `srv`; the sink stands in for the servers' real internet egress.
