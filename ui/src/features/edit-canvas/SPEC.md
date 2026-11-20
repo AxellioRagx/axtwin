@@ -209,8 +209,8 @@ criteria of its own beyond them.
     the top menu) leaves it; letting an untitled design go drops its browser copy.
     The browser's Back is not guarded (no data router).
 - **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
-  router get distinct lane y's and exit x's; the hosts of one switch (real or implied) share a
-  lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge
+  router get distinct lane y's and exit x's; the hosts and role bands of one switch (real or
+  implied) share a lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge
   lanes by its source.
 - **Live (eyes), tier-cast:** gw's four legs render as four separate paths; no two legs share a
   horizontal or a vertical; each segment label sits on its own leg.
@@ -688,11 +688,11 @@ one its `confidence`.
    gutter between two ranks, into its target from above; no edge crosses a
    box. Each lane has its own y in a gutter, and the lane is the **segment**
    (`laneOf`, `seg:<name>`) for every edge of one segment -- a router's leg, a
-   seglink, a switch's access edge -- so a router's legs are separate lines
-   and a switch's hosts on one segment share one (a switch of several
-   segments: one line per segment). An edge of no single segment (a bridge's
-   `via`, a fold, a host fold, a role band, a link, a stub) lanes by its
-   source. A **router's edges leave spread across the lower arc of its ring**,
+   seglink, a switch's access edge to a host or to a role band -- so a
+   router's legs are separate lines and a switch's hosts and role bands on
+   one segment share one (a switch of several segments: one line per
+   segment). An edge of no single segment (a bridge's `via`, a fold, a host
+   fold, a link, a stub) lanes by its source. A **router's edges leave spread across the lower arc of its ring**,
    left to right in their targets' order (`ROUTER_EXIT_STEP`, inside the
    ring), so no two legs share a vertical; one source's lanes nest (the
    farthest-going on top) so a fan never crosses itself. A **transit** (a

@@ -1147,12 +1147,16 @@ export const ROUTER_EXIT_STEP = 10;
 const ROUTER_EXIT_INSET = 4;
 
 /** The lane an edge runs in (`orthogonal.ts`): an edge of ONE segment -- a router's leg, a seglink,
- *  a switch's access edge to a host -- lanes by that segment, so a router's legs are separate lines
- *  and a switch's hosts on one segment share one; an edge of no single segment (a bridge's "via",
- *  a fold, a host fold, a role band, a link, a stub) lanes by its source, as before. */
-export function laneOf(e: Pick<CanvasEdge, "source" | "data">): string {
+ *  a switch's access edge to a host or to a role band of that segment's hosts -- lanes by that
+ *  segment, so a router's legs are separate lines and a switch's hosts and role bands on one segment
+ *  share one; an edge of no single segment (a bridge's "via", a fold, a host fold, a link, a stub)
+ *  lanes by its source, as before. */
+export function laneOf(e: Pick<CanvasEdge, "id" | "source" | "data">): string {
   const d = e.data;
   if (d?.kind === "seglink" || (d?.kind === "leg" && d.segment)) return `seg:${d.segment}`;
+  // A role band's edge (`rungs:`) is a `carry` whose segment is the band's segment; a fold's carry
+  // names its target there instead, so only the band's id says it is one segment's.
+  if (d?.kind === "carry" && e.id.startsWith("rungs:") && d.segment) return `seg:${d.segment}`;
   return e.source;
 }
 

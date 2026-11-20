@@ -360,6 +360,21 @@ describe("lanes by segment, spread router exits (tier-cast, 2026-11-20)", () => 
     expect([...bySeg.values()].map((s) => s.size)).toEqual([1, 1]);
     expect([...bySeg.get("lan-a")!][0]).not.toBe([...bySeg.get("lan-b")!][0]);
   });
+  it("a switch's role band shares its segment's lane with the hosts beside it", () => {
+    // 16 workstations collapse into one role band (over 15 chips); two servers stay host icons.
+    const ws = Array.from({ length: 16 }, (_, h) => `    - { name: ws${h}, role: workstation, image: img@v1, net: lan }`).join("\n");
+    const te = `twin_config:\n  id: bands\n  segments:\n    - { name: lan, cidr: 10.1.0.0/24 }\n  nodes:\n${ws}\n    - { name: srv1, role: file-server, image: img@v1, net: lan }\n    - { name: srv2, role: file-server, image: img@v1, net: lan }\n    - { name: gw, kind: router, image: vyos@v1, net: lan }\n`;
+    const p = placed("bands", te);
+    expect(crossings(p)).toEqual([]);
+    const sw = ID.segment("lan");
+    const band = p.edges.find((e) => e.source === sw && e.id.startsWith("rungs:"))!;
+    expect(band.data).toMatchObject({ kind: "carry", segment: "lan" });
+    expect(laneOf(band)).toBe("seg:lan");
+    const hosts = p.edges.filter((e) => e.source === sw && e.data?.kind === "leg");
+    expect(hosts.length).toBeGreaterThan(0);
+    const ys = new Set([band, ...hosts].flatMap((e) => horizontals(e.data!.route!.points)));
+    expect(ys.size).toBe(1);
+  });
   it("a seglink's pill sits on the child router's vertical drop, not on a horizontal any edge runs along", () => {
     const p = placed("tier", TIER);
     const boxes = absoluteBoxes(p.nodes);
