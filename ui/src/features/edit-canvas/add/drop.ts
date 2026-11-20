@@ -40,7 +40,7 @@ export interface DeviceDrop {
   persona: string | null;
   /** N instances, written as the group's `count:` (§4); 1 writes none. */
   count: number;
-  /** The group's name: `{prefix}`, else `{prefix}-{n}` when taken. */
+  /** The group's name: `{prefix}-{n}`, the first free n from 1 (`router-1`, `router-2`, …). */
   prefix: string;
   target: DropTarget;
   /** The image (the profile's, or Advanced's override); null writes `image: ""` (none resolved). */
@@ -71,20 +71,23 @@ export interface DropResult {
 export const INTERNET_SEGMENT = "internet";
 export const INTERNET_PREFIX = "10.250";
 
-function nextSegmentName(m: DocModel): string {
+/** The name of a segment a drop makes (2026-11-20, round 2): `<base>-lan` -- the first host's role,
+ *  else the card (`file-server-lan`, `server-lan`, `switch-lan`) -- `-2`, `-3` when taken. */
+export function dropSegmentName(m: Pick<DocModel, "te">, base: string): string {
   const taken = new Set(m.te.segments.map((s) => s.name));
-  let n = m.te.segments.length + 1;
-  while (taken.has(`segment-${n}`)) n++;
-  return `segment-${n}`;
+  const stem = `${base}-lan`;
+  let name = stem;
+  for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
+  return name;
 }
 
 /** A new LAN segment in the twin's first site (the next free /24 after the highest in use), else 10.200. */
-function newLan(doc: WorkingDoc, m: DocModel): { doc: WorkingDoc; segment: string } {
+function newLan(doc: WorkingDoc, m: DocModel, base: string): { doc: WorkingDoc; segment: string } {
   const inPlay = m.te.segments.map((s) => s.cidr);
   const prefix = (m.te.segments.find((s) => s.name !== INTERNET_SEGMENT) ? twoOctetPrefix(m.te.segments.find((s) => s.name !== INTERNET_SEGMENT)!.cidr) : null) ?? "10.200";
   const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
   if (!cidr) throw new Error(`no free /24 under ${prefix} for a new segment`);
-  const segment = nextSegmentName(m);
+  const segment = dropSegmentName(m, base);
   return { doc: { ...doc, files: addSegment(doc, { name: segment, cidr, zoneType: "vlan" }) }, segment };
 }
 
@@ -100,18 +103,18 @@ export function ensureInternet(doc: WorkingDoc, m: DocModel, sinkImage: string |
 }
 
 /** The segment a host or switch drop lands on: the one dropped on, a new one under the router, or a new LAN. */
-function landing(doc: WorkingDoc, m: DocModel, target: DropTarget): { doc: WorkingDoc; segment: string } {
+function landing(doc: WorkingDoc, m: DocModel, target: DropTarget, base: string): { doc: WorkingDoc; segment: string } {
   if ("segment" in target) return { doc, segment: target.segment };
   if ("router" in target) {
-    const made = newSegmentOnRouter(doc, m, target.router);
+    const made = newSegmentOnRouter(doc, m, target.router, dropSegmentName(m, base));
     return { doc: { ...doc, files: made.files }, segment: made.segment };
   }
-  return newLan(doc, m);
+  return newLan(doc, m, base);
 }
 
 function placeHostGroup(doc: WorkingDoc, req: { prefix: string; count: number; image: string | null; role: string | null; persona: string | null; segment: string; ip?: string | null; intensity?: number | null; schedule?: string | null }): { doc: WorkingDoc; name: string } {
   const m = readDoc(doc);
-  const r = placeNodes(doc, m, { name: req.prefix, count: 1, image: req.image ?? "", role: req.role, kind: "host", segment: req.segment, fanOut: req.count > 1 ? req.count : undefined });
+  const r = placeNodes(doc, m, { name: req.prefix, count: 1, image: req.image ?? "", role: req.role, kind: "host", segment: req.segment, fanOut: req.count > 1 ? req.count : undefined, numbered: true });
   let cur: WorkingDoc = { ...doc, files: r.files };
   const name = r.names[0]!;
   if (req.ip && req.count <= 1) cur = { ...cur, files: setAttachmentAddress(cur, readDoc(cur), name, req.segment, req.ip) };
@@ -131,7 +134,7 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
   let segment: string | null = null;
   if (spec.card === "router") {
     const seg = "segment" in spec.target ? spec.target.segment : null;
-    const r = placeNodes(cur, model, { name: spec.prefix, count: 1, image: spec.image ?? "", role: spec.routerType === "firewall" ? "firewall" : "gw", kind: "router", segment: seg });
+    const r = placeNodes(cur, model, { name: spec.prefix, count: 1, image: spec.image ?? "", role: spec.routerType === "firewall" ? "firewall" : "gw", kind: "router", segment: seg, numbered: true });
     cur = { ...cur, files: r.files };
     const name = r.names[0]!;
     names.push(name);
@@ -151,13 +154,13 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
       names.push(out.name);
       segment = spec.target.segment;
     } else {
-      const land = landing(cur, model, spec.target);
+      const land = landing(cur, model, spec.target, spec.card);
       cur = land.doc;
       segment = land.segment;
       const m = readDoc(cur);
       const taken = new Set(m.te.nodes.map((n) => n.name));
-      let name = spec.prefix;
-      for (let i = 1; taken.has(name); i++) name = `${spec.prefix}-${i}`;
+      let name = `${spec.prefix}-1`;
+      for (let i = 2; taken.has(name); i++) name = `${spec.prefix}-${i}`;
       const text = cur.files[cur.teFile];
       if (text === undefined) throw new Error(`the document has no '${cur.teFile}' to edit`);
       cur = { ...cur, files: { ...cur.files, [cur.teFile]: addNode(text, { name, kind: "switch", role: "l2-switch", image: "", nets: [{ segment, ip: null }] }) } };
@@ -167,7 +170,7 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
     return { files: cur.files, names, segment };
   }
   // A host: server, workstation or OT device.
-  const land = landing(cur, model, spec.target);
+  const land = landing(cur, model, spec.target, spec.role ?? spec.card);
   cur = land.doc;
   segment = land.segment;
   const placed = placeHostGroup(cur, { prefix: spec.prefix, count: spec.count, image: spec.image, role: spec.role, persona: spec.persona, segment, ip: spec.ip ?? null, intensity: spec.intensity ?? null, schedule: spec.schedule ?? null });

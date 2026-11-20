@@ -71,7 +71,7 @@ import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
-import { applyIntent, wirePairs, wireRouters, type WireShape } from "./edit/connect";
+import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePairs, wireRouters, type WireShape } from "./edit/connect";
 import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
@@ -403,6 +403,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   );
   const personas = personaLoad.data?.personas ?? [];
   const imageProfiles = profileLoad.data?.profiles ?? [];
+  // The image OSPF needs (the `router-ospf` profile), or null when the profiles name none.
+  const ospfImage = imageFor(imageProfiles, OSPF_PROFILE);
   const templates = useMemo(() => templateLoad.data?.templates ?? [], [templateLoad.data]);
   const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
@@ -482,7 +484,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   }, [docModel]);
   /** An Add-panel drop waiting on its popover (docs/design/canvas-add-panel.md §4.1): nothing is written until it closes. */
   /** Save as template (§5.3): the proposal for the selection, while its dialog is open. */
-  const [saveTpl, setSaveTpl] = useState<{ proposal: Proposal; stripped: string[]; busy: boolean; error: string | null } | null>(null);
+  const [saveTpl, setSaveTpl] = useState<{ proposal: Proposal; bare: Proposal | null; stripped: string[]; bareStripped: string[]; busy: boolean; error: string | null } | null>(null);
   /** The devices the canvas selects once drawn: a template's open ports after its drop (§5.2). */
   const [highlight, setHighlight] = useState<{ names: string[]; n: number } | null>(null);
   /** A template drop waiting on its settings form (§5.2). */
@@ -506,7 +508,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [draftOpen, setDraftOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   // B3: the bulk-wiring dialog (2+ routers, a shape, OSPF on the new transits or not).
-  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number } | null>(null);
+  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number; switchImage: boolean } | null>(null);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -1413,7 +1415,9 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     if (layout.error) out.push(`positions are not saved for this twin: ${errorText(layout.error)}`);
     else if (draft.doc && draft.doc.exists && draft.doc.plane !== CANVAS_PLANE) out.push(`the saved positions were drawn on another plane (${draft.doc.plane ?? "unstamped"}) and are not applied; the next Save layout saves on this one`);
     if (built?.kind === "authored") out.push("authored twin: no observed evidence, no traffic to overlay");
-    if (built?.kind === "design") out.push(untitled ? "design view: an untitled design, kept in this browser until its first Save" : isDraft ? `design view: a draft${data?.draftRow?.origin ? ` of ${data.draftRow.origin}` : ""} (never deployed; its layout is kept in this browser)` : deployed ? "design view: the working copy (edits stay in this browser until Apply or Persist)" : "design view: the twin config");
+    // An untitled design's state is on its pill ("untitled design · not saved yet") and in the layout
+    // bar: it is not a note, so a brand-new design's Notes tab counts none (2026-11-20, round 2).
+    if (built?.kind === "design" && !untitled) out.push(isDraft ? `design view: a draft${data?.draftRow?.origin ? ` of ${data.draftRow.origin}` : ""} (never deployed; its layout is kept in this browser)` : deployed ? "design view: the working copy (edits stay in this browser until Apply or Persist)" : "design view: the twin config");
     if (built && built.graph.castOmits.length) out.push(`the cast did not publish: ${built.graph.castOmits.join(", ")}`);
     if (data && !designAvailable) out.push(whoami.can_write ? "read-only: the catalog serves no document for this twin" : "read-only: the API serves this twin's document only to a caller that may write; sign in to edit it");
     if (placement?.unplaced) out.push(`${placement.unplaced} local entit${placement.unplaced === 1 ? "y" : "ies"} in no segment: observed on this network but bound to no subnet the cast could place`);
@@ -1474,7 +1478,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         if (intent.kind === "lan" && at) onPin(`segment:${intent.cidr}`, at);
         if (intent.kind === "transit" || intent.kind === "lan") setSelection({ kind: "segment", names: [intent.name] });
       },
-      onWireRouters: (routers) => setWireDialog({ routers, shape: "chain", ospf: false, area: 0 }),
+      onWireRouters: (routers) => setWireDialog({ routers, shape: "chain", ospf: false, area: 0, switchImage: true }),
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
@@ -1495,8 +1499,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       onAnnotations: setAnnotations,
       highlight,
       onSaveTemplate: () => {
-        const proposal = proposeTemplate(model, selectionRef.current);
-        setSaveTpl({ proposal, stripped: carriedBindings(model, proposal.set.hosts, personas).stripped, busy: false, error: null });
+        // With what hangs under the selected devices (the default), and the bare selection the dialog's option falls back to.
+        const proposal = proposeTemplate(model, selectionRef.current, { under: true });
+        const bare = proposal.under ? proposeTemplate(model, selectionRef.current, { under: false }) : null;
+        setSaveTpl({ proposal, bare, stripped: carriedBindings(model, proposal.set.hosts, personas).stripped, bareStripped: bare ? carriedBindings(model, bare.set.hosts, personas).stripped : [], busy: false, error: null });
       },
     };
   }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas]);
@@ -1836,12 +1842,14 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       {saveTpl && model ? (
         <SaveTemplateDialog
           proposal={saveTpl.proposal}
+          bare={saveTpl.bare}
           strippedBindings={saveTpl.stripped}
+          bareStripped={saveTpl.bareStripped}
           busy={saveTpl.busy}
           error={saveTpl.error}
           onClose={() => setSaveTpl(null)}
-          onSave={(choices) => {
-            const tpl = buildTemplate(model, saveTpl.proposal, choices, personas, { ...settled.current, ...pinsRef.current }, templates.map((t) => t.id));
+          onSave={(choices, used) => {
+            const tpl = buildTemplate(model, used, choices, personas, { ...settled.current, ...pinsRef.current }, templates.map((t) => t.id));
             setSaveTpl((s) => (s ? { ...s, busy: true, error: null } : s));
             api.createTemplate(tpl).then(
               (saved) => {
@@ -1871,15 +1879,16 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               const w = wireDialog;
               let made: string[] = [];
               let skipped: string[] = [];
+              const switchTo = w.ospf && w.switchImage && ospfImage && model ? { to: ospfImage, routers: ospfImageGaps(model.te, w.routers, ospfImage).map((g) => g.router) } : null;
               const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape}`, (d, m) => {
-                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null });
+                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null });
                 made = r.made;
                 skipped = r.skipped;
                 return r.files;
               });
               if (reason) return;
               setWireDialog(null);
-              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf ? ` (ospf_area ${w.area})` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
+              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf ? ` (ospf_area ${w.area})` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
             }}
           >
             <h2 style={{ marginTop: 0 }}>Connect {wireDialog.routers.length} routers</h2>
@@ -1897,7 +1906,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               <input type="checkbox" checked={wireDialog.ospf} onChange={(e) => setWireDialog({ ...wireDialog, ospf: e.target.checked })} />
               run OSPF on these links (<span className="mono">ospf_area</span> on each new transit)
             </label>
-            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note"><span className="mono">ospf_area</span> sets each transit leg's OSPF area; OSPF comes up only on a VyOS router with a <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>, which this does not write.</p> : null}
+            {wireDialog.ospf ? <OspfImageCheck te={model?.te ?? null} routers={wireDialog.routers} ospfImage={ospfImage} on={wireDialog.switchImage} onChange={(on) => setWireDialog({ ...wireDialog, switchImage: on })} /> : null}
+            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Not written here: each router&apos;s <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>; without them OSPF does not come up.</p> : null}
             {wireDialog.ospf ? (
               <div className="field">
                 <label htmlFor="wire-area">Area</label>
@@ -1961,7 +1971,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           </div>
         ) : null}
         {editProps && emptyReason ? (
-          <p className="notice" role="status" data-testid="empty-reason">
+          <p className="notice info" role="status" data-testid="empty-reason">
             {emptyReason}
           </p>
         ) : null}
@@ -2154,5 +2164,29 @@ function MatrixTable({ matrix }: { matrix: ReturnType<typeof matrix0> }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** The wiring dialog's OSPF image check (2026-11-20, round 2): each selected router not on the
+ *  OSPF-capable image (the `router-ospf` profile) gets a line, and one checkbox (on by default)
+ *  switches them to it in the same edit. */
+function OspfImageCheck({ te, routers, ospfImage, on, onChange }: { te: DocModel["te"] | null; routers: readonly string[]; ospfImage: string | null; on: boolean; onChange(on: boolean): void }) {
+  if (!ospfImage) return <p className="hint" data-testid="ospf-image">No <span className="mono">{OSPF_PROFILE}</span> image profile: OSPF needs a VyOS router, and the profiles name no image for one.</p>;
+  const gaps = te ? ospfImageGaps(te, routers, ospfImage) : [];
+  if (!gaps.length) return null;
+  return (
+    <div className="field" data-testid="ospf-image">
+      <ul className="hint">
+        {gaps.map((g) => (
+          <li key={g.router} data-testid="ospf-image-gap">
+            {g.router} runs {g.image}; OSPF needs {ospfImage} (as datacenter&apos;s fabric)
+          </li>
+        ))}
+      </ul>
+      <label className="cv-check">
+        <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />
+        switch these routers to {ospfImage}
+      </label>
+    </div>
   );
 }

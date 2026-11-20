@@ -177,13 +177,16 @@ export interface PlaceRequest {
   resources?: Record<string, string | number> | null;
   /** A `count:` written on each copy (a template's fan-out), as opposed to N copies. */
   fanOut?: number | string;
+  /** Always `{name}-{n}`, the first free n from 1, even for a single copy (an Add-panel card's
+   *  drop: `router-1`, `router-2`, …, 2026-11-20 round 2); otherwise a single copy keeps `{name}` when free. */
+  numbered?: boolean;
 }
 
 /** Place `count` copies of a node template on a segment, each named
  *  `{name}-{n}` and pinned to the segment's next free address (C3.2). */
 export function placeNodes(doc: WorkingDoc, model: DocModel, req: PlaceRequest): { files: Files; names: string[] } {
   const taken = new Set(model.te.nodes.map((n) => n.name));
-  const names = copyNames(req.name, Math.max(1, req.count), taken);
+  const names = copyNames(req.name, Math.max(1, req.count), taken, req.numbered);
   let addresses: string[] = [];
   if (req.segment) {
     if (!model.te.segments.some((s) => s.name === req.segment)) throw new Error(`no segment named '${req.segment}'`);

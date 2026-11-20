@@ -536,6 +536,8 @@ g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
 .canvas-shell.editing.connect-tool .react-flow__node, .canvas-shell.editing.connect-tool .react-flow__node * { cursor: crosshair; }
 .canvas-shell.connecting .react-flow__node.cv-wire-over .cv-icon-box, .canvas-shell.connecting .react-flow__node.cv-wire-over .cv-host { box-shadow: 0 0 0 3px var(--accent); }
 .cv-connect-hint.refused { color: var(--bad); }
+/* The "Not carried" box selects its segments on a click. */
+.canvas-shell.editing .cv-uncarried { cursor: pointer; }
 /* Save as template (docs/design/canvas-add-panel.md §5.3). */
 .cv-save-template { max-width: 640px; max-height: 85vh; overflow: auto; }
 .cv-save-template h3 { margin: 14px 0 6px; font-size: 14px; }

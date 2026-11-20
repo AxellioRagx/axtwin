@@ -23,5 +23,9 @@ profiles:
   # The only Windows client image in the catalog (every Windows workstation).
   windows-client: { image: win11-finance@v4 }
   # What 17 of the catalog's 19 routers run (vyos@1.5 is datacenter's
-  # fabric only).
+  # fabric only). Stays the default for a dropped router.
   router:         { image: debian-12-cloud@v1 }
+  # The OSPF-capable router image (datacenter's fabric routers): the planner
+  # passes a transit's `ospf_area` to the VyOS leg config, so the canvas's
+  # "run OSPF on these links" offers to switch the wired routers to this.
+  router-ospf:    { image: vyos@1.5 }

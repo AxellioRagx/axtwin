@@ -7,6 +7,11 @@
  * observed addresses (pinned IPs, the CIDRs), provenance (`source`, `confidence`, `vantage`,
  * observations, evidence and every key the canvas does not model), taps (bound to sensors outside
  * any selection). A leg or link leaving the selection becomes a port. Pure.
+ *
+ * What hangs under the selection (2026-11-20, round 2): by default a selection of devices takes the
+ * segments its routers and switches carry, and the host groups on them, when nothing else that is not
+ * a host -- no unselected router, no unselected switch -- is on that segment (`under`). Unchecked in
+ * the dialog, it is the bare selection, and the switch's segment and its hosts become a port.
  */
 import type { Persona, Template, TemplateParam } from "../../../api/types";
 import type { DocModel } from "../edit/document";
@@ -46,6 +51,8 @@ export interface Proposal {
   stripped: { provenance: number; addresses: number; taps: number; bindings: string[]; conduits: number };
   /** Selected hosts with no segment inside the selection: left out of the template. */
   leftOut: string[];
+  /** What `under` added to the bare selection (segments, host groups); null when it was not asked for or added nothing. */
+  under: { segments: number; hosts: number } | null;
   set: { devices: string[]; segments: string[]; hosts: string[] };
 }
 
@@ -71,7 +78,7 @@ function dedupe(list: NameChoice[]): NameChoice[] {
 
 /** The selection's devices, segments and host groups. A segment is inside when every node with a leg
  *  on it and every switch carrying it is selected. */
-export function selectionSet(model: DocModel, sel: Selection): { devices: string[]; segments: string[]; hosts: string[]; leftOut: string[] } {
+export function selectionSet(model: DocModel, sel: Selection, opts: { under?: boolean } = {}): { devices: string[]; segments: string[]; hosts: string[]; leftOut: string[] } {
   const te = model.te;
   if (sel.kind === "subtree") {
     const t = subtreeOf(model, sel.root);
@@ -80,6 +87,7 @@ export function selectionSet(model: DocModel, sel: Selection): { devices: string
   let picked: string[] = [];
   if (sel.kind === "node") picked = sel.names.filter((n) => te.nodes.some((x) => x.name === n));
   else if (sel.kind === "segment") picked = te.nodes.filter((n) => !isDevice(n) && n.nets.length > 0 && n.nets.every((l) => sel.names.includes(l.segment))).map((n) => n.name);
+  if (opts.under && sel.kind === "node") picked = [...picked, ...hostsUnder(te, picked)];
   const inSel = new Set(picked);
   const segments = te.segments
     .map((s) => s.name)
@@ -91,6 +99,26 @@ export function selectionSet(model: DocModel, sel: Selection): { devices: string
   const hostsAll = picked.filter((n) => !devices.includes(n));
   const hosts = hostsAll.filter((n) => te.nodes.find((x) => x.name === n)!.nets.some((l) => segments.includes(l.segment)));
   return { devices, segments, hosts, leftOut: hostsAll.filter((n) => !hosts.includes(n)) };
+}
+
+/** The host groups under the selected devices: on a segment a selected router or switch carries,
+ *  where every node on it that is not a host is selected (no unselected router or switch joins it). */
+export function hostsUnder(te: TeModel, picked: readonly string[]): string[] {
+  const inSel = new Set(picked);
+  const carried = new Set<string>();
+  for (const name of picked) {
+    const n = te.nodes.find((x) => x.name === name);
+    if (!n || !isDevice(n)) continue;
+    for (const l of n.nets) carried.add(l.segment);
+    if (n.kind === "switch") for (const s of carriedBy(te, n.name)) carried.add(s);
+  }
+  const out: string[] = [];
+  for (const seg of carried) {
+    const on = te.nodes.filter((n) => n.nets.some((l) => l.segment === seg) || (n.kind === "switch" && carriedBy(te, n.name).includes(seg)));
+    if (on.some((n) => n.kind !== "host" && !inSel.has(n.name))) continue;
+    for (const n of on) if (n.kind === "host" && !inSel.has(n.name) && !out.includes(n.name)) out.push(n.name);
+  }
+  return out;
 }
 
 function commonStem(names: readonly string[]): string | null {
@@ -106,10 +134,13 @@ const paramName = (s: string) => {
   return /^[A-Za-z_]/.test(p) ? p : `n_${p}`;
 };
 
-/** What the dialog proposes for `sel`. */
-export function proposeTemplate(model: DocModel, sel: Selection): Proposal {
+/** What the dialog proposes for `sel`: with what hangs under the selected devices (`under`, the
+ *  default), or the bare selection. */
+export function proposeTemplate(model: DocModel, sel: Selection, opts: { under?: boolean } = { under: true }): Proposal {
   const te = model.te;
-  const set = selectionSet(model, sel);
+  const set = selectionSet(model, sel, opts);
+  const bare = opts.under ? selectionSet(model, sel) : null;
+  const under = bare && (set.segments.length > bare.segments.length || set.hosts.length > bare.hosts.length) ? { segments: set.segments.length - bare.segments.length, hosts: set.hosts.length - bare.hosts.length } : null;
   const nodes = [...set.devices, ...set.hosts];
   let names = dedupe([...nodes.map((n) => ({ kind: "node" as const, from: n, to: cleanName(n, "node") })), ...set.segments.map((s) => ({ kind: "segment" as const, from: s, to: cleanName(s, "segment") }))]);
   const stem = commonStem(names.map((c) => c.to));
@@ -156,7 +187,7 @@ export function proposeTemplate(model: DocModel, sel: Selection): Proposal {
   const taps = (model.tap?.bindings ?? []).filter((b) => b.targets.some(touches) || (b.segment ? set.segments.includes(b.segment) : false)).length;
   const conduits = te.conduits.filter((c) => (set.segments.includes(c.from) || set.segments.includes(c.to)) && !insideConduits.includes(c)).length;
   const label = stem ? `${stem} section` : "Saved section";
-  return { label, description: "", icon: "custom", stem: stem ?? "tpl", names, counts, ports, stripped: { provenance, addresses, taps, bindings: [], conduits }, leftOut: set.leftOut, set: { devices: set.devices, segments: set.segments, hosts: set.hosts } };
+  return { label, description: "", icon: "custom", stem: stem ?? "tpl", names, counts, ports, stripped: { provenance, addresses, taps, bindings: [], conduits }, leftOut: set.leftOut, under, set: { devices: set.devices, segments: set.segments, hosts: set.hosts } };
 }
 
 /** The persona bindings the template carries: node-level ones, and role-level ones turned into

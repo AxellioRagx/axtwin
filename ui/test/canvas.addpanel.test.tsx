@@ -146,12 +146,12 @@ describe("the Add panel (phase 1, §10)", () => {
     fireEvent.click(card("server"));
     // Every choice in the popover, then Add: one command.
     chooseAndAdd({ os: "Windows Server", role: "domain-controller", prefix: "dc" });
-    await waitFor(() => expect(hosts()).toEqual(["dc"]));
+    await waitFor(() => expect(hosts()).toEqual(["dc-1"]));
     const f = await files(state)();
     const te = readTe(f["te.yaml"]!);
-    expect(te.nodes.find((n) => n.name === "dc")).toMatchObject({ kind: "host", role: "domain-controller", image: "windows-server-2022@v1", nets: [{ segment: "lan", ip: "10.9.0.10" }], source: "authored" });
+    expect(te.nodes.find((n) => n.name === "dc-1")).toMatchObject({ kind: "host", role: "domain-controller", image: "windows-server-2022@v1", nets: [{ segment: "lan", ip: "10.9.0.10" }], source: "authored" });
     const tfc = readTfc(f["tfc/default.yaml"]!);
-    expect(tfc.assignments.find((a) => a.by === "node" && a.target === "dc")?.persona).toBe("domain-controller");
+    expect(tfc.assignments.find((a) => a.by === "node" && a.target === "dc-1")?.persona).toBe("domain-controller");
     expect(f["twin.yaml"]).toContain("tfc/default.yaml"); // the manifest wired to the new profile
     // One undo puts everything back: the host, the persona binding, the profile, the manifest.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
@@ -177,9 +177,9 @@ describe("the Add panel (phase 1, §10)", () => {
     expect(pop.getAllByTestId("drop-peer").map((x) => x.textContent)).toEqual([expect.stringContaining("5 × corp-workstation")]);
     expect(pop.getByTestId("drop-needs-add").textContent).toBe("Add 1 Domain controller");
     fireEvent.click(pop.getByTestId("drop-add"));
-    await waitFor(() => expect(hosts()).toEqual(["corp-workstation", "file-server"]));
+    await waitFor(() => expect(hosts()).toEqual(["corp-workstation-1", "file-server-1"]));
     const te = readTe((await files(state)())["te.yaml"]!);
-    expect(te.nodes.find((n) => n.name === "corp-workstation")).toMatchObject({ count: 5, role: "corp-workstation", image: "win11-finance@v4", nets: [{ segment: "lan", ip: null }] });
+    expect(te.nodes.find((n) => n.name === "corp-workstation-1")).toMatchObject({ count: 5, role: "corp-workstation", image: "win11-finance@v4", nets: [{ segment: "lan", ip: null }] });
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(screen.queryAllByTestId("canvas-host")).toEqual([]));
   });
@@ -196,7 +196,7 @@ describe("the Add panel (phase 1, §10)", () => {
     fireEvent.click(segment("lan"));
     fireEvent.click(card("workstation"));
     fireEvent.keyDown(window.document, { key: "Escape" });
-    await waitFor(() => expect(hosts()).toEqual(["corp-workstation"]));
+    await waitFor(() => expect(hosts()).toEqual(["corp-workstation-1"]));
     expect(screen.queryByTestId("drop-popover")).toBeNull();
   });
 
@@ -209,7 +209,7 @@ describe("the Add panel (phase 1, §10)", () => {
     fireEvent.drop(window.document.querySelector(".react-flow__pane")!, { dataTransfer, clientX: 420, clientY: 360 });
     expect(screen.getByTestId("drop-popover").textContent).toContain("on a new segment");
     chooseAndAdd({ os: "Linux", count: 4 });
-    await waitFor(() => expect(segments()).toEqual(["lan", "segment-2"]));
+    await waitFor(() => expect(segments()).toEqual(["lan", "power-user-dev-lan"]));
   });
 
   it("a double-click on the empty canvas opens the quick-add search at the pointer; a pick drops there", async () => {
@@ -223,7 +223,7 @@ describe("the Add panel (phase 1, §10)", () => {
     expect(screen.queryByTestId("quick-add")).toBeNull();
     expect(dropPopover().getAllByTestId("drop-role").find((r) => r.getAttribute("aria-checked") === "true")!.dataset["role"]).toBe("file-server");
     fireEvent.click(dropPopover().getByTestId("drop-add"));
-    await waitFor(() => expect(hosts()).toEqual(["file-server"]));
+    await waitFor(() => expect(hosts()).toEqual(["file-server-1"]));
   });
 
   it("recent and favourites live in this browser; the health line counts roles missing peers and bare segments", async () => {
@@ -233,7 +233,7 @@ describe("the Add panel (phase 1, §10)", () => {
     fireEvent.click(segment("lan"));
     fireEvent.click(card("server"));
     chooseAndAdd({ role: "file-server" });
-    await waitFor(() => expect(hosts()).toEqual(["file-server"]));
+    await waitFor(() => expect(hosts()).toEqual(["file-server-1"]));
     expect(readRefs(RECENT_KEY)).toEqual([{ kind: "device", card: "server", role: "file-server", os: "linux", label: "File server" }]);
     // The panel reopened lists it; a star pins a card.
     fireEvent.keyDown(window, { key: "Escape" });
@@ -271,7 +271,7 @@ describe("the Add panel (phase 1, §10)", () => {
     fireEvent.click(segment("lan"));
     fireEvent.click(card("ot"));
     chooseAndAdd({ role: "plc", count: 3 });
-    await waitFor(() => expect(hosts()).toEqual(["plc"]));
+    await waitFor(() => expect(hosts()).toEqual(["plc-1"]));
     await check("valid");
     expect((await enabled("Save")).hasAttribute("disabled")).toBe(false);
   });
@@ -318,15 +318,15 @@ describe("the Add panel's pure pieces", () => {
     const m = readDoc(doc);
     // A managed switch on the pane: its own new segment, imageless, rstp.
     const sw = readTe(applyDeviceDrop(doc, m, { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { pane: true }, image: null, switchType: "managed" }).files["te.yaml"]!);
-    expect(sw.segments.map((s) => `${s.name}:${s.cidr}`)).toEqual(["lan:10.9.0.0/24", "segment-2:10.9.1.0/24"]);
-    expect(sw.nodes.find((n) => n.name === "sw")).toMatchObject({ kind: "switch", image: "", nets: [{ segment: "segment-2", ip: null }] });
+    expect(sw.segments.map((s) => `${s.name}:${s.cidr}`)).toEqual(["lan:10.9.0.0/24", "switch-lan:10.9.1.0/24"]);
+    expect(sw.nodes.find((n) => n.name === "sw-1")).toMatchObject({ kind: "switch", image: "", nets: [{ segment: "switch-lan", ip: null }] });
     expect(applyDeviceDrop(doc, m, { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { pane: true }, image: null, switchType: "managed" }).files["te.yaml"]).toContain("stp: rstp");
     // A plain switch on a segment: the segment's implied switch made real.
     const ins = readTe(applyDeviceDrop(doc, m, { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { segment: "lan" }, image: null, switchType: "plain" }).files["te.yaml"]!);
     expect(ins.links.map((l) => `${l.a.device}>${l.b.device}:${l.mode}`)).toEqual(["gw>sw-lan:trunk"]);
     // An edge firewall: the internet segment and its sink made, the firewall uplinked to it.
     const fw = readTe(applyDeviceDrop(doc, m, { card: "router", os: null, role: null, persona: null, count: 1, prefix: "edge", target: { pane: true }, image: "debian-12-cloud@v1", routerType: "firewall", placement: "edge" }).files["te.yaml"]!);
-    expect(fw.nodes.find((n) => n.name === "edge")).toMatchObject({ kind: "router", role: "firewall", nets: [{ segment: "internet", ip: null }] });
+    expect(fw.nodes.find((n) => n.name === "edge-1")).toMatchObject({ kind: "router", role: "firewall", nets: [{ segment: "internet", ip: null }] });
     expect(fw.nodes.find((n) => n.name === "internet-sink")).toMatchObject({ role: "internet-sink", nets: [{ segment: "internet" }] });
     expect(fw.segments.find((s) => s.name === "internet")?.cidr).toBe("10.250.0.0/24");
     // The Internet tool dropped on a router: the same segment, the router's uplink leg on it.

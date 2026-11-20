@@ -14,7 +14,7 @@
  */
 import { nextFreeSlash24, nextFreeTransit, transitEnds, TRANSIT_POOL } from "./allocate";
 import type { Files } from "./commands";
-import { addSegment, attach, readDoc, type DocModel, type WorkingDoc } from "./document";
+import { addSegment, attach, readDoc, setNodeField, type DocModel, type WorkingDoc } from "./document";
 import { attachDevices } from "./subtree";
 import { addSegment as teAddSegment, setNodeNets, type TeModel } from "./te";
 import { twoOctetPrefix } from "../model/keys";
@@ -154,6 +154,18 @@ export function applyIntent(doc: WorkingDoc, model: DocModel, i: ConnectIntent):
 
 export type WireShape = "chain" | "ring" | "mesh" | "hub";
 
+/** The image profile OSPF needs (`catalog/image-profiles.yaml`): the planner passes `ospf_area` to
+ *  the VyOS leg config, so only a router on this image runs it. */
+export const OSPF_PROFILE = "router-ospf";
+
+/** The routers of `routers` not on the OSPF-capable image, with the image each runs (2026-11-20, round 2). */
+export function ospfImageGaps(te: Pick<TeModel, "nodes">, routers: readonly string[], ospfImage: string): Array<{ router: string; image: string }> {
+  return routers.flatMap((r) => {
+    const n = te.nodes.find((x) => x.name === r);
+    return n && n.image !== ospfImage ? [{ router: r, image: n.image || "no image" }] : [];
+  });
+}
+
 /** The router pairs a bulk wiring makes, in order (the first router is the hub). */
 export function wirePairs(routers: readonly string[], shape: WireShape): Array<[string, string]> {
   const out: Array<[string, string]> = [];
@@ -169,7 +181,7 @@ export function wirePairs(routers: readonly string[], shape: WireShape): Array<[
 
 /** Bulk wiring (B3): every pair of the shape gets a transit, as ONE edit; a pair already linked is
  *  refused (left out, and named); none new at all is a refusal. */
-export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null } = {}): { files: Files; made: string[]; skipped: string[] } {
+export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null; image?: { to: string; routers: readonly string[] } | null } = {}): { files: Files; made: string[]; skipped: string[] } {
   if (routers.length < 2) throw new Error("select two or more routers");
   for (const r of routers) if (model.te.nodes.find((n) => n.name === r)?.kind !== "router") throw new Error(`'${r}' is not a router`);
   let cur: WorkingDoc = doc;
@@ -187,5 +199,7 @@ export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly 
     m = readDoc(cur);
   }
   if (!made.length) throw new Error(`every pair is already linked (${skipped.join(", ")})`);
+  // "switch these routers to <the OSPF image>": in the same edit, so one undo takes it all back.
+  for (const r of opts.image?.routers ?? []) cur = { ...cur, files: setNodeField(cur, r, "image", opts.image!.to) };
   return { files: cur.files, made, skipped };
 }

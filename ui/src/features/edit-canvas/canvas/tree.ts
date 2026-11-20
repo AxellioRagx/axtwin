@@ -732,7 +732,10 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   if (g.hasNode(UNCARRIED_ID)) {
     const n = notCarried.length;
-    nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title: "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree" } });
+    // In plain words, per segment (2026-11-20, round 2), and a click selects them so they can be found.
+    const segs = notCarried.filter((id) => id.startsWith(ID.segment(""))).map((id) => id.slice(ID.segment("").length));
+    const title = segs.length ? `${segs.map((s) => `${s} isn't on any router: nothing outside it can reach it`).join("\n")}\nclick to select ${segs.length === 1 ? "it" : "them"}` : "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree";
+    nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title, segments: segs } });
   }
   // The implied switches (rule 2): the segment's own data, drawn as a dashed switch.
   const hueOfSegment = (seg: GraphSegment): string => {

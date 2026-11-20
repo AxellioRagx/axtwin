@@ -126,6 +126,8 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 .error { background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad); border-radius: 6px; padding: 8px 10px; margin: 8px 0; white-space: pre-wrap; }
 .notice { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+/* A neutral notice: something to know or do next, neither a success nor a failure. */
+.notice.info { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); color: var(--ink); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 6px 0; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; }

@@ -11,7 +11,13 @@ import type { Proposal, SaveChoices } from "./saveTemplate";
 
 export const TEMPLATE_ICONS = ["custom", "office", "rack", "dmz", "domain", "branch", "tiers", "ot", "edge"];
 
-export function SaveTemplateDialog({ proposal, strippedBindings, busy, error, onSave, onClose }: { proposal: Proposal; strippedBindings: readonly string[]; busy: boolean; error: string | null; onSave(choices: SaveChoices): void; onClose(): void }) {
+export function SaveTemplateDialog({ proposal: withUnder, bare, strippedBindings: strippedWith, bareStripped, busy, error, onSave, onClose }: { proposal: Proposal; bare?: Proposal | null; strippedBindings: readonly string[]; bareStripped?: readonly string[]; busy: boolean; error: string | null; onSave(choices: SaveChoices, used: Proposal): void; onClose(): void }) {
+  // "Include the segments and hosts under the selected devices" (checked by default): the proposal
+  // with them, or the bare selection when unchecked.
+  const [under, setUnder] = useState(true);
+  const offer = withUnder.under && bare ? withUnder.under : null;
+  const proposal = offer && !under ? bare! : withUnder;
+  const strippedBindings = offer && !under ? (bareStripped ?? strippedWith) : strippedWith;
   const [label, setLabel] = useState(proposal.label);
   const [description, setDescription] = useState(proposal.description);
   const [icon, setIcon] = useState(proposal.icon);
@@ -31,7 +37,7 @@ export function SaveTemplateDialog({ proposal, strippedBindings, busy, error, on
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (problem || busy) return;
-    onSave({ label: label.trim(), description, icon, prefix: prefix.trim() || proposal.stem, names, counts });
+    onSave({ label: label.trim(), description, icon, prefix: prefix.trim() || proposal.stem, names, counts }, proposal);
   };
   const s = proposal.stripped;
   return (
@@ -41,6 +47,14 @@ export function SaveTemplateDialog({ proposal, strippedBindings, busy, error, on
         <p className="muted">
           {proposal.set.devices.length} device{proposal.set.devices.length === 1 ? "" : "s"} · {proposal.set.segments.length} segment{proposal.set.segments.length === 1 ? "" : "s"} · {proposal.set.hosts.length} host group{proposal.set.hosts.length === 1 ? "" : "s"}. It appears under My templates in the Add panel.
         </p>
+        {offer ? (
+          <label className="cv-check" data-testid="st-under">
+            <input type="checkbox" checked={under} onChange={(e) => setUnder(e.target.checked)} />
+            <span>
+              Include the segments and hosts under the selected devices ({offer.segments} segment{offer.segments === 1 ? "" : "s"}, {offer.hosts} host group{offer.hosts === 1 ? "" : "s"})
+            </span>
+          </label>
+        ) : null}
         <div className="row">
           <div className="field" style={{ flex: 2 }}>
             <label htmlFor="st-label">Name</label>

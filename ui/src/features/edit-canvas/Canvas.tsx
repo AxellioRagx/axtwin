@@ -1007,6 +1007,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         pendingFit.current = { key: node.data.siteKey };
         onToggleSite(node.data.siteKey);
       }
+      // The "Not carried" box: a click selects its segments, so they can be found (2026-11-20, round 2).
+      if (node.data.kind === "uncarried" && edit) {
+        const segs = node.data.segments ?? [];
+        if (segs.length) select({ kind: "segment", names: segs }, segs.map(ID.segment));
+        return;
+      }
       // A switch's host fold (`+N`, the per-switch host budget) opens or closes in place.
       if (node.data.kind === "hostfold") {
         onToggleSite(node.data.key);

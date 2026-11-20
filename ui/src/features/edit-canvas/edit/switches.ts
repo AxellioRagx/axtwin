@@ -50,7 +50,7 @@ function freeName(base: string, taken: ReadonlySet<string>): string {
  *  router's site (the two-octet prefix of its first leg; else of the twin's first segment; else
  *  10.200), named `segment-N`, `zone_type: vlan`, with the router's leg on it. It draws under a new
  *  implied switch. */
-export function newSegmentOnRouter(doc: WorkingDoc, model: DocModel, router: string): { files: Files; segment: string } {
+export function newSegmentOnRouter(doc: WorkingDoc, model: DocModel, router: string, base: string | null = null): { files: Files; segment: string } {
   const r = model.te.nodes.find((n) => n.name === router);
   if (!r || r.kind !== "router") throw new Error(`no router named '${router}'`);
   const cidrOf = (seg: string | undefined) => model.te.segments.find((s) => s.name === seg)?.cidr;
@@ -59,9 +59,16 @@ export function newSegmentOnRouter(doc: WorkingDoc, model: DocModel, router: str
   const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
   if (!cidr) throw new Error(`no free /24 under ${prefix} for a new segment on ${router}`);
   const taken = new Set(model.te.segments.map((s) => s.name));
-  let n = model.te.segments.length + 1;
-  while (taken.has(`segment-${n}`)) n++;
-  const segment = `segment-${n}`;
+  let segment: string;
+  if (base) {
+    // A drop's segment is named for what it is for (`file-server-lan`), `-2`, `-3` when taken.
+    segment = base;
+    for (let i = 2; taken.has(segment); i++) segment = `${base}-${i}`;
+  } else {
+    let n = model.te.segments.length + 1;
+    while (taken.has(`segment-${n}`)) n++;
+    segment = `segment-${n}`;
+  }
   const withSeg: WorkingDoc = { ...doc, files: addSegment(doc, { name: segment, cidr, zoneType: "vlan" }) };
   return { files: attach(withSeg, readDoc(withSeg), router, segment), segment };
 }

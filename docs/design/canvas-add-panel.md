@@ -1,8 +1,13 @@
 # The canvas "Add" panel: devices, roles and templates
 
 **Status:** D1–D4 signed off 2026-11-20. All three phases built 2026-11-20:
-devices, built-in templates, save as template. The live acceptance (§10,
-"eyes") is still to run. Phases are in §9.
+devices, built-in templates, save as template. Round 2 fixes the same day
+(from testing the canvas live): a drop's nodes all land at the drop point,
+a card's drops are numbered from 1 (`router-1`), a drop's segment is named
+for its first host's role (`file-server-lan`), Save as template takes what
+hangs under the selected devices by default, and a `router-ospf` profile
+backs "run OSPF on these links". The live acceptance (§10, "eyes") is still
+to run. Phases are in §9.
 
 **Loop step:** **customize** (step 3). A user must be able to design a twin
 by hand on the canvas, not only through Claude writing catalog files.
@@ -135,9 +140,18 @@ profiles:
   windows-server:   { image: windows-server-2022@v1 }
   windows-client:   { image: win11-finance@v4 }       # example
   router:           { image: <the router image the catalog's routers use> }
+  router-ospf:      { image: vyos@1.5 }   # the OSPF-capable router image
 ```
 
 - The profile is chosen from card + OS (Server + Windows → `windows-server`).
+- `router` stays the image a dropped router gets. `router-ospf` is the
+  image OSPF needs (the planner passes `ospf_area` to the VyOS leg config):
+  when the wiring dialog's "run OSPF on these links" is ticked, it lists each
+  selected router not on that image ("router-1 runs debian-12-cloud@v1; OSPF
+  needs vyos@1.5 (as datacenter's fabric)") and offers "switch these routers
+  to vyos@1.5", checked by default, in the same undo step. The routers'
+  `routing:` blocks and the `fabric:` region with `igp: ospf` are not written;
+  the dialog says so in one line.
 - A later phase may key profiles per target platform. The canvas never
   shows an image unless the user opens Advanced.
 - It is served by a new read-only `GET /api/image-profiles`. Unknown
@@ -200,7 +214,12 @@ template:
 ### 5.3 Save a selection as a template (D3)
 
 1. On any twin (discovered, cast or authored), marquee-select a section.
-2. Right-click → **Save as template…**
+2. Right-click → **Save as template…** By default the template takes what
+   hangs under the selected devices: the segments the selected routers and
+   switches carry and the host groups on them, where no unselected router
+   (or switch) also joins that segment. The dialog shows it as a checked
+   option, "Include the segments and hosts under the selected devices (N
+   segments, M host groups)"; unchecked, it is the bare selection.
 3. The dialog asks for name, description and icon, then shows **what becomes
    a setting**:
    - each node group's count → an int setting ("web servers: N");
@@ -211,7 +230,8 @@ template:
 4. **Stripped:** observed addresses, `source` / `confidence` / `vantage`
    provenance, evidence, and taps bound to sensors outside the selection.
    **Kept:** structure, roles, OS, conduits inside the selection.
-5. Links leaving the selection become **ports**.
+5. Links and legs leaving the final set become **ports** (Branch office's
+   router + switch saves with its segment and users and no port).
 6. Saved through the API to `catalog/templates/<id>/template.yaml`. It
    appears under **My templates** at once.
 

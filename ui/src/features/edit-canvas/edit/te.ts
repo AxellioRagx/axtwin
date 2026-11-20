@@ -605,11 +605,11 @@ function setTwinScalar(text: string, key: "id" | "description", value: string): 
 }
 
 /** `{name}-{n}` names for N copies, skipping names the twin already holds. */
-export function copyNames(base: string, count: number, taken: ReadonlySet<string>): string[] {
+export function copyNames(base: string, count: number, taken: ReadonlySet<string>, numbered = false): string[] {
   const out: string[] = [];
   let n = 1;
   while (out.length < count) {
-    const candidate = count === 1 && !taken.has(base) ? base : `${base}-${n}`;
+    const candidate = count === 1 && !numbered && !taken.has(base) ? base : `${base}-${n}`;
     n++;
     if (!taken.has(candidate) && !out.includes(candidate)) out.push(candidate);
     if (n > count + taken.size + 1000) break;

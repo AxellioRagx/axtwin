@@ -8,7 +8,7 @@
  * or a click outside commit (Esc and outside keep the defaults), Cancel drops nothing -- so the
  * drop and every choice here are ONE undo step.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ImageProfile, Persona } from "../../../api/types";
 import type { TeModel } from "../edit/te";
@@ -52,6 +52,18 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [os, setOs] = useState<Os | null>(() => (def?.oses ? (item.os ?? def.oses[0]!) : null));
   const [traffic, setTraffic] = useState(() => Boolean(item.role && personas.find((p) => p.id === item.role)?.category === "traffic"));
   const [role, setRole] = useState<string | null>(() => (card && isHost ? (item.role ?? defaultRole(card, os, personas)) : null));
+  // The role list scrolls to the preselected role (a search's "file" -> File server), centred in the
+  // list -- the list's own scroll only, never the page's (2026-11-20, round 2).
+  const rolesBox = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const box = rolesBox.current;
+    const on = box?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+    if (!box || !on) return;
+    const b = box.getBoundingClientRect();
+    const r = on.getBoundingClientRect();
+    box.scrollTop += r.top - b.top - (box.clientHeight - r.height) / 2;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [os]);
   const [count, setCount] = useState(item.count && item.count > 0 ? item.count : 1);
   const [routerType, setRouterType] = useState<"router" | "firewall">("router");
   const [placement, setPlacement] = useState<"internal" | "edge">("internal");
@@ -171,7 +183,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         </div>
       ) : null}
       {isHost ? (
-        <div className="cv-drop-roles" role="radiogroup" aria-label={card === "workstation" ? "Profile" : "Role"} data-testid="drop-roles">
+        <div ref={rolesBox} className="cv-drop-roles" role="radiogroup" aria-label={card === "workstation" ? "Profile" : "Role"} data-testid="drop-roles">
           {groups.length === 0 ? <p className="muted">no {card === "workstation" ? "profile" : "role"} for this OS in the persona library</p> : null}
           {groups.map((g) => (
             <div key={g.category} className="cv-drop-group">

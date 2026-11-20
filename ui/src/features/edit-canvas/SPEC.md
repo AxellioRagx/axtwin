@@ -146,8 +146,12 @@ chain, ring, full mesh, hub & spoke (the first selected is the hub), one
 undo step for the batch, a linked pair left out and named; *run OSPF on these
 links* sets `ospf_area` on each new transit -- which the planner passes to the
 VyOS leg config, but OSPF comes up only with a VyOS router, a node
-`routing:` block and a `fabric:` region with `igp: ospf`, which the canvas does
-not write. The created segment, its CIDR and the leg addresses edit in the
+`routing:` block and a `fabric:` region with `igp: ospf`. Ticked, the dialog
+lists each selected router not on the `router-ospf` image profile
+(`catalog/image-profiles.yaml`, `vyos@1.5`; the default `router` profile stays
+what a dropped router gets) and offers "switch these routers to vyos@1.5",
+checked by default, in the same undo step; the `routing:` block and the
+`fabric:` region are not written, and the dialog says so in one line. The created segment, its CIDR and the leg addresses edit in the
 inspector as any.
 
 **Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
@@ -212,7 +216,7 @@ canvas — the first two are what neither incumbent documents.
 
 | Area | Items | Tag |
 |---|---|---|
-| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover writes the drop and every choice as one undo step. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
+| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover (its role list scrolled to the preselected role) writes the drop and every choice as one undo step. A card's drop is named `{prefix}-{n}`, the first free n from 1 (`router-1`, `router-2`; 2026-11-20 round 2: the first had been plain `router`); a segment a drop makes is named for its first host's role, else the card (`file-server-lan`, `switch-lan`), `-2`, `-3` when taken. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; by default it takes the segments the selected routers and switches carry and their host groups when no unselected router or switch joins them -- a checked option, "Include the segments and hosts under the selected devices (N segments, M host groups)", unchecked the bare selection -- and only links and legs leaving that set become ports; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
 | Attaching (the twin's "linking") | drag a host onto a segment or from a host's connect ring to a segment's switch; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | app pointer drag + state machine |
@@ -364,6 +368,15 @@ criteria of its own beyond them.
   drop point (no edge longer than it); routers placed, linked and undone back to empty leave no
   layout change, no leave prompt and nothing in browser storage, and a redo restores the router's
   spot; a selection undone away shows the Twin summary.
+- **Automated, round 2 Add panel and small fixes (2026-11-20, *`canvas.savetemplate.test.tsx`*,
+  *`canvas.connect.test.tsx`*, *`canvas.smallfixes.test.tsx`*):** Branch office's router + switch
+  saves as 2 devices, 1 segment, 1 host group (10 users) and no port, the bare selection when the
+  option is unchecked; OSPF ticked lists each router off `router-ospf`'s image and switches them in
+  the wiring's undo step, or says no profile names one; routers are `router-1..3`; a drop's
+  segment is `file-server-lan`, then `-2`; the role list scrolls to File server; the "add at least
+  one segment" notice is the neutral `notice info`; a brand-new untitled design has no note (its
+  state is on the pill); the "Not carried" box says "segment-4 isn't on any router: nothing outside
+  it can reach it" on hover and a click selects the segment.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +

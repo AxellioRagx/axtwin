@@ -11,10 +11,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { Persona } from "../src/api/types";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import type { Persona, Template } from "../src/api/types";
 import { buildTemplate, carriedBindings, cleanName, MY_TEMPLATES_KEY, proposeTemplate, selectionSet, type SaveChoices } from "../src/features/edit-canvas/add/saveTemplate";
 import { applyTemplateDrop } from "../src/features/edit-canvas/add/template";
 import { readDoc } from "../src/features/edit-canvas/edit/document";
+import { parseYaml, toPlain } from "../src/features/edit-canvas/edit/yaml";
 import { readTfc } from "../src/features/edit-canvas/edit/tfc";
 import { openPalette, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
@@ -265,5 +268,45 @@ describe("the gesture, the dialog and My templates", () => {
     fireEvent.click(await screen.findByTestId("st-save"));
     expect((await screen.findByTestId("st-error")).textContent).toContain("unknown image");
     expect(screen.getByTestId("save-template-dialog")).toBeTruthy();
+  });
+
+  it("what hangs under the selection: Branch office's router + switch saves 2 devices, 1 segment, 1 host group (10 users) and no port; unchecked, today's bare selection", async () => {
+    const branch = (() => {
+      const t = (toPlain(parseYaml(readFileSync(resolve(__dirname, "../../catalog/templates/branch-office/template.yaml"), "utf8")).root) as unknown as { template: Template }).template;
+      return { ...{ description: "", icon: "", params: [], ports: [], fragment: {}, layout: {} }, ...t };
+    })();
+    const { api, state } = seeded({ imageProfiles: [{ name: "router", image: "debian-12-cloud@v1" }, { name: "windows-client", image: "win11-finance@v4" }], templates: [branch] });
+    sessionStorage.setItem("axr-canvas-viewport:twin:__untitled__", JSON.stringify({ x: 0, y: 0, zoom: 1 }));
+    renderAt(api, "/canvas/new");
+    await waitFor(() => expect(window.document.querySelector(".react-flow__pane")).not.toBeNull());
+    fireEvent.doubleClick(window.document.querySelector(".react-flow__pane")!, { clientX: 400, clientY: 200 });
+    fireEvent.change(within(screen.getByTestId("quick-add")).getByLabelText("Quick add search"), { target: { value: "branch" } });
+    fireEvent.click(within(screen.getByTestId("quick-add")).getAllByTestId("add-hit")[0]!);
+    fireEvent.click(await screen.findByTestId("template-add"));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router")).toHaveLength(1));
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((r) => r.dataset["nodeId"] === "branch-gw")!);
+    fireEvent.click(screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === "branch-sw")!, { shiftKey: true });
+    fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 500 });
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByRole("button", { name: "Save as template…" }));
+    const dlg = within(await screen.findByTestId("save-template-dialog"));
+    expect(dlg.getByText(/2 devices · 1 segment · 1 host group\./)).toBeTruthy();
+    const opt = dlg.getByTestId("st-under");
+    expect(opt.textContent).toBe("Include the segments and hosts under the selected devices (1 segment, 1 host group)");
+    expect((within(opt).getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
+    expect(dlg.queryByTestId("st-ports")).toBeNull(); // the gw-sw link is inside: no port
+    expect(within(dlg.getByTestId("st-counts")).getByText("default 10")).toBeTruthy();
+    // Unchecked: the bare selection, the switch's segment and its users a port.
+    fireEvent.click(within(opt).getByRole("checkbox"));
+    expect(dlg.getByText(/2 devices · 0 segments · 0 host groups\./)).toBeTruthy();
+    expect(dlg.getByTestId("st-ports").textContent).toContain("branch-lan");
+    // Checked again and saved: the segment and the users ride in the template.
+    fireEvent.click(within(opt).getByRole("checkbox"));
+    fireEvent.click(dlg.getByTestId("st-save"));
+    await waitFor(() => expect(state.templates.some((t) => !t.builtin)).toBe(true));
+    const saved = state.templates.find((t) => !t.builtin)!;
+    const frag = saved.fragment as { segments: unknown[]; nodes: Array<{ name: string; count?: unknown }> };
+    expect(frag.segments).toHaveLength(1);
+    expect(frag.nodes.map((n) => n.name).sort()).toEqual(["{prefix}-gw", "{prefix}-sw", "{prefix}-user"]);
+    expect(saved.ports).toEqual([]);
   });
 });

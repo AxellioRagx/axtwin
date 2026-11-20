@@ -165,7 +165,8 @@ export type TapData = { kind: "tap"; id: string; target: string; scope: string; 
  *  Drawn only when the cast evidence has non-local peers or the config
  *  defines an uplink on a router; the gateway is folded into that router
  *  (`RouterData.uplink` / `crossing`), there is no WAN node. */
-export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: string; title: string };
+/** `segments`: the "Not carried" box's segments, which a click on it selects. */
+export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: string; title: string; segments?: string[] };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };

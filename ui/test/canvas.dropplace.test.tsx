@@ -67,8 +67,8 @@ describe("a drop in the free layout lands together, at the drop point", () => {
     fireEvent.click(screen.getByTestId("drop-add"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(2));
     const p = positions();
-    const server = p["host:file-server"]!;
-    const ws = p["host:corp-workstation"]!;
+    const server = p["host:file-server-1"]!;
+    const ws = p["host:corp-workstation-1"]!;
     const seg = Object.entries(p).find(([k]) => k.startsWith("segment:"))![1];
     expect(dist(server, { x: 600, y: 400 })).toBeLessThanOrEqual(24); // the drop point (snapped to the grid)
     // Nothing at the origin; everything within a template's box of the server.
