@@ -1,5 +1,8 @@
 persona:
   id: web-tier
+  category: business
+  label: "Web / app server"
+  blurb: "Serves HTTPS to the outside and queries the database tier behind it."
   os_family: linux
   drive: real-service
   emits:

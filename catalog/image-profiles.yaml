@@ -1,0 +1,27 @@
+# Image profiles (docs/design/canvas-add-panel.md §4.3, D2): the image the
+# canvas's Add panel writes on a device it drops, chosen from card + OS
+# (Server + Windows -> windows-server). The canvas never shows the image
+# unless the user opens Advanced; Check warns on an image the target's image
+# manifest does not list, as it does for any other.
+#
+# Every image below is one the catalog's twins already deploy
+# (catalog/twins/*/te.yaml), so a dropped device deploys the same way a
+# hand-written one does. Served read-only by `GET /api/image-profiles`. A
+# profile left without an image (`image: null`) makes the canvas say "no
+# image for this profile" and write none.
+profiles:
+  # The Linux image almost every catalog host runs (390 nodes, including the
+  # proxy, monitoring, DNS and OT roles). ubuntu-server-22@v5 (28) is the
+  # alternative a role picks when it installs container packages.
+  linux-server:   { image: debian-12-cloud@v1 }
+  # No Linux desktop image exists in the catalog; the catalog's Linux
+  # workstations (corp-workstation, generic-endpoint and the rest) all run
+  # this cloud image, so a dropped Linux workstation does too.
+  linux-client:   { image: debian-12-cloud@v1 }
+  # The only Windows Server image in the catalog (every domain controller).
+  windows-server: { image: windows-server-2022@v1 }
+  # The only Windows client image in the catalog (every Windows workstation).
+  windows-client: { image: win11-finance@v4 }
+  # What 17 of the catalog's 19 routers run (vyos@1.5 is datacenter's
+  # fabric only).
+  router:         { image: debian-12-cloud@v1 }

@@ -1,5 +1,8 @@
 persona:
   id: dmz-web
+  category: business
+  label: "DMZ web server"
+  blurb: "Internet-facing web server in the DMZ; steady HTTP/HTTPS from outside."
   os_family: linux
   drive: real-service
   emits:

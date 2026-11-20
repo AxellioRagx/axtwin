@@ -6489,6 +6489,7 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
         out.append(dtos.PersonaDTO(
             id=p.id, os_family=p.os_family, drive=p.drive, source=source,
             requires=list(p.requires), summary=_persona_summary(p),
+            category=p.effective_category(), label=p.label or p.id, blurb=p.blurb,
             emits=[
                 dtos.PersonaEmitDTO(
                     proto=e.proto, ports=list(e.ports), peer_role=e.peer_role,

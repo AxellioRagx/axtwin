@@ -137,7 +137,7 @@ export function nodeOfEnd(te: Pick<TeModel, "nodes">, device: string): { node: T
   return null;
 }
 
-const NODE_KEY_ORDER = ["name", "role", "kind", "image", "requires", "resources", "count", "net", "nets", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
+const NODE_KEY_ORDER = ["name", "role", "kind", "stp", "image", "requires", "resources", "count", "net", "nets", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
 const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources", "members", "source", "confidence", "vantage"]);
 const SOURCES = new Set(["discovered", "asserted", "authored", "unconfirmed"]);
 
@@ -499,7 +499,7 @@ export function removeNode(text: string, name: string): string {
 
 /** Set (or with `null`, remove) a scalar field of a node group, keeping the
  *  node's other lines; a new key lands at its conventional place. */
-export function setNodeField(text: string, name: string, key: "name" | "role" | "image" | "count" | "kind", value: string | number | null): string {
+export function setNodeField(text: string, name: string, key: "name" | "role" | "image" | "count" | "kind" | "stp", value: string | number | null): string {
   const t = new TeText(text);
   const it = t.node(name);
   const m = it.value as YMap;

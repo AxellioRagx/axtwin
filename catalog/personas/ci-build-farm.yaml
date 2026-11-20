@@ -4,6 +4,9 @@
 # `perimeter: wan` tap scope otherwise has almost nothing to capture.
 persona:
   id: ci-build-farm
+  category: business
+  label: "CI build server"
+  blurb: "Container pulls and artifact pushes in large bursts through the proxy and file server."
   os_family: linux
   drive: scripted
   emits:

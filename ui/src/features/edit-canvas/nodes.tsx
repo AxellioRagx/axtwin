@@ -179,7 +179,7 @@ export function ImpliedSwitchNode(p: P) {
   const overlay = useContext(OverlayContext);
   const dim = useDim(d.kind === "segment" ? d.source : null);
   if (d.kind !== "segment") return null;
-  const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing || edit.rehomeTarget === d.name));
+  const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.rehomeTarget === d.name));
   const served = d.served ?? [];
   const legend = [...d.roleBadges].sort((a, b) => b.count - a.count).map((g) => `${g.role} ${g.count}`).join(" · ");
   const hostsWord = `${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`;

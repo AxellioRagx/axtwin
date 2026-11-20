@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { UNTITLED_SCOPE } from "../src/features/edit-canvas/CanvasPage";
-import { check, item, seeded, segments, settle, tab } from "./helpers/canvasFixtures";
+import { check, addSegment, seeded, segments, settle, tab } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -34,7 +34,7 @@ function recordTwinReads(api: ReturnType<typeof seeded>["api"]) {
 const saveButton = () => screen.getByTestId("save-untitled") as HTMLButtonElement;
 
 async function addFirstSegment() {
-  fireEvent.click(item("segment", "segment"));
+  addSegment();
   await waitFor(() => expect(segments()).toEqual(["segment-1"]));
 }
 
@@ -229,7 +229,7 @@ describe("Open", () => {
     const { api } = seeded();
     renderAt(api, "/canvas/corp-auth");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
@@ -262,7 +262,7 @@ describe("Clone (Open's action)", () => {
     expect(state.writes.filter((w) => w.op !== "validate")).toEqual([]);
 
     // Edit it, then Save: the id is suggested as <source>-copy.
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
     await check("valid");
     expect(saveButton().disabled).toBe(false);

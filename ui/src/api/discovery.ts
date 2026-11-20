@@ -22,6 +22,7 @@ import type {
   LayoutDoc,
   LayoutWrite,
   PersonaList,
+  ImageProfileList,
   PlanSummary,
   ProbeResult,
   SourceRunRequest,
@@ -101,6 +102,8 @@ export interface Api {
   putLayout(id: string, doc: LayoutWrite): Promise<LayoutDoc>;
   listTwinConfigs(signal?: AbortSignal): Promise<TwinConfigList>;
   listPersonas(signal?: AbortSignal): Promise<PersonaList>;
+  /** The Add panel's image profiles (card + OS -> image), read-only. */
+  listImageProfiles(signal?: AbortSignal): Promise<ImageProfileList>;
   // The edit model (`api/Spec.md` A2, A3): the document, Save / Save-As, and a deploy's working copy.
   /** The twin-config with its `document` (the bundle's text files); 404 when the catalog has no such entry. */
   getTwinConfig(id: string, signal?: AbortSignal): Promise<TwinConfigDetail>;
@@ -194,6 +197,7 @@ export function makeApi(request: Requester): Api {
     putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc }),
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
+    listImageProfiles: (signal) => request("GET", "/api/image-profiles", { signal }),
     // The server includes the bundle `document` (the canvas's edit mode) only
     // for a caller its write policy accepts; the summary is open.
     getTwinConfig: (id, signal) => request("GET", `/api/twin-configs/${enc(id)}`, { signal }),

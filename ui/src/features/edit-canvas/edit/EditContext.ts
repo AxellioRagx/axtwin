@@ -7,28 +7,24 @@
  */
 import { createContext, useContext } from "react";
 
+import type { CardId, Os, ToolId } from "../add/catalog";
 import type { DocModel } from "./document";
 
-export type PaletteKind = "image" | "persona" | "segment" | "group" | "router";
+export type PaletteKind = "device" | "tool" | "template";
 
+/** An Add-panel item (`docs/design/canvas-add-panel.md` §3) as it is dragged, clicked or quick-added:
+ *  a device card (with the role and OS a search preselected), a tool, or a template. */
 export interface PaletteItem {
   kind: PaletteKind;
-  /** The image ref, the persona id, or the group's name. */
+  /** The card id, the tool id or the template id. */
   id: string;
   label: string;
-  /** For a group: the node kind it was copied from, so a copied router stays a router. */
-  nodeKind?: "host" | "router" | "switch";
-  /** For a group: the role and image to place with. */
+  card?: CardId;
+  /** A search hit's preselected role (a persona id). */
   role?: string | null;
-  image?: string;
+  os?: Os | null;
+  tool?: ToolId;
   count?: number;
-  requires?: string[];
-  os?: string | null;
-  summary?: string;
-  /** The image is referenced by a twin in the catalog (the availability cue). */
-  available?: boolean;
-  /** For a group: declared by another twin in the catalog, listed under "From other twins". */
-  foreign?: boolean;
 }
 
 export interface EditState {
@@ -37,8 +33,6 @@ export interface EditState {
   /** The attach gesture is armed: the next host click then segment click attaches (Esc disarms). */
   attachArmed: boolean;
   attachFrom: string | null;
-  /** The palette item armed for click-to-place. */
-  placing: PaletteItem | null;
   /** Rule 6 (track 4): the bus a router's leg is being dragged over, the drop that would re-home it. */
   rehomeTarget: string | null;
   onContextMenu(e: React.MouseEvent, target: { kind: "host" | "router"; name: string } | { kind: "leg"; node: string; segment: string } | { kind: "segment"; name: string }): void;

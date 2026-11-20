@@ -648,6 +648,26 @@ export interface Persona {
   requires: string[];
   summary: string;
   emits: PersonaEmit[];
+  /** The Add panel's role group (`docs/design/canvas-add-panel.md` §4.2): `identity`, `business`,
+   *  `network`, `endpoint`, `ot`, `traffic`, `other`. Absent from an older server: the UI applies
+   *  the same fallback (`add/catalog.ts` `personaCategory`). */
+  category?: string;
+  /** The human name ("File server"); the id when the file names none. */
+  label?: string;
+  /** One plain sentence; "" when the file names none. */
+  blurb?: string;
+}
+
+/** `GET /api/image-profiles` (`docs/design/canvas-add-panel.md` §4.3): the image a dropped device gets. */
+export interface ImageProfile {
+  name: string;
+  /** `null`: the profile names no image ("no image for this profile"). */
+  image: string | null;
+}
+
+export interface ImageProfileList {
+  profiles: ImageProfile[];
+  warnings: string[];
 }
 
 export interface PersonaList {

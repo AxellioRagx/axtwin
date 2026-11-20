@@ -37,7 +37,7 @@ page's list, `areas/twins/TwinList.tsx`, as a picker).
 |---|---|
 | authored twin graph | `GET /api/scenarios/{id}/topology` (`TopologyDTO`: nodes typed `host\|router\|switch\|network`, edges host→network with `ip`) |
 | cast twin graph with observed evidence | `GET /api/twins/{id}/topology` (`TopologyExportDTO`: weighted `src/dst/proto/bytes/flows/evidence_class` edges, census) |
-| palette | `GET /api/twin-configs` images and node groups, `GET /api/personas` |
+| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles` (card + OS → image); spec: `docs/design/canvas-add-panel.md` |
 | positions | the layout document (`axr-layout`), extended with `host:<name>` pins beside the existing `site:` and `segment:` pins |
 
 | Writes | Route |
@@ -177,7 +177,7 @@ canvas — the first two are what neither incumbent documents.
 
 | Area | Items | Tag |
 |---|---|---|
-| Palette & placement | searchable, categorised palette of images, personas and node groups (this twin's own; other twins' groups under a folded "From other twins"), with an availability cue per image; ONE placement rule (2026-11-06, the GNS3 pattern): a click arms the item, the next click on a segment places it (a router: a segment for its first leg or an empty spot for none), Esc disarms; drag-drop onto a segment; a segment is added at once, a persona binds to the selected node group at once; count field for N copies with `{name}-{n}` naming | app over RF `onDrop` |
+| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover writes the drop and every choice as one undo step. `add/` (`catalog.ts`, `drop.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
 | Attaching (the twin's "linking") | drag a host onto a segment or from a host's handle to a segment bus; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | RF handles + app state machine |
@@ -330,8 +330,9 @@ untouched; a segment stays the L2 primitive a host's `net` names. The drawing
 is one uniform tree, router → switch (real | implied) → hosts (Rendering rules
 1–9 below).
 
-**Drop rules** (palette drop, or an armed item clicked; `Canvas.tsx`
-`placeTarget` / `placeOnDevice`, `edit/switches.ts`):
+**Drop rules** (an Add-panel card dragged, clicked or quick-added -- see
+`docs/design/canvas-add-panel.md` §3/§4.1 for what each card writes;
+`Canvas.tsx` `placeTarget` / `placeOnDevice`, `edit/switches.ts`, `add/drop.ts`):
 
 - on an **implied switch**: the host joins that segment (a peer of its hosts);
 - on a **real switch** of one segment: that segment; of several: the native
@@ -343,7 +344,10 @@ is one uniform tree, router → switch (real | implied) → hosts (Rendering rul
   (`newSegmentOnRouter`, `edit/allocate.ts`), `zone_type: vlan`, the router's
   leg on it and the host on it -- one command, one undo step; it draws under
   a new implied switch;
-- a router item lands on the pane as before (it joins segments by legs);
+- a router lands on the pane (it joins segments by legs), or with the segment
+  it was dropped on as its first leg; a switch on a segment makes that
+  segment's implied switch real (Insert switch), on the pane it gets a new
+  segment of its own; a host on the empty pane gets a new segment of its own;
 - a host dragged onto another segment's switch moves there; a tap chip
   dragged onto a real switch becomes a segment tap on its segment.
 
@@ -555,12 +559,11 @@ Track C — duplicate subtree and console polish:
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it
-places without a segment: the palette's **Router** item (image: what the
-catalog's routers use, this twin's first; otherwise `router`, to be picked in
-the inspector) lands on the pane with a click or a drop, or with a selected
-or dropped-on segment as its first leg; the pane menu offers *Place Router
-here* while one is armed. A group copied from a router stays a router
-(`PaletteItem.nodeKind`). Its legs are the attach gesture or the node
+places without a segment: the Add panel's **Router / firewall** card (image:
+the `router` image profile, `catalog/image-profiles.yaml`) lands on the pane
+with a click or a drop, or with a selected or dropped-on segment as its first
+leg; an *edge* one is also uplinked to the internet segment
+(`docs/design/canvas-add-panel.md` §4, §6). Its legs are the attach gesture or the node
 panel's *Attach to segment*. An unattached router is a **warning** (CV-024,
 `validate.ts`), not an error: a router is placed first and attached after,
 and a Check of a design mid-way should not fail for it.
@@ -632,7 +635,7 @@ page, not a card in one:
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
-  opens `Palette.tsx` as a popover, never a permanent sidebar; the
+  opens the Add panel (`add/AddPanel.tsx`) as a popover, never a permanent sidebar; the
   `220px 1fr 320px` grid in `canvas.css` goes. **Built 2026-11-05**
   (`chrome.tsx`, `icons.tsx`): the rail's view tools (V/H select or pan —
   select drags a marquee, pan drags the plane; +/−/F zoom; L lock; T

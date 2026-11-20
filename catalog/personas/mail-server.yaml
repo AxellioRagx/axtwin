@@ -1,5 +1,8 @@
 persona:
   id: mail-server
+  category: business
+  label: "Mail server"
+  blurb: "SMTP and IMAP for the workstations, plus outbound mail relay."
   os_family: linux
   drive: real-service
   emits:

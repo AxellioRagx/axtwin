@@ -5,6 +5,9 @@
 # `loadgen` role that is 2 peers each, so ~5x l1's offered load per instance.
 persona:
   id: loadgen-l2
+  category: traffic
+  label: "Load generator (l2)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: linux
   drive: scripted
   emits:

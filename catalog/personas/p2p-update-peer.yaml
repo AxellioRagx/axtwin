@@ -9,6 +9,9 @@
 # struggles with long before a byte-based one does.
 persona:
   id: p2p-update-peer
+  category: endpoint
+  label: "Update peer (P2P)"
+  blurb: "Windows update sharing between peers, plus bulk downloads through the proxy."
   os_family: windows
   drive: scripted
   emits:

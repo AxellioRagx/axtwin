@@ -10,6 +10,9 @@
 # peer_role targets for the other xseg personas.
 persona:
   id: xseg-dmz-to-srv
+  category: traffic
+  label: "Cross-segment (dmz-to-srv)"
+  blurb: "A traffic generator whose peers sit on another segment, so routed ports see load."
   os_family: linux
   drive: scripted
   emits:

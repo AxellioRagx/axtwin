@@ -1409,6 +1409,13 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     ) -> dtos.PersonaListDTO:
         return service.list_personas(settings, twin=twin)
 
+    @app.get("/api/image-profiles", response_model=dtos.ImageProfileListDTO)
+    @_ro
+    def image_profiles() -> dtos.ImageProfileListDTO:
+        from axrange.api import image_profiles as _ip
+
+        return _ip.list_image_profiles(settings)
+
     @app.post(
         "/api/deploys/{deploy_id}/hosts/{host_id}/personas/plan",
         response_model=dtos.HostPersonasPlanDTO,

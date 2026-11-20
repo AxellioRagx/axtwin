@@ -22,6 +22,7 @@ import type {
   LayoutDoc,
   PendingChange,
   Persona,
+  ImageProfile,
   ProbeResult,
   TwinConfigDetail,
   TwinConfigDocument,
@@ -138,6 +139,7 @@ export interface FakeState {
   layouts: Record<string, LayoutDoc>;
   twinConfigs: TwinConfigSummary[];
   personas: Persona[];
+  imageProfiles: ImageProfile[];
   /** The twin-config documents (`api/Spec.md` A3), by id: the baseline each editor opens. */
   documents: Record<string, TwinConfigDocument>;
   /** The drafts area (`api/Spec.md` A3d), by id: documents kept without the validation gate. */
@@ -202,6 +204,13 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     layouts: {},
     twinConfigs: [],
     personas: [],
+    imageProfiles: [
+      { name: "linux-server", image: "debian-12-cloud@v1" },
+      { name: "linux-client", image: "debian-12-cloud@v1" },
+      { name: "windows-server", image: "windows-server-2022@v1" },
+      { name: "windows-client", image: "win11-finance@v4" },
+      { name: "router", image: "debian-12-cloud@v1" },
+    ],
     documents: {},
     drafts: {},
     deploys: [],
@@ -582,6 +591,9 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async listPersonas() {
       return { twin: null, personas: state.personas, warnings: [] };
+    },
+    async listImageProfiles() {
+      return { profiles: state.imageProfiles, warnings: [] };
     },
     async getTwinConfig(id) {
       const d = state.documents[id];

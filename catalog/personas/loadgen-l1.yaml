@@ -45,6 +45,9 @@
 # use `all`. The failure is silent in both the guest log and the tfc status.
 persona:
   id: loadgen-l1
+  category: traffic
+  label: "Load generator (l1)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: linux
   drive: scripted
   emits:

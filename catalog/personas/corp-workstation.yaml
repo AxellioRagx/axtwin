@@ -1,6 +1,9 @@
 # docs/DESIGN_BRIEF_twin_model.md §5.2 — the volume workhorse.
 persona:
   id: corp-workstation
+  category: endpoint
+  label: "Office user"
+  blurb: "A domain-joined Windows desktop: logs on to the DC, opens file shares, browses; business hours."
   os_family: windows
   drive: scripted
   emits:

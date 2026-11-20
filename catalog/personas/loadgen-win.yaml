@@ -15,6 +15,9 @@
 # this rung is 6 hosts rather than 1.
 persona:
   id: loadgen-win
+  category: traffic
+  label: "Load generator (win)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: windows
   drive: scripted
   emits:

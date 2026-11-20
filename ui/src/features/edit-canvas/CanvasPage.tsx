@@ -46,7 +46,7 @@ import { useWhoami } from "../../api/whoami";
 import { TopbarPortal } from "../../areas/shell/topbar";
 import { useApi } from "../../api/context";
 import type { Target } from "../../api/types";
-import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, LayoutAnnotation, LayoutDoc, LayoutWrite, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidationFinding } from "../../api/types";
+import type { CastRoster, DeployConfig, DeploySummary, DraftCheck, DraftDetail, LayoutAnnotation, LayoutDoc, LayoutWrite, ImageProfile, Persona, Topology, TopologyExport, TwinConfigDetail, TwinSummary, TwinTree, ValidationFinding } from "../../api/types";
 import { DestroyDialog, destroyWord, standingTiers, useDestroy } from "../../areas/shell/destroy";
 import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
@@ -69,10 +69,10 @@ import { CANVAS_PLANE } from "./canvas/plane";
 import { nextFreeSlash24 } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
-import { newSegmentOnRouter, insertSwitch } from "./edit/switches";
+import { insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
 import { applyIntent, wirePairs, wireRouters, type WireShape } from "./edit/connect";
-import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, placeNodes, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setPersona, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -82,7 +82,12 @@ import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft, type LayoutMode } f
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { twoOctetPrefix } from "./model/keys";
-import { Palette } from "./Palette";
+import { AddPanel } from "./add/AddPanel";
+import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, writeRefs } from "./add/catalog";
+import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
+import { DropPopover, type DropCommit } from "./add/DropPopover";
+import { QuickAdd } from "./add/QuickAdd";
+import { refOfItem } from "./add/AddPanel";
 import { SaveAsDialog } from "./SaveAsDialog";
 import { moveMember } from "./edit/members";
 import { attachDevices, copyPositions, duplicateSubtree, parkedDevices, type DuplicateResult } from "./edit/subtree";
@@ -113,7 +118,6 @@ const POLL_MS = 5000;
 const BUSY_POLL_MS = 1000;
 /** A note about a finished exit fades after this; an error stays until the next exit. */
 const NOTE_MS = 8000;
-const CATALOG_DETAIL_LIMIT = 12;
 
 /** The body for one more pin over the document's: the pins of this plane plus
  *  the moved element's new absolute top-left, the annotations carried through. */
@@ -160,26 +164,10 @@ export function exitErrorText(e: unknown): string {
   return errorText(e);
 }
 
-/** What the palette lists: a segment, the node groups and images every
- *  twin-config in the catalog declares (this twin's first), the personas. */
-export function paletteItems(catalog: readonly TwinConfigDetail[], personas: readonly Persona[], ownId: string): PaletteItem[] {
-  const items: PaletteItem[] = [{ kind: "segment", id: "segment", label: "Segment", summary: "a new L2 segment with the next free /24" }];
-  const images = new Set<string>();
-  const ordered = [...catalog].sort((a, b) => (a.id === ownId ? -1 : b.id === ownId ? 1 : a.id.localeCompare(b.id)));
-  // A router joins segments: it places anywhere, with the image the catalog's
-  // routers use (this twin's first), and gets its legs by attaching.
-  const routerImage = ordered.flatMap((d) => d.nodes).find((n) => n.kind === "router" && n.image)?.image ?? null;
-  items.push({ kind: "router", id: "router", label: "Router", image: routerImage ?? "router", summary: routerImage ? `a router with image ${routerImage}; attach it to each segment it joins` : "a router; no twin in the catalog names a router image, so pick one in the inspector" });
-  for (const d of ordered) {
-    for (const n of d.nodes) {
-      const count = typeof n.count === "number" ? n.count : typeof n.count === "string" && /^\d+$/.test(n.count) ? Number(n.count) : typeof n.count === "string" ? (Number(/:(\d+)\}/.exec(n.count)?.[1]) || 1) : 1;
-      items.push({ kind: "group", id: `${d.id}/${n.name}`, label: d.id === ownId ? n.name : `${n.name} (${d.id})`, nodeKind: n.kind === "router" ? "router" : n.kind === "switch" ? "switch" : "host", role: n.role ?? null, image: n.image ?? "", count, summary: `${n.kind} · ${n.image ?? "no image"}${n.role ? ` · ${n.role}` : ""}`, foreign: d.id !== ownId });
-      if (n.image) images.add(n.image);
-    }
-  }
-  for (const image of [...images].sort()) items.push({ kind: "image", id: image, label: image, available: true, summary: `image ${image}, named by a twin in the catalog` });
-  for (const p of personas) items.push({ kind: "persona", id: p.id, label: p.id, os: p.os_family, summary: p.summary });
-  return items;
+/** An Add-panel item to the front of this browser's recent list (docs/design/canvas-add-panel.md §3). */
+function rememberAdd(item: PaletteItem): void {
+  const ref = refOfItem(item);
+  if (ref) writeRefs(RECENT_KEY, pushRecent(readRefs(RECENT_KEY), ref));
 }
 
 function viewportKey(id: string): string {
@@ -390,29 +378,20 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     }
     return { twin, tree, exportData, topology, cast, deploy, deploys: rows, config, detail, draftRow: null };
   }, [id, untitled, isDraft]);
-  // The palette's catalog -- every other twin's config -- loads when the palette is first
-  // opened, not with the page (R3-6). It loaded beside the drawing: one listing (4 s server
-  // side, every catalog YAML parsed) and a read of every config, a dozen requests holding the
-  // browser's connections and the server while the canvas validated, so the first clicks
-  // waited ~10 s (2026-11-08). Until it lands the palette offers this twin's own items.
-  // The persona library is one cheap read the member rows need, so it loads with the page.
-  const [catalogWanted, setCatalogWanted] = useState(false);
-  useEffect(() => setCatalogWanted(false), [id]);
-  const wantCatalog = useCallback(() => setCatalogWanted(true), []);
-  const catalogLoad = useLoad<{ others: TwinConfigDetail[]; note: string | null } | null>(async (signal) => {
-    if (!catalogWanted) return null;
-    const list = await api.listTwinConfigs(signal).catch((e: unknown) => ({ twin_configs: [], note: `twin-configs not listed: ${errorText(e)}` }));
-    const others = list.twin_configs.filter((c) => c.id !== id && !c.error).slice(0, CATALOG_DETAIL_LIMIT);
-    const details = await Promise.all(others.map((c) => api.getTwinConfig(c.id, signal).catch(() => null)));
-    return { others: details.filter((d): d is TwinConfigDetail => d !== null), note: "note" in list ? list.note : null };
-  }, [id, catalogWanted]);
+  // The Add panel's sources (docs/design/canvas-add-panel.md §4): the persona library (roles,
+  // grouped by category; one cheap read the member rows need too) and the image profiles (card +
+  // OS -> image). The old palette's lazy read of every other twin's config went with "From other twins".
   const personaLoad = useLoad<{ personas: Persona[]; note: string | null }>(
     (signal) => api.listPersonas(signal).then((p) => ({ personas: p.personas, note: null }), (e: unknown) => ({ personas: [], note: `personas not listed: ${errorText(e)}` })),
     [id],
   );
-  const catalog = useMemo(() => [...(data?.detail ? [data.detail] : []), ...(catalogLoad.data?.others ?? [])], [data?.detail, catalogLoad.data]);
+  const profileLoad = useLoad<{ profiles: ImageProfile[]; note: string | null }>(
+    (signal) => api.listImageProfiles(signal).then((p) => ({ profiles: p.profiles, note: null }), (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}` })),
+    [],
+  );
   const personas = personaLoad.data?.personas ?? [];
-  const paletteNote = catalogWanted && !catalogLoad.data ? "loading the other twins' items…" : [catalogLoad.data?.note, personaLoad.data?.note].filter(Boolean).join("; ") || null;
+  const imageProfiles = profileLoad.data?.profiles ?? [];
+  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
@@ -467,8 +446,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [detail, setDetail] = useState<TwinConfigDetail | null>(null);
   const [view, setView] = useState<View>("design");
   const [selection, setSelection] = useState<Selection>({ kind: "none" });
-  const [placing, setPlacing] = useState<PaletteItem | null>(null);
-  const [copies, setCopies] = useState(1);
+  /** An Add-panel drop waiting on its popover (docs/design/canvas-add-panel.md §4.1): nothing is written until it closes. */
+  const [pendingDrop, setPendingDrop] = useState<{ item: PaletteItem; target: DropTarget; at: { x: number; y: number } | null; screen: { x: number; y: number } } | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
   /** The working-copy poll's last failure; the next good poll clears it (R3-9). */
   const [pollError, setPollError] = useState<unknown>(null);
@@ -811,7 +790,6 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   );
 
   // ---- the palette's placement ----
-  const items = useMemo(() => (data ? paletteItems(catalog, personas, id) : []), [data, catalog, personas, id]);
   // Rule 6 (track 4): "Add segment" inserts the new bus under the selected site -- the
   // site of the segment it was asked beside, else of the selection, else of the first segment.
   const selectionRef = useRef<Selection>(selection);
@@ -833,53 +811,55 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       return addSegment(d, { name: `segment-${n}`, cidr, zoneType: "vlan" });
     });
   }, [edit]);
+  // The Add panel (docs/design/canvas-add-panel.md): a card dropped, clicked or quick-added lands per
+  // the §7.1 drop rules (a segment, a switch's segment, a router's new segment, the empty pane), then
+  // its popover opens there; the commit writes the drop and every popover choice as ONE command.
   const onPlace = useCallback(
-    (item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia) => {
-      setPlacing(null);
+    (item: PaletteItem, segment: string | null, _count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }) => {
       if (via && "blocked" in via) {
         setBlocked(via.blocked);
         return;
       }
-      if (item.kind === "segment") {
-        onAddSegment();
+      const target: DropTarget = segment ? { segment } : via && "router" in via ? { router: via.router } : { pane: true };
+      const where = screen ?? { x: 80, y: 80 };
+      if (item.kind === "tool" && item.tool === "internet") {
+        const router = "router" in target ? target.router : null;
+        if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files) === null) rememberAdd(item);
         return;
       }
-      if (item.kind === "persona") {
-        if (selection.kind !== "node") {
-          setBlocked("select a node group first, then pick a persona");
-          return;
-        }
-        const names = selection.names;
-        edit(`persona ${item.id} on ${names.join(", ")}`, (d) => names.reduce((files, n) => setPersona({ ...d, files }, readDoc({ ...d, files }), "node", n, { persona: item.id }), d.files));
+      if (item.kind === "tool" && item.tool === "tap" && !("segment" in target)) {
+        setBlocked("drop the Sensor / tap on a segment or a switch");
         return;
       }
-      const nodeKind = item.kind === "router" || item.nodeKind === "router" ? "router" : "host";
-      const onRouter = via && "router" in via && nodeKind !== "router" ? via.router : null;
-      if (!segment && nodeKind !== "router" && !onRouter) {
-        setBlocked(`${item.label} needs a segment: arm it, then click a segment (or drag it onto one)`);
+      setPendingDrop({ item, target, at, screen: where });
+    },
+    [edit, imageProfiles],
+  );
+  const commitDrop = useCallback(
+    (c: DropCommit) => {
+      const p = pendingDrop;
+      setPendingDrop(null);
+      if (!p) return;
+      if (c.kind === "tap") {
+        if (edit(`tap on ${c.segment}`, (d, m) => applyTapDrop(d, m, c.segment, c.sensors).files) === null) rememberAdd(p.item);
         return;
       }
-      const name = item.kind === "group" ? item.id.split("/").pop()! : item.id.replace(/@.*$/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
+      const s = c.spec;
       let placed: string[] = [];
-      // Dropped on a router: a new segment under it (the next free /24 in its site), its leg on it, the
-      // host on it -- one command, one undo step; it draws under a new implied switch (§7.1).
-      const reason = edit(`place ${item.label} ×${count}${segment ? ` on ${segment}` : onRouter ? ` on a new segment under ${onRouter}` : ""}`, (d, m) => {
-        let doc = d;
-        let mod = m;
-        let seg = segment;
-        if (onRouter) {
-          const made = newSegmentOnRouter(d, m, onRouter);
-          doc = { ...d, files: made.files };
-          mod = readDoc(doc);
-          seg = made.segment;
-        }
-        const r = placeNodes(doc, mod, { name, count, image: item.image ?? item.id, role: item.role ?? null, kind: nodeKind, segment: seg, fanOut: item.kind === "group" && item.count && item.count > 1 ? item.count : undefined });
+      const where = "segment" in s.target ? ` on ${s.target.segment}` : "router" in s.target ? ` under ${s.target.router}` : "";
+      const label = `add ${p.item.label}${s.role ? ` (${s.role})` : ""}${s.count > 1 ? ` ×${s.count}` : ""}${where}`;
+      const reason = edit(label, (d, m) => {
+        const r = applyDeviceDrop(d, m, s);
         placed = r.names;
         return r.files;
       });
-      if (!reason && at && placed[0]) onPin(`host:${placed[0]}`, { x: Math.round(at.x), y: Math.round(at.y) });
+      if (reason) return;
+      const rolePersona = s.role ? personas.find((x) => x.id === s.role) : undefined;
+      rememberAdd({ ...p.item, card: s.card, role: s.role, os: s.os, label: rolePersona ? personaLabel(rolePersona) : s.role ?? p.item.label });
+      // A device dropped on the pane stands where it landed (free layout); a host on a segment hangs off it.
+      if (p.at && placed[0] && !("segment" in s.target)) onPin(`host:${placed[0]}`, { x: Math.round(p.at.x), y: Math.round(p.at.y) });
     },
-    [edit, onAddSegment, onPin, selection],
+    [pendingDrop, edit, onPin, personas],
   );
 
   // ---- exits ----
@@ -1380,8 +1360,6 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       locked: Boolean(locked),
       selection,
       onSelection: setSelection,
-      placing,
-      onPlacing: setPlacing,
       onPlace,
       onAttach: (node, segment) => void edit(`attach ${node} to ${segment}`, (d, m) => attach(d, m, node, segment)),
       onMove: (node, segment) => void edit(`move ${node} to ${segment}`, (d, m) => moveTo(d, m, node, segment)),
@@ -1428,7 +1406,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       annotations,
       onAnnotations: setAnnotations,
     };
-  }, [model, built, locked, selection, placing, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin]);
+  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -1906,7 +1884,30 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             findings={pins_}
             focus={focus}
             {...(editProps ? { edit: editProps } : {})}
-            {...(editProps && data ? { palette: <Palette items={items} placing={placing} onArm={setPlacing} onPlace={(item, n) => onPlace(item, null, n, null)} count={copies} onCount={setCopies} hasNodeSelection={selection.kind === "node"} disabled={Boolean(locked)} note={paletteNote} onOpen={wantCatalog} /> } : {})}
+            {...(editProps && data && model
+              ? {
+                  palette: <AddPanel personas={personas} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} />,
+                  quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} onPick={pick} onClose={close} />,
+                  ...(pendingDrop
+                    ? {
+                        overlay: (
+                          <DropPopover
+                            key={`${pendingDrop.item.kind}:${pendingDrop.item.id}:${pendingDrop.screen.x}:${pendingDrop.screen.y}`}
+                            item={pendingDrop.item}
+                            target={pendingDrop.target}
+                            te={model.te}
+                            personas={personas}
+                            profiles={imageProfiles}
+                            sensors={declaredSensors}
+                            at={pendingDrop.screen}
+                            onCommit={commitDrop}
+                            onCancel={() => setPendingDrop(null)}
+                          />
+                        ),
+                      }
+                    : {}),
+                }
+              : {})}
             {...(editProps && model
               ? {
                   inspector: {
@@ -1917,7 +1918,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                         baseline={baselineModel}
                         selection={selection}
                         locked={Boolean(locked)}
-                        images={[...new Set(items.filter((i) => i.kind === "image").map((i) => i.id))]}
+                        images={[...new Set([...imageProfiles.map((p) => p.image), ...model.te.nodes.map((n) => n.image)].filter((x): x is string => Boolean(x)))].sort()}
                         personas={personas}
                         canPromote={pit !== null}
                         promoteBlock={promoteBlock}

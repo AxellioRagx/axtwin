@@ -14,6 +14,9 @@
 # peer would fail the whole assignment rather than skip one emit.
 persona:
   id: generic-endpoint
+  category: endpoint
+  label: "Generic endpoint"
+  blurb: "Background web, DNS and NTP chatter from a host with no clearer role."
   os_family: linux
   drive: scripted
   emits:

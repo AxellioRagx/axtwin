@@ -1,6 +1,9 @@
 # docs/DESIGN_BRIEF_twin_model.md §5.2 — high-value target.
 persona:
   id: vip-exec
+  category: endpoint
+  label: "Executive"
+  blurb: "A high-value Windows user: mail, VPN and web; a typical phishing target."
   os_family: windows
   drive: scripted
   emits:

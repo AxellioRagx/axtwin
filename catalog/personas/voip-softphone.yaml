@@ -3,6 +3,9 @@
 # exposes a mirror that drops under sustained rate rather than under bursts.
 persona:
   id: voip-softphone
+  category: endpoint
+  label: "VoIP softphone"
+  blurb: "SIP signalling and constant-bitrate RTP calls between softphones."
   os_family: windows
   drive: scripted
   emits:

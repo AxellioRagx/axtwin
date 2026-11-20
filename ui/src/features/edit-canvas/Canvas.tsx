@@ -55,7 +55,7 @@ import { LabOverlay, type LabSource } from "./canvas/LabOverlay";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
-import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
+import { AddContext, PALETTE_MIME } from "./add/AddContext";
 import type { Selection } from "./SidePanel";
 import type { FindingPin } from "./edit/check";
 import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
@@ -71,11 +71,11 @@ export interface CanvasEditProps {
   locked: boolean;
   selection: Selection;
   onSelection(sel: Selection): void;
-  placing: PaletteItem | null;
-  onPlacing(item: PaletteItem | null): void;
-  /** A palette item landed on a segment (or nowhere, `segment: null`). */
-  /** `via`: the drop landed on a router (a new segment under it, §7.1) or somewhere it cannot go. */
-  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia): void;
+  /** An Add-panel item landed (`docs/design/canvas-add-panel.md` §3): dragged, clicked (the selected
+   *  segment, else the view's centre) or picked from the double-click quick-add. `segment` when it
+   *  landed on one; `via`: on a router (a new segment under it, §7.1) or somewhere it cannot go;
+   *  `screen`: the drop point in the canvas shell's pixels (where the drop popover opens). */
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }): void;
   /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
   onInsertSwitch?(segment: string): void;
   /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
@@ -140,8 +140,12 @@ export interface CanvasProps {
   layoutBar?: ReactNode;
   /** Phase 2: the editing gestures. Absent = Phase 1's read-only canvas. */
   edit?: CanvasEditProps;
-  /** Edit mode: the palette, shown as a popover off the rail's `+`. */
+  /** Edit mode: the Add panel, shown as a popover off the rail's `+`. */
   palette?: ReactNode;
+  /** Edit mode: what floats over the canvas at a drop point (the Add panel's drop popover). */
+  overlay?: ReactNode;
+  /** Edit mode: the double-click quick-add's content (the Add panel's search); `pick` drops an item at the pointer. */
+  quickAdd?: (pick: (item: PaletteItem) => void, close: () => void) => ReactNode;
   /** Edit mode: the inspector's Selection tab (the property panels) and its
    *  Checks tab (validation + pending changes), with the badge the tab wears. */
   inspector?: { selection: ReactNode; checks: ReactNode | null; checksBadge: string | null };
@@ -365,7 +369,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -653,7 +657,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         setAttachArmed(false);
         setAttachFrom(null);
         setConduitFrom(null);
-        edit.onPlacing(null);
         setMenu(null);
         setPopover(null);
         select({ kind: "none" }, []);
@@ -935,22 +938,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         selectSubtree(d.name);
         return;
       }
-      // An armed host item clicked on a switch or a router places there (§7.1), as a drop would.
-      if (editing && edit.placing && !placesWithoutSegment(edit.placing) && (d.kind === "router" || d.kind === "device")) {
-        const t = placeOnDevice(edit.model.te, d.name);
-        if (t) {
-          if ("segment" in t) edit.onPlace(edit.placing, t.segment, edit.placing.count ?? 1, null);
-          else edit.onPlace(edit.placing, null, edit.placing.count ?? 1, null, t);
-          return;
-        }
-      }
       if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
         select({ kind: "node", names }, names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : edit.model.te.nodes.find((x) => x.name === n)?.kind === "switch" ? `device:${n}` : ID.host(n))));
       } else if (d.kind === "segment") {
         // While a gesture is armed a segment is its TARGET, not the selection's subject.
-        if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
+        if (!(editing && attachArmed && attachFrom)) {
           const names = e.shiftKey && cur.kind === "segment" ? [...cur.names.filter((n) => n !== d.name), d.name] : [d.name];
           select({ kind: "segment", names }, names.map(ID.segment));
         }
@@ -959,10 +953,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       if (!editing) return;
       if (node.data.kind === "segment") {
-        if (edit.placing) {
-          edit.onPlace(edit.placing, node.data.name, edit.placing.count ?? 1, null);
-          return;
-        }
         if (attachArmed && attachFrom) {
           edit.onAttach(attachFrom, node.data.name);
           setAttachFrom(null);
@@ -1065,6 +1055,46 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     [edit, editing, rf],
   );
 
+  /** Where an Add-panel item lands at `at` (§7.1 drop rules): on the segment or switch under it, on a
+   *  router (a new segment under it), else on the empty pane. One path for a drag, a click and the quick-add. */
+  const dropItem = useCallback(
+    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }) => {
+      if (!edit || !editing) return;
+      const t = placeTarget(rf.getNodes(), at, edit.model.te);
+      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, undefined, screen);
+      else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined, screen);
+    },
+    [edit, editing, rf],
+  );
+  /** A card's click (§3): onto the selected segment, else at the centre of the view. */
+  const addHere = useCallback(
+    (item: PaletteItem) => {
+      if (!edit || !editing) return;
+      const box = shellRef.current?.getBoundingClientRect();
+      const screen = { x: Math.round((box?.width ?? 800) / 2), y: Math.round((box?.height ?? 600) / 2) };
+      const sel = selectionRef.current;
+      if (sel.kind === "segment" && sel.names[0]) {
+        edit.onPlace(item, sel.names[0], item.count ?? 1, null, undefined, screen);
+        return;
+      }
+      dropItem(item, rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y }), screen);
+    },
+    [edit, editing, rf, dropItem],
+  );
+  const addContext = useMemo(() => ({ addHere }), [addHere]);
+  // The double-click quick-add (§3): the Add panel's search, at the pointer on the empty canvas.
+  const [quick, setQuick] = useState<{ left: number; top: number; at: { x: number; y: number } } | null>(null);
+  const onShellDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!edit || !editing || !quickAdd) return;
+      const el = e.target as Element | null;
+      if (!el?.closest?.(".react-flow__pane") || el.closest(".react-flow__node")) return;
+      const box = shellRef.current?.getBoundingClientRect();
+      setQuick({ left: e.clientX - (box?.left ?? 0), top: e.clientY - (box?.top ?? 0), at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+    },
+    [edit, editing, quickAdd, rf],
+  );
+
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       if (!edit || !editing) return;
@@ -1077,13 +1107,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       } catch {
         return;
       }
-      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      // A router item lands on the pane (it joins segments by legs); a host on a switch or a router (§7.1).
-      const t = placesWithoutSegment(item) ? null : placeTarget(rf.getNodes(), at, edit.model.te);
-      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at);
-      else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined);
+      const box = shellRef.current?.getBoundingClientRect();
+      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) });
     },
-    [edit, editing, rf],
+    [edit, editing, rf, dropItem],
   );
 
   const onContextMenu = useCallback<EditState["onContextMenu"]>((e, target) => {
@@ -1199,7 +1226,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const onToggleMembers = toggleMembers;
   const onSelectMember = useCallback((name: string, index: number) => { if (edit) { edit.onSelection({ kind: "member", node: name, index }); setInspectorTab("selection"); } }, [edit]);
   const onMoveMember = useCallback((from: string, index: number, into: string) => edit?.onMoveMember?.(from, index, into), [edit]);
-  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);
+  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);
 
   const align = useCallback(
     (axis: "h" | "v") => {
@@ -1458,7 +1485,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
-        if (edit.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, null, edit.placing!.count ?? 1, t.at) });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
         items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
@@ -1486,7 +1512,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     } else if (t.kind === "leg") {
       items.push({ label: `Detach ${t.node} from ${t.segment}`, run: () => edit.onDetach(t.node, t.segment), danger: true });
     } else if (t.kind === "segment") {
-      if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
       if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
       if (edit.onInsertSwitch) items.push({ label: "Insert switch", run: () => edit.onInsertSwitch!(t.name) });
       if (edit.onAddConduit) items.push({ label: "Declare conduit to… (then click the other segment)", run: () => setConduitFrom(t.name) });
@@ -1501,6 +1526,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     <FoldFindingsContext.Provider value={foldFindings}>
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
+      <AddContext.Provider value={editing ? addContext : null}>
       <DetailContext.Provider value={detail}>
       <LabelsContext.Provider value={labels}>
       <OverlayContext.Provider value={overlay}>
@@ -1521,7 +1547,21 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           data-color-mode={colorMode}
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
           onClick={() => setMenu(null)}
+          onDoubleClick={onShellDoubleClick}
         >
+          {editing && dropOverlay ? dropOverlay : null}
+          {editing && quick && quickAdd ? (
+            <div className="cv-quick-add" style={{ left: quick.left, top: quick.top }} data-testid="quick-add" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+              {quickAdd(
+                (item) => {
+                  const q = quick;
+                  setQuick(null);
+                  dropItem(item, q.at, { x: q.left, y: q.top });
+                },
+                () => setQuick(null),
+              )}
+            </div>
+          ) : null}
           {lab && labOn ? (
             <LabOverlay
               lab={lab}
@@ -1569,11 +1609,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             }}
             onPaneClick={(e) => {
               setMenu(null);
-              // An armed router lands where the pane is clicked, with no leg yet.
-              if (editing && edit?.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") {
-                edit.onPlace(edit.placing, null, edit.placing.count ?? 1, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
-                return;
-              }
               const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
               select(leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "none" }, []);
             }}
@@ -1716,6 +1751,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       </OverlayContext.Provider>
       </LabelsContext.Provider>
       </DetailContext.Provider>
+      </AddContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
     </FoldFindingsContext.Provider>

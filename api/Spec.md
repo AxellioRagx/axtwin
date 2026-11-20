@@ -298,6 +298,22 @@ tests `engine/tests/test_api_drafts.py`).
   reads back byte-for-byte. A3d.2 A draft is in neither `GET /api/twins` nor
   `GET /api/twin-configs`, and every deploy route refuses it with `draft`.
 
+**A3e — the canvas Add panel's catalog reads** (`docs/design/canvas-add-panel.md`
+§4.2, §4.3; D1, D2). **Built 2026-11-20.**
+- `GET /api/personas` rows carry three display fields read from the persona
+  file's optional `category`, `label`, `blurb` keys: `category` with the §4.2
+  fallback applied (`traffic` for an id starting `loadgen-` / `xseg-`, else
+  `other`; the vocabulary is `identity`, `business`, `network`, `endpoint`,
+  `ot`, `traffic`, `other`), `label` (the id when the file names none) and
+  `blurb` (`""` when none). A file without them loads as before
+  (`personas/schema.py` `Persona.effective_category`).
+- `GET /api/image-profiles` (open read, read-only: no write route) serves
+  `catalog/image-profiles.yaml` (the file beside the twin write root):
+  `{profiles: [{name, image}], warnings}`, sorted by name; a profile with no
+  image is `image: null` with a warning; a missing file is an empty list with
+  a warning; a malformed one is a 500 naming the file
+  (`api/image_profiles.py`; tests `engine/tests/test_add_panel_catalog.py`).
+
 **A4 — targets management.**
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target
   (a named entry of the adapter targets file). Credentials are stored by the

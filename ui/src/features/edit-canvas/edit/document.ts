@@ -296,7 +296,7 @@ export function setAttachmentAddress(doc: WorkingDoc, model: DocModel, node: str
   return withTe(doc, (t) => setNodeNets(t, node, n.nets.map((l) => (l.segment === segment ? { ...l, ip } : l))));
 }
 
-export function setNodeField(doc: WorkingDoc, node: string, key: "role" | "image" | "count" | "kind", value: string | number | null): Files {
+export function setNodeField(doc: WorkingDoc, node: string, key: "role" | "image" | "count" | "kind" | "stp", value: string | number | null): Files {
   return withTe(doc, (t) => teSetNodeField(t, node, key, value));
 }
 

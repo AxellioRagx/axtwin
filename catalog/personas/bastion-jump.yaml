@@ -1,6 +1,9 @@
 # mirrors real lateral-movement paths -- fans inward from one ingress point.
 persona:
   id: bastion-jump
+  category: network
+  label: "Bastion / jump host"
+  blurb: "SSH/RDP in from outside, then onward to internal hosts: one ingress point."
   os_family: linux
   drive: real-service
   emits:

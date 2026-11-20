@@ -1,6 +1,9 @@
 # perimeter chokepoint — aggregates workstation web egress + DNS.
 persona:
   id: egress-proxy
+  category: network
+  label: "Web proxy"
+  blurb: "The perimeter chokepoint: carries workstation web traffic and DNS out to the internet."
   os_family: linux
   drive: real-service
   emits:

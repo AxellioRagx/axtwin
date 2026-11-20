@@ -1,6 +1,9 @@
 # docs/DESIGN_BRIEF_twin_model.md §5.2 — bulk, bursty.
 persona:
   id: file-server
+  category: business
+  label: "File server"
+  blurb: "Serves SMB/NFS shares to workstations; bursty in business hours."
   os_family: linux
   drive: real-service
   emits:

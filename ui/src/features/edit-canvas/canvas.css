@@ -271,6 +271,37 @@ table.cv-matrix th:first-child { text-align: left; }
 .cv-palette-hint { font-size: 12px; margin: 6px 0; }
 .cv-palette-cat-head { width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line); padding: 6px 0; color: var(--ink); font-weight: 600; cursor: pointer; }
 .cv-palette-list { list-style: none; margin: 0; padding: 0; }
+/* The Add panel (docs/design/canvas-add-panel.md §3), its drop popover (§4.1) and the double-click quick-add. */
+.cv-add-head { margin: 8px 0 4px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--ink); }
+.cv-add-list { list-style: none; margin: 0; padding: 0; }
+.cv-add-entry { display: grid; grid-template-columns: 1fr auto; column-gap: 6px; align-items: center; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; cursor: grab; }
+.cv-add-entry:hover { border-color: var(--line); background: var(--bg); }
+.cv-add-entry.disabled { opacity: 0.6; cursor: default; }
+.cv-add-label { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-add-detail { grid-column: 1; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-add-star { grid-column: 2; grid-row: 1 / span 2; background: none; border: none; color: var(--muted, #888); cursor: pointer; font-size: 14px; padding: 0 2px !important; }
+.cv-add-star.on { color: var(--accent); }
+.cv-add-health { margin-top: 8px !important; padding-top: 6px; border-top: 1px solid var(--line); font-size: 12px; }
+.cv-drop-popover, .cv-quick-add { position: absolute; z-index: 20; }
+.cv-drop-popover { width: 300px; max-height: 70vh; }
+.cv-quick-add .cv-quick { width: 280px; max-height: 50vh; }
+.cv-seg { display: flex; gap: 0; margin: 4px 0; }
+.cv-seg button { flex: 1; border-radius: 0; }
+.cv-seg button:first-child { border-radius: 6px 0 0 6px; }
+.cv-seg button:last-child { border-radius: 0 6px 6px 0; }
+.cv-seg button.on { background: var(--accent); color: var(--accent-ink); }
+.cv-drop-roles { max-height: 220px; overflow: auto; margin: 4px 0; border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+.cv-drop-group-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; padding: 4px 4px 2px; }
+.cv-drop-role { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 5px; padding: 3px 6px !important; cursor: pointer; }
+.cv-drop-role.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.cv-drop-role-label { font-weight: 500; }
+.cv-drop-role-blurb { font-size: 11.5px; white-space: normal; }
+.cv-drop-quick { align-items: flex-end; }
+.cv-drop-quick input[type="number"] { width: 4em; }
+.cv-drop-needs { margin: 6px 0; padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.cv-drop-needs .row { justify-content: space-between; align-items: center; margin: 2px 0; }
+.cv-drop-advanced { margin: 6px 0; }
+.cv-drop-advanced summary { cursor: pointer; font-size: 12.5px; }
 .cv-palette-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; cursor: grab; }
 .cv-palette-item:hover { border-color: var(--line); background: var(--bg); }
 .cv-palette-item.armed { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

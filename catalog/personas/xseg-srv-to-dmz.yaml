@@ -7,6 +7,9 @@
 # having on those two ports.
 persona:
   id: xseg-srv-to-dmz
+  category: traffic
+  label: "Cross-segment (srv-to-dmz)"
+  blurb: "A traffic generator whose peers sit on another segment, so routed ports see load."
   os_family: linux
   drive: scripted
   emits:

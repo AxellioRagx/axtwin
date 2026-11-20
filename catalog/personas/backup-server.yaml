@@ -1,6 +1,9 @@
 # big periodic bursts, scripted client (rsync/smb/borg on a schedule window).
 persona:
   id: backup-server
+  category: business
+  label: "Backup server"
+  blurb: "Pulls large rsync/borg/SMB backups from servers and workstations in scheduled windows."
   os_family: linux
   drive: scripted
   emits:

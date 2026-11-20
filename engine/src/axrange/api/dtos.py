@@ -2365,6 +2365,25 @@ class PersonaDTO(BaseModel):
     requires: list[str] = []
     summary: str = ""
     emits: list[PersonaEmitDTO] = []
+    # The canvas Add panel's role picker (docs/design/canvas-add-panel.md §4.2):
+    # `category` with the fallback applied (`traffic` / `other` when the file
+    # names none), `label` (the id when absent), `blurb` ("" when absent).
+    category: str = "other"
+    label: str = ""
+    blurb: str = ""
+
+
+class ImageProfileDTO(BaseModel):
+    """One image profile (docs/design/canvas-add-panel.md §4.3): the image a
+    dropped device gets; `image: null` when the profile names none."""
+
+    name: str
+    image: Optional[str] = None
+
+
+class ImageProfileListDTO(BaseModel):
+    profiles: list[ImageProfileDTO]
+    warnings: list[str] = []
 
 
 class PersonaListDTO(BaseModel):

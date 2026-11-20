@@ -14,7 +14,7 @@ import { buildGraph } from "../src/features/edit-canvas/model/graph";
 import { provenanceCounts } from "../src/features/edit-canvas/SidePanel";
 import { checkBadge, checkStatus, mergeFindings } from "../src/features/edit-canvas/edit/check";
 import { CANVAS_PLANE } from "../src/features/edit-canvas/canvas/plane";
-import { item, openPalette, seeded, segments, twinYaml } from "./helpers/canvasFixtures";
+import { addSegment, addTool, clickPane, seeded, segments, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -100,12 +100,11 @@ describe("R3-9: the blocked banner clears on the next change", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments()).toContain("segment-3"));
-    openPalette();
-    fireEvent.click(screen.getByRole("button", { name: /Personas/ }));
-    fireEvent.click(item("persona", "generic-endpoint"));
-    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("select a node group first");
+    clickPane(); // nothing selected: the tap's click lands at the view's centre, no segment
+    fireEvent.click(addTool("tap"));
+    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("drop the Sensor / tap on a segment or a switch");
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(segments()).not.toContain("segment-3"));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();

@@ -11,7 +11,10 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { readTe } from "../src/features/edit-canvas/edit/te";
-import { check, hosts, item, seeded, segment, segments, settle, twinYaml } from "./helpers/canvasFixtures";
+import { check, seeded, segment, segments, settle, twinYaml } from "./helpers/canvasFixtures";
+import { placeOnDevice } from "../src/features/edit-canvas/Canvas";
+import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
+import { readDoc } from "../src/features/edit-canvas/edit/document";
 import { renderAt } from "./helpers/render";
 
 const CT = readFileSync(resolve(__dirname, "../../catalog/twins/canvas-test/te.yaml"), "utf8");
@@ -28,7 +31,6 @@ function withTwin(id: string, te: string) {
 /** The files on screen: a Check sends exactly them (nothing validates on its own any more). */
 const lastFiles = async (state: ReturnType<typeof seeded>["state"]) => (await check(), state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
 const device = (name: string) => screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === name)!;
-const router = (name: string) => screen.getAllByTestId("canvas-router").find((d) => d.dataset["nodeId"] === name)!;
 
 afterEach(() => {
   localStorage.clear();
@@ -76,22 +78,20 @@ describe("Insert switch", () => {
 });
 
 describe("placement infers the segment", () => {
-  it("an armed host clicked on the router lands on a new segment under it (a new implied switch)", async () => {
-    const { api, state } = withTwin("ct", CT);
-    renderAt(api, "/twins/ct/canvas");
-    await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    fireEvent.click(router("gw"));
-    await settle();
-    await waitFor(() => expect(segments()).toEqual(["office", "segment-3", "servers"]));
-    const te = readTe((await lastFiles(state))["te.yaml"]!);
+  // A drop lands per the §7.1 rules (`placeOnDevice`, the target a drag resolves under the pointer);
+  // jsdom measures nothing, so the target is resolved here and the drop applied as the page applies it.
+  it("a host dropped on the router lands on a new segment under it (a new implied switch)", () => {
+    const doc = { id: "ct", teFile: "te.yaml", files: { "te.yaml": CT } };
+    const model = readDoc(doc);
+    const t = placeOnDevice(model.te, "gw");
+    expect(t).toEqual({ router: "gw" });
+    const r = applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { router: string }, image: "debian-12-cloud@v1" });
+    const te = readTe(r.files["te.yaml"]!);
     expect(te.segments.find((s) => s.name === "segment-3")?.cidr).toBe("10.70.21.0/24");
     expect(te.nodes.find((n) => n.name === "gw")!.nets.map((l) => l.segment)).toContain("segment-3");
-    const placed = te.nodes.find((n) => n.image === "debian-12-cloud@v1" && n.nets[0]?.segment === "segment-3");
-    expect(placed).toBeTruthy();
-    expect(hosts()).toContain(placed!.name);
+    expect(te.nodes.find((n) => n.name === "srv")).toMatchObject({ image: "debian-12-cloud@v1", nets: [{ segment: "segment-3", ip: "10.70.21.10" }] });
   });
-  it("an armed host clicked on a real switch lands on its segment; a switch of several offers the VLAN picker", async () => {
+  it("a host dropped on a real switch lands on its segment; a switch of several offers the VLAN picker", async () => {
     const te = `twin_config:
   id: multi
   segments:
@@ -104,25 +104,25 @@ describe("placement infers the segment", () => {
   links:
     - { a: { device: gw, port: eth1 }, b: { device: core, port: P1 }, mode: trunk, native: users, vlans: [users, voice] }
 `;
+    // The trunk's native, users.
+    const doc = { id: "multi", teFile: "te.yaml", files: { "te.yaml": te } };
+    const model = readDoc(doc);
+    const t = placeOnDevice(model.te, "core");
+    expect(t).toEqual({ segment: "users" });
+    const placed = readTe(applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { segment: string }, image: "debian-12-cloud@v1" }).files["te.yaml"]!).nodes.find((n) => n.name === "srv")!;
+    expect(placed.nets.map((l) => l.segment)).toEqual(["users"]);
+    // The picker moves pc to the other VLAN, re-addressed there.
     const { api, state } = withTwin("multi", te);
     renderAt(api, "/twins/multi/canvas");
     await screen.findAllByTestId("canvas-host");
     expect(screen.queryAllByTestId("canvas-segment")).toEqual([]); // core carries both: no implied switch
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    fireEvent.click(device("core"));
-    await settle();
-    // The trunk's native, users.
-    const after = readTe((await lastFiles(state))["te.yaml"]!);
-    const placed = after.nodes.find((n) => n.name !== "pc" && n.image === "debian-12-cloud@v1")!;
-    expect(placed.nets.map((l) => l.segment)).toEqual(["users"]);
-    // The picker moves pc to the other VLAN, re-addressed there.
-    await waitFor(() => expect(hosts()).toContain("pc"));
     fireEvent.click(screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === "pc")!);
     const picker = within(await screen.findByTestId("node-panel")).getByTestId("vlan-picker") as HTMLSelectElement;
     expect([...picker.options].map((o) => o.value)).toEqual(["users", "voice"]);
     expect(picker.value).toBe("voice");
     fireEvent.change(picker, { target: { value: "users" } });
     await settle();
-    await waitFor(async () => expect(readTe((await lastFiles(state))["te.yaml"]!).nodes.find((n) => n.name === "pc")!.nets).toEqual([{ segment: "users", ip: "10.50.1.11" }]), { timeout: 3000 });
+    await waitFor(async () => expect(readTe((await lastFiles(state))["te.yaml"]!).nodes.find((n) => n.name === "pc")!.nets).toEqual([{ segment: "users", ip: "10.50.1.10" }]), { timeout: 3000 });
   });
 });
+
