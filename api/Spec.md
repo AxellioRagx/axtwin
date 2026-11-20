@@ -311,7 +311,8 @@ tests `engine/tests/test_api_drafts.py`).
   `catalog/image-profiles.yaml` (the file beside the twin write root):
   `{profiles: [{name, image}], warnings}`, sorted by name; a profile with no
   image is `image: null` with a warning; a missing file is an empty list with
-  a warning; a malformed one is a 500 naming the file
+  a warning (`AXRANGE_IMAGE_PROFILES` names another file, for a twin catalog
+  that lives elsewhere); a malformed one is a 500 naming the file
   (`api/image_profiles.py`; tests `engine/tests/test_add_panel_catalog.py`).
 
 **A3f — canvas templates, read side** (`docs/design/canvas-add-panel.md` §5,
@@ -326,6 +327,8 @@ D3). **Built 2026-11-20** (phase 2).
   in tfc vocabulary) and `layout`, all served AS WRITTEN (settings not
   applied). A file that does not parse or has the wrong shape is left out
   with a warning naming it.
+- `AXRANGE_TEMPLATES_DIR` moves the templates folder (unset: `templates/`
+  beside the twin write root).
 - `GET /api/templates/{id}`: one template; 404 for an unknown or unsafe id
   (the catalog-id guard), 500 naming the file for a broken one.
 - Expansion (`api/templates.py` `expand`, mirrored by the canvas's

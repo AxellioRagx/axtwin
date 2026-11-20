@@ -166,6 +166,17 @@ class ApiSettings:
         default_factory=lambda: os.environ.get("AXRANGE_DRAFTS_DIR", "")
     )
 
+    # The canvas Add panel's catalog files (docs/design/canvas-add-panel.md
+    # §4.3, §5): `image-profiles.yaml` and the `templates/` folder. Empty ->
+    # beside the catalog's write root (`catalog/` beside `catalog/twins`), as
+    # drafts; set them when the twin catalog lives elsewhere.
+    templates_dir: str = field(
+        default_factory=lambda: os.environ.get("AXRANGE_TEMPLATES_DIR", "")
+    )
+    image_profiles: str = field(
+        default_factory=lambda: os.environ.get("AXRANGE_IMAGE_PROFILES", "")
+    )
+
     # Imprint-fixture catalog root (aximprint-integration Track C,
     # docs/WORK_ORDER_aximprint_console.md) -- read-only belief-store
     # fixtures under `<root>/<id>/` (point it at `twins/` for the real cast

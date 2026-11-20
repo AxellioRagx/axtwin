@@ -22,7 +22,10 @@ FILE = "image-profiles.yaml"
 
 def profiles_path(settings: Any) -> Path:
     """`<catalog>/image-profiles.yaml`: beside the catalog's write root
-    (`catalog/twins` -> `catalog/`), the same parent drafts sit under."""
+    (`catalog/twins` -> `catalog/`), the same parent drafts sit under;
+    `AXRANGE_IMAGE_PROFILES` names another file."""
+    if getattr(settings, "image_profiles", ""):
+        return Path(settings.image_profiles)
     return _write_root(settings).parent / FILE
 
 

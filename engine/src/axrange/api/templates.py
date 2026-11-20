@@ -270,6 +270,9 @@ def template_document(tpl: dict[str, Any], twin_id: str, given: Optional[dict[st
 # The catalog
 # ---------------------------------------------------------------------------
 def templates_root(settings: Any) -> Path:
+    """`AXRANGE_TEMPLATES_DIR`, else `templates/` beside the catalog's write root."""
+    if getattr(settings, "templates_dir", ""):
+        return Path(settings.templates_dir)
     return _write_root(settings).parent / "templates"
 
 

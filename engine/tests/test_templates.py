@@ -232,3 +232,13 @@ def test_path_safety_on_write(wc, tid):
     r = c.post("/api/templates", json={"template": _saved(tid)}, headers=AUTH)
     assert r.status_code == 400, (tid, r.text)
     assert not (catalog.parent / "evil").exists()
+
+
+def test_the_catalog_files_can_live_elsewhere(env, tmp_path):  # noqa: F811
+    """AXRANGE_TEMPLATES_DIR / AXRANGE_IMAGE_PROFILES: a twin catalog in another place."""
+    settings, _ = env
+    settings.templates_dir = str(CATALOG_ROOT / "templates")
+    settings.image_profiles = str(CATALOG_ROOT / "image-profiles.yaml")
+    c, _, _ = _client(settings)
+    assert {t["id"] for t in c.get("/api/templates").json()["templates"]} == SECTION_5_1
+    assert len(c.get("/api/image-profiles").json()["profiles"]) == 5
