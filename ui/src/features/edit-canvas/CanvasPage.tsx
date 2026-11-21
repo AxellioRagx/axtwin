@@ -1486,7 +1486,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           setBlocked(intent.reason);
           return;
         }
-        const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : `link ${intent.a} — ${intent.b}`;
+        const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : intent.kind === "gateway" ? `${intent.router} gateway on ${intent.switch}` : `link ${intent.a} — ${intent.b}`;
         if (edit(label, (d, m) => applyIntent(d, m, intent)) !== null) return;
         // A new LAN stands where it was dropped: its implied switch's pin.
         if (intent.kind === "lan" && at) onPin(`segment:${intent.cidr}`, at);

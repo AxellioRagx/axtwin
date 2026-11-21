@@ -273,7 +273,14 @@ describe("on the page", () => {
     fireEvent.click(device("access-2"));
     await settle();
     te = readTe((await lastFiles(state))["te.yaml"]!);
-    expect(te.links.at(-1)).toMatchObject({ a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", vlans: ["a1-2", "a2-2"] });
+    // A router to a switch makes the router the gateway of what the copy carries (A5, 2026-11-21): an
+    // addressed leg on each segment and one single-segment link per segment (a VM trunk carries one).
+    const hq = te.nodes.find((n) => n.name === "hq")!;
+    expect(hq.nets.slice(-2)).toEqual([{ segment: "a1-2", ip: expect.stringMatching(/\.1$/) }, { segment: "a2-2", ip: expect.stringMatching(/\.1$/) }]);
+    expect(te.links.slice(-2)).toMatchObject([
+      { a: { device: "hq", port: "eth2" }, b: { device: "access-2", port: "P1" }, mode: "trunk", native: "a1-2", vlans: ["a1-2"] },
+      { a: { device: "hq", port: "eth3" }, b: { device: "access-2" }, mode: "trunk", native: "a2-2", vlans: ["a2-2"] },
+    ]);
   });
 });
 

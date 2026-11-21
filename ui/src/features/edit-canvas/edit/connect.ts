@@ -10,12 +10,16 @@
  * - router -> empty pane: a new LAN segment (the next free `/24` in the router's site, as the
  *   palette's Segment does) with the router's leg on it.
  * - router / host -> segment: the attach the canvas already has (`document.ts` `attach`).
- * - switch <-> router / switch: a `links[]` entry (`subtree.ts` `attachDevices`), unchanged.
+ * - router (or L3 switch) <-> switch (A5, 2026-11-21): the router becomes the GATEWAY of every segment
+ *   the switch carries -- an addressed leg on each (`.1` for the first router, `.2` for the second),
+ *   wired by one single-segment link per segment (`subtree.ts` `gatewayOnSwitch`). It had been a bare
+ *   trunk with no leg: the router was not the LAN's gateway and the engine refused the link.
+ * - switch <-> switch / host: a `links[]` entry (`subtree.ts` `attachDevices`), unchanged.
  */
 import { lanSitePrefix, nextFreeLan, nextFreeTransit, transitEnds, TRANSIT_POOL } from "./allocate";
 import type { Files } from "./commands";
 import { addSegment, attach, readDoc, setNodeField, setSegmentField, type DocModel, type WorkingDoc } from "./document";
-import { attachDevices } from "./subtree";
+import { attachDevices, gatewayOnSwitch, gatewayPlan, wiredAsGateway } from "./subtree";
 import { addSegment as teAddSegment, setNodeNets, type TeModel } from "./te";
 
 /** The zone_type a transit takes (the catalog's one transit, datacenter's `fab-link`, is `vlan`). */
@@ -29,6 +33,7 @@ export type ConnectIntent =
   | { kind: "lan"; router: string; cidr: string; name: string }
   | { kind: "attach"; node: string; segment: string }
   | { kind: "link"; a: string; b: string }
+  | { kind: "gateway"; router: string; switch: string; segments: string[] }
   | { kind: "refused"; reason: string };
 
 /** Two routers already share a segment (a transit or a LAN): they are linked. */
@@ -80,6 +85,13 @@ export function connectIntent(te: TeModel, from: ConnectEnd, to: ConnectEnd, poo
     const [x, y] = [from.name, to.name].sort();
     return { kind: "transit", a: from.name, b: to.name, cidr, name: freeName(te, `${x}--${y}`) };
   }
+  if ((from.kind === "router" && to.kind === "switch") || (from.kind === "switch" && to.kind === "router")) {
+    const [router, sw] = from.kind === "router" ? [from.name, to.name] : [to.name, from.name];
+    const plan = gatewayPlan(te, router, sw);
+    if (!plan.carried.length) return { kind: "refused", reason: `${sw} carries no segment yet: drop a host on it first` };
+    if (!plan.legs.length && wiredAsGateway(plan)) return { kind: "refused", reason: `${router} is already the gateway on ${plan.carried.join(", ")}` };
+    return { kind: "gateway", router, switch: sw, segments: plan.carried };
+  }
   if (from.kind === "switch" || to.kind === "switch") return { kind: "link", a: from.name, b: to.name };
   if (from.kind === "host" && to.kind === "host") return { kind: "refused", reason: "two hosts join through a segment or a switch" };
   // A host and a router: the host onto one of the router's segments is an attach on the canvas; here, refuse with the way.
@@ -97,6 +109,8 @@ export function intentHint(i: ConnectIntent): string {
       return `attach ${i.node} to ${i.segment}`;
     case "link":
       return `link ${i.a} — ${i.b}`;
+    case "gateway":
+      return `${i.router} becomes the gateway of ${i.segments.join(", ")} (${i.switch})`;
     default:
       return i.reason;
   }
@@ -144,6 +158,8 @@ export function applyIntent(doc: WorkingDoc, model: DocModel, i: ConnectIntent):
       return attach(doc, model, i.node, i.segment);
     case "link":
       return attachDevices(doc, model, i.a, i.b);
+    case "gateway":
+      return gatewayOnSwitch(doc, model, i.router, i.switch);
     default:
       throw new Error(i.reason);
   }

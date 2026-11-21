@@ -13,11 +13,11 @@
  * trunk carrying what the deeper one carries) or a device and a host (an
  * access link on the host's first segment), with free ports at both ends.
  */
-import { allocateHostAddresses, inTransitPool, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
+import { allocateHostAddresses, gatewayAddress, inTransitPool, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
-import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
+import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, removeLink, setMemberRole, setNodeNets, type TeLink, type TeModel, type TeNet, type TeNode } from "./te";
 
 export interface Subtree {
   root: string;
@@ -400,13 +400,70 @@ function readDocTe(text: string, doc: WorkingDoc): TeModel {
   return readDoc({ ...doc, files: { ...doc.files, [doc.teFile]: text } }).te;
 }
 
-/** One `links[]` entry between a device and a device or a host (§6.4). */
+/** What wiring router `router` to switch `sw` does (A5, 2026-11-21): the segments the switch carries,
+ *  those the router still needs a leg on, and the links between the two already there. */
+export function gatewayPlan(te: TeModel, router: string, sw: string): { carried: string[]; legs: string[]; links: TeLink[] } {
+  const r = te.nodes.find((n) => n.name === router);
+  const carried = carriedBy(te, sw).filter((s) => te.segments.some((x) => x.name === s));
+  const legs = carried.filter((s) => !r?.nets.some((l) => l.segment === s));
+  const links = te.links.filter((l) => (l.a.device === router && l.b.device === sw) || (l.b.device === router && l.a.device === sw));
+  return { carried, legs, links };
+}
+
+/** Whether the pair's links are already the gateway's wiring: one single-segment link per carried segment. */
+export function wiredAsGateway(plan: ReturnType<typeof gatewayPlan>): boolean {
+  const single = (l: TeLink) => (l.mode === "access" ? l.vlans : l.native && l.vlans.every((v) => v === l.native) ? [l.native] : []);
+  const got = plan.links.flatMap(single);
+  return plan.links.length === plan.carried.length && plan.carried.every((s) => got.includes(s));
+}
+
+/**
+ * Router (or L3 switch) -> switch (A5, 2026-11-21): the router becomes the GATEWAY of every segment
+ * the switch carries -- a leg on each, pinned at the lowest free of `.1`..`.9` (`gatewayAddress`: the
+ * first router `.1`, the second `.2`) -- wired by one single-segment link per segment (a trunk whose
+ * native is that segment, as `insertSwitch` writes; the engine plugs it into the leg's NIC). It had
+ * been one bare trunk carrying the switch's segments with no leg on any: the router was not the LAN's
+ * gateway, and the engine refuses such a link to a VM (NSW-050: it carries a segment the router has
+ * no leg on; NSW-060: a VM trunk carries one segment). Links already between the pair are replaced,
+ * so wiring an old bare trunk again repairs it. One edit (the caller's one undo step).
+ */
+export function gatewayOnSwitch(doc: WorkingDoc, model: DocModel, router: string, sw: string): Files {
+  const te = model.te;
+  const r = te.nodes.find((n) => n.name === router);
+  const s = te.nodes.find((n) => n.name === sw);
+  if (r?.kind !== "router") throw new Error(`'${router}' is not a router`);
+  if (s?.kind !== "switch") throw new Error(`'${sw}' is not a switch`);
+  const plan = gatewayPlan(te, router, sw);
+  if (!plan.carried.length) throw new Error(`'${sw}' carries no segment yet; drop a host on it or give it a segment first`);
+  if (!plan.legs.length && wiredAsGateway(plan)) throw new Error(`'${router}' is already the gateway on ${plan.carried.join(", ")} through '${sw}'`);
+  let text = doc.files[doc.teFile];
+  if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
+  // The pair's old links go first (last index first), so their ports are free again.
+  for (const l of [...plan.links].sort((x, y) => y.index - x.index)) text = removeLink(text, l.index);
+  let cur = readDocTe(text, doc);
+  const nets: TeNet[] = [...r.nets];
+  for (const seg of plan.legs) {
+    nets.push({ segment: seg, ip: gatewayAddress({ segments: cur.segments, nodes: cur.nodes.map((n) => (n.name === router ? { ...n, nets } : n)) }, seg) });
+  }
+  if (plan.legs.length) text = setNodeNets(text, router, nets);
+  cur = readDocTe(text, doc);
+  for (const seg of plan.carried) {
+    text = addLink(text, { a: { device: router, port: freePort(cur, router) }, b: { device: sw, port: freePort(cur, sw) }, mode: "trunk", native: seg, vlans: [seg] });
+    cur = readDocTe(text, doc);
+  }
+  return { ...doc.files, [doc.teFile]: text };
+}
+
+/** One `links[]` entry between a device and a device or a host (§6.4); a router and a switch make
+ *  the router that switch's gateway instead (`gatewayOnSwitch`, A5). */
 export function attachDevices(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {
   const te = model.te;
   if (from === to) throw new Error("a link joins two different devices");
   const a = te.nodes.find((n) => n.name === from);
   const b = te.nodes.find((n) => n.name === to);
   if (!a || !b) throw new Error(`no node group named '${a ? to : from}'`);
+  if (a.kind === "router" && b.kind === "switch") return gatewayOnSwitch(doc, model, a.name, b.name);
+  if (b.kind === "router" && a.kind === "switch") return gatewayOnSwitch(doc, model, b.name, a.name);
   // The device end goes first; a host-to-host pair has no device to link through.
   const [dev, other] = isDevice(a) ? [a, b] : isDevice(b) ? [b, a] : [null, null];
   if (!dev || !other) throw new Error(`neither '${from}' nor '${to}' is a switch or a router; a link needs a device at one end`);

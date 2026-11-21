@@ -166,3 +166,25 @@ export function addressInSegment(ip: string, cidr: string): boolean {
   if (!r || v === null) return false;
   return v > r.start && v < r.end;
 }
+
+/** Where a router's leg on a LAN is pinned when it becomes that LAN's gateway (A5, 2026-11-21): the
+ *  lowest of `.1` .. `.9` (below the hosts' `.10`) that nothing pins, so the first router takes `.1`
+ *  and the second `.2`. An unpinned router leg already there holds `.1` (the planner gives a lone
+ *  router leg the gateway address). `null` when none is free: the leg is left to the planner. */
+export function gatewayAddress(model: Pick<TeModel, "segments" | "nodes">, segment: string): string | null {
+  const seg = model.segments.find((s) => s.name === segment);
+  const r = seg ? ipv4Range(seg.cidr) : null;
+  if (!r || r.end - r.start < 4) return null;
+  const taken = new Set<string>();
+  for (const n of model.nodes)
+    for (const leg of n.nets) {
+      if (leg.segment !== segment) continue;
+      if (leg.ip && isIpv4(leg.ip)) taken.add(leg.ip);
+      else if (!leg.ip && n.kind === "router") taken.add(intToIpv4(r.start + 1));
+    }
+  for (let i = 1; i < HOST_NUMBERING_START && r.start + i < r.end; i++) {
+    const ip = intToIpv4(r.start + i);
+    if (!taken.has(ip)) return ip;
+  }
+  return null;
+}
