@@ -50,6 +50,7 @@ import {
 import { emptyTfc, readTfc, removeAssignment, renameNodeBindings, setAssignment, type AssignmentPatch, type TfcModel } from "./tfc";
 import { carriedBy } from "./subtree";
 import { validateTe } from "./validate";
+import { leaveGateways } from "./vrrp";
 
 export interface WorkingDoc {
   id: string;
@@ -293,7 +294,7 @@ export function rehome(doc: WorkingDoc, model: DocModel, node: string, from: str
 export function detach(doc: WorkingDoc, model: DocModel, node: string, segment: string): Files {
   const n = model.te.nodes.find((x) => x.name === node);
   if (!n) throw new Error(`no node group named '${node}'`);
-  return withTe(doc, (t) => setNodeNets(t, node, n.nets.filter((l) => l.segment !== segment)));
+  return withTe(doc, (t) => setNodeNets(n.kind === "router" ? leaveGateways(t, node, [segment]) : t, node, n.nets.filter((l) => l.segment !== segment)));
 }
 
 export function setAttachmentAddress(doc: WorkingDoc, model: DocModel, node: string, segment: string, ip: string | null): Files {
@@ -339,7 +340,10 @@ export function removalPlan(model: DocModel, node: string): { links: number[]; s
 export function removeNode(doc: WorkingDoc, model: DocModel, node: string, options: { keepSegments?: boolean } = {}): Files {
   const plan = removalPlan(model, node);
   const drop = plan.segments.filter((seg) => (options.keepSegments === undefined ? !plan.hosted[seg] : !options.keepSegments));
-  let cur: WorkingDoc = { ...doc, files: withTe(doc, (t) => removeNodeAndLinks(t, node)) };
+  const n = model.te.nodes.find((x) => x.name === node);
+  // A router leaving its LANs leaves their VRRP groups and hands on a gateway written at it (D5).
+  const leave = n?.kind === "router" ? (t: string) => leaveGateways(t, node, n.nets.map((l) => l.segment)) : (t: string) => t;
+  let cur: WorkingDoc = { ...doc, files: withTe(doc, (t) => removeNodeAndLinks(leave(t), node)) };
   for (const seg of drop) cur = { ...cur, files: removeSegment(cur, readDoc(cur), seg) };
   const files = { ...cur.files };
   if (model.tfcPath && files[model.tfcPath] !== undefined) files[model.tfcPath] = removeAssignment(files[model.tfcPath]!, "node", node);

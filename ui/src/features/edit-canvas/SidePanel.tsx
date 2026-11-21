@@ -58,6 +58,8 @@ import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
 import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
+import { inTransitPool as isTransitCidr } from "./edit/allocate";
+import { effectiveGateway, routersOn, setVip, shareGateway, stopSharing, vrrpImageGaps } from "./edit/vrrp";
 import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
@@ -112,6 +114,8 @@ export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes
 }
 
 export interface SidePanelProps {
+  /** The image VRRP members need (the `l3-switch` profile's, VyOS), offered when a member runs another (D5). */
+  vrrpImage?: string | null;
   /** Duplicate a subtree through the page (positions beside the original, B3); absent, the panel applies it itself. */
   onDuplicate?(root: string, attachTo: string | null, opts: { sameUplinks?: boolean }): void;
   twinId: string;
@@ -1124,6 +1128,57 @@ function NodesPanel(p: SidePanelProps & { names: string[] }) {
   );
 }
 
+/** First-hop redundancy on a LAN (design D5): a segment with two or more router legs offers "Share one
+ *  gateway (VRRP)"; one that shares shows its VIP (editable), its members, and Stop sharing. */
+function SharedGateway(p: SidePanelProps & { segment: string }) {
+  const [switchImage, setSwitchImage] = useState(true);
+  const s = p.model.te.segments.find((x) => x.name === p.segment);
+  if (!s) return null;
+  const ro = p.locked;
+  const routers = routersOn(p.model.te, s.name);
+  if (s.vrrp) {
+    const gaps = vrrpImageGaps(p.model.te, s.vrrp.members);
+    return (
+      <div className="cv-vrrp" data-testid="vrrp">
+        <h4>Shared gateway (VRRP) <span className="muted">· topology</span></h4>
+        <Field label="VIP" hint="the hosts' gateway, floated between the members; no node's own address">
+          <Text ariaLabel="VIP" value={s.vrrp.vip} disabled={ro} mono onCommit={(v) => { if (v.trim()) p.apply(`VIP of ${s.name}`, (d, m) => setVip(d, m, s.name, v.trim())); }} />
+        </Field>
+        <p className="muted" data-testid="vrrp-members">
+          members: <span className="mono">{s.vrrp.members.map((m) => `${m}${s.vrrp!.priority?.[m] ? ` (${s.vrrp!.priority[m]})` : ""}`).join(", ")}</span>
+          {s.vrrp.members[0] ? ` — ${s.vrrp.members[0]} is master unless a priority says otherwise` : ""}
+        </p>
+        {gaps.length ? <p className="error" data-testid="vrrp-gaps">{gaps.map((g) => `${g.router} runs ${g.image}`).join("; ")}: VRRP is rendered on VyOS only</p> : null}
+        <button type="button" disabled={ro} data-testid="vrrp-stop" onClick={() => p.apply(`stop sharing ${s.name}'s gateway`, (d, m) => stopSharing(d, m, s.name))}>
+          Stop sharing
+        </button>
+      </div>
+    );
+  }
+  if (routers.length < 2 || isTransitCidr(s.cidr)) return null;
+  const gaps = vrrpImageGaps(p.model.te, routers);
+  const vip = effectiveGateway(p.model.te, s.name) ?? s.gateway ?? p.model.te.nodes.find((n) => n.name === routers[0])?.nets.find((l) => l.segment === s.name)?.ip ?? null;
+  return (
+    <div className="cv-vrrp" data-testid="vrrp-offer">
+      <button
+        type="button"
+        disabled={ro}
+        data-testid="vrrp-share"
+        title="a vrrp: block on this segment: the VIP becomes the hosts' gateway, VyOS high-availability vrrp on each router leg"
+        onClick={() => p.apply(`share ${s.name}'s gateway (VRRP)`, (d, m) => shareGateway(d, m, s.name, { image: switchImage && p.vrrpImage ? p.vrrpImage : null }))}
+      >
+        Share one gateway (VRRP){vip ? ` at ${vip}` : ""} between {routers.join(", ")}
+      </button>
+      {gaps.length && p.vrrpImage ? (
+        <label className="cv-check" data-testid="vrrp-switch-image">
+          <input type="checkbox" checked={switchImage} disabled={ro} onChange={(e) => setSwitchImage(e.target.checked)} />
+          switch {gaps.map((g) => `${g.router} (${g.image})`).join(", ")} to {p.vrrpImage}: VRRP needs VyOS
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
 function SegmentPanel(p: SidePanelProps & { name: string }) {
   const s = p.model.te.segments.find((x) => x.name === p.name);
   if (!s) return <p className="muted">segment {p.name} is not in the document</p>;
@@ -1143,6 +1198,7 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
         const g = twoGatewayLans(p.model.te).find((x) => x.segment === s.name);
         return g ? <p className="muted hint cv-warn" data-testid="two-gateways">{twoGatewayText(g)}</p> : null;
       })()}
+      <SharedGateway {...p} segment={s.name} />
       {carrier ? (
         <p className="muted hint" data-testid="segment-carrier">
           carried by switch{" "}

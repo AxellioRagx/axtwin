@@ -162,8 +162,21 @@ switch / host** links (`attachDevices`), unchanged.
 **Two gateways on one LAN (2026-11-21, `catalog.ts` `twoGatewayLans`):** a segment outside the
 transit pool with legs of two or more routers and a host or switch on it is a design hint, on the
 health line, at the top of the segment's panel and as a note when the second gateway is wired:
-"rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one". VRRP is
-not modelled (design D5, `docs/design/canvas-add-panel.md` §8, proposed).
+"rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one".
+**The LAN's gateway (2026-11-21):** the engine gives a segment a gateway only from an explicit
+`gateway:` or ONE unpinned router leg (two router legs and no `gateway:` is read as a transit: none),
+so A5 writes the segment's `gateway:` -- the first router's address -- when it adds a router there
+(`vrrp.ts` `joinGateway`); a router deleted or detached hands it on (`leaveGateways`).
+**Shared gateway (VRRP, design D5, decided and built 2026-11-21, `edit/vrrp.ts`):** the segment
+panel of a LAN with two or more router legs offers "Share one gateway (VRRP) at <gateway> between
+agg-1, agg-2": a `vrrp: { vip, members }` block, the VIP the address hosts route through today, a
+member pinned at it re-pinned at the next free of `.2`..`.9`, the `gateway:` line gone (the VIP is
+the gateway), and -- ticked by default when a member is not on VyOS -- those members switched to the
+`l3-switch` profile's image, one undo step; the two-gateway hint goes. Shared, the panel shows the
+VIP (editable; no node's address), the members (the first is master by default priority) and Stop
+sharing (the first member's address becomes the `gateway:`). A router wired to a VRRP LAN joins its
+members; a member deleted leaves (a group of one goes); Duplicate copies the group onto the copy at
+the same host offset (`10.200.1.1`). The engine: NET-150, `configure-router` `vrrp`.
 **Delete takes what hangs on it (2026-11-21, `document.ts` `removeNode` / `removalPlan`):**
 removing a node removes every `links[]` entry naming it (or one of its instances) and its traffic
 binding; removing a switch also removes the segments it alone carried, each with the legs on it and

@@ -49,8 +49,29 @@ export interface TeSegment {
   egress: boolean;
   /** `ospf_area:` (the fabric slice's OSPF area for router legs on this segment), or null. */
   ospfArea: number | null;
+  /** `gateway:` as written (the hosts' default gateway), or null (the expander picks one). */
+  gateway: string | null;
+  /** `vrrp:` (design D5, 2026-11-21): a VIP the members float, the segment's gateway; or null. */
+  vrrp: TeVrrp | null;
   source: TeSource | null;
   confidence: number | null;
+}
+
+/** A segment's first-hop redundancy (`vrrp:`, design D5): VIP, members, and the optional vrid / priorities. */
+export interface TeVrrp {
+  vip: string;
+  members: string[];
+  vrid: number | null;
+  priority: Record<string, number> | null;
+}
+
+function vrrpOf(raw: YNode | null): TeVrrp | null {
+  if (!raw) return null;
+  const p = toPlain(raw) as Record<string, unknown> | null;
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const members = Array.isArray(p["members"]) ? (p["members"] as unknown[]).map(String) : [];
+  const prio = p["priority"] && typeof p["priority"] === "object" ? Object.fromEntries(Object.entries(p["priority"] as Record<string, unknown>).map(([k, v]) => [k, Number(v)])) : null;
+  return { vip: String(p["vip"] ?? ""), members, vrid: typeof p["vrid"] === "number" ? p["vrid"] : p["vrid"] != null ? Number(p["vrid"]) : null, priority: prio };
 }
 
 /** A `members[]` entry: one instance's role override (topology-layers §5). */
@@ -213,7 +234,7 @@ export function readTe(text: string): TeModel {
         problems.push(`segment at line ${it.line + 1} has no name or cidr`);
         continue;
       }
-      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", ospfArea: numberOf(get(it.value, "ospf_area")), source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
+      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", ospfArea: numberOf(get(it.value, "ospf_area")), gateway: scalarText(get(it.value, "gateway")) || null, vrrp: vrrpOf(get(it.value, "vrrp")), source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
     }
   }
   const nodes: TeNode[] = [];
@@ -398,7 +419,7 @@ export function addSegment(text: string, seg: { name: string; cidr: string; zone
   return t.out();
 }
 
-export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type" | "ospf_area", value: string | number | null): string {
+export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type" | "ospf_area" | "gateway", value: string | number | null): string {
   const t = new TeText(text);
   const it = t.segment(name);
   const m = it.value as YMap;
@@ -413,6 +434,22 @@ export function setSegmentField(text: string, name: string, key: "name" | "cidr"
   } else if (value !== null) {
     insertLines(t.lines, contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}${key}: ${encodeScalar(value)}`]);
   }
+  return t.out();
+}
+
+/** Set (or with `null` remove) a segment's `vrrp:` block (design D5), written as one flow map. */
+export function setSegmentVrrp(text: string, name: string, vrrp: TeVrrp | null): string {
+  const t = new TeText(text);
+  const it = t.segment(name);
+  const m = it.value as YMap;
+  const raw = vrrp === null ? null : `{ vip: ${encodeScalar(vrrp.vip)}, members: [${vrrp.members.map((x) => encodeScalar(x)).join(", ")}]${vrrp.vrid !== null ? `, vrid: ${vrrp.vrid}` : ""}${vrrp.priority && Object.keys(vrrp.priority).length ? `, priority: { ${Object.entries(vrrp.priority).map(([k, v]) => `${encodeScalar(k)}: ${v}`).join(", ")} }` : ""} }`;
+  if (m.flow) {
+    rewriteFlowMap(t.lines, m, "vrrp", raw);
+    return t.out();
+  }
+  const e = entry(m, "vrrp");
+  if (e) removeSpan(t.lines, e.start, e.end, m.indent);
+  if (raw !== null) insertLines(t.lines, e ? e.start : contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}vrrp: ${raw}`]);
   return t.out();
 }
 
@@ -537,6 +574,12 @@ export function setNodeField(text: string, name: string, key: "name" | "role" | 
   const m = it.value as YMap;
   const e = entry(m, key);
   const raw = value === null ? null : typeof value === "number" ? String(value) : key === "count" && /^\$\{.*\}$/.test(value) ? JSON.stringify(value) : encodeScalar(value);
+  // A node written as one flow line is rewritten in place (2026-11-21: the line splices below cut it
+  // apart, as `setNodeNets` once did -- an image switch on `- { name: agg-2, ... }` broke the node).
+  if (m.flow && m.flowLine !== undefined) {
+    rewriteFlowMap(t.lines, m, key, raw);
+    return t.out();
+  }
   if (e) {
     if (raw === null) removeSpan(t.lines, e.start, e.end, m.indent);
     else if (e.valueCol === -1) {

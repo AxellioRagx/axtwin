@@ -283,7 +283,7 @@ export function peerOffer(role: string, personas: readonly Persona[]): PeerOffer
 export function twoGatewayLans(te: Pick<TeModel, "nodes" | "links" | "segments">): Array<{ segment: string; routers: string[] }> {
   const out: Array<{ segment: string; routers: string[] }> = [];
   for (const s of te.segments) {
-    if (inTransitPool(s.cidr)) continue;
+    if (inTransitPool(s.cidr) || s.vrrp) continue; // a VRRP group is the shared VIP (D5)
     const routers = te.nodes.filter((n) => n.kind === "router" && n.nets.some((l) => l.segment === s.name)).map((n) => n.name);
     if (routers.length < 2) continue;
     const lan = te.nodes.some((n) => n.kind !== "router" && n.nets.some((l) => l.segment === s.name)) || te.nodes.some((n) => n.kind === "switch" && carriedBy(te as TeModel, n.name).includes(s.name));

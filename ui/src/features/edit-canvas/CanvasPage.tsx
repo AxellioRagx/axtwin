@@ -2130,6 +2130,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                         provenanceBlock={provenanceBlock}
                         onSelect={setSelection}
                         onDuplicate={(root, attachTo, opts) => onDuplicate(root, attachTo, opts)}
+                        vrrpImage={imageFor(imageProfiles, "l3-switch")}
                         sensors={declaredSensors}
                         sensorTarget={sensorTargetName}
                         onConvertFabric={onConvertFabric}

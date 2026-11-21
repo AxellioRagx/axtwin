@@ -13,11 +13,12 @@
  * trunk carrying what the deeper one carries) or a device and a host (an
  * access link on the host's first segment), with free ports at both ends.
  */
-import { allocateHostAddresses, gatewayAddress, inTransitPool, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
+import { allocateHostAddresses, gatewayAddress, inTransitPool, shiftAddress, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
-import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, removeLink, setMemberRole, setNodeNets, type TeLink, type TeModel, type TeNet, type TeNode } from "./te";
+import { joinGateway } from "./vrrp";
+import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, removeLink, setMemberRole, setNodeNets, setSegmentField, setSegmentVrrp, type TeLink, type TeModel, type TeNet, type TeNode } from "./te";
 
 export interface Subtree {
   root: string;
@@ -367,7 +368,22 @@ export function copyInto(doc: WorkingDoc, target: DocModel, source: DocModel, se
 
   let text = doc.files[doc.teFile];
   if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
-  for (const s of set.segments) text = addSegment(text, { name: names[s]!, cidr: cidrs[names[s]!]!, zoneType: te.segments.find((x) => x.name === s)!.zoneType });
+  for (const s of set.segments) {
+    const src = te.segments.find((x) => x.name === s)!;
+    const ncidr = cidrs[names[s]!]!;
+    text = addSegment(text, { name: names[s]!, cidr: ncidr, zoneType: src.zoneType });
+    // A VRRP group and a written gateway follow the copy, at the same host offset (D5): the members
+    // keep their names -- copied ones take the copy's -- and "same uplinks" gives them their legs.
+    if (src.gateway && !src.vrrp) {
+      const gw = shiftAddress(src.gateway, src.cidr, ncidr);
+      if (gw) text = setSegmentField(text, names[s]!, "gateway", gw);
+    }
+    if (src.vrrp) {
+      const vip = shiftAddress(src.vrrp.vip, src.cidr, ncidr);
+      const rn = (m: string) => names[m] ?? m;
+      if (vip) text = setSegmentVrrp(text, names[s]!, { vip, members: src.vrrp.members.map(rn), vrid: null, priority: src.vrrp.priority ? Object.fromEntries(Object.entries(src.vrrp.priority).map(([k, v]) => [rn(k), v])) : null });
+    }
+  }
   const takenIps = new Map<string, Set<string>>();
   const allocate = (segment: string, count: number): string[] => {
     const cidr = cidrs[segment] ?? target.te.segments.find((x) => x.name === segment)?.cidr;
@@ -507,6 +523,9 @@ export function gatewayOnSwitch(doc: WorkingDoc, model: DocModel, router: string
     nets.push({ segment: seg, ip: gatewayAddress({ segments: cur.segments, nodes: cur.nodes.map((n) => (n.name === router ? { ...n, nets } : n)) }, seg) });
   }
   if (plan.legs.length) text = setNodeNets(text, router, nets);
+  // The LAN keeps a gateway with a second router on it (the engine gives two router legs and no
+  // `gateway:` none) or, with a VRRP group, takes the router in (D5).
+  for (const seg of plan.legs) text = joinGateway(text, router, seg);
   cur = readDocTe(text, doc);
   for (const seg of plan.carried) {
     text = addLink(text, { a: { device: router, port: freePort(cur, router) }, b: { device: sw, port: freePort(cur, sw) }, mode: "trunk", native: seg, vlans: [seg] });

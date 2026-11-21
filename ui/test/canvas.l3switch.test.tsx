@@ -17,7 +17,8 @@ import { applyIntent, connectIntent, intentHint } from "../src/features/edit-can
 import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { attachDevices, copyPositions, duplicateSubtree, gatewayOnSwitch, nextNumberedRename, parkedDevices, uplinksOf } from "../src/features/edit-canvas/edit/subtree";
 import { besideSubtree } from "../src/features/edit-canvas/add/placeDrop";
-import { readTe } from "../src/features/edit-canvas/edit/te";
+import { readTe, setNodeField } from "../src/features/edit-canvas/edit/te";
+import { effectiveGateway, shareGateway, stopSharing, vrrpImageGaps } from "../src/features/edit-canvas/edit/vrrp";
 import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
 import { card, check, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
@@ -394,5 +395,108 @@ describe("A6: two gateways on one LAN", () => {
     fireEvent.click(within(within(np).getByTestId("carried-segments")).getByRole("button"));
     const sp = await panel().findByTestId("segment-panel");
     expect(within(sp).getByTestId("two-gateways").textContent).toBe("rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one");
+  });
+});
+
+describe("D5: one shared gateway (VRRP) on a LAN with two", () => {
+  function dual(te = RACK): WorkingDoc {
+    let d = doc(te);
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: gatewayOnSwitch(d, readDoc(d), agg, "rack1-tor") };
+    return d;
+  }
+  const seg = (d: WorkingDoc) => readDoc(d).te.segments.find((s) => s.name === "rack1-srv")!;
+
+  it("A5 writes the LAN's gateway: the engine gives a segment with two router legs and no gateway: none", () => {
+    let d = doc(RACK);
+    d = { ...d, files: gatewayOnSwitch(d, readDoc(d), "agg-1", "rack1-tor") };
+    expect(seg(d).gateway).toBe("10.200.0.1");
+    d = { ...d, files: gatewayOnSwitch(d, readDoc(d), "agg-2", "rack1-tor") };
+    expect(seg(d).gateway).toBe("10.200.0.1");
+    expect(effectiveGateway(readDoc(d).te, "rack1-srv")).toBe("10.200.0.1");
+  });
+
+  it("Share one gateway: a vrrp block with the gateway as VIP, the member at the VIP re-pinned, the gateway line gone, the hint gone", () => {
+    const d0 = dual();
+    const d = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv") };
+    const s = seg(d);
+    expect(s.vrrp).toEqual({ vip: "10.200.0.1", members: ["agg-1", "agg-2"], vrid: null, priority: null });
+    expect(s.gateway).toBeNull();
+    const te = readDoc(d).te;
+    expect(te.nodes.find((n) => n.name === "agg-1")!.nets).toEqual([{ segment: "rack1-srv", ip: "10.200.0.3" }]);
+    expect(te.nodes.find((n) => n.name === "agg-2")!.nets).toEqual([{ segment: "rack1-srv", ip: "10.200.0.2" }]);
+    expect(twoGatewayLans(te)).toEqual([]);
+    expect(d.files["te.yaml"]).toContain("vrrp: { vip: 10.200.0.1, members: [agg-1, agg-2] }");
+    // Stop sharing: back to the first member's address as the gateway.
+    const back = { ...d, files: stopSharing(d, readDoc(d), "rack1-srv") };
+    expect(seg(back).vrrp).toBeNull();
+    expect(seg(back).gateway).toBe("10.200.0.3");
+  });
+
+  it("a member not on VyOS is switched to the l3-switch image in the same edit, when asked", () => {
+    const d0 = dual(RACK.replace("    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }", "    - { name: agg-2, kind: router, role: gw, image: debian-12-cloud@v1 }"));
+    expect(vrrpImageGaps(readDoc(d0).te, ["agg-1", "agg-2"])).toEqual([{ router: "agg-2", image: "debian-12-cloud@v1" }]);
+    const d = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv", { image: "vyos@1.5" }) };
+    expect(readDoc(d).te.nodes.find((n) => n.name === "agg-2")!.image).toBe("vyos@1.5");
+  });
+
+  it("a member leaving: a group left with one member goes, the gateway the remaining router's address", () => {
+    const d0 = dual();
+    const d = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv") };
+    const gone = { ...d, files: removeNode(d, readDoc(d), "agg-1") };
+    expect(seg(gone).vrrp).toBeNull();
+    expect(seg(gone).gateway).toBe("10.200.0.2");
+  });
+
+  it("a duplicate with the same uplinks keeps VRRP on the copy: the VIP at the same offset, both members with legs off the VIP", () => {
+    const d0 = dual(`twin_config:
+  id: dc
+  segments:
+    - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
+  nodes:
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
+    - { name: rack1-web, image: debian-12-cloud@v1, count: 2, net: rack1-srv }
+`);
+    const d1 = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv") };
+    const r = duplicateSubtree(d1, readDoc(d1), "rack1-tor", null, { sameUplinks: true });
+    const m = readDoc({ ...d1, files: r.files });
+    const copy = m.te.segments.find((s) => s.name === "rack2-srv")!;
+    expect(copy.vrrp).toMatchObject({ vip: "10.200.1.1", members: ["agg-1", "agg-2"] });
+    for (const agg of ["agg-1", "agg-2"]) {
+      const leg = m.te.nodes.find((n) => n.name === agg)!.nets.find((l) => l.segment === "rack2-srv")!;
+      expect(leg.ip).toMatch(/^10\.200\.1\.[2-9]$/);
+    }
+    expect(copy.gateway).toBeNull();
+    expect(m.findings.filter((f) => f.severity === "error")).toEqual([]);
+  });
+});
+
+describe("D5 on the page, and a flow-written node's field edit", () => {
+  it("setNodeField on a node written as one flow line rewrites it in place (it had cut the node apart)", () => {
+    const t = "twin_config:\n  id: dc\n  nodes:\n    - { name: agg-2, kind: router, role: gw, image: debian-12-cloud@v1, nets: [{ segment: a, ip: 10.0.0.1 }] }\n";
+    const out = setNodeField(t, "agg-2", "image", "vyos@1.5");
+    expect(out).toBe("twin_config:\n  id: dc\n  nodes:\n    - { name: agg-2, kind: router, role: gw, image: vyos@1.5, nets: [{ segment: a, ip: 10.0.0.1 }] }\n");
+  });
+
+  it("the segment panel offers 'Share one gateway (VRRP)', and once shared shows the VIP and the members", async () => {
+    let d = doc(RACK);
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: gatewayOnSwitch(d, readDoc(d), agg, "rack1-tor") };
+    const { api, state } = withTwin("dc", { "te.yaml": d.files["te.yaml"]! });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-device");
+    fireEvent.click(screen.getAllByTestId("canvas-device").find((x) => x.dataset["nodeId"] === "rack1-tor")!);
+    fireEvent.click(within(within(await panel().findByTestId("node-panel")).getByTestId("carried-segments")).getByRole("button"));
+    const sp = await panel().findByTestId("segment-panel");
+    const share = within(sp).getByTestId("vrrp-share");
+    expect(share.textContent).toBe("Share one gateway (VRRP) at 10.200.0.1 between agg-1, agg-2");
+    fireEvent.click(share);
+    const v = await panel().findByTestId("vrrp");
+    expect(within(v).getByLabelText("VIP")).toHaveProperty("value", "10.200.0.1");
+    expect(within(v).getByTestId("vrrp-members").textContent).toContain("agg-1, agg-2");
+    expect(panel().queryByTestId("two-gateways")).toBeNull();
+    await check();
+    const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+    expect(readTe(files["te.yaml"]!).segments[0]!.vrrp?.vip).toBe("10.200.0.1");
   });
 });

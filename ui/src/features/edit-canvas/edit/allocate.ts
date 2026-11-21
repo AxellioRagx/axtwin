@@ -176,6 +176,8 @@ export function gatewayAddress(model: Pick<TeModel, "segments" | "nodes">, segme
   const r = seg ? ipv4Range(seg.cidr) : null;
   if (!r || r.end - r.start < 4) return null;
   const taken = new Set<string>();
+  // A VRRP VIP is no leg's address (D5), and an authored gateway belongs to the router it names.
+  if (seg?.vrrp?.vip) taken.add(seg.vrrp.vip);
   for (const n of model.nodes)
     for (const leg of n.nets) {
       if (leg.segment !== segment) continue;
@@ -187,4 +189,15 @@ export function gatewayAddress(model: Pick<TeModel, "segments" | "nodes">, segme
     if (!taken.has(ip)) return ip;
   }
   return null;
+}
+
+/** The same host offset in another network (`10.200.0.1` of `10.200.0.0/24` -> `10.200.1.1` of
+ *  `10.200.1.0/24`): a copied segment's VIP or gateway (B3, D5). Null when it does not fit. */
+export function shiftAddress(ip: string, from: string, to: string): string | null {
+  const a = ipv4ToInt(ip);
+  const f = ipv4Range(from);
+  const t = ipv4Range(to);
+  if (a === null || !f || !t) return null;
+  const off = a - f.start;
+  return off > 0 && t.start + off < t.end ? intToIpv4(t.start + off) : null;
 }
