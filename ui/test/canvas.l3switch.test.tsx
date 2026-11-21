@@ -17,6 +17,7 @@ import { applyIntent, connectIntent, intentHint } from "../src/features/edit-can
 import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { attachDevices, copyPositions, duplicateSubtree, gatewayOnSwitch, nextNumberedRename, parkedDevices, uplinksOf } from "../src/features/edit-canvas/edit/subtree";
 import { besideSubtree } from "../src/features/edit-canvas/add/placeDrop";
+import { dragFollowers } from "../src/features/edit-canvas/canvas/free";
 import { readTe, setNodeField } from "../src/features/edit-canvas/edit/te";
 import { effectiveGateway, shareGateway, stopSharing, vrrpImageGaps } from "../src/features/edit-canvas/edit/vrrp";
 import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
@@ -498,5 +499,37 @@ describe("D5 on the page, and a flow-written node's field edit", () => {
     await check();
     const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
     expect(readTe(files["te.yaml"]!).segments[0]!.vrrp?.vip).toBe("10.200.0.1");
+  });
+});
+
+describe("B4: in the free layout a dragged device carries what hangs from it", () => {
+  const TE = readTe(`twin_config:
+  id: dc
+  segments:
+    - { name: rack1-srv, cidr: 10.200.0.0/24 }
+    - { name: lan, cidr: 10.200.1.0/24 }
+    - { name: shared, cidr: 10.200.2.0/24 }
+  nodes:
+    - { name: agg-1, kind: router, image: vyos@1.5, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }, { segment: lan }, { segment: shared }] }
+    - { name: agg-2, kind: router, image: vyos@1.5, nets: [{ segment: shared }] }
+    - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
+    - { name: web, image: x, count: 2, net: rack1-srv }
+    - { name: pc, image: x, net: lan }
+    - { name: db, image: x, net: shared }
+`);
+  const nodes = [
+    { id: "host:web01", data: { kind: "host", nodeId: "web01" } },
+    { id: "host:web02", data: { kind: "host", nodeId: "web02" } },
+    { id: "host:pc", data: { kind: "host", nodeId: "pc" } },
+    { id: "host:db", data: { kind: "host", nodeId: "db" } },
+    { id: "seg:lan", data: { kind: "segment", name: "lan" } },
+    { id: "seg:shared", data: { kind: "segment", name: "shared" } },
+  ] as never;
+  it("a switch takes its hosts (a group's instances too)", () => {
+    expect(dragFollowers(TE, nodes, "rack1-tor")).toEqual(["host:web01", "host:web02"]);
+  });
+  it("a router takes the implied switches it alone serves and their hosts, not a switch's LAN nor one it shares", () => {
+    expect(dragFollowers(TE, nodes, "agg-1")).toEqual(["host:pc", "seg:lan"]);
+    expect(dragFollowers(TE, nodes, "pc")).toEqual([]);
   });
 });

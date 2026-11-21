@@ -37,7 +37,7 @@ import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
 import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
-import { iconOf } from "./canvas/free";
+import { dragFollowers, iconOf } from "./canvas/free";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
@@ -134,6 +134,8 @@ export interface CanvasProps {
   provenanceOverlay?: boolean;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
+  /** The free layout is on (B4): dragging a switch or a router carries what hangs from it. */
+  freeLayout?: boolean;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
   locked?: boolean;
   /** What the inspector's Notes tab says about this twin. */
@@ -418,7 +420,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null, freeLayout = false }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -588,8 +590,51 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     [onNodesChangeBase, edit],
   );
 
+  // B4 (2026-11-21): in the free layout a dragged switch carries its hosts, a router the implied
+  // switches it alone serves and their hosts, by the same offset; Alt drags the device alone.
+  const followers = useRef<{ id: string; from: { x: number; y: number }; ids: Map<string, { x: number; y: number }> } | null>(null);
+  const onNodeDragStart = useCallback(
+    (e: MouseEvent | TouchEvent | React.MouseEvent, node: CanvasNode) => {
+      followers.current = null;
+      if (!editing || !edit || !freeLayout || ("altKey" in e && e.altKey) || (node.data.kind !== "device" && node.data.kind !== "router")) return;
+      const all = rf.getNodes();
+      const ids = dragFollowers(edit.model.te, all, node.data.name).filter((id) => id !== node.id && !all.find((x) => x.id === id)?.selected);
+      if (!ids.length) return;
+      followers.current = { id: node.id, from: { ...node.position }, ids: new Map(ids.map((id) => [id, { ...all.find((x) => x.id === id)!.position }])) };
+    },
+    [editing, edit, freeLayout, rf],
+  );
+  const onNodeDrag = useCallback(
+    (_e: MouseEvent | TouchEvent | React.MouseEvent, node: CanvasNode) => {
+      const f = followers.current;
+      if (!f || f.id !== node.id) return;
+      const dx = node.position.x - f.from.x;
+      const dy = node.position.y - f.from.y;
+      setNodes((ns) => ns.map((n) => {
+        const p = f.ids.get(n.id);
+        return p ? { ...n, position: { x: p.x + dx, y: p.y + dy } } : n;
+      }));
+    },
+    [setNodes],
+  );
+
   const onNodeDragStop = useCallback(
     (_e: unknown, node: CanvasNode) => {
+      // B4: what the device carried lands with it, pinned where it was drawn.
+      const f = followers.current;
+      followers.current = null;
+      if (f && f.id === node.id) {
+        const dx = node.position.x - f.from.x;
+        const dy = node.position.y - f.from.y;
+        const all = rf.getNodes();
+        const pins: Record<string, { x: number; y: number }> = {};
+        for (const [id, p] of f.ids) {
+          const n = all.find((x) => x.id === id);
+          const k = n ? pinKeyOf(n) : null;
+          if (k && n && !n.parentId) pins[k] = { x: Math.round((p.x + dx) * 100) / 100, y: Math.round((p.y + dy) * 100) / 100 };
+        }
+        if (Object.keys(pins).length && (dx || dy)) onPinMany(pins);
+      }
       if (node.data.kind === "annotation" && edit) {
         const a = node.data.ann;
         edit.onAnnotations(edit.annotations.map((x) => (x.id === a.id ? { ...x, x: Math.round(node.position.x), y: Math.round(node.position.y) } : x)));
@@ -1746,6 +1791,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             maxZoom={2.5}
             snapToGrid={editing && snap && !alt}
             snapGrid={[GRID, GRID]}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}

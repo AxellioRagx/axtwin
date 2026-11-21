@@ -254,7 +254,12 @@ that row. Nothing a drop creates is left without a position (they had landed
 at the canvas's top-left corner). A drop on the pane or a template never lands
 on a box already there (2026-11-21, `clearOf`): when any new pin overlaps an
 existing box (24px apart), the whole group moves, shape kept, to the nearest
-clear spot. The tree keeps its own placement. The layout bar's
+clear spot. **A dragged device carries what hangs from it (2026-11-21, B4, `free.ts` `dragFollowers`):** in the
+free layout a switch dragged moves the hosts it hangs (their first leg on a segment it carries) by the
+same offset, and a router the implied switches of the segments it alone serves (no real switch, no
+other router) with their hosts; all of them are pinned where they land. **Alt**-drag moves the device
+alone; a follower that is itself selected moves with the selection as React Flow moves it.
+The tree keeps its own placement. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 

@@ -2038,6 +2038,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           <Fallback id={id} kind={built.kind} graph={built.graph} reason={placement.overBudget} />
         ) : (
           <Canvas
+            freeLayout={layoutMode === "free" && Boolean(model)}
             graph={built.graph}
             exportData={built.exportData}
             placement={placement}
