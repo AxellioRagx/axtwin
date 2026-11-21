@@ -263,7 +263,118 @@ export function canonicalEnds(sourceId: string, targetId: string, src: Icon, dst
 /** The "Not carried" box's node id (`tree.ts`). */
 const UNCARRIED = "chrome:uncarried";
 
-export function freeLayout(p: Placement): Placement {
+/** The room a transit needs between two routers laid side by side: its pill (name · /30) and a margin. */
+const SPREAD_GAP = 48;
+/** How far the zig-zag's second row sits below the first: a pill, a name and a margin. */
+const SPREAD_DROP = 150;
+
+/**
+ * The first free placement of linked routers (2026-11-21): dagre ranks a transit like a parent and
+ * child, so a triangle came out as a column of routers a few px apart, every pill across another
+ * line. Each set of routers joined by transits whose routers have no position yet (no pin, nothing
+ * settled -- `pinned` holds the keys that have one) is laid out left to right in the order of its
+ * chain, alternately on two rows (a zig-zag, so no three stand on one line), each router carrying
+ * what hangs under it (its switches and hosts that have no position either, shape kept), the
+ * routers far enough apart for a pill between them and no two carried groups overlapping. A router
+ * with a position never moves. Pure.
+ */
+export function spreadRouters(p: Placement, pinned: ReadonlySet<string>): CanvasNode[] {
+  const byId = new Map(p.nodes.map((n) => [n.id, n]));
+  const keyOf = (n: CanvasNode): string | null => {
+    const d = n.data;
+    if (d.kind === "router" || d.kind === "device") return `host:${d.name}`;
+    if (d.kind === "host") return `host:${d.nodeId}`;
+    if (d.kind === "segment") return `segment:${d.cidr}`;
+    return null;
+  };
+  const movable = (n: CanvasNode | undefined): n is CanvasNode => {
+    if (!n || n.parentId) return false;
+    const k = keyOf(n);
+    return k !== null && !pinned.has(k);
+  };
+  const fresh = (id: string) => byId.get(id)?.data.kind === "router" && movable(byId.get(id));
+  // The transit graph among routers with no position.
+  const peers = new Map<string, string[]>();
+  for (const e of p.edges) {
+    if (e.data?.kind !== "seglink" || !fresh(e.source) || !fresh(e.target) || e.source === e.target) continue;
+    peers.set(e.source, [...(peers.get(e.source) ?? []), e.target]);
+    peers.set(e.target, [...(peers.get(e.target) ?? []), e.source]);
+  }
+  if (!peers.size) return p.nodes;
+  // What hangs under each router: reached over its legs and access edges, through nodes with no position.
+  const adj = new Map<string, string[]>();
+  for (const e of p.edges) {
+    if (e.data?.kind === "seglink") continue;
+    adj.set(e.source, [...(adj.get(e.source) ?? []), e.target]);
+    adj.set(e.target, [...(adj.get(e.target) ?? []), e.source]);
+  }
+  const owner = new Map<string, string>();
+  const order = [...peers.keys()].sort((a, b) => {
+    const pa = byId.get(a)!.position;
+    const pb = byId.get(b)!.position;
+    return pa.y - pb.y || pa.x - pb.x || (a < b ? -1 : 1);
+  });
+  for (const r of order) owner.set(r, r);
+  for (const r of order) {
+    const queue = [r];
+    while (queue.length) {
+      const at = queue.shift()!;
+      for (const nb of adj.get(at) ?? []) {
+        const n = byId.get(nb);
+        if (owner.has(nb) || !movable(n) || n.data.kind === "router") continue;
+        owner.set(nb, r);
+        queue.push(nb);
+      }
+    }
+  }
+  const sizeOf = (n: CanvasNode) => ({ w: n.width ?? (n.data.kind === "host" ? 30 : 0), h: n.height ?? (n.data.kind === "host" ? 30 : DEVICE_H) });
+  const delta = new Map<string, { dx: number; dy: number }>();
+  const seen = new Set<string>();
+  for (const start of order) {
+    if (seen.has(start)) continue;
+    // The component in chain order: depth first from its top-left router, nearest peer first.
+    const chain: string[] = [];
+    const visit = (r: string) => {
+      seen.add(r);
+      chain.push(r);
+      for (const nb of [...(peers.get(r) ?? [])].sort((a, b) => order.indexOf(a) - order.indexOf(b))) if (!seen.has(nb)) visit(nb);
+    };
+    visit(start);
+    if (chain.length < 2) continue;
+    const pillW = Math.max(...p.edges.filter((e) => e.data?.kind === "seglink" && chain.includes(e.source) && chain.includes(e.target)).map((e) => pillText(e.data as { segment: string; cidr?: string }).length * PILL_CHAR_W + 12));
+    const groups = chain.map((r) => {
+      const members = p.nodes.filter((n) => owner.get(n.id) === r);
+      const l = Math.min(...members.map((n) => n.position.x));
+      const rr = Math.max(...members.map((n) => n.position.x + sizeOf(n).w));
+      return { r, members, l, rr, at: byId.get(r)!.position };
+    });
+    const baseX = Math.min(...groups.map((g) => g.l));
+    const baseY = Math.min(...groups.map((g) => g.at.y));
+    let cursor = baseX;
+    let lastCx = -Infinity;
+    groups.forEach((g, i) => {
+      const half = sizeOf(byId.get(g.r)!).w / 2;
+      const routerOff = g.at.x - g.l;
+      // Past the last group, and this router's icon a pill (and a margin) past the last router's.
+      const left = Math.max(cursor, lastCx + pillW + SPREAD_GAP - half - routerOff);
+      const x = left + routerOff;
+      const d = { dx: x - g.at.x, dy: baseY + (i % 2 ? SPREAD_DROP : 0) - g.at.y };
+      for (const m of g.members) delta.set(m.id, d);
+      cursor = left + (g.rr - g.l) + SPREAD_GAP;
+      lastCx = x + half;
+    });
+  }
+  if (!delta.size) return p.nodes;
+  return p.nodes.map((n) => {
+    const d = delta.get(n.id);
+    return d ? { ...n, position: { x: Math.round(n.position.x + d.dx), y: Math.round(n.position.y + d.dy) } } : n;
+  });
+}
+
+/** Lay a tree placement out free. `pinned`: the pin keys that already have a position (a pin or a
+ *  settled spot); given, linked routers without one are spread first (`spreadRouters`). */
+export function freeLayout(placed: Placement, pinned: ReadonlySet<string> | null = null): Placement {
+  const p = pinned ? { ...placed, nodes: spreadRouters(placed, pinned) } : placed;
   const ids = new Set(p.nodes.map((n) => n.id));
   const sources = new Map(p.nodes.flatMap((n) => {
     const s = n.data.kind === "annotation" || n.data.kind === "site" ? null : sourceOf(p.nodes, n);

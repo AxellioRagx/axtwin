@@ -176,7 +176,14 @@ opens in the **free** layout (every catalog twin, authored or cast, and every
 deployed one opens in the **tree** unless its side-car says `mode: free` --
 corrected the same day: finished twins had opened free):
 every box stays where it was dropped or dragged (its pin in the side-car), the
-first placement the tree's own, nothing folds, and every edge is drawn point
+first placement the tree's own -- except that routers joined by transits which
+have no position yet are spread (2026-11-21, `free.ts` `spreadRouters`): left
+to right in the order of their chain, alternately on two rows (a zig-zag, so
+no three stand on one line), each a pill's width and a margin past the last,
+each carrying the switches and hosts under it that have no position either
+(shape kept), no two carried groups overlapping; a router with a pin or a
+settled position never moves (dagre had stacked a triangle in a column a few px
+apart, every pill across another line) -- nothing folds, and every edge is drawn point
 to point (straight, a router's legs from the router itself, each host's
 access edge from its switch, hued by segment as in the tree; never a comb).
 **Edge drawing (2026-11-20, round 2):** every device-to-device edge (transit,
@@ -418,7 +425,9 @@ criteria of its own beyond them.
   free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the
   page mounts runs a validate. Follow-ups: a File server dropped where router1-1 stands moves
   clear with its LAN (shape kept), one dropped in clear space stays put; in a spread triangle no
-  transit's pill has another edge under it.
+  transit's pill has another edge under it; with no positions a triangle opens as a
+  zig-zag (pills clear, names uncrossed), a router with a position stays put, and each router's
+  LAN and hosts come along with no two groups overlapping.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +

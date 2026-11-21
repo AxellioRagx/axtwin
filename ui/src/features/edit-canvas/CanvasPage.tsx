@@ -813,8 +813,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     foldState.current = folds;
     const taps = design && model?.tap ? model.tap.bindings.map((b) => ({ index: b.index, scope: b.scope, targets: b.targets, segment: b.segment, sensors: b.sensors, source: b.source })) : [];
     const free = design && layoutMode === "free";
-    const placed = placeTree(built.graph, design ? { ...settled.current, ...pins } : pins, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan: free ? FREE_FAN : fan, taps, defaultSource, parked: design ? parked : undefined });
-    const p = free ? freeLayout(placed) : placed;
+    const known = design ? { ...settled.current, ...pins } : pins;
+    const placed = placeTree(built.graph, known, { expanded, extraLegs: built.extraLegs, uplinks: built.uplinks, tree: built.tree, fan: free ? FREE_FAN : fan, taps, defaultSource, parked: design ? parked : undefined });
+    // Linked routers with no position yet are spread (a zig-zag row), not left in dagre's column.
+    const p = free ? freeLayout(placed, new Set(Object.keys(known))) : placed;
     if (design && !p.overBudget) {
       // The tree's own positions settle for the session (an implied switch, a
       // device, a router, a host): a later mutation places only what has no

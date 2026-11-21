@@ -224,9 +224,9 @@ describe("2. the router wiring dialog shows the links already drawn and runs OSP
 });
 
 /** A design laid out free, with `pins` (top-lefts by `host:<name>` / `segment:<cidr>`). */
-function free(te: string, pins: Record<string, { x: number; y: number }>): Placement {
+function free(te: string, pins: Record<string, { x: number; y: number }>, spread = false): Placement {
   const g = documentGraph(readDoc({ ...TRI_DOC, files: { "te.yaml": te } }), "tri");
-  return freeLayout(placeTree(buildGraph(g.exportData, g.cast), pins, { extraLegs: g.extraLegs, uplinks: g.uplinks, tree: g.tree, fan: FREE_FAN }));
+  return freeLayout(placeTree(buildGraph(g.exportData, g.cast), pins, { extraLegs: g.extraLegs, uplinks: g.uplinks, tree: g.tree, fan: FREE_FAN }), spread ? new Set(Object.keys(pins)) : null);
 }
 /** A node's absolute box. */
 function boxOf(p: Placement, id: string) {
@@ -367,6 +367,68 @@ describe("follow-ups: a drop never lands on a box, a pill never sits on another 
       const own = ends.get(e.id)!;
       const box = pillBox(alongLine(own.p, own.q, d.pill), pillText(d));
       for (const [id, o] of ends) if (id !== e.id) expect(segmentHitsBox(o.p, o.q, box), `${id} runs under ${d.segment}'s pill`).toBe(false);
+    }
+  });
+});
+
+describe("follow-up: the first free placement spreads linked routers", () => {
+  const pillsClear = (p: Placement) => {
+    const ends = freeEdgeEnds(p);
+    for (const e of p.edges.filter((x) => x.data?.kind === "seglink")) {
+      const d = e.data as unknown as { segment: string; cidr?: string; pill: PillAt };
+      const own = ends.get(e.id)!;
+      const box = pillBox(alongLine(own.p, own.q, d.pill), pillText(d));
+      for (const [id, o] of ends) if (id !== e.id) expect(segmentHitsBox(o.p, o.q, box), `${id} runs under ${d.segment}'s pill`).toBe(false);
+    }
+  };
+  const routers = (p: Placement) => p.nodes.filter((n) => n.data.kind === "router");
+
+  it("a triangle with no positions: a zig-zag, not dagre's column; no pill under another edge, no name crossed", () => {
+    const column = free(TRIANGLE, {});
+    const xs = (p: Placement) => routers(p).map((n) => n.position.x);
+    expect(Math.max(...xs(column)) - Math.min(...xs(column))).toBeLessThan(100); // the stacked column it was
+    const p = free(TRIANGLE, {}, true);
+    expect(Math.max(...xs(p)) - Math.min(...xs(p))).toBeGreaterThan(400);
+    pillsClear(p);
+    const ends = freeEdgeEnds(p);
+    for (const n of routers(p)) {
+      if (n.data.kind !== "router") continue;
+      const at = absolutePosition(p.nodes, n.id)!;
+      const box = nameBox({ type: n.type, kind: "router", x: at.x, y: at.y, w: n.width ?? 0, h: n.height ?? 0, label: n.data.name, sub: `${n.data.segments.length} legs` }, n.data.labelSide)!;
+      for (const [id, e] of ends) expect(segmentHitsBox(e.p, e.q, box), `${id} crosses ${n.data.name}'s label`).toBe(false);
+    }
+  });
+
+  it("a router that already has a position never moves; the others spread around nothing of it", () => {
+    const pins = { "host:router2-1": { x: 40, y: 500 } };
+    const p = free(TRIANGLE, pins, true);
+    expect(p.nodes.find((n) => n.id === "router:router2-1")!.position).toEqual({ x: 40, y: 500 });
+    // router1-1 and router3-1 share a transit and have no position: they spread apart.
+    const a = p.nodes.find((n) => n.id === "router:router1-1")!.position;
+    const b = p.nodes.find((n) => n.id === "router:router3-1")!.position;
+    expect(Math.abs(a.x - b.x)).toBeGreaterThan(250);
+  });
+
+  it("each router carries its LAN and hosts along, and no two carried groups overlap", () => {
+    const withLans = TRIANGLE.replace("  segments:\n", "  segments:\n    - { name: lan-a, cidr: 10.20.1.0/24 }\n    - { name: lan-b, cidr: 10.20.2.0/24 }\n")
+      .replace("        - { segment: router1-1--router3-1, ip: 10.254.0.9 }\n", "        - { segment: router1-1--router3-1, ip: 10.254.0.9 }\n        - { segment: lan-a }\n")
+      .replace("        - { segment: router1-1--router3-1, ip: 10.254.0.10 }\n", "        - { segment: router1-1--router3-1, ip: 10.254.0.10 }\n        - { segment: lan-b }\n")
+      + "    - { name: ws-a, image: x@1, net: lan-a, count: 3 }\n    - { name: ws-b, image: x@1, net: lan-b }\n";
+    const before = free(withLans, {});
+    const p = free(withLans, {}, true);
+    const pos = (q: Placement, id: string) => q.nodes.find((n) => n.id === id)!.position;
+    const seg = (q: Placement, name: string) => q.nodes.find((n) => n.data.kind === "segment" && n.data.name === name)!.id;
+    // lan-a keeps its offset from router1-1, lan-b from router3-1.
+    for (const [r, l] of [["router:router1-1", "lan-a"], ["router:router3-1", "lan-b"]] as const) {
+      expect(pos(p, seg(p, l)).x - pos(p, r).x).toBeCloseTo(pos(before, seg(before, l)).x - pos(before, r).x, -0.5);
+      expect(pos(p, seg(p, l)).y - pos(p, r).y).toBeCloseTo(pos(before, seg(before, l)).y - pos(before, r).y, -0.5);
+    }
+    // No two drawn boxes overlap.
+    const boxes = p.nodes.filter((n) => !n.parentId && ["router", "segment", "host"].includes(n.data.kind)).map((n) => ({ id: n.id, ...boxOf(p, n.id) }));
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      expect(a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b, `${a.id} overlaps ${b.id}`).toBe(false);
     }
   });
 });
