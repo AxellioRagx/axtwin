@@ -72,7 +72,7 @@ import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
 import type { PlaceChoices, PlaceVia } from "./Canvas";
 import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
-import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setTwinCluster, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -395,10 +395,6 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     (signal) => api.listPersonas(signal).then((p) => ({ personas: p.personas, note: null }), (e: unknown) => ({ personas: [], note: `personas not listed: ${errorText(e)}` })),
     [id],
   );
-  const profileLoad = useLoad<{ profiles: ImageProfile[]; note: string | null }>(
-    (signal) => api.listImageProfiles(signal).then((p) => ({ profiles: p.profiles, note: null }), (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}` })),
-    [],
-  );
   // Templates (§5): built-in and saved, one read; `templatesVersion` re-reads after a save (phase 3).
   const [templatesVersion, setTemplatesVersion] = useState(0);
   const templateLoad = useLoad<{ templates: Template[]; note: string | null }>(
@@ -406,11 +402,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     [templatesVersion],
   );
   const personas = personaLoad.data?.personas ?? [];
-  const imageProfiles = profileLoad.data?.profiles ?? [];
-  // The image OSPF needs (the `router-ospf` profile), or null when the profiles name none.
-  const ospfImage = imageFor(imageProfiles, OSPF_PROFILE);
   const templates = useMemo(() => templateLoad.data?.templates ?? [], [templateLoad.data]);
-  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
@@ -444,6 +436,22 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Moves and annotation changes stay on the canvas; the side-car is written
   // only by "Save layout" (or alongside a document Save / Persist).
   const editor = useEditor();
+  // D6 (2026-11-21): the image a dropped device gets is the profile's image for the platform of the
+  // target the twin deploys to -- its `cluster:`, else the target it is deployed on, else the default
+  // one (the engine's answer says which). Changing it in the Add panel writes `cluster:`.
+  const imageTarget = editor.model?.manifest?.cluster ?? data?.deploy?.target ?? null;
+  const profileLoad = useLoad<{ profiles: ImageProfile[]; note: string | null; target: string | null; platform: string | null }>(
+    (signal) =>
+      api.listImageProfiles(imageTarget, signal).then(
+        (p) => ({ profiles: p.profiles, note: null, target: p.target ?? null, platform: p.platform ?? null }),
+        (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}`, target: null, platform: null }),
+      ),
+    [imageTarget],
+  );
+  const imageProfiles = profileLoad.data?.profiles ?? [];
+  // The image OSPF needs (the `router-ospf` profile), or null when the profiles name none.
+  const ospfImage = imageFor(imageProfiles, OSPF_PROFILE);
+  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   // A pin whose node no longer exists (removed, or undone away) is dormant on a design kept in this
   // browser (the untitled one, a draft): kept for a redo, but neither an unsaved change nor
   // "something on the canvas" (2026-11-20: undone back to empty, the canvas still asked to leave).
@@ -2085,7 +2093,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data && model
               ? {
-                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} fixes={danglingLinks(model.te).length ? [{ label: `Remove ${danglingLinks(model.te).length === 1 ? "it" : "them"}`, run: () => void edit("remove dangling links", (d, m) => removeDanglingLinks(d, m)) }] : []} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
+                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} fixes={danglingLinks(model.te).length ? [{ label: `Remove ${danglingLinks(model.te).length === 1 ? "it" : "them"}`, run: () => void edit("remove dangling links", (d, m) => removeDanglingLinks(d, m)) }] : []} disabled={Boolean(locked)} note={paletteNote} images={{ target: profileLoad.data?.target ?? null, platform: profileLoad.data?.platform ?? null, cluster: model.manifest?.cluster ?? null, targets: (targetsLoad.data ?? []).map((t) => t.name ?? t.node), ...(model.manifest ? { onTarget: (c: string | null) => void edit(c ? `target ${c}` : "default target", (d) => setTwinCluster(d, c)) } : {}) }} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
                   quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} templates={templates} onPick={pick} onClose={close} />,
                   ...(pendingTemplate
                     ? {

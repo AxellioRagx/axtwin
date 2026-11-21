@@ -54,7 +54,7 @@ describe("the YAML reader", () => {
     expect(te.params).toEqual({ N_WORKSTATIONS: 25, DOMAIN: "corp.axr.lab" });
     expect(te.problems).toEqual([]);
     expect(validateTe(te)).toEqual([]);
-    expect(readManifest(TWIN)).toEqual({ id: "corp-enterprise", te: "te.yaml", tfc: "tfc/default.yaml", tap: "tap/default.yaml" });
+    expect(readManifest(TWIN)).toEqual({ id: "corp-enterprise", te: "te.yaml", tfc: "tfc/default.yaml", tap: "tap/default.yaml", cluster: null });
     expect(readTfc(TFC).assignments.find((a) => a.target === "corp-workstation")).toEqual({ by: "role", target: "corp-workstation", persona: "corp-workstation", intensity: null, schedule: null, seed: null });
     // Multi-line flow mappings, block scalars and anchors are read, not dropped.
     const plain = toPlain(parseYaml(TE).root) as { twin_config: { identity: { users: unknown[] } } };

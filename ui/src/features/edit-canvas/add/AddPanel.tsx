@@ -21,6 +21,9 @@ export interface AddPanelProps {
   health: readonly string[];
   /** One-click fixes the hints offer (B1: "Remove 2 dangling links"). */
   fixes?: ReadonlyArray<{ label: string; run(): void }>;
+  /** D6: the target dropped devices' images are chosen for (the twin's `cluster:`, else the default
+   *  target) and its platform; `onTarget` writes `cluster:` (null: none, the default target). */
+  images?: { target: string | null; platform: string | null; cluster: string | null; targets: readonly string[]; onTarget?: (cluster: string | null) => void } | null;
   disabled: boolean;
   note: string | null;
   /** The Templates section (phase 2), when there is one. */
@@ -104,7 +107,7 @@ export function AddHits({ hits, disabled, onPick }: { hits: readonly AddHit[]; d
   );
 }
 
-export function AddPanel({ personas, templateList = [], health, fixes = [], disabled, note, templates }: AddPanelProps) {
+export function AddPanel({ personas, templateList = [], health, fixes = [], disabled, note, templates, images = null }: AddPanelProps) {
   const target = useAddTarget();
   const [query, setQuery] = useState("");
   const [favourites, setFavourites] = useState<AddRef[]>(() => readRefs(FAVOURITES_KEY));
@@ -183,6 +186,30 @@ export function AddPanel({ personas, templateList = [], health, fixes = [], disa
           </button>
         ))}
       </p>
+      {images && (images.target || images.targets.length) ? (
+        <p className="muted cv-add-health" data-testid="add-images">
+          images for{" "}
+          {images.onTarget && images.targets.length ? (
+            <select
+              aria-label="Target the dropped devices' images are chosen for"
+              data-testid="add-images-target"
+              disabled={disabled}
+              value={images.cluster ?? ""}
+              onChange={(e) => images.onTarget!(e.target.value || null)}
+            >
+              <option value="">{images.cluster ? "the default target" : `${images.target ?? "the default target"} (default)`}</option>
+              {images.targets.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="mono">{images.target}</span>
+          )}
+          {images.platform ? ` · ${images.platform}` : null}
+        </p>
+      ) : null}
     </aside>
   );
 }

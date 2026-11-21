@@ -81,9 +81,9 @@ def test_image_profiles_read_the_file_beside_the_catalog(env):  # noqa: F811
     assert r.status_code == 200, r.text
     j = r.json()
     assert j["profiles"] == [
-        {"name": "linux-client", "image": None},
-        {"name": "linux-server", "image": "debian-12-cloud@v1"},
-        {"name": "router", "image": None},
+        {"name": "linux-client", "image": None, "platforms": {}},
+        {"name": "linux-server", "image": "debian-12-cloud@v1", "platforms": {}},
+        {"name": "router", "image": None, "platforms": {}},
     ]
     assert any("linux-client" in w for w in j["warnings"])
 

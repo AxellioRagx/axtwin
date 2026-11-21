@@ -19,9 +19,10 @@ import { attachDevices, copyPositions, duplicateSubtree, gatewayOnSwitch, nextNu
 import { besideSubtree } from "../src/features/edit-canvas/add/placeDrop";
 import { dragFollowers } from "../src/features/edit-canvas/canvas/free";
 import { readTe, setNodeField } from "../src/features/edit-canvas/edit/te";
+import { readManifest, setManifestCluster } from "../src/features/edit-canvas/edit/manifest";
 import { effectiveGateway, shareGateway, stopSharing, vrrpImageGaps } from "../src/features/edit-canvas/edit/vrrp";
 import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
-import { card, check, clickPane, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
+import { card, check, clickPane, dropPopover, openPalette, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const PROFILES: ImageProfile[] = [
@@ -582,5 +583,42 @@ describe("B9: a click on the empty canvas always clears a multi-selection", () =
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").filter((r) => r.closest(".react-flow__node")?.classList.contains("selected")).length).toBe(2));
     clickPane(900, 700);
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").filter((r) => r.closest(".react-flow__node")?.classList.contains("selected")).length).toBe(0));
+  });
+});
+
+describe("D6: a dropped device's image is the profile's image for the twin's target platform", () => {
+  it("the manifest's cluster: is read, written and removed", () => {
+    const m = twinYaml("dc");
+    expect(readManifest(m).cluster).toBeNull();
+    const set = setManifestCluster(m, "kvm1");
+    expect(readManifest(set).cluster).toBe("kvm1");
+    expect(readManifest(setManifestCluster(set, "dev45")).cluster).toBe("dev45");
+    const gone = setManifestCluster(set, null);
+    expect(readManifest(gone).cluster).toBeNull();
+    expect(gone).toBe(m);
+  });
+
+  it("the Add panel names the target and platform; picking kvm1 writes cluster: and an L3 switch then gets kvm1's image", async () => {
+    const base = withTwin("dc", { "te.yaml": "twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes: []\n" });
+    const { api, state } = seeded({
+      ...base.state,
+      imageProfiles: [{ name: "l3-switch", image: "vyos@1.5", platforms: { libvirt: "debian-12-cloud@v1" } }],
+      targets: [...base.state.targets, { node: "kvm1", name: "kvm1", default: false, nodes: ["kvm1"], platform: "libvirt", error: null }],
+    });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findByTestId("rail-add");
+    openPalette();
+    const line = await screen.findByTestId("add-images");
+    await waitFor(() => expect(line.textContent).toContain("proxmox"));
+    fireEvent.change(within(line).getByTestId("add-images-target"), { target: { value: "kvm1" } });
+    await waitFor(() => expect(screen.getByTestId("add-images").textContent).toContain("libvirt"));
+    // The target travels with the design: an undo-able edit, shown in the picker.
+    expect((screen.getByTestId("add-images-target") as HTMLSelectElement).value).toBe("kvm1");
+    fireEvent.click(card("l3switch"));
+    fireEvent.click(dropPopover().getByTestId("drop-add"));
+    await check();
+    const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+    expect(readManifest(files["twin.yaml"]!).cluster).toBe("kvm1");
+    expect(readTe(files["te.yaml"]!).nodes.find((n) => n.role === "l3-switch")!.image).toBe("debian-12-cloud@v1");
   });
 });

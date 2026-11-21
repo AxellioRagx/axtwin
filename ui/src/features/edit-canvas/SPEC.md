@@ -37,7 +37,7 @@ page's list, `areas/twins/TwinList.tsx`, as a picker).
 |---|---|
 | authored twin graph | `GET /api/scenarios/{id}/topology` (`TopologyDTO`: nodes typed `host\|router\|switch\|network`, edges host→network with `ip`) |
 | cast twin graph with observed evidence | `GET /api/twins/{id}/topology` (`TopologyExportDTO`: weighted `src/dst/proto/bytes/flows/evidence_class` edges, census) |
-| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles` (card + OS → image); spec: `docs/design/canvas-add-panel.md` |
+| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles?target=` (card + OS → image, resolved for the twin's target platform -- D6: its `cluster:`, else its deployed target, else the default; the Add panel's "images for <target> · <platform>" line and picker write `cluster:`); spec: `docs/design/canvas-add-panel.md` |
 | positions | the layout document (`axr-layout`), extended with `host:<name>` pins beside the existing `site:` and `segment:` pins |
 
 | Writes | Route |

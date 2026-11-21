@@ -1411,10 +1411,15 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
 
     @app.get("/api/image-profiles", response_model=dtos.ImageProfileListDTO)
     @_ro
-    def image_profiles() -> dtos.ImageProfileListDTO:
+    def image_profiles(
+        target: Optional[str] = Query(
+            default=None, description="Resolve each profile's image for this "
+            "target's platform (D6); absent: the default target.",
+        ),
+    ) -> dtos.ImageProfileListDTO:
         from axrange.api import image_profiles as _ip
 
-        return _ip.list_image_profiles(settings)
+        return _ip.list_image_profiles(settings, target=target)
 
     # ---- templates (docs/design/canvas-add-panel.md §5): built-in (read-only)
     # and saved slices of a twin, under <catalog>/templates/<id>/template.yaml ----

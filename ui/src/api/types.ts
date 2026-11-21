@@ -661,8 +661,10 @@ export interface Persona {
 /** `GET /api/image-profiles` (`docs/design/canvas-add-panel.md` §4.3): the image a dropped device gets. */
 export interface ImageProfile {
   name: string;
-  /** `null`: the profile names no image ("no image for this profile"). */
+  /** `null`: the profile names no image ("no image for this profile"). Resolved for the list's platform (D6). */
   image: string | null;
+  /** The profile's per-platform images as written (D6); absent from an older engine. */
+  platforms?: Record<string, string>;
 }
 
 /** A canvas template's setting (`docs/design/canvas-add-panel.md` §5). */
@@ -698,6 +700,9 @@ export interface TemplateList {
 export interface ImageProfileList {
   profiles: ImageProfile[];
   warnings: string[];
+  /** The target the images were resolved for and its platform (D6); null: no target configured. */
+  target?: string | null;
+  platform?: string | null;
 }
 
 export interface PersonaList {

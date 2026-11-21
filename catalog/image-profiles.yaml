@@ -9,6 +9,12 @@
 # hand-written one does. Served read-only by `GET /api/image-profiles`. A
 # profile left without an image (`image: null`) makes the canvas say "no
 # image for this profile" and write none.
+#
+# Per platform (D6, 2026-11-21): a profile may add
+# `platforms: { <platform>: <image> }` beside its default `image`;
+# `GET /api/image-profiles?target=<name>` answers the image for that target's
+# platform (absent: the default target). None below has one yet: the catalog
+# has no libvirt-bound routing image, so the A7 Check warning names the gap.
 profiles:
   # The Linux image almost every catalog host runs (390 nodes, including the
   # proxy, monitoring, DNS and OT roles). ubuntu-server-22@v5 (28) is the

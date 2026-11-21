@@ -143,6 +143,7 @@ profiles:
   windows-client:   { image: win11-finance@v4 }       # example
   router:           { image: <the router image the catalog's routers use> }
   router-ospf:      { image: vyos@1.5 }   # the OSPF-capable router image
+  l3-switch:        { image: vyos@1.5, platforms: { libvirt: <image> } }  # D6: per platform
 ```
 
 - The profile is chosen from card + OS (Server + Windows → `windows-server`).
@@ -154,8 +155,15 @@ profiles:
   to vyos@1.5", checked by default, in the same undo step. The routers'
   `routing:` blocks and the `fabric:` region with `igp: ospf` are not written;
   the dialog says so in one line.
-- A later phase may key profiles per target platform. The canvas never
-  shows an image unless the user opens Advanced.
+- Per target platform (D6, 2026-11-21): a profile may add `platforms:
+  {<platform>: <image>}` beside its default `image`. `GET
+  /api/image-profiles?target=<name>` answers each profile's image for that
+  target's platform (absent: the default target; an unknown name is a 404)
+  and says which (`target`, `platform`). The canvas asks for the twin's
+  `cluster:` (else the target it is deployed on, else the default) and the
+  Add panel shows "images for <target> · <platform>" with a picker that
+  writes `cluster:` into `twin.yaml` (one undo step; the default removes
+  it). The canvas never shows an image unless the user opens Advanced.
 - It is served by a new read-only `GET /api/image-profiles`. Unknown
   images (not in the target's image manifest) show a warning on Check, as
   today.
@@ -314,7 +322,7 @@ Storage and API:
   panel "Share one gateway (VRRP)" / VIP / Stop sharing, members kept through
   a router's delete, and Duplicate's "same uplinks" copies the group onto the
   next rack. Not yet live-verified on dev45.
-- **D6 (proposed 2026-11-21, awaiting sign-off): per-platform image
+- **D6 (decided 2026-11-21, Authority: user -- option (a); built): per-platform image
   profiles.** Today a profile names one image (`l3-switch: { image:
   vyos@1.5 }`) whatever the target; a Check now warns when the image has no
   binding for the platform of the twin's target (its `cluster:`, else the
@@ -335,8 +343,10 @@ Storage and API:
   `IR_SCHEMA.md` / planner change and every reader of `image:` learns a new
   form. **Recommendation: (a).** It answers the question where it arises
   (the drop), keeps every written image concrete and checkable, and the A7
-  warning covers a twin later pointed at another platform. Not built until
-  signed off.
+  warning covers a twin later pointed at another platform. Built as (a):
+  `api/image_profiles.py` resolves per platform, the Add panel's images
+  line and its target picker (§4.3). The shipped profiles name no
+  per-platform image yet: no libvirt routing image is in the catalog.
 - **D7 (not needed, 2026-11-21).** The planner gives one NIC per leg
   (`nets[i]` -> `eth{i+1}`, `eth0` the WAN), and A5's links plug the leg's
   own NIC, adding none. A 2-aggregation / 8-rack design needs per

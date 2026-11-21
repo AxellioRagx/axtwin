@@ -14,7 +14,7 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestCluster, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
   addConduit as teAddConduit,
@@ -583,4 +583,12 @@ export function renamedFiles<T extends string | undefined>(files: Record<string,
     out[MANIFEST] = (description ? setManifestDescription(withId, description) : withId) as T;
   }
   return out;
+}
+
+/** D6: the twin's `cluster:` -- the target it deploys to and its dropped devices' images are chosen
+ *  for (null: removed, the default target). A bundle with no manifest is refused. */
+export function setTwinCluster(doc: WorkingDoc, cluster: string | null): Files {
+  const m = doc.files[MANIFEST];
+  if (m === undefined) throw new Error(`the design has no ${MANIFEST} to name a target in`);
+  return { ...doc.files, [MANIFEST]: setManifestCluster(m, cluster) };
 }
