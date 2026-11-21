@@ -281,8 +281,8 @@ Storage and API:
 - **D3:** new `catalog/templates/` and the templates API (§5.3).
 - **D4:** remove Images and "From other twins" from the panel; traffic
   generators hidden under Advanced.
-- **D5 (proposed 2026-11-21, awaiting sign-off): first-hop redundancy on a
-  LAN with two gateways.** Today a rack LAN wired to agg-1 and agg-2 gets two
+- **D5 (decided 2026-11-21 by the user: option (a); built the same day):
+  first-hop redundancy on a LAN with two gateways.** Today a rack LAN wired to agg-1 and agg-2 gets two
   addressed router legs (`.1`, `.2`) and the canvas only hints "two gateways
   and no shared VIP — servers will use only one"; nothing fails over. Two ways
   to express a VRRP pair: **(a)** a `vrrp:` block on a segment
@@ -304,7 +304,16 @@ Storage and API:
   `kind: router` precisely so the planner renders its legs and OSPF; (b) would
   make a redundant pair the one place it is not, and the three-tier template
   (Part C) would ship a script. (a) is one schema field and one op input,
-  expressible on every VyOS pair the canvas can draw. Not built until signed off.
+  expressible on every VyOS pair the canvas can draw. **Built:** twin-config
+  `segments[].vrrp: {vip, members, vrid?, priority?}` (the VIP reserved, the
+  segment's gateway; a `gateway:` that differs is refused, TC-VRRP); IR
+  `networks[].vrrp` (`IR_SCHEMA.md` §3.4); NET-150 (`VALIDATOR.md`);
+  `configure-router`'s optional `vrrp` input (`OP_CATALOG.md`), rendered as
+  `high-availability vrrp group axr<vrid>` on both VyOS paths (Proxmox,
+  libvirt), refused on a Debian member at plan time; the canvas's segment
+  panel "Share one gateway (VRRP)" / VIP / Stop sharing, members kept through
+  a router's delete, and Duplicate's "same uplinks" copies the group onto the
+  next rack. Not yet live-verified on dev45.
 
 ## 9. Phases
 

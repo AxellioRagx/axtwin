@@ -481,6 +481,9 @@ _OPS: list[OpDefinition] = [
             "vmid": "vmid:int",
             "node_id": "node-id:str",
             "egress": "egress-policy:dict",
+            # OPTIONAL (design D5, 2026-11-21): [{eth, group, vrid, address, priority}],
+            # VyOS high-availability vrrp on the legs of the networks naming this router.
+            "vrrp": "vrrp-groups:list",
         },
         # wan_ip/wan_iface/lan_ifaces are returned by the VyOS path and consumed by
         # configure-routing (fabric slice) via inputs_from_outputs — no second arp-scan.

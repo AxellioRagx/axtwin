@@ -360,6 +360,27 @@ def _render_irb(fabric: dict[str, Any]) -> list[str]:
     return out
 
 
+def render_vrrp(groups: list[dict[str, Any]] | None) -> list[str]:
+    """First-hop redundancy (design D5, 2026-11-21): one VyOS
+    `high-availability vrrp group` per `configure-router` `vrrp` entry
+    (`eth`, `group`, `vrid`, `address` vip/prefix, `priority`). VyOS 1.4+
+    syntax (`address`, which 1.3 spelled `virtual-address`); the planner
+    targets vyos@1.5. Shared by the Proxmox and libvirt VyOS paths."""
+    out: list[str] = []
+    for g in groups or []:
+        name, eth, vrid, addr = g.get("group"), g.get("eth"), g.get("vrid"), g.get("address")
+        if not (name and eth and vrid and addr):
+            continue
+        out += [
+            f"set high-availability vrrp group {name} interface '{eth}'",
+            f"set high-availability vrrp group {name} vrid '{int(vrid)}'",
+            f"set high-availability vrrp group {name} address '{addr}'",
+        ]
+        if g.get("priority") is not None:
+            out.append(f"set high-availability vrrp group {name} priority '{int(g['priority'])}'")
+    return out
+
+
 def render_routing(fabric: dict[str, Any]) -> list[str]:
     """Render the full VyOS routing config for one router from its fabric context."""
     igp = (fabric.get("igp") or "").lower()

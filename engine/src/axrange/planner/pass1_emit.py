@@ -212,6 +212,27 @@ def _nets_reached_through_forwarders(seed: set[str], nodes: list[Node]) -> set[s
     return reached
 
 
+def _vrrp_groups(ir: Any, node: Any) -> list[dict[str, Any]]:
+    """The VRRP groups `node` is a member of (design D5): one per leg whose
+    network's `vrrp.members` names it -- `eth` (eth<i+1>, eth0 being the WAN),
+    `group` (`axr<vrid>`), `vrid`, `address` (vip/prefix) and `priority`."""
+    out: list[dict[str, Any]] = []
+    for i, (net_id, _ip) in enumerate(_node_nets(node)):
+        net = _network_by_id(ir, net_id)
+        v = getattr(net, "vrrp", None) if net is not None else None
+        if v is None or node.id not in (v.members or []):
+            continue
+        prefix = str(net.cidr).split("/", 1)[1] if net.cidr and "/" in str(net.cidr) else "24"
+        out.append({
+            "eth": f"eth{i + 1}",
+            "group": f"axr{v.vrid}",
+            "vrid": int(v.vrid),
+            "address": f"{v.vip}/{prefix}",
+            "priority": int((v.priority or {}).get(node.id, 100)),
+        })
+    return out
+
+
 def _network_by_id(ir: IR, net_id: str) -> Network | None:
     if ir.layers is None or ir.layers.infra is None:
         return None
@@ -1227,6 +1248,13 @@ def emit_ops(
                     for r in (node.static_routes or [])
                     if r.to and r.via
                 ]
+                # First-hop redundancy (design D5, 2026-11-21): a VRRP group on
+                # each leg whose network names this router a `vrrp:` member.
+                # The key is emitted ONLY when there is one (LES-224: every
+                # shipped twin's plan_id stays as it was).
+                vrrp_groups = _vrrp_groups(ir, node)
+                if vrrp_groups:
+                    cr_inputs["vrrp"] = vrrp_groups
                 cr_inputs.update(
                     {
                         "router_os": "vyos",
@@ -1236,6 +1264,14 @@ def emit_ops(
                         "nameservers": ["8.8.8.8", "1.1.1.1"],
                         "static_routes": static_routes,
                     }
+                )
+            if not is_vyos and _vrrp_groups(ir, node):
+                # Refuse at PLAN time what the guest could not do: the Debian
+                # router recipe has no VRRP (NET-150 says so on validate too).
+                raise EmissionError(
+                    f"node {host_id!r}: it is a `vrrp:` member but not a VyOS "
+                    "router; VRRP is rendered on VyOS only (design D5). Switch "
+                    "its image to vyos@1.5 (the l3-switch profile)."
                 )
             # The twin's containment posture (GAP-101) -- attached to EVERY
             # router, because the declaration is twin-level: one router left

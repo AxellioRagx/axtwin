@@ -1120,9 +1120,53 @@ def _build_ir(
                     leg.ip, pinned_by=f"node {inst.node_id!r} (segment {leg.segment!r})"
                 )
 
+    # `vrrp:` (design D5, 2026-11-21): the VIP is the segment's gateway and no
+    # node's address -- out of the pool, never pinned by a leg, never bound to
+    # a router leg below. The members' shape (routers with a leg here) is the
+    # IR validator's NET-150, on the emitted network.
+    vrrp_vip: dict[str, str] = {}
+    for name, seg in seg_by_name.items():
+        if seg.vrrp is None:
+            continue
+        try:
+            vip = ipaddress.ip_address(str(seg.vrrp.vip))
+        except ValueError:
+            raise TwinConfigShapeError(
+                f"twin_config {tc.id!r}: segment {name!r}: vrrp.vip "
+                f"{seg.vrrp.vip!r} is not an IP address", rule_id="TC-VRRP", subject={"kind": "segment", "name": name},
+            ) from None
+        net = allocs[name].network
+        if vip not in net or vip in (net.network_address, net.broadcast_address):
+            raise TwinConfigShapeError(
+                f"twin_config {tc.id!r}: segment {name!r}: vrrp.vip {vip} is not "
+                f"a host address of its cidr {seg.cidr}", rule_id="TC-VRRP", subject={"kind": "segment", "name": name},
+            )
+        if seg.gateway and seg.gateway != str(vip):
+            raise TwinConfigShapeError(
+                f"twin_config {tc.id!r}: segment {name!r}: gateway {seg.gateway} "
+                f"and vrrp.vip {vip} differ -- with vrrp the VIP IS the gateway; "
+                "drop `gateway:`", rule_id="TC-VRRP", subject={"kind": "segment", "name": name},
+            )
+        stray = sorted(set(seg.vrrp.priority or {}) - set(seg.vrrp.members))
+        if stray:
+            raise TwinConfigShapeError(
+                f"twin_config {tc.id!r}: segment {name!r}: vrrp.priority names "
+                f"{stray}, not members {seg.vrrp.members}", rule_id="TC-VRRP", subject={"kind": "segment", "name": name},
+            )
+        vrrp_vip[name] = str(vip)
+        for inst in instances:
+            for leg in inst.legs:
+                if leg.segment == name and leg.ip == str(vip):
+                    raise TwinConfigShapeError(
+                        f"twin_config {tc.id!r}: node {inst.node_id!r} pins {vip} on "
+                        f"segment {name!r}, its vrrp.vip (a VIP is no node's address)",
+                        rule_id="TC-VRRP", subject={"kind": "segment", "name": name},
+                    )
+        allocs[name].reserve(str(vip))
+
     gateway_for_segment: dict[str, str] = {}
     for name, seg in seg_by_name.items():
-        if seg.gateway:
+        if seg.gateway and name not in vrrp_vip:
             gateway_for_segment[name] = seg.gateway
             allocs[name].reserve(seg.gateway)
 
@@ -1143,7 +1187,9 @@ def _build_ir(
 
     for seg_name, legs in router_legs_by_segment.items():
         unset_legs = [leg for leg in legs if not leg.ip]
-        if not unset_legs:
+        if not unset_legs or seg_name in vrrp_vip:
+            # A vrrp segment's router legs are the members' own addresses:
+            # plain allocation below; the gateway is the VIP.
             continue
         explicit_gw = gateway_for_segment.get(seg_name)
         if explicit_gw is not None:
@@ -1158,6 +1204,8 @@ def _build_ir(
             unset_legs[0].ip = gw
         # else: >=2 router legs, no explicit gateway -- a transit segment;
         # no gateway auto-assignment, every leg gets a plain address below.
+
+    gateway_for_segment.update(vrrp_vip)
 
     # An `isolated:` extension inherits its anchor's gateway (the anchor is
     # where the router leg -- or the authored `gateway:` -- lives), unless it
@@ -1254,6 +1302,19 @@ def _build_ir(
         for i, s in enumerate(segments):
             vlan_for[s.name] = _VLAN_BASE + _VLAN_STEP * i
 
+    # VRRP ids: the authored one, else the segment's position among the
+    # twin's vrrp segments (1, 2, ...), skipping any id authored elsewhere.
+    vrid_default: dict[str, int] = {}
+    _authored_vrids = {s.vrrp.vrid for s in segments if s.vrrp is not None and s.vrrp.vrid is not None}
+    _next_vrid = 1
+    for s in segments:
+        if s.vrrp is None or s.vrrp.vrid is not None:
+            continue
+        while _next_vrid in _authored_vrids:
+            _next_vrid += 1
+        vrid_default[s.name] = _next_vrid
+        _next_vrid += 1
+
     networks_ir: list[dict[str, Any]] = []
     for s in segments:
         entry: dict[str, Any] = {"id": s.name, "cidr": s.cidr}
@@ -1269,6 +1330,15 @@ def _build_ir(
             entry["ospf_area"] = s.ospf_area
         if s.vni is not None:
             entry["vni"] = s.vni
+        if s.vrrp is not None:
+            members = list(s.vrrp.members)
+            prio = dict(s.vrrp.priority or {})
+            entry["vrrp"] = {
+                "vip": str(ipaddress.ip_address(str(s.vrrp.vip))),
+                "vrid": s.vrrp.vrid if s.vrrp.vrid is not None else vrid_default[s.name],
+                "members": members,
+                "priority": {m: int(prio.get(m, 200 if i == 0 else 100)) for i, m in enumerate(members)},
+            }
         if s.isolated:
             entry["isolated"] = True
         _emit_provenance(entry, s)

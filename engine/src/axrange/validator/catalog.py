@@ -437,6 +437,15 @@ _RULES_LIST: list[Rule] = [
        "A kind: switch node is named by no links[] entry (parked, or the pre-device-tree spelling)",
        message_template="Switch '{node_id}' is wired by no link: add a links[] entry for it (a switch with only nets: is the pre-device-tree spelling)",
        related=("NET-090",)),
+    _R("NET-150", RuleCategory.NETWORK_SANITY, ERR, 3,
+       "A network's vrrp: group is well-formed (VyOS router members with a leg on it; the VIP is its gateway and no leg's address)",
+       description=(
+           "First-hop redundancy, design D5 (docs/design/canvas-add-panel.md §8, "
+           "Authority: user, 2026-11-21): configure-router renders VyOS "
+           "high-availability vrrp on each member's leg, so every member is a "
+           "VyOS router on the network."
+       ),
+       message_template="{detail}"),
     # NET-110 "Tapped segment has at least one node attached" RETIRED
     # 2026-07-28 (`docs/WORK_ORDER_tap_eligibility.md`, Authority: user) --
     # `networks[].tap` no longer exists to check; a tap plan's `segment`
@@ -774,7 +783,8 @@ def list_rules(pass_: int | None = None, category: RuleCategory | None = None) -
 #  NET-140 parked switch) / total 114->121 with the device tree,
 #  `docs/design/topology-layers.md` §10, Authority: user, 2026-11-07; +NSW 7
 #  (NSW-020..080) + CLU 7->8 (CLU-080) / total 121->129 with native switches,
-#  `docs/design/native-switches.md` §9, Authority: user, 2026-11-12 — each
+#  `docs/design/native-switches.md` §9, Authority: user, 2026-11-12; NET
+#  13->14 / total 130->131 with NET-150 (vrrp, design D5, 2026-11-21) — each
 #  bumped atomically with the assertions below.)
 # This implementation encodes what the §5 tables list (the actual contract); the
 # §1/§5 headline numbers are stale and to be corrected via CHANGELOG.
@@ -784,7 +794,7 @@ assert _BY_CAT[RuleCategory.INCLUDE_CONSISTENCY] == 5, _BY_CAT
 assert _BY_CAT[RuleCategory.REFERENCE_INTEGRITY] == 27, _BY_CAT  # -REF-200; +REF-270/280 device tree
 assert _BY_CAT[RuleCategory.CAPABILITY] == 6, _BY_CAT
 assert _BY_CAT[RuleCategory.LIFECYCLE] == 6, _BY_CAT
-assert _BY_CAT[RuleCategory.NETWORK_SANITY] == 13, _BY_CAT  # -NET-110; +NET-120/130/140 device tree
+assert _BY_CAT[RuleCategory.NETWORK_SANITY] == 14, _BY_CAT  # -NET-110; +NET-120/130/140 device tree; +NET-150 vrrp (D5)
 assert _BY_CAT[RuleCategory.OVERLAY] == 4, _BY_CAT
 assert _BY_CAT[RuleCategory.ACTIVITY] == 7, _BY_CAT  # +ACT-060/070, schedule executor 2026-07-10
 assert _BY_CAT[RuleCategory.DEFENSE] == 5, _BY_CAT
@@ -794,4 +804,4 @@ assert _BY_CAT[RuleCategory.NATIVE_SWITCH] == 8, _BY_CAT  # NSW-020..090, 2026-1
 # PSN-010..090 persona library 2026-07-24; +PSN-100/110 (transport +
 # peer_scope enums) with the high-volume persona wave, 2026-07-28.
 assert _BY_CAT[RuleCategory.PERSONA] == 11, _BY_CAT
-assert sum(_BY_CAT.values()) == 130  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (NSW-020..090, CLU-080, 2026-11-12)
+assert sum(_BY_CAT.values()) == 131  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (NSW-020..090, CLU-080, 2026-11-12) + NET-150 vrrp (D5, 2026-11-21)

@@ -1197,6 +1197,15 @@ exit 0
 
         vmid = int(inp["vmid"])
 
+        # A Debian router has no VRRP recipe (design D5): the planner refuses a
+        # Debian member already; refuse here too rather than skip it silently.
+        if inp.get("vrrp") and inp.get("router_os") != "vyos":
+            raise AdapterError(
+                f"configure-router: vmid={vmid} is a vrrp member but not VyOS; "
+                "VRRP is rendered on VyOS only",
+                error_class="vrrp-unsupported-os",
+            )
+
         # VyOS (agent:false, no QGA): apply interfaces + source-NAT via SSH `set`
         # commands (vyos-ssh-set) instead of the QGA/nftables path below.
         if inp.get("router_os") == "vyos":
@@ -1369,6 +1378,10 @@ exit 0
             to, via = r.get("to"), r.get("via")
             if to and via:
                 sets.append(f"set protocols static route {to} next-hop {via}")
+        # First-hop redundancy (design D5): VRRP groups on the member legs.
+        from axrange.adapter_proxmox.fabric_render import render_vrrp
+
+        sets += render_vrrp(inp.get("vrrp"))
 
         # Shared envelope + LES-005 error-detection order with configure-routing
         # (finding #4, 2026-07-07) — see `ssh.apply_vyos_sets` docstring.

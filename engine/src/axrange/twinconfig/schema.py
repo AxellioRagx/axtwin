@@ -117,6 +117,21 @@ class TwinConfigObservation(TCBase):
     role_confidence: Optional[float] = None
 
 
+class TwinConfigVrrp(TCBase):
+    """A segment's first-hop redundancy (`vrrp:`, design D5, Authority: user,
+    2026-11-21): a VIP the segment's hosts use as their gateway, floated by
+    VRRP between `members` -- routers (VyOS) with a leg on the segment. The
+    VIP is no node's address: it is reserved from allocation and no leg may
+    pin it. `vrid` defaults to the segment's position among the twin's VRRP
+    segments (1, 2, ...); `priority` per member defaults to 200 for the first
+    and 100 for the rest (the first is master). -> IR `Network.vrrp`."""
+
+    vip: str
+    members: list[str]
+    vrid: Optional[int] = None
+    priority: Optional[dict[str, int]] = None
+
+
 class TwinConfigSegment(TwinConfigProvenance):
     """One `segments[]` entry -> an IR `networks[]` entry.
 
@@ -144,6 +159,9 @@ class TwinConfigSegment(TwinConfigProvenance):
     # authored entirely in a standalone tap plan against the deployed twin.
     ospf_area: Optional[Any] = None  # fabric slice passthrough (Network.ospf_area)
     vni: Optional[int] = None  # fabric slice passthrough (Network.vni)
+    # First-hop redundancy (D5, 2026-11-21): the VIP becomes the segment's
+    # gateway; absent -> byte-identical IR.
+    vrrp: Optional[TwinConfigVrrp] = None
     when: Optional[str] = None  # gate: only emitted if params[when] is truthy
     # What the imprint compiler observed of this segment; drives the deploy
     # gate (`gate.py`). Absent on every hand-authored config -> never gated

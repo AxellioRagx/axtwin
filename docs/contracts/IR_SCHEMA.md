@@ -349,6 +349,7 @@ Per-**network** fabric attributes (on `infra.networks[]`):
 |---|---|---|
 | `ospf_area` | int/str | OSPF area for router legs on this net (point-to-point if router↔router). |
 | `vni` | int | EVPN L2VNI — VTEP leaves attached to this net bridge it; a shared `vni` ⇒ stretched L2 (FAB-060). |
+| `vrrp` | map | First-hop redundancy (design D5, Authority: user, 2026-11-21): `{vip, vrid, members, priority}`. `vip` is this network's `gateway` and no node's leg address; `members` are router node ids (VyOS) with a leg here; `vrid` 1..255; `priority` per member 1..254 (the twin-config default: 200 for the first member, 100 for the rest). `configure-router` renders VyOS `high-availability vrrp group axr<vrid>` on each member's leg. NET-150 checks the shape. Absent on every network written before it. |
 
 Interfaces are derived from `nets[]` order (`nets[i]` → `eth{i+1}`, eth0 = WAN); IS-IS runs on
 router↔router legs; a `vni` access leg becomes an L2 bridge member (no L3 address). `fabric.regions`
