@@ -19,6 +19,7 @@
 import { lanSitePrefix, nextFreeLan, nextFreeTransit, transitEnds, TRANSIT_POOL } from "./allocate";
 import type { Files } from "./commands";
 import { addSegment, attach, readDoc, setNodeField, setSegmentField, type DocModel, type WorkingDoc } from "./document";
+import { enableOspf, type EnableOspfResult } from "./ospf";
 import { attachDevices, gatewayOnSwitch, gatewayPlan, wiredAsGateway } from "./subtree";
 import { addSegment as teAddSegment, setNodeNets, type TeModel } from "./te";
 
@@ -240,7 +241,7 @@ export function wirePlanText(r: WirePlanRow): string {
  *  left as it is (and named). With `ospfArea`, the transits the pairs already have take it too
  *  (2026-11-21), so OSPF can be turned on for links already drawn; a wiring that makes nothing and
  *  sets nothing is a refusal. */
-export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null; image?: { to: string; routers: readonly string[] } | null; split?: number } = {}): { files: Files; made: string[]; skipped: string[]; ospf: string[] } {
+export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null; image?: { to: string; routers: readonly string[] } | null; split?: number } = {}): { files: Files; made: string[]; skipped: string[]; ospf: string[]; fabric: EnableOspfResult | null } {
   if (routers.length < 2) throw new Error("select two or more routers");
   for (const r of routers) if (model.te.nodes.find((n) => n.name === r)?.kind !== "router") throw new Error(`'${r}' is not a router`);
   let cur: WorkingDoc = doc;
@@ -267,7 +268,14 @@ export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly 
   }
   // "switch these routers to <the OSPF image>": in the same edit, so one undo takes it all back.
   const switched = opts.image?.routers ?? [];
-  if (!made.length && !ospf.length && !switched.length) throw new Error(`all pairs already linked (${skipped.join(", ")}); nothing to change`);
   for (const r of switched) cur = { ...cur, files: setNodeField(cur, r, "image", opts.image!.to) };
-  return { files: cur.files, made, skipped, ospf };
+  // Round 3: OSPF comes up from the canvas alone -- the region, each router's routing: block, its other legs in the area.
+  let fabric: EnableOspfResult | null = null;
+  if (typeof opts.ospfArea === "number") {
+    fabric = enableOspf(cur.files[cur.teFile]!, routers, opts.ospfArea);
+    cur = { ...cur, files: { ...cur.files, [cur.teFile]: fabric.text } };
+  }
+  const wrote = fabric && (fabric.regionAdded || fabric.routed.length || fabric.advertised.length);
+  if (!made.length && !ospf.length && !switched.length && !wrote) throw new Error(`all pairs already linked (${skipped.join(", ")}); nothing to change`);
+  return { files: cur.files, made, skipped, ospf, fabric };
 }

@@ -345,14 +345,23 @@ Storage and API:
   (the drop), keeps every written image concrete and checkable, and the A7
   warning covers a twin later pointed at another platform. Built as (a):
   `api/image_profiles.py` resolves per platform, the Add panel's images
-  line and its target picker (§4.3). The shipped profiles name no
-  per-platform image yet: no libvirt routing image is in the catalog.
+  line and its target picker (§4.3). The two VyOS profiles name their
+  Proxmox image (`vyos@2026.06`, round 3); no libvirt routing image is in
+  the catalog.
 - **D7 (not needed, 2026-11-21).** The planner gives one NIC per leg
   (`nets[i]` -> `eth{i+1}`, `eth0` the WAN), and A5's links plug the leg's
   own NIC, adding none. A 2-aggregation / 8-rack design needs per
   aggregation VM: 1 WAN + 8 rack LANs + 2 core transits + 1 peer transit =
   12 NICs, against Proxmox's 32 per VM (`net0`..`net31`). A VLAN-aware
   bridge inside VyOS is not proposed.
+- **D10 (not needed, round 3, 2026-11-21).** A twin-config already carries
+  a top-level `fabric:` and a per-node `routing:` through to the IR
+  (`twinconfig/schema.py` passthroughs, `expand.py`), so the canvas writes
+  them as OSPF's region and router blocks (`ui/.../SPEC.md` "OSPF writes").
+- **D11 (not needed, round 3, 2026-11-21).** Core needs no default route
+  originated into OSPF: every VyOS router egresses through its own eth0 WAN
+  with masquerade (`configure-router`), and the internet sink's segment is
+  advertised by `ospf_area` on core's internet leg.
 
 ## 9. Phases
 

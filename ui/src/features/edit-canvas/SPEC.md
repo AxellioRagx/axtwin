@@ -208,18 +208,36 @@ keeps its transit, and when every pair is linked it says "all pairs already
 linked" and Connect applies only the OSPF / image choices (nothing ticked:
 refused, nothing to change). *Run OSPF on these links* sets `ospf_area` on
 every transit of the selection's pairs, new or already drawn, in the same undo
-step -- which the planner passes to the
-VyOS leg config, but OSPF comes up only with a VyOS router, a node
-`routing:` block and a `fabric:` region with `igp: ospf`. Ticked, the dialog
+step. Ticked, the dialog
 lists each selected router not on the `router-ospf` image profile
 (`catalog/image-profiles.yaml`, `vyos@2026.06`; the default `router` profile stays
 what a dropped router gets) and offers "switch these routers to vyos@2026.06",
-checked by default, in the same undo step; the `routing:` block and the
-`fabric:` region are not written, and the dialog says so in one line. The created segment, its CIDR and the leg addresses edit in the
+checked by default, in the same undo step. The created segment, its CIDR and the leg addresses edit in the
 inspector as any; a transit's inspector (two routers and nothing else on it,
 or one with `ospf_area` already) has an **OSPF area** field: a whole number
-writes `ospf_area`, empty removes it (off), so one link is set without the
-dialog.
+writes `ospf_area` (and turns OSPF on for its routers, below), empty removes it (off),
+so one link is set without the dialog. The field's hint says whether it is off or which area runs.
+
+**OSPF writes (round 3, 2026-11-21, `edit/ospf.ts`).** `ospf_area` alone does not bring OSPF up:
+the planner emits `configure-routing` only for a router whose `routing.region` is a
+`fabric.regions[]` entry with `igp: ospf` (IR_SCHEMA §3.4). So the ticked wiring dialog and the
+transit's OSPF area field also write, in the same undo step: one region `{ id: dc, igp: ospf }`
+when the twin has no OSPF region (an existing `ospf`/`both` region is reused); on each router
+without one, `routing: { region, role, loopback }` -- role `spine` for a `core*` name, `leaf` for
+`agg*` (the prefixes the L3 switch's core / aggregation tier seeds; the tier itself is not written),
+else `area`; the loopback the next free `/32` of `LOOPBACK_POOL` (`10.255.0.0/24`, outside the
+transit, LAN and internet pools and the lab's `10.255.251.0/24` transport; a LAN /24 never lands in
+it); no `ospf.router_id` (the renderer derives it from the loopback). A router whose `routing:`
+names a non-OSPF region is left as it is and named. Each router's other legs (its LANs, its
+internet leg) take `ospf_area` too: the renderer runs OSPF only on an interface whose network has
+an area, and `routing.redistribute` is not rendered, so this is how a rack /24 and the internet
+sink's segment reach the other routers. No default route is originated: every VyOS router egresses
+through its own eth0 WAN with masquerade (`configure-router`). **Follow-up** (`ospfFollow`, run on
+every edit in `useEditor.apply`): a leg NEW in an edit on a router that runs OSPF (a peer link such as
+`agg-1--agg-2`, a switch it becomes the gateway of, a Duplicate with the same uplinks) takes the
+router's area when its segment has none; a router whose loopback another already holds (a copy)
+gets the next free one. A segment whose area the user cleared is not re-set (only new legs are
+followed). The router inspector shows its `routing:` line.
 
 **Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
 opens in the **free** layout (every catalog twin, authored or cast, and every
@@ -483,7 +501,8 @@ criteria of its own beyond them.
   dropped on a transits-only design (and router -> pane, a host on a router, every built-in
   template) gets a LAN outside `10.254.0.0/16`, a design with LANs keeps its prefix; the wiring
   dialog on an all-linked triangle lists "already linked: <transit>" per pair, creates nothing and
-  sets `ospf_area` on the 3 transits in one undo step; a transit's OSPF area field writes and
+  sets `ospf_area` on the 3 transits in one undo step, with the `fabric:` region, a `routing:` block on
+  each router and `ospf_area` on their other legs (`canvas.ospf.test.ts`); a transit's OSPF area field writes and
   clears `ospf_area`; the "Not carried" box sits just above its segment wherever it is dragged
   (beside the first of several) and, clicked, lists its segments in the Selection panel; in the
   free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the

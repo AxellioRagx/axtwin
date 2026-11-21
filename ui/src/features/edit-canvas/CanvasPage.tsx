@@ -66,11 +66,12 @@ import { FREE_FAN, freeLayout } from "./canvas/free";
 import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
-import { lanSitePrefix, nextFreeLan } from "./edit/allocate";
+import { lanSitePrefix, LOOPBACK_POOL, nextFreeLan } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
 import type { PlaceChoices, PlaceVia } from "./Canvas";
+import { type EnableOspfResult } from "./edit/ospf";
 import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
 import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setTwinCluster, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
@@ -1940,18 +1941,20 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               let made: string[] = [];
               let skipped: string[] = [];
               let ospfSet: string[] = [];
+              let fab: EnableOspfResult | null = null;
               const switchTo = w.ospf && w.switchImage && ospfImage && model ? { to: ospfImage, routers: ospfImageGaps(model.te, w.routers, ospfImage).map((g) => g.router) } : null;
               const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape === "across" ? "one set to the other" : w.shape}`, (d, m) => {
                 const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null, split: w.split ?? 0 });
                 made = r.made;
                 skipped = r.skipped;
                 ospfSet = r.ospf;
+                fab = r.fabric;
                 return r.files;
               });
               if (reason) return;
               setWireDialog(null);
               const onOld = ospfSet.filter((t) => !made.includes(t));
-              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf && made.length ? ` (ospf_area ${w.area})` : ""}${onOld.length ? `; ospf_area ${w.area} set on ${onOld.join(", ")}` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
+              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf && made.length ? ` (ospf_area ${w.area})` : ""}${onOld.length ? `; ospf_area ${w.area} set on ${onOld.join(", ")}` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}${ospfNote(fab)}`);
             }}
           >
             <h2 style={{ marginTop: 0 }}>Connect {wireDialog.routers.length} routers</h2>
@@ -1970,7 +1973,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               run OSPF on these links (<span className="mono">ospf_area</span> on each transit, new or already drawn)
             </label>
             {wireDialog.ospf ? <OspfImageCheck te={model?.te ?? null} routers={wireDialog.routers} ospfImage={ospfImage} on={wireDialog.switchImage} onChange={(on) => setWireDialog({ ...wireDialog, switchImage: on })} /> : null}
-            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Not written here: each router&apos;s <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>; without them OSPF does not come up.</p> : null}
+            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Also written: a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span> (an existing one is reused), each router&apos;s <span className="mono">routing:</span> block (region; role spine for core-*, leaf for agg-*, else area; a loopback /32 from {LOOPBACK_POOL}), and <span className="mono">ospf_area</span> on each router&apos;s LANs and internet leg so they are advertised.</p> : null}
             {wireDialog.ospf ? (
               <div className="field">
                 <label htmlFor="wire-area">Area</label>
@@ -2243,6 +2246,17 @@ function MatrixTable({ matrix }: { matrix: ReturnType<typeof matrix0> }) {
       </tbody>
     </table>
   );
+}
+
+/** The wiring's exit note for what OSPF wrote beyond the transits (round 3). */
+function ospfNote(f: EnableOspfResult | null): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  if (f.regionAdded) parts.push(`fabric region ${f.region} (igp: ospf)`);
+  if (f.routed.length) parts.push(`routing: on ${f.routed.join(", ")}`);
+  if (f.advertised.length) parts.push(`ospf_area on ${f.advertised.join(", ")}`);
+  if (f.skipped.length) parts.push(`left as they are (routing: in a non-OSPF region): ${f.skipped.join(", ")}`);
+  return parts.length ? `; ${parts.join("; ")}` : "";
 }
 
 /** The wiring dialog's OSPF image check (2026-11-20, round 2): each selected router not on the

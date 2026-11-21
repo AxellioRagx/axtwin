@@ -50,12 +50,14 @@ export function nextFreeSlash24(prefix: string, inPlay: readonly string[], optio
   // does -- inside the internet's (B7): the pools are fenced off as if they were in play.
   const pool = ipv4Range(TRANSIT_POOL);
   const inet = ipv4Range(INTERNET_POOL);
+  const loop = ipv4Range(LOOPBACK_POOL);
   const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
   if (pool) ranges.push(pool);
+  if (loop) ranges.push(loop);
   if (inet && !(base >= inet.start && base <= inet.end)) ranges.push(inet);
   let from = 0;
   if (options.after) {
-    const under = ranges.filter((r) => r !== pool && r !== inet && r.start >= base && r.start < base + 65536);
+    const under = ranges.filter((r) => r !== pool && r !== inet && r !== loop && r.start >= base && r.start < base + 65536);
     if (under.length) from = Math.min(255, Math.floor((Math.max(...under.map((r) => r.end)) - base) / 256) + 1);
     if (from >= 256) from = 0;
   }
@@ -119,6 +121,25 @@ export function nextFreeTransit(inPlay: readonly string[], pool: string = TRANSI
   for (let start = p.start; start + 3 <= p.end; start += 4) {
     const end = start + 3;
     if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${intToIpv4(start)}/30`;
+  }
+  return null;
+}
+
+/** Where an OSPF router's `routing.loopback` takes its `/32` (round 3, 2026-11-21): outside the
+ *  transit, LAN and internet pools, and clear of the lab's `10.255.251.0/24` transport (the
+ *  sensors' `transport_ip`s). The renderer derives the OSPF router-id from it. */
+export const LOOPBACK_POOL = "10.255.0.0/24";
+
+/** The next free loopback `/32` in `pool` (default `LOOPBACK_POOL`) from `.1` upward, skipping every
+ *  address in `taken` (bare or `/32`), or `null` when the pool is full. */
+export function nextFreeLoopback(taken: Iterable<string>, pool: string = LOOPBACK_POOL): string | null {
+  const p = ipv4Range(pool);
+  if (!p) return null;
+  const used = new Set<string>();
+  for (const t of taken) used.add(t.split("/")[0]!.trim());
+  for (let at = p.start + 1; at < p.end; at++) {
+    const ip = intToIpv4(at);
+    if (!used.has(ip)) return `${ip}/32`;
   }
   return null;
 }

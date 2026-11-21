@@ -310,10 +310,11 @@ describe("on the page", () => {
     ]);
     const sw = dlg.getByLabelText("switch these routers to vyos@2026.06") as HTMLInputElement;
     expect(sw.checked).toBe(true);
-    expect(dlg.getByTestId("ospf-note").textContent).toBe("Not written here: each router's routing: block (region, role, loopback) and a fabric: region with igp: ospf; without them OSPF does not come up.");
+    expect(dlg.getByTestId("ospf-note").textContent).toBe("Also written: a fabric: region with igp: ospf (an existing one is reused), each router's routing: block (region; role spine for core-*, leaf for agg-*, else area; a loopback /32 from 10.255.0.0/24), and ospf_area on each router's LANs and internet leg so they are advertised.");
     fireEvent.click(dlg.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(screen.queryByTestId("wire-dialog")).toBeNull());
     expect(screen.getByTestId("exit-note").textContent).toContain("r1, r2 switched to vyos@2026.06");
+    expect(screen.getByTestId("exit-note").textContent).toContain("fabric region dc (igp: ospf); routing: on r1, r2");
     await check();
     const te = readTe((state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]!);
     expect(te.nodes.filter((n) => n.kind === "router").map((n) => `${n.name}:${n.image}`)).toEqual(["r1:vyos@2026.06", "r2:vyos@2026.06", "r3:ubuntu-server-22@v5"]);

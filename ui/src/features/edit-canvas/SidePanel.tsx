@@ -60,6 +60,7 @@ import { SWITCH_ROLES } from "./model/roles";
 import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
 import { inTransitPool as isTransitCidr } from "./edit/allocate";
 import { effectiveGateway, routersOn, setVip, shareGateway, stopSharing, vrrpImageGaps } from "./edit/vrrp";
+import { enableOspf, runsOspf } from "./edit/ospf";
 import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
@@ -881,6 +882,12 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           ))}
         </datalist>
       </Field>
+      {n.kind === "router" && n.routing ? (
+        <p className="muted hint mono" data-testid="node-routing">
+          routing: region {n.routing.region ?? "?"}, role {n.routing.role ?? "?"}, loopback {n.routing.loopback ?? "?"}
+          {runsOspf(p.model.te, n) ? " (OSPF)" : ""}
+        </p>
+      ) : null}
       <Field label="Count" hint="instances fanned out at deploy; a number or a ${PARAM:default}">
         <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(v.trim()) ? Number(v.trim()) : v.trim() || null))} />
       </Field>
@@ -1240,7 +1247,7 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
         </select>
       </Field>
       {isTransit ? (
-        <Field label="OSPF area" hint="ospf_area on this transit's router legs; empty = off">
+        <Field label="OSPF area" hint={s.ospfArea === null ? "off: ospf_area on this segment's router legs; setting it turns OSPF on for its routers" : `area ${s.ospfArea}: OSPF runs on this segment's router legs${on.some((n) => n.kind === "router" && runsOspf(p.model.te, n)) ? "" : " (no router here has a routing: block in an OSPF region yet)"}`}>
           <Text
             ariaLabel="OSPF area"
             value={s.ospfArea === null ? "" : String(s.ospfArea)}
@@ -1251,7 +1258,11 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
               p.apply(`ospf area of ${s.name}`, (d) => {
                 const t = v.trim();
                 if (t && !/^\d+$/.test(t)) throw new Error(`an OSPF area is a whole number (0, 1, …), got '${t}'`);
-                return setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+                const files = setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+                // Round 3: an area on a transit turns OSPF on for its routers (region, routing:, their other legs).
+                const routers = on.filter((n) => n.kind === "router").map((n) => n.name);
+                if (!t || !routers.length) return files;
+                return { ...files, [d.teFile]: enableOspf(files[d.teFile]!, routers, Number(t)).text };
               })
             }
           />
