@@ -1271,7 +1271,7 @@ def emit_ops(
                 raise EmissionError(
                     f"node {host_id!r}: it is a `vrrp:` member but not a VyOS "
                     "router; VRRP is rendered on VyOS only (design D5). Switch "
-                    "its image to vyos@1.5 (the l3-switch profile)."
+                    "its image to vyos@2026.06 (the l3-switch profile)."
                 )
             # The twin's containment posture (GAP-101) -- attached to EVERY
             # router, because the declaration is twin-level: one router left

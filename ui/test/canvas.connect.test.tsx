@@ -293,7 +293,7 @@ describe("on the page", () => {
 
   it("OSPF needs a VyOS router: ticked, the dialog names each router not on the router-ospf image and switches them (checked by default) in the same undo step; what it cannot write is said in one line", async () => {
     const base = withTriangle();
-    base.state.imageProfiles = [...base.state.imageProfiles.filter((p) => p.name !== "router-ospf"), { name: "router-ospf", image: "vyos@1.5" }];
+    base.state.imageProfiles = [...base.state.imageProfiles.filter((p) => p.name !== "router-ospf"), { name: "router-ospf", image: "vyos@2026.06" }];
     const { api, state } = base;
     renderAt(api, "/twins/tri/canvas");
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
@@ -305,18 +305,18 @@ describe("on the page", () => {
     expect(dlg.queryByTestId("ospf-image")).toBeNull();
     fireEvent.click(dlg.getByLabelText(/run OSPF on these links/));
     expect(dlg.getAllByTestId("ospf-image-gap").map((x) => x.textContent)).toEqual([
-      "r1 runs ubuntu-server-22@v5; OSPF needs vyos@1.5 (as datacenter's fabric)",
-      "r2 runs ubuntu-server-22@v5; OSPF needs vyos@1.5 (as datacenter's fabric)",
+      "r1 runs ubuntu-server-22@v5; OSPF needs vyos@2026.06 (as datacenter's fabric)",
+      "r2 runs ubuntu-server-22@v5; OSPF needs vyos@2026.06 (as datacenter's fabric)",
     ]);
-    const sw = dlg.getByLabelText("switch these routers to vyos@1.5") as HTMLInputElement;
+    const sw = dlg.getByLabelText("switch these routers to vyos@2026.06") as HTMLInputElement;
     expect(sw.checked).toBe(true);
     expect(dlg.getByTestId("ospf-note").textContent).toBe("Not written here: each router's routing: block (region, role, loopback) and a fabric: region with igp: ospf; without them OSPF does not come up.");
     fireEvent.click(dlg.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(screen.queryByTestId("wire-dialog")).toBeNull());
-    expect(screen.getByTestId("exit-note").textContent).toContain("r1, r2 switched to vyos@1.5");
+    expect(screen.getByTestId("exit-note").textContent).toContain("r1, r2 switched to vyos@2026.06");
     await check();
     const te = readTe((state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]!);
-    expect(te.nodes.filter((n) => n.kind === "router").map((n) => `${n.name}:${n.image}`)).toEqual(["r1:vyos@1.5", "r2:vyos@1.5", "r3:ubuntu-server-22@v5"]);
+    expect(te.nodes.filter((n) => n.kind === "router").map((n) => `${n.name}:${n.image}`)).toEqual(["r1:vyos@2026.06", "r2:vyos@2026.06", "r3:ubuntu-server-22@v5"]);
     expect(te.segments.find((s) => s.name === "r1--r2")!.ospfArea).toBe(0);
     // One undo takes the transit and the image switch back together.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));

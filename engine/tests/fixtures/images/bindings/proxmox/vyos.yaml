@@ -17,3 +17,17 @@ binding:
       placement_constraints:
         requires_host_caps: []
       clone_estimate: 30
+    - id: "2026.06"
+      storage: { type: template, node: any, volid: "axrpool:base-9353-disk-0", template_vmid: 9353 }
+      clone_mode: linked
+      cloud_init: { supported: false, user: vyos, sysprep_required: false }  # generic ISO has no cloud-init; config via vyos-ssh-set (configure-router)
+      hardware:
+        machine: q35
+        bios: seabios
+        nic_model: virtio
+        disk_bus: scsi
+        scsi_controller: virtio-scsi-single
+        agent: false
+      placement_constraints:
+        requires_host_caps: []
+      clone_estimate: 30

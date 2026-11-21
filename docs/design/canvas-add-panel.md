@@ -76,7 +76,7 @@ added 2026-11-21):
 | Card | Writes | Options |
 |---|---|---|
 | **Router / firewall** | `kind: router` | Type: router or firewall. Placement: edge (internet uplink) or internal. Count N: N separate routers. Legs come from drawing links. |
-| **L3 switch** | `kind: router`, `role: l3-switch`, the `l3-switch` image profile (`vyos@1.5`) | Tier: core or aggregation (seeds the prefix `core` / `agg` only). Count N: N separate nodes. Advanced shows the image. Wired to a switch, it becomes that LAN's gateway (an addressed leg). |
+| **L3 switch** | `kind: router`, `role: l3-switch`, the `l3-switch` image profile (`vyos@2026.06`) | Tier: core or aggregation (seeds the prefix `core` / `agg` only). Count N: N separate nodes. Advanced shows the image. Wired to a switch, it becomes that LAN's gateway (an addressed leg). |
 | **Switch** | `kind: switch` | Plain, or managed (VLANs). |
 | **Server** | `kind: host` + a server role | OS: Linux or Windows Server. Role (§4.1). |
 | **Workstation** | `kind: host` + an endpoint profile | OS: Linux or Windows. Profile: office user, developer, executive, power user, VoIP softphone, IoT, … |
@@ -142,8 +142,8 @@ profiles:
   windows-server:   { image: windows-server-2022@v1 }
   windows-client:   { image: win11-finance@v4 }       # example
   router:           { image: <the router image the catalog's routers use> }
-  router-ospf:      { image: vyos@1.5 }   # the OSPF-capable router image
-  l3-switch:        { image: vyos@1.5, platforms: { libvirt: <image> } }  # D6: per platform
+  router-ospf:      { image: vyos@2026.06 }   # the OSPF-capable router image
+  l3-switch:        { image: vyos@2026.06, platforms: { libvirt: <image> } }  # D6: per platform
 ```
 
 - The profile is chosen from card + OS (Server + Windows → `windows-server`).
@@ -151,8 +151,8 @@ profiles:
   image OSPF needs (the planner passes `ospf_area` to the VyOS leg config):
   when the wiring dialog's "run OSPF on these links" is ticked, it lists each
   selected router not on that image ("router-1 runs debian-12-cloud@v1; OSPF
-  needs vyos@1.5 (as datacenter's fabric)") and offers "switch these routers
-  to vyos@1.5", checked by default, in the same undo step. The routers'
+  needs vyos@2026.06 (as datacenter's fabric)") and offers "switch these routers
+  to vyos@2026.06", checked by default, in the same undo step. The routers'
   `routing:` blocks and the `fabric:` region with `igp: ospf` are not written;
   the dialog says so in one line.
 - Per target platform (D6, 2026-11-21): a profile may add `platforms:
@@ -324,12 +324,12 @@ Storage and API:
   next rack. Not yet live-verified on dev45.
 - **D6 (decided 2026-11-21, Authority: user -- option (a); built): per-platform image
   profiles.** Today a profile names one image (`l3-switch: { image:
-  vyos@1.5 }`) whatever the target; a Check now warns when the image has no
+  vyos@2026.06 }`) whatever the target; a Check now warns when the image has no
   binding for the platform of the twin's target (its `cluster:`, else the
   default target -- the preflight's own `TARGET-IMAGE`, as a warning; A7),
   and the deploy preflight refuses it. Proposal: **(a)** key a profile by
   platform, keeping `image` as the default --
-  `l3-switch: { image: vyos@1.5, platforms: { libvirt: <image> } }` --
+  `l3-switch: { image: vyos@2026.06, platforms: { libvirt: <image> } }` --
   served by `GET /api/image-profiles?target=<name>` resolved for that
   target's platform (absent: the default target), with `platform` in the
   answer; the canvas learns the target from the twin's `cluster:` in

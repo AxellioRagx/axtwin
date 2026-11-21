@@ -27,8 +27,8 @@ import { renderAt } from "./helpers/render";
 
 const PROFILES: ImageProfile[] = [
   { name: "router", image: "debian-12-cloud@v1" },
-  { name: "router-ospf", image: "vyos@1.5" },
-  { name: "l3-switch", image: "vyos@1.5" },
+  { name: "router-ospf", image: "vyos@2026.06" },
+  { name: "l3-switch", image: "vyos@2026.06" },
 ];
 
 const doc = (te: string): WorkingDoc => ({ id: "dc", teFile: "te.yaml", files: { "te.yaml": te } });
@@ -39,8 +39,8 @@ const RACK = `twin_config:
   segments:
     - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
   nodes:
-    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5 }
-    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@2026.06 }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06 }
     - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
     - name: rack1-web
       image: debian-12-cloud@v1
@@ -49,11 +49,11 @@ const RACK = `twin_config:
 `;
 
 describe("A2: the L3 switch card", () => {
-  it("stands between Router and Switch with its line and prefix; its profile is l3-switch (vyos@1.5)", () => {
+  it("stands between Router and Switch with its line and prefix; its profile is l3-switch (vyos@2026.06)", () => {
     expect(DEVICE_CARDS.map((c) => c.id)).toEqual(["router", "l3switch", "switch", "server", "workstation", "ot"]);
     expect(DEVICE_CARDS[1]).toMatchObject({ label: "L3 switch", line: "switches a LAN and routes between VLANs; core or aggregation", oses: null, prefix: "l3sw" });
     expect(profileFor("l3switch", null)).toBe("l3-switch");
-    expect(imageFor(PROFILES, profileFor("l3switch", null))).toBe("vyos@1.5");
+    expect(imageFor(PROFILES, profileFor("l3switch", null))).toBe("vyos@2026.06");
   });
 
   it.each(["l3", "layer 3", "core", "aggregation", "multilayer"])("search %j finds it first", (q) => {
@@ -73,7 +73,7 @@ describe("A3 / B6: dropping an L3 switch", () => {
     const r = applyDeviceDrop(d, readDoc(d), { card: "l3switch", os: null, role: null, persona: null, count: 2, prefix: "core", tier: "core", target: { pane: true }, image: imageFor(PROFILES, "l3-switch") });
     expect(r.names).toEqual(["core-1", "core-2"]);
     const te = readTe(r.files["te.yaml"]!);
-    for (const name of r.names) expect(te.nodes.find((n) => n.name === name)).toMatchObject({ kind: "router", role: "l3-switch", image: "vyos@1.5", count: 1, nets: [] });
+    for (const name of r.names) expect(te.nodes.find((n) => n.name === name)).toMatchObject({ kind: "router", role: "l3-switch", image: "vyos@2026.06", count: 1, nets: [] });
     // The tier writes nothing beyond the prefix it seeded.
     expect(r.files["te.yaml"]).not.toMatch(/tier|core:|aggregation/);
   });
@@ -155,7 +155,7 @@ function withTwin(id: string, files: Record<string, string>) {
 const router = (name: string) => screen.getAllByTestId("canvas-router").find((r) => r.dataset["nodeId"] === name)!;
 
 describe("A4: an L3 switch on the canvas", () => {
-  const TE = RACK.replace("    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }\n", "    - { name: agg-2, kind: router, role: firewall, image: debian-12-cloud@v1 }\n").replace("kind: router, role: l3-switch, image: vyos@1.5 }", "kind: router, role: l3-switch, image: vyos@1.5, net: rack1-srv }");
+  const TE = RACK.replace("    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06 }\n", "    - { name: agg-2, kind: router, role: firewall, image: debian-12-cloud@v1 }\n").replace("kind: router, role: l3-switch, image: vyos@2026.06 }", "kind: router, role: l3-switch, image: vyos@2026.06, net: rack1-srv }");
   it("wears its own icon and an L3 badge; a plain router neither; its inspector says 'L3 switch agg-1' and a router's help, never a switch's", async () => {
     const { api } = withTwin("dc", { "te.yaml": TE });
     renderAt(api, "/twins/dc/canvas");
@@ -184,8 +184,8 @@ describe("B1: deleting a device takes what hangs on it", () => {
   segments:
     - { name: up, cidr: 10.1.0.0/24, zone_type: vlan }
   nodes:
-    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }
-    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@2026.06, net: up }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06, net: up }
 `;
   /** A switch dropped on the pane, wired to both routers. */
   function wired(): WorkingDoc {
@@ -250,7 +250,7 @@ describe("B2: a host dropped on a switch joins that switch's LAN", () => {
     - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
     - { name: rack1-mgmt, cidr: 10.200.1.0/24, zone_type: vlan }
   nodes:
-    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }] }
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@2026.06, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }] }
     - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
     - { name: rack2-tor, kind: switch, role: l2-switch, nets: [{ segment: rack1-srv }, { segment: rack1-mgmt }] }
     - { name: web, image: debian-12-cloud@v1, nets: [{ segment: rack1-srv, ip: 10.200.0.10 }] }
@@ -312,8 +312,8 @@ describe("B3: Duplicate subtree makes the next rack", () => {
   segments:
     - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
   nodes:
-    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5 }
-    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@2026.06 }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06 }
     - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
     - name: rack1-web
       image: debian-12-cloud@v1
@@ -435,10 +435,10 @@ describe("D5: one shared gateway (VRRP) on a LAN with two", () => {
   });
 
   it("a member not on VyOS is switched to the l3-switch image in the same edit, when asked", () => {
-    const d0 = dual(RACK.replace("    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }", "    - { name: agg-2, kind: router, role: gw, image: debian-12-cloud@v1 }"));
+    const d0 = dual(RACK.replace("    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06 }", "    - { name: agg-2, kind: router, role: gw, image: debian-12-cloud@v1 }"));
     expect(vrrpImageGaps(readDoc(d0).te, ["agg-1", "agg-2"])).toEqual([{ router: "agg-2", image: "debian-12-cloud@v1" }]);
-    const d = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv", { image: "vyos@1.5" }) };
-    expect(readDoc(d).te.nodes.find((n) => n.name === "agg-2")!.image).toBe("vyos@1.5");
+    const d = { ...d0, files: shareGateway(d0, readDoc(d0), "rack1-srv", { image: "vyos@2026.06" }) };
+    expect(readDoc(d).te.nodes.find((n) => n.name === "agg-2")!.image).toBe("vyos@2026.06");
   });
 
   it("a member leaving: a group left with one member goes, the gateway the remaining router's address", () => {
@@ -455,8 +455,8 @@ describe("D5: one shared gateway (VRRP) on a LAN with two", () => {
   segments:
     - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
   nodes:
-    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5 }
-    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@2026.06 }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@2026.06 }
     - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
     - { name: rack1-web, image: debian-12-cloud@v1, count: 2, net: rack1-srv }
 `);
@@ -477,8 +477,8 @@ describe("D5: one shared gateway (VRRP) on a LAN with two", () => {
 describe("D5 on the page, and a flow-written node's field edit", () => {
   it("setNodeField on a node written as one flow line rewrites it in place (it had cut the node apart)", () => {
     const t = "twin_config:\n  id: dc\n  nodes:\n    - { name: agg-2, kind: router, role: gw, image: debian-12-cloud@v1, nets: [{ segment: a, ip: 10.0.0.1 }] }\n";
-    const out = setNodeField(t, "agg-2", "image", "vyos@1.5");
-    expect(out).toBe("twin_config:\n  id: dc\n  nodes:\n    - { name: agg-2, kind: router, role: gw, image: vyos@1.5, nets: [{ segment: a, ip: 10.0.0.1 }] }\n");
+    const out = setNodeField(t, "agg-2", "image", "vyos@2026.06");
+    expect(out).toBe("twin_config:\n  id: dc\n  nodes:\n    - { name: agg-2, kind: router, role: gw, image: vyos@2026.06, nets: [{ segment: a, ip: 10.0.0.1 }] }\n");
   });
 
   it("the segment panel offers 'Share one gateway (VRRP)', and once shared shows the VIP and the members", async () => {
@@ -511,8 +511,8 @@ describe("B4: in the free layout a dragged device carries what hangs from it", (
     - { name: lan, cidr: 10.200.1.0/24 }
     - { name: shared, cidr: 10.200.2.0/24 }
   nodes:
-    - { name: agg-1, kind: router, image: vyos@1.5, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }, { segment: lan }, { segment: shared }] }
-    - { name: agg-2, kind: router, image: vyos@1.5, nets: [{ segment: shared }] }
+    - { name: agg-1, kind: router, image: vyos@2026.06, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }, { segment: lan }, { segment: shared }] }
+    - { name: agg-2, kind: router, image: vyos@2026.06, nets: [{ segment: shared }] }
     - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
     - { name: web, image: x, count: 2, net: rack1-srv }
     - { name: pc, image: x, net: lan }
@@ -548,14 +548,14 @@ describe("B6: counts on Router, L3 switch and Switch; Wire… between the new se
 
   it("'across': each of the first set to each of the rest, none within a set", () => {
     expect(wirePairs(["core-1", "core-2", "agg-1", "agg-2"], "across", 2)).toEqual([["core-1", "agg-1"], ["core-1", "agg-2"], ["core-2", "agg-1"], ["core-2", "agg-2"]]);
-    const te = `twin_config:\n  id: t\n  segments:\n    - { name: lan, cidr: 10.1.0.0/24 }\n  nodes:\n${["core-1", "core-2", "agg-1", "agg-2"].map((n) => `    - { name: ${n}, kind: router, role: l3-switch, image: vyos@1.5 }\n`).join("")}`;
+    const te = `twin_config:\n  id: t\n  segments:\n    - { name: lan, cidr: 10.1.0.0/24 }\n  nodes:\n${["core-1", "core-2", "agg-1", "agg-2"].map((n) => `    - { name: ${n}, kind: router, role: l3-switch, image: vyos@2026.06 }\n`).join("")}`;
     const d = doc(te);
     const r = wireRouters(d, readDoc(d), ["core-1", "core-2", "agg-1", "agg-2"], "across", { split: 2, ospfArea: 0 });
     expect(r.made).toEqual(["agg-1--core-1", "agg-2--core-1", "agg-1--core-2", "agg-2--core-2"]);
   });
 
   it("with core-1 and core-2 selected, dropping 2 L3 switches opens the wiring dialog: each core to each new agg", async () => {
-    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n`;
+    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@2026.06, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@2026.06, net: up }\n`;
     const { api } = withTwin("dc", { "te.yaml": te });
     renderAt(api, "/twins/dc/canvas");
     await screen.findAllByTestId("canvas-router");
@@ -574,7 +574,7 @@ describe("B6: counts on Router, L3 switch and Switch; Wire… between the new se
 
 describe("B9: a click on the empty canvas always clears a multi-selection", () => {
   it("two routers Shift-selected, then a pane click: nothing selected", async () => {
-    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n`;
+    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@2026.06, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@2026.06, net: up }\n`;
     const { api } = withTwin("dc", { "te.yaml": te });
     renderAt(api, "/twins/dc/canvas");
     await screen.findAllByTestId("canvas-router");
@@ -602,7 +602,7 @@ describe("D6: a dropped device's image is the profile's image for the twin's tar
     const base = withTwin("dc", { "te.yaml": "twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes: []\n" });
     const { api, state } = seeded({
       ...base.state,
-      imageProfiles: [{ name: "l3-switch", image: "vyos@1.5", platforms: { libvirt: "debian-12-cloud@v1" } }],
+      imageProfiles: [{ name: "l3-switch", image: "vyos@2026.06", platforms: { libvirt: "debian-12-cloud@v1" } }],
       targets: [...base.state.targets, { node: "kvm1", name: "kvm1", default: false, nodes: ["kvm1"], platform: "libvirt", error: null }],
     });
     renderAt(api, "/twins/dc/canvas");

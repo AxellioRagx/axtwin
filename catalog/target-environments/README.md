@@ -19,7 +19,7 @@ not on `master`.
 | [`dfir-hunt-lab`](dfir-hunt-lab/scenario.yaml) **(new)** | BTLO/CyberDefenders "investigate the PCAP", Redline/FLARE/Volatility, host forensics | enterprise/soc + router; compromised victim (planted benign artifacts) + Win endpoint, DFIR analyst kit (Volatility/tshark/Sleuth Kit/YARA), OpenSearch+Zeek hunt stack | Infra + Apps&Tools | compromise activity that seeds evidence (OP-ACT), live PCAP-from-sensor retrieval, Windows DFIR (Redline/FLARE), hunt-content overlay (OP-OVL) |
 
 All seven **pass `axrange validate` and `axrange plan`** against the fixture image catalog
-(`tests/fixtures/images`: `debian-12-cloud@v1`, `ubuntu-server-22@v5`, `vyos@1.5`,
+(`tests/fixtures/images`: `debian-12-cloud@v1`, `ubuntu-server-22@v5`, `vyos@1.5` and `vyos@2026.06`,
 `win11-finance@v4`).
 
 ## Use

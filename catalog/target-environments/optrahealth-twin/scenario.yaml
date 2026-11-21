@@ -87,7 +87,7 @@ layers:
       # ===================== DC-East fabric (AS 65010) =====================
       - id: spine-e1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -101,7 +101,7 @@ layers:
           bgp: { asn: 65010, rr_server: true, evpn: true }
       - id: spine-e2
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -115,7 +115,7 @@ layers:
           bgp: { asn: 65010, rr_server: true, evpn: true }
       - id: leaf-e1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -136,7 +136,7 @@ layers:
           bfd: true
       - id: leaf-e2
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -155,7 +155,7 @@ layers:
           bfd: true
       - id: border-e
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -181,7 +181,7 @@ layers:
       # ===================== DC-West fabric (AS 65020) =====================
       - id: spine-w1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -194,7 +194,7 @@ layers:
           bgp: { asn: 65020, rr_server: true, evpn: true }
       - id: leaf-w1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -212,7 +212,7 @@ layers:
           bgp: { asn: 65020, rr_clients_of: [spine-w1], evpn: true, vtep: true }
       - id: border-w
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -235,7 +235,7 @@ layers:
       # ===================== Corp-HQ campus (AS 65030, OSPF) ================
       - id: abr-c
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -256,7 +256,7 @@ layers:
             originate: [ 10.30.0.0/16 ]
       - id: area-c1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:

@@ -6754,7 +6754,7 @@ def _with_target_image_warnings(
     binding for the platform the twin will deploy to -- the twin's `cluster:`
     target, else the default one -- through the preflight's own image check
     (`TARGET-IMAGE`), as a WARNING: the deploy preflight refuses it, Check only
-    says so (an L3 switch's vyos@1.5 on a platform whose manifest lacks it).
+    says so (an L3 switch's vyos@2026.06 on a platform whose manifest lacks it).
     No target configured, or none that resolves: the answer is unchanged."""
     from axrange.api.preflight import Sources, config_sources, fold_into, run_preflight
     from axrange.twinconfig.manifest import load_twin_manifest

@@ -43,7 +43,7 @@ layers:
     nodes:
       - id: spine-1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -57,7 +57,7 @@ layers:
           bgp: { asn: 65010, rr_server: true, evpn: true }
       - id: spine-2
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -71,7 +71,7 @@ layers:
           bgp: { asn: 65010, rr_server: true, evpn: true }
       - id: leaf-1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -90,7 +90,7 @@ layers:
           bfd: true
       - id: leaf-2
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -108,7 +108,7 @@ layers:
           bfd: true
       - id: border-1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:
@@ -130,7 +130,7 @@ layers:
             originate: [ 10.255.0.0/24 ]
       - id: prov-1
         kind: router
-        image: vyos@1.5
+        image: vyos@2026.06
         requires: [linux]
         resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
         nets:

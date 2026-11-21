@@ -365,7 +365,7 @@ def render_vrrp(groups: list[dict[str, Any]] | None) -> list[str]:
     `high-availability vrrp group` per `configure-router` `vrrp` entry
     (`eth`, `group`, `vrid`, `address` vip/prefix, `priority`). VyOS 1.4+
     syntax (`address`, which 1.3 spelled `virtual-address`); the planner
-    targets vyos@1.5. Shared by the Proxmox and libvirt VyOS paths."""
+    targets vyos (2026.06 rolling on dev45; the rule held since 1.5). Shared by the Proxmox and libvirt VyOS paths."""
     out: list[str] = []
     for g in groups or []:
         name, eth, vrid, addr = g.get("group"), g.get("eth"), g.get("vrid"), g.get("address")
