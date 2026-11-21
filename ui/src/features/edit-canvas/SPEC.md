@@ -249,7 +249,12 @@ its own line at the midpoint; one that would cover a node's name or another
 pill is nudged along its line (up to ±30% of its length), then off it, never
 onto a name; nor where another edge's line runs under it (2026-11-21), when any
 spot near its own line is clear of the others (three routers stacked a few px
-apart, as the first free placement can stack them, leave none). Every transit, in the free layout and the tree, wears the one
+apart, as the first free placement can stack them, leave none). Zoomed out (compact detail) a transit's pill hides unless the transit is hovered or selected
+(2026-11-21, B9: in a core/aggregation mesh the pills sat across one another's lines). A click on
+the empty canvas always clears a multi-selection (B9): no leg under the pointer takes the click
+then, and React Flow echoing the old set back in the same frame is ignored. The router's "N legs"
+counts its `nets` -- its addressed legs, which A5 makes the LANs it is the gateway of.
+Every transit, in the free layout and the tree, wears the one
 neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue.
 **Placement of dropped nodes (2026-11-20, round 2, `add/placeDrop.ts`):** in
 the free layout everything a drop or a template makes gets a pin near the drop

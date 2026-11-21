@@ -6,7 +6,7 @@
  * the router the LAN's gateway (an addressed leg, `.1` then `.2`, one single-segment link per
  * segment) instead of a bare trunk.
  */
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ImageProfile } from "../src/api/types";
@@ -21,7 +21,7 @@ import { dragFollowers } from "../src/features/edit-canvas/canvas/free";
 import { readTe, setNodeField } from "../src/features/edit-canvas/edit/te";
 import { effectiveGateway, shareGateway, stopSharing, vrrpImageGaps } from "../src/features/edit-canvas/edit/vrrp";
 import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
-import { card, check, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
+import { card, check, clickPane, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const PROFILES: ImageProfile[] = [
@@ -568,5 +568,19 @@ describe("B6: counts on Router, L3 switch and Switch; Wire… between the new se
     const dlg = await screen.findByTestId("wire-dialog");
     expect(within(dlg).getByLabelText(/each of core-1, core-2 to each of agg-1, agg-2/)).toHaveProperty("checked", true);
     expect(within(dlg).getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(["new: agg-1--core-1", "new: agg-2--core-1", "new: agg-1--core-2", "new: agg-2--core-2"]);
+  });
+});
+
+describe("B9: a click on the empty canvas always clears a multi-selection", () => {
+  it("two routers Shift-selected, then a pane click: nothing selected", async () => {
+    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n`;
+    const { api } = withTwin("dc", { "te.yaml": te });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-router");
+    fireEvent.click(router("core-1"));
+    fireEvent.click(router("core-2"), { shiftKey: true });
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").filter((r) => r.closest(".react-flow__node")?.classList.contains("selected")).length).toBe(2));
+    clickPane(900, 700);
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").filter((r) => r.closest(".react-flow__node")?.classList.contains("selected")).length).toBe(0));
   });
 });

@@ -1206,9 +1206,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
 
   // A marquee selects many at once; a single pick is the click handlers' above.
+  const paneCleared = useRef(false);
   const onSelectionChange = useCallback(
     ({ nodes: sel }: { nodes: Node[]; edges: Edge[] }) => {
-      if (!edit || sel.length < 2) return;
+      if (!edit || sel.length < 2 || paneCleared.current) return;
       // A subtree selection (§6.1) is many nodes by design: React Flow echoing it back (also
       // while the page re-places after a duplicate) is not a marquee. A pane click clears it first.
       if (selectionRef.current.kind === "subtree") return;
@@ -1812,7 +1813,16 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             }}
             onPaneClick={(e) => {
               setMenu(null);
-              const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
+              // A multi-selection is always cleared by a click on the canvas (B9, 2026-11-21): no leg
+              // under the pointer takes the click instead, and React Flow echoing the old set back
+              // in the same tick is ignored (`paneCleared`).
+              const cur = selectionRef.current;
+              const multi = cur.kind === "subtree" || ((cur.kind === "node" || cur.kind === "segment") && cur.names.length > 1);
+              const leg = multi ? null : legParts(legAt(e.clientX, e.clientY) ?? "");
+              if (multi) {
+                paneCleared.current = true;
+                requestAnimationFrame(() => (paneCleared.current = false));
+              }
               select(leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "none" }, []);
             }}
             onNodeContextMenu={onNodeContextMenu}
