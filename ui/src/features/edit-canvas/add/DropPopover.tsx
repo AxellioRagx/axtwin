@@ -53,7 +53,8 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const def = card ? DEVICE_CARDS.find((c) => c.id === card)! : null;
   const isHost = card === "server" || card === "workstation" || card === "ot";
   // A count on a router or an L3 switch makes N separate named nodes (B6).
-  const counted = isHost || card === "router" || card === "l3switch";
+  // A switch counts too, each on a LAN of its own -- not when it is dropped on a segment (it carries that one).
+  const counted = isHost || card === "router" || card === "l3switch" || (card === "switch" && !("segment" in target));
   const [os, setOs] = useState<Os | null>(() => (def?.oses ? (item.os ?? def.oses[0]!) : null));
   const [traffic, setTraffic] = useState(() => Boolean(item.role && personas.find((p) => p.id === item.role)?.category === "traffic"));
   const [role, setRole] = useState<string | null>(() => (card && isHost ? (item.role ?? defaultRole(card, os, personas)) : null));

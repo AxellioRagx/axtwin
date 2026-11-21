@@ -163,7 +163,7 @@ describe("2. the router wiring dialog shows the links already drawn and runs OSP
     fireEvent.click(router("router2-1"), { shiftKey: true });
     fireEvent.click(router("router3-1"), { shiftKey: true });
     fireEvent.contextMenu(router("router3-1"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 3 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 3 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     fireEvent.click(dlg.getByLabelText("ring"));
     expect(dlg.getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(TRANSITS.map((t) => `already linked: ${t}`));

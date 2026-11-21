@@ -165,7 +165,9 @@ export function applyIntent(doc: WorkingDoc, model: DocModel, i: ConnectIntent):
   }
 }
 
-export type WireShape = "chain" | "ring" | "mesh" | "hub";
+/** `across` (B6, 2026-11-21): every router of the first `split` to every one of the rest -- the set
+ *  just dropped wired to the set that was selected (core-1, core-2 to agg-1, agg-2), none within a set. */
+export type WireShape = "chain" | "ring" | "mesh" | "hub" | "across";
 
 /** The image profile OSPF needs (`catalog/image-profiles.yaml`): the planner passes `ospf_area` to
  *  the VyOS leg config, so only a router on this image runs it. */
@@ -180,9 +182,13 @@ export function ospfImageGaps(te: Pick<TeModel, "nodes">, routers: readonly stri
 }
 
 /** The router pairs a bulk wiring makes, in order (the first router is the hub). */
-export function wirePairs(routers: readonly string[], shape: WireShape): Array<[string, string]> {
+export function wirePairs(routers: readonly string[], shape: WireShape, split = 0): Array<[string, string]> {
   const out: Array<[string, string]> = [];
   if (routers.length < 2) return out;
+  if (shape === "across") {
+    for (const a of routers.slice(0, split)) for (const b of routers.slice(split)) out.push([a, b]);
+    return out;
+  }
   if (shape === "chain" || shape === "ring") {
     for (let i = 0; i + 1 < routers.length; i++) out.push([routers[i]!, routers[i + 1]!]);
     if (shape === "ring" && routers.length > 2) out.push([routers[routers.length - 1]!, routers[0]!]);
@@ -210,9 +216,9 @@ export function transitBetween(te: Pick<TeModel, "nodes">, a: string, b: string)
  *  name), or the pair already linked (its transit, when it has one; else the segment they share). */
 export type WirePlanRow = { a: string; b: string; kind: "new"; name: string } | { a: string; b: string; kind: "linked"; segment: string | null };
 
-export function wirePlan(te: Pick<TeModel, "nodes" | "segments">, routers: readonly string[], shape: WireShape): WirePlanRow[] {
+export function wirePlan(te: Pick<TeModel, "nodes" | "segments">, routers: readonly string[], shape: WireShape, split = 0): WirePlanRow[] {
   const names = new Set(te.segments.map((s) => s.name));
-  return wirePairs(routers, shape).map(([a, b]) => {
+  return wirePairs(routers, shape, split).map(([a, b]) => {
     if (routersLinked(te, a, b)) {
       const shared = transitBetween(te, a, b) ?? te.nodes.find((n) => n.name === a)!.nets.find((l) => te.nodes.find((n) => n.name === b)!.nets.some((m) => m.segment === l.segment))?.segment ?? null;
       return { a, b, kind: "linked", segment: shared };
@@ -234,7 +240,7 @@ export function wirePlanText(r: WirePlanRow): string {
  *  left as it is (and named). With `ospfArea`, the transits the pairs already have take it too
  *  (2026-11-21), so OSPF can be turned on for links already drawn; a wiring that makes nothing and
  *  sets nothing is a refusal. */
-export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null; image?: { to: string; routers: readonly string[] } | null } = {}): { files: Files; made: string[]; skipped: string[]; ospf: string[] } {
+export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly string[], shape: WireShape, opts: { pool?: string; ospfArea?: number | null; image?: { to: string; routers: readonly string[] } | null; split?: number } = {}): { files: Files; made: string[]; skipped: string[]; ospf: string[] } {
   if (routers.length < 2) throw new Error("select two or more routers");
   for (const r of routers) if (model.te.nodes.find((n) => n.name === r)?.kind !== "router") throw new Error(`'${r}' is not a router`);
   let cur: WorkingDoc = doc;
@@ -242,7 +248,7 @@ export function wireRouters(doc: WorkingDoc, model: DocModel, routers: readonly 
   const made: string[] = [];
   const skipped: string[] = [];
   const ospf: string[] = [];
-  for (const [a, b] of wirePairs(routers, shape)) {
+  for (const [a, b] of wirePairs(routers, shape, opts.split ?? 0)) {
     if (routersLinked(m.te, a, b)) {
       const t = transitBetween(m.te, a, b);
       skipped.push(t ?? `${a} and ${b}`);

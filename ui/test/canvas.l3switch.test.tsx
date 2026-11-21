@@ -13,7 +13,7 @@ import type { ImageProfile } from "../src/api/types";
 import { DEVICE_CARDS, healthHints, imageFor, isL3Switch, profileFor, searchAdd, twoGatewayLans } from "../src/features/edit-canvas/add/catalog";
 import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
 import { gatewayAddress } from "../src/features/edit-canvas/edit/allocate";
-import { applyIntent, connectIntent, intentHint } from "../src/features/edit-canvas/edit/connect";
+import { applyIntent, connectIntent, intentHint, wirePairs, wireRouters } from "../src/features/edit-canvas/edit/connect";
 import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { attachDevices, copyPositions, duplicateSubtree, gatewayOnSwitch, nextNumberedRename, parkedDevices, uplinksOf } from "../src/features/edit-canvas/edit/subtree";
 import { besideSubtree } from "../src/features/edit-canvas/add/placeDrop";
@@ -531,5 +531,42 @@ describe("B4: in the free layout a dragged device carries what hangs from it", (
   it("a router takes the implied switches it alone serves and their hosts, not a switch's LAN nor one it shares", () => {
     expect(dragFollowers(TE, nodes, "agg-1")).toEqual(["host:pc", "seg:lan"]);
     expect(dragFollowers(TE, nodes, "pc")).toEqual([]);
+  });
+});
+
+describe("B6: counts on Router, L3 switch and Switch; Wire… between the new set and the selected one", () => {
+  it("a Switch with count 2 on the pane: two switches, each on a LAN of its own", () => {
+    const d = doc(RACK);
+    const r = applyDeviceDrop(d, readDoc(d), { card: "switch", os: null, role: null, persona: null, count: 2, prefix: "sw", target: { pane: true }, image: null });
+    expect(r.names).toEqual(["sw-1", "sw-2"]);
+    const te = readTe(r.files["te.yaml"]!);
+    const legs = r.names.map((n) => te.nodes.find((x) => x.name === n)!.nets[0]!.segment);
+    expect(new Set(legs).size).toBe(2);
+    expect(new Set(legs.map((sg) => te.segments.find((x) => x.name === sg)!.cidr)).size).toBe(2);
+  });
+
+  it("'across': each of the first set to each of the rest, none within a set", () => {
+    expect(wirePairs(["core-1", "core-2", "agg-1", "agg-2"], "across", 2)).toEqual([["core-1", "agg-1"], ["core-1", "agg-2"], ["core-2", "agg-1"], ["core-2", "agg-2"]]);
+    const te = `twin_config:\n  id: t\n  segments:\n    - { name: lan, cidr: 10.1.0.0/24 }\n  nodes:\n${["core-1", "core-2", "agg-1", "agg-2"].map((n) => `    - { name: ${n}, kind: router, role: l3-switch, image: vyos@1.5 }\n`).join("")}`;
+    const d = doc(te);
+    const r = wireRouters(d, readDoc(d), ["core-1", "core-2", "agg-1", "agg-2"], "across", { split: 2, ospfArea: 0 });
+    expect(r.made).toEqual(["agg-1--core-1", "agg-2--core-1", "agg-1--core-2", "agg-2--core-2"]);
+  });
+
+  it("with core-1 and core-2 selected, dropping 2 L3 switches opens the wiring dialog: each core to each new agg", async () => {
+    const te = `twin_config:\n  id: dc\n  segments:\n    - { name: up, cidr: 10.1.0.0/24 }\n  nodes:\n    - { name: core-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n    - { name: core-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }\n`;
+    const { api } = withTwin("dc", { "te.yaml": te });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-router");
+    fireEvent.click(router("core-1"));
+    fireEvent.click(router("core-2"), { shiftKey: true });
+    fireEvent.click(card("l3switch"));
+    const pop = dropPopover();
+    fireEvent.click(within(pop.getByRole("group", { name: "Tier" })).getByRole("button", { name: "aggregation" }));
+    fireEvent.change(pop.getByLabelText("Count"), { target: { value: "2" } });
+    fireEvent.click(pop.getByTestId("drop-add"));
+    const dlg = await screen.findByTestId("wire-dialog");
+    expect(within(dlg).getByLabelText(/each of core-1, core-2 to each of agg-1, agg-2/)).toHaveProperty("checked", true);
+    expect(within(dlg).getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(["new: agg-1--core-1", "new: agg-2--core-1", "new: agg-1--core-2", "new: agg-2--core-2"]);
   });
 });

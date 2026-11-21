@@ -159,19 +159,22 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
       names.push(out.name);
       segment = spec.target.segment;
     } else {
-      const land = landing(cur, model, spec.target, spec.card);
-      cur = land.doc;
-      segment = land.segment;
-      const m = readDoc(cur);
-      const taken = new Set(m.te.nodes.map((n) => n.name));
-      let name = `${spec.prefix}-1`;
-      for (let i = 2; taken.has(name); i++) name = `${spec.prefix}-${i}`;
-      const text = cur.files[cur.teFile];
-      if (text === undefined) throw new Error(`the document has no '${cur.teFile}' to edit`);
-      cur = { ...cur, files: { ...cur.files, [cur.teFile]: addNode(text, { name, kind: "switch", role: "l2-switch", image: "", nets: [{ segment, ip: null }] }) } };
-      names.push(name);
+      // Count N (B6): N switches, each on a LAN of its own (sw-1 on switch-lan, sw-2 on switch-lan-2).
+      for (let k = 0; k < Math.max(1, spec.count); k++) {
+        const land = landing(cur, readDoc(cur), spec.target, spec.card);
+        cur = land.doc;
+        segment ??= land.segment;
+        const m = readDoc(cur);
+        const taken = new Set(m.te.nodes.map((n) => n.name));
+        let name = `${spec.prefix}-1`;
+        for (let i = 2; taken.has(name); i++) name = `${spec.prefix}-${i}`;
+        const text = cur.files[cur.teFile];
+        if (text === undefined) throw new Error(`the document has no '${cur.teFile}' to edit`);
+        cur = { ...cur, files: { ...cur.files, [cur.teFile]: addNode(text, { name, kind: "switch", role: "l2-switch", image: "", nets: [{ segment: land.segment, ip: null }] }) } };
+        names.push(name);
+      }
     }
-    if (spec.switchType === "managed") cur = { ...cur, files: setNodeField(cur, names[0]!, "stp", "rstp") };
+    if (spec.switchType === "managed") for (const n of names) cur = { ...cur, files: setNodeField(cur, n, "stp", "rstp") };
     return { files: cur.files, names, segment };
   }
   // A host: server, workstation or OT device.

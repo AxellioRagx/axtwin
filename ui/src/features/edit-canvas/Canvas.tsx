@@ -1685,6 +1685,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
+        // B6: a multi-selection's Wire… from the pane's menu too.
+        const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
+        const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
+        if (routersPicked.length >= 2 && edit.onWireRouters) items.unshift({ label: `Wire ${routersPicked.length} routers… (mesh, chain, ring, hub)`, run: () => edit.onWireRouters!(routersPicked) });
         if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
@@ -1698,7 +1702,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       // B3: two or more routers selected (this one among them) -- wire them as a chain, ring, mesh or hub.
       const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
       const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
-      if (group?.kind === "router" && routersPicked.length >= 2 && routersPicked.includes(t.name) && edit.onWireRouters) items.push({ label: `Connect ${routersPicked.length} routers as… (chain, ring, mesh, hub)`, run: () => edit.onWireRouters!(routersPicked) });
+      // B6 (2026-11-21): first in the menu, so it is found -- on any device of the multi-selection.
+      if (group && (group.kind === "router" || group.kind === "switch") && routersPicked.length >= 2 && picked.includes(t.name) && edit.onWireRouters) items.push({ label: `Wire ${routersPicked.length} routers… (mesh, chain, ring, hub)`, run: () => edit.onWireRouters!(routersPicked) });
       if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
       if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });

@@ -215,7 +215,7 @@ describe("on the page", () => {
     fireEvent.click(router("r2"), { shiftKey: true });
     fireEvent.click(router("r3"), { shiftKey: true });
     fireEvent.contextMenu(router("r3"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 3 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 3 routers…/));
     const dlg = await screen.findByTestId("wire-dialog");
     fireEvent.click(within(dlg).getByLabelText("ring"));
     expect(within(dlg).getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(["new: r1--r2", "new: r2--r3", "new: r1--r3"]);
@@ -300,7 +300,7 @@ describe("on the page", () => {
     fireEvent.click(router("r1"));
     fireEvent.click(router("r2"), { shiftKey: true });
     fireEvent.contextMenu(router("r2"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 2 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 2 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     expect(dlg.queryByTestId("ospf-image")).toBeNull();
     fireEvent.click(dlg.getByLabelText(/run OSPF on these links/));
@@ -331,7 +331,7 @@ describe("on the page", () => {
     fireEvent.click(router("r1"));
     fireEvent.click(router("r3"), { shiftKey: true });
     fireEvent.contextMenu(router("r3"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 2 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 2 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     fireEvent.click(dlg.getByLabelText(/run OSPF on these links/));
     expect(dlg.getByTestId("ospf-image").textContent).toContain("No router-ospf image profile");

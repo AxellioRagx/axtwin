@@ -185,9 +185,14 @@ segment). A segment with hosts still on it is kept by default -- it draws as an 
 -- and the node panel's "keep <segment> (N hosts on it)" unticked removes it too; the panel says what
 goes ("removes 2 links and segment rack1-srv with it"). A link naming a node or a segment the twin
 does not have is a design hint ("1 dangling link") with a one-click remove (`removeDanglingLinks`).
-**Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
+**Bulk wiring:** 2+ routers selected, the menu's *Wire N routers… (mesh, chain, ring, hub)*
+(2026-11-21, B6: first in the menu of any device of the multi-selection, and in the pane's menu;
+it had been *Connect N routers as…*, which a user building a three-tier DC did not find):
 chain, ring, full mesh, hub & spoke (the first selected is the hub), one
-undo step for the batch. The dialog lists each pair as "new: a--b" (the real,
+undo step for the batch. **N routers dropped (B6):** a Router or L3 switch card with count N makes N
+named nodes and leaves them selected (two or more); when routers were selected before the drop, the dialog opens
+on **across** -- each of the selected to each of the new (`wirePairs` `across`, none within a set).
+A Switch card's count makes N switches, each on a LAN of its own. The dialog lists each pair as "new: a--b" (the real,
 sorted transit name) or "already linked: <its transit>"; a pair already linked
 keeps its transit, and when every pair is linked it says "all pairs already
 linked" and Connect applies only the OSPF / image choices (nothing ticked:

@@ -512,7 +512,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [draftOpen, setDraftOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   // B3: the bulk-wiring dialog (2+ routers, a shape, OSPF on the new transits or not).
-  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number; switchImage: boolean } | null>(null);
+  /** The bulk wiring dialog; `split`: the first `split` routers are one set, the rest the other (`across`, B6). */
+  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number; switchImage: boolean; split?: number } | null>(null);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -967,6 +968,13 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         return r.files;
       });
       if (reason) return;
+      // B6 (2026-11-21): N routers / L3 switches dropped stand selected (right-click -> Wire…); with
+      // routers already selected, the wiring dialog opens to wire the new set to that one.
+      if ((s.card === "router" || s.card === "l3switch") && placed.length) {
+        const before = selection.kind === "node" ? selection.names.filter((n) => model?.te.nodes.find((x) => x.name === n)?.kind === "router") : [];
+        if (placed.length >= 2) setSelection({ kind: "node", names: placed });
+        if (before.length) setWireDialog({ routers: [...before, ...placed], shape: "across", ospf: false, area: 0, switchImage: true, split: before.length });
+      }
       const rolePersona = s.role ? personas.find((x) => x.id === s.role) : undefined;
       rememberAdd({ ...p.item, card: s.card, role: s.role, os: s.os, label: rolePersona ? personaLabel(rolePersona) : s.role ?? p.item.label });
       // A device dropped on the pane stands where it landed; a host on a segment hangs off it.
@@ -980,7 +988,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
-    [pendingDrop, edit, onPin, onPinMany, personas],
+    [pendingDrop, edit, onPin, onPinMany, personas, selection, model],
   );
 
   // Duplicate subtree (§6.2, B3): the copy keeps the original's shape -- its root at the drop point, or
@@ -1925,8 +1933,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               let skipped: string[] = [];
               let ospfSet: string[] = [];
               const switchTo = w.ospf && w.switchImage && ospfImage && model ? { to: ospfImage, routers: ospfImageGaps(model.te, w.routers, ospfImage).map((g) => g.router) } : null;
-              const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape}`, (d, m) => {
-                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null });
+              const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape === "across" ? "one set to the other" : w.shape}`, (d, m) => {
+                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null, split: w.split ?? 0 });
                 made = r.made;
                 skipped = r.skipped;
                 ospfSet = r.ospf;
@@ -1942,10 +1950,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             <p className="muted">Each pair gets a transit segment (a /30 from 10.254.0.0/16) with a leg for both routers; a pair already linked keeps its transit (OSPF, when ticked, is set on it too). One undo step.</p>
             <fieldset className="field">
               <legend>As</legend>
-              {(["chain", "ring", "mesh", "hub"] as const).map((sh) => (
+              {(wireDialog.split ? (["across", "mesh", "chain", "ring", "hub"] as const) : (["chain", "ring", "mesh", "hub"] as const)).map((sh) => (
                 <label key={sh} className="cv-check">
                   <input type="radio" name="wire-shape" value={sh} checked={wireDialog.shape === sh} onChange={() => setWireDialog({ ...wireDialog, shape: sh })} />
-                  {sh === "mesh" ? "full mesh" : sh === "hub" ? `hub & spoke (hub: ${wireDialog.routers[0]})` : sh}
+                  {sh === "across" ? `each of ${wireDialog.routers.slice(0, wireDialog.split).join(", ")} to each of ${wireDialog.routers.slice(wireDialog.split).join(", ")}` : sh === "mesh" ? "full mesh" : sh === "hub" ? `hub & spoke (hub: ${wireDialog.routers[0]})` : sh}
                 </label>
               ))}
             </fieldset>
@@ -1962,7 +1970,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               </div>
             ) : null}
             {(() => {
-              const plan = model ? wirePlan(model.te, wireDialog.routers, wireDialog.shape) : [];
+              const plan = model ? wirePlan(model.te, wireDialog.routers, wireDialog.shape, wireDialog.split ?? 0) : [];
               return (
                 <div data-testid="wire-plan">
                   {plan.length && plan.every((r) => r.kind === "linked") ? <p className="muted" data-testid="wire-all-linked">all pairs already linked{wireDialog.ospf ? ": Connect sets OSPF (and the image) only" : ""}</p> : null}
