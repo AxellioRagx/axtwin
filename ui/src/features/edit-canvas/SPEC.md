@@ -163,6 +163,12 @@ so is refused. It had been one bare trunk with no leg: the router was not the LA
 inspector showed the segment under "add a leg on…") and the engine refuses such a link to a VM
 (NSW-050, a segment the router has no leg on; NSW-060, a VM trunk carries one segment). **switch <->
 switch / host** links (`attachDevices`), unchanged.
+**An image the target cannot deploy (2026-11-21, A7):** a Check (`POST /api/validate` with a
+document and no `?target=`) also runs the target preflight's image half for the twin's `cluster:`
+target (`twin.yaml`), else the default target, and reports an image with no binding for that
+target's platform as a WARNING (`TARGET-IMAGE`, "image vyos@1.5 has no binding for platform libvirt
+on target kvm1: the deploy preflight refuses it"); no target configured, nothing is said. Per-platform
+profiles are design D6 (proposed).
 **Two gateways on one LAN (2026-11-21, `catalog.ts` `twoGatewayLans`):** a segment outside the
 transit pool with legs of two or more routers and a host or switch on it is a design hint, on the
 health line, at the top of the segment's panel and as a note when the second gateway is wired:

@@ -314,6 +314,35 @@ Storage and API:
   panel "Share one gateway (VRRP)" / VIP / Stop sharing, members kept through
   a router's delete, and Duplicate's "same uplinks" copies the group onto the
   next rack. Not yet live-verified on dev45.
+- **D6 (proposed 2026-11-21, awaiting sign-off): per-platform image
+  profiles.** Today a profile names one image (`l3-switch: { image:
+  vyos@1.5 }`) whatever the target; a Check now warns when the image has no
+  binding for the platform of the twin's target (its `cluster:`, else the
+  default target -- the preflight's own `TARGET-IMAGE`, as a warning; A7),
+  and the deploy preflight refuses it. Proposal: **(a)** key a profile by
+  platform, keeping `image` as the default --
+  `l3-switch: { image: vyos@1.5, platforms: { libvirt: <image> } }` --
+  served by `GET /api/image-profiles?target=<name>` resolved for that
+  target's platform (absent: the default target), with `platform` in the
+  answer; the canvas learns the target from the twin's `cluster:` in
+  `twin.yaml` (an untitled design: the default target, shown beside the
+  Add panel's health line, changeable there and written as `cluster:` on
+  Save). A drop then writes the image for that platform; nothing else
+  changes. No twin-config or IR change: a profile stays canvas-side
+  vocabulary. **(b)** write a platform-neutral reference in the twin
+  (`image: profile:l3-switch`) resolved at plan time per target -- a twin
+  that moves between platforms needs no edit, but it is a locked
+  `IR_SCHEMA.md` / planner change and every reader of `image:` learns a new
+  form. **Recommendation: (a).** It answers the question where it arises
+  (the drop), keeps every written image concrete and checkable, and the A7
+  warning covers a twin later pointed at another platform. Not built until
+  signed off.
+- **D7 (not needed, 2026-11-21).** The planner gives one NIC per leg
+  (`nets[i]` -> `eth{i+1}`, `eth0` the WAN), and A5's links plug the leg's
+  own NIC, adding none. A 2-aggregation / 8-rack design needs per
+  aggregation VM: 1 WAN + 8 rack LANs + 2 core transits + 1 peer transit =
+  12 NICs, against Proxmox's 32 per VM (`net0`..`net31`). A VLAN-aware
+  bridge inside VyOS is not proposed.
 
 ## 9. Phases
 

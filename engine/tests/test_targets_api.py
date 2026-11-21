@@ -349,3 +349,26 @@ def test_twin_deploy_on_a_clean_target_lands_in_its_store(tmp_path):
     r = c.post("/api/twins/lab-twin/deploy", params={"target": "kvm1"}, json={})
     assert r.status_code == 200, r.text
     assert started and started[0][0] == str((tmp_path / "kv.db").resolve())
+
+
+# ---- A7 (2026-11-21): a Check with no target still warns of an unbound image --------
+
+def _doc(tmp_path: Path, *, cluster: str | None) -> dict:
+    twin = tmp_path / "twins" / "lab-twin"
+    files = {str(p.relative_to(twin)): p.read_text() for p in twin.rglob("*.yaml")}
+    if cluster:
+        files["twin.yaml"] = files["twin.yaml"].replace("  containment: uncontained\n", f"  containment: uncontained\n  cluster: {cluster}\n")
+    return {"document": {"id": "lab-twin", "files": files}}
+
+
+def test_a_document_check_warns_of_an_image_the_twins_target_platform_lacks(tmp_path):
+    # vyos has a proxmox binding in the fixture catalog, no libvirt one: an L3 switch on kvm1.
+    c = _setup(tmp_path, image2="vyos@1.5")
+    j = c.post("/api/validate", json=_doc(tmp_path, cluster="kvm1")).json()
+    img = [f for f in j["findings"] if f["rule_id"] == "TARGET-IMAGE"]
+    assert [(f["severity"], f["message"]) for f in img] == [
+        ("warning", "image vyos@1.5 has no binding for platform libvirt on target kvm1: the deploy preflight refuses it"),
+    ]
+    # No cluster: the default target (dev45, proxmox) binds it -- nothing to say. Nor about sensors.
+    j2 = c.post("/api/validate", json=_doc(tmp_path, cluster=None)).json()
+    assert not [f for f in j2["findings"] if f["rule_id"].startswith("TARGET-")]
