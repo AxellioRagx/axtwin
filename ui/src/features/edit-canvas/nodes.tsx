@@ -565,7 +565,8 @@ export function crossingText(c: { edges: number; bytes: number; flows: number; i
   return `${c.edges} crossing edge${c.edges === 1 ? "" : "s"} · ${c.bytes.toLocaleString()} bytes · ${c.flows.toLocaleString()} flows${c.inferred ? " (inferred from observed traffic)" : ""}`;
 }
 
-/** A router (rule 2): its icon ring in its one hue, its name and leg count above; the WAN badge when it is the gateway. */
+/** A router (rule 2): its icon ring in its one hue, its name and leg count above; the WAN badge when it is the gateway.
+ *  An L3 switch (a router with `role: l3-switch`, A4) wears its own icon and an `L3` badge, as a switch its `L2`. */
 export function RouterNode(p: P) {
   const d = p.data;
   const edit = useEdit();
@@ -583,6 +584,7 @@ export function RouterNode(p: P) {
       data-node-id={d.name}
       data-label-side={d.labelSide}
       data-gateway={gateway || undefined}
+      data-l3={d.l3 || undefined}
       data-hue={d.hue}
       data-source={d.source ?? undefined}
       {...posAttrs(p, `host:${d.name}`)}
@@ -598,7 +600,8 @@ export function RouterNode(p: P) {
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
       <span className="cv-icon-box" aria-hidden="true">
         <ConnectRing shape="circle" />
-        <Icon.router />
+        {d.l3 ? <Icon.l3switch /> : <Icon.router />}
+        {d.l3 ? <span className="cv-role-badge cv-device-badge" data-testid="device-badge">L3</span> : null}
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
@@ -607,6 +610,12 @@ export function RouterNode(p: P) {
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
           <dl className="facts">
+            {d.l3 ? (
+              <>
+                <dt>Kind</dt>
+                <dd>L3 switch (router · l3-switch)</dd>
+              </>
+            ) : null}
             <dt>Ports</dt>
             <dd className="mono">{d.segments.join(", ") || "none"}</dd>
             {wan ? (

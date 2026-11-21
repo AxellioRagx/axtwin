@@ -56,6 +56,7 @@ import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
+import { isL3Switch } from "./add/catalog";
 import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
@@ -819,11 +820,20 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const baseRole = p.baseline?.te.nodes.find((x) => x.name === n.name)?.role;
   const roleChanged = p.baseline !== null && baseRole !== undefined && baseRole !== n.role && n.role;
   const otherSegments = p.model.te.segments.filter((s) => !n.nets.some((l) => l.segment === s.name));
-  const isSwitch = n.kind === "switch" || (n.role !== null && SWITCH_ROLES.has(n.role));
+  // A router is never "switch class", whatever its role (`firewall`, `l3-switch`): its help is a router's (B8, 2026-11-21).
+  const isSwitch = n.kind === "switch" || (n.kind !== "router" && n.role !== null && SWITCH_ROLES.has(n.role));
   const observed = isSwitch && p.observedSegments ? p.observedSegments(n.name).filter((seg) => p.model.te.segments.some((s) => s.name === seg)) : [];
   const links = p.model.te.links.filter((l) => l.a.device === n.name || l.b.device === n.name);
   const tapsHere = (p.model.tap?.bindings ?? []).filter((b) => b.scope === "port" && b.targets.includes(n.name));
-  const title = n.kind === "router" ? "Router" : n.kind === "switch" ? "Switch" : "Node group";
+  const title = isL3Switch(n) ? "L3 switch" : n.kind === "router" ? "Router" : n.kind === "switch" ? "Switch" : "Node group";
+  const kindHint =
+    n.kind === "router"
+      ? isL3Switch(n)
+        ? "an L3 switch is a router with role l3-switch (VyOS): its legs are the LANs it is the gateway of and its transits"
+        : "a router joins segments: each leg is an addressed interface on one segment"
+      : n.kind === "switch"
+        ? "a switch is a device wired by links; without an image it deploys as nothing but its segments' vnets"
+        : "a host sits on its segments; a router joins them, a switch carries them";
   return (
     <section className="cv-side-section" data-testid="node-panel" data-tier-blocks="identity,traffic,taps,members,provenance">
       <h3>
@@ -833,7 +843,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
       <Field label="Name">
         <Text ariaLabel="Node name" value={n.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename ${n.name} → ${v}`, (d, m) => renameNode(d, m, n.name, v)) === null) p.onRenamed?.("node", n.name, v); }} />
       </Field>
-      <Field label="Kind" hint="a switch is a device wired by links; without an image it deploys as nothing but its segments' vnets">
+      <Field label="Kind" hint={kindHint}>
         <select aria-label="Kind" value={n.kind} disabled={ro} onChange={(e) => p.apply(`kind of ${n.name}`, (d) => setNodeField(d, n.name, "kind", e.target.value === "host" ? null : e.target.value))}>
           <option value="host">host</option>
           <option value="router">router</option>

@@ -140,6 +140,8 @@ export type RouterData = {
   crossing: Crossing | null;
   /** Rule 2: the router's one hue (`canvas/hues.ts`), on its ring, its legs and its buses' dots. */
   hue: string;
+  /** An L3 switch (`role: l3-switch` on a router, A4): its own icon and an `L3` badge. */
+  l3?: boolean;
 };
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean; /** A site fold's own words (`10.20 · 6 segments`); absent on a `+N more` fold. */ label?: string; /** The hosts behind the fold. */ hosts?: number };
 /** A switch (or a router drawn as a device in the tree): the device tree's own node

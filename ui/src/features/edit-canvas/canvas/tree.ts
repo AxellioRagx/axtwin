@@ -54,7 +54,7 @@ import { NO_PINS, type Pins } from "../layout/pins";
 import { BUDGET_LEVEL1_BANDS } from "../model/budgets";
 import type { ConsoleGraph, GraphSegment } from "../model/graph";
 import { compareCidr, twoOctetPrefix } from "../model/keys";
-import { switchBadge } from "../model/roles";
+import { L3_SWITCH_ROLE, switchBadge } from "../model/roles";
 import type { ExtraLeg, TreeLink, TreeStructure } from "./authored";
 import { BUS_ICON, OVERFLOW_LANE_H } from "./bus";
 import { HUE_GREY, hueOf, TRANSIT_HUE } from "./hues";
@@ -296,7 +296,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   // ---- the devices: routers (the graph's) and switches (the tree's) ----
   const routerNames = new Set(graph.routers.map((r) => r.name));
   const devices: Device[] = [
-    ...graph.routers.map((r): Device => ({ name: r.name, kind: "router", role: null, image: null, legs: [...r.segments] })),
+    ...graph.routers.map((r): Device => ({ name: r.name, kind: "router", role: tree.routerRoles?.[r.name] ?? null, image: null, legs: [...r.segments] })),
     ...tree.devices.filter((d) => !routerNames.has(d.name)).map((d): Device => ({ name: d.name, kind: d.kind, role: d.role, image: d.image, legs: [...d.segments] })),
   ];
   const deviceNames = new Set(devices.map((d) => d.name));
@@ -708,7 +708,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
         height: DEVICE_H,
         zIndex: 2,
         ...common,
-        data: { kind: "router", name: d.name, segments: [...r.segments], drawnLegs: legsOf(r).filter((s) => anchorByName[s]).length, uplink: uplinks.includes(d.name), crossing: gateways.includes(d.name) ? crossing : null, hue: hueByRouter.get(d.name)!, source: source(d.name), confidence: confidence(d.name) },
+        data: { kind: "router", name: d.name, segments: [...r.segments], drawnLegs: legsOf(r).filter((s) => anchorByName[s]).length, uplink: uplinks.includes(d.name), crossing: gateways.includes(d.name) ? crossing : null, hue: hueByRouter.get(d.name)!, source: source(d.name), confidence: confidence(d.name), l3: d.role === L3_SWITCH_ROLE },
       });
       continue;
     }
