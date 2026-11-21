@@ -126,3 +126,18 @@ def test_the_shipped_profiles_name_images_the_catalog_twins_use():
         img = (body or {}).get("image")
         if img:
             assert img in used, (name, img)
+        for platform, per in ((body or {}).get("platforms") or {}).items():
+            assert per in used, (name, platform, per)
+
+
+def test_the_routing_profiles_name_vyos_on_proxmox():
+    """Round 3 item 1: the L3 switch and the OSPF router resolve to VyOS on a
+    Proxmox target explicitly (FAB-080: fabric routers must be VyOS)."""
+    from ruamel.yaml import YAML
+
+    from axrange.paths import CATALOG_ROOT
+
+    raw = YAML(typ="safe").load((CATALOG_ROOT / "image-profiles.yaml").read_text())
+    for name in ("l3-switch", "router-ospf"):
+        per = raw["profiles"][name].get("platforms") or {}
+        assert per.get("proxmox", "").startswith("vyos@"), (name, per)
