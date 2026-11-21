@@ -43,7 +43,7 @@ const round = (p: Point): Point => ({ x: Math.round(p.x), y: Math.round(p.y) });
  * `fixed`: spots already decided (the dropped device at the drop point, a template's laid-out items).
  * `known`: where everything already on the canvas stands (the side-car's pins and the session's settled positions).
  */
-export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after: Pick<TeModel, "nodes" | "segments" | "links">, at: Point | null, fixed: Readonly<Record<string, Point>> = {}, known: Readonly<Record<string, Point>> = {}): Record<string, Point> {
+export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after: Pick<TeModel, "nodes" | "segments" | "links">, at: Point | null, fixed: Readonly<Record<string, Point>> = {}, known: Readonly<Record<string, Point>> = {}, options: { clear?: boolean } = {}): Record<string, Point> {
   const oldNodes = new Set(before.nodes.map((n) => n.name));
   const oldSegs = new Set(before.segments.map((s) => s.name));
   const fresh = after.nodes.filter((n) => !oldNodes.has(n.name));
@@ -107,6 +107,47 @@ export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after:
     const width = names.length * BUS_ICON + (names.length - 1) * HOST_GAP;
     const x0 = onRow.length ? Math.max(...onRow.map((p) => p.x)) + BUS_ICON + HOST_GAP : anchor.x + DEVICE_W / 2 - width / 2;
     names.forEach((name, i) => (pos[`host:${name}`] = round({ x: x0 + i * (BUS_ICON + HOST_GAP), y: onRow.length ? onRow[0]!.y : rowY })));
+  }
+  return options.clear ? clearOf(pos, known, after) : pos;
+}
+
+type Box = { l: number; t: number; r: number; b: number };
+/** A pin's drawn box, by what it keys: a host's icon and its caption, else a device / implied switch. */
+export function pinBox(key: string, p: Point, hosts: ReadonlySet<string>): Box {
+  if (key.startsWith("host:") && hosts.has(key.slice(5))) {
+    // The icon and its caption under it, as wide as the name (`canvas/free.ts` `nameBox`).
+    const half = Math.max(BUS_ICON, key.length * 6.2 + 6) / 2;
+    const cx = p.x + BUS_ICON / 2;
+    return { l: cx - half, t: p.y, r: cx + half, b: p.y + BUS_ICON + 20 };
+  }
+  return { l: p.x, t: p.y, r: p.x + DEVICE_W, b: p.y + DEVICE_H };
+}
+const CLEAR_GAP = 24;
+
+/**
+ * A drop never lands on a box already on the canvas (2026-11-21: a card clicked with the view centred
+ * on router1-1 put the new LAN and its server on top of it): when any new pin's box overlaps an
+ * existing one, the whole group moves -- its shape kept -- to the nearest clear spot, searched ring by
+ * ring around where it was asked for (right and down first). Pure.
+ */
+export function clearOf(pos: Record<string, Point>, known: Readonly<Record<string, Point>>, after: Pick<TeModel, "nodes">): Record<string, Point> {
+  const hosts = new Set(after.nodes.filter((n) => n.kind === "host").map((n) => n.name));
+  const mine = Object.entries(pos).map(([k, p]) => pinBox(k, p, hosts));
+  const others = Object.entries(known).filter(([k]) => !(k in pos)).map(([k, p]) => pinBox(k, p, hosts));
+  if (!mine.length || !others.length) return pos;
+  const hit = (dx: number, dy: number) => mine.some((m) => others.some((o) => m.l + dx < o.r + CLEAR_GAP && o.l < m.r + dx + CLEAR_GAP && m.t + dy < o.b + CLEAR_GAP && o.t < m.b + dy + CLEAR_GAP));
+  if (!hit(0, 0)) return pos;
+  const sx = DEVICE_W / 2;
+  const sy = DEVICE_H / 2;
+  for (let ring = 1; ring <= 40; ring++) {
+    const spots: Array<[number, number]> = [];
+    for (let i = -ring; i <= ring; i++) spots.push([ring, i], [i, ring], [-ring, i], [i, -ring]);
+    spots.sort((a, b) => Math.hypot(a[0] * sx, a[1] * sy) - Math.hypot(b[0] * sx, b[1] * sy));
+    for (const [i, j] of spots) {
+      const dx = i * sx;
+      const dy = j * sy;
+      if (!hit(dx, dy)) return Object.fromEntries(Object.entries(pos).map(([k, p]) => [k, round({ x: p.x + dx, y: p.y + dy })]));
+    }
   }
   return pos;
 }

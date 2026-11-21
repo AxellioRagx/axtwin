@@ -114,7 +114,7 @@ export function pillText(d: { segment: string; cidr?: string }): string {
 }
 const PILL_CHAR_W = 6.3;
 const PILL_H = 18;
-function pillBox(c: Point, text: string): Box {
+export function pillBox(c: Point, text: string): Box {
   const w = text.length * PILL_CHAR_W + 12;
   return { l: c.x - w / 2, r: c.x + w / 2, t: c.y - PILL_H / 2, b: c.y + PILL_H / 2 };
 }
@@ -213,7 +213,7 @@ const PILL_SPOTS: PillAt[] = [...ALONG.map((t) => ({ t, off: 0 })), ...[16, -16,
 
 /** Where each pill stands: the first spot (`PILL_SPOTS`) whose box covers no node's name, no other
  *  icon and no pill already placed; failing that, the one covering the least name. Pure. */
-export function placePills(lines: ReadonlyArray<{ id: string; p: Point; q: Point; text: string }>, names: readonly Box[], icons: readonly Box[]): Map<string, PillAt> {
+export function placePills(lines: ReadonlyArray<{ id: string; p: Point; q: Point; text: string }>, names: readonly Box[], icons: readonly Box[], edges: ReadonlyArray<{ id: string; p: Point; q: Point }> = []): Map<string, PillAt> {
   const out = new Map<string, PillAt>();
   const placed: Box[] = [];
   for (const l of [...lines].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
@@ -223,12 +223,15 @@ export function placePills(lines: ReadonlyArray<{ id: string; p: Point; q: Point
       const nameCost = names.reduce((s, n) => s + area(box, n), 0);
       const pillCost = placed.reduce((s, n) => s + area(box, n), 0);
       const iconCost = icons.reduce((s, n) => s + area(box, n), 0);
-      if (!names.some((n) => overlaps(box, n)) && !placed.some((n) => overlaps(box, n)) && !icons.some((n) => overlaps(box, n, 0))) {
+      // Another edge's line running under the pill (2026-11-21: router1-1--router3-1 cut through
+      // router1-1--router2-1's pill where both leave router1-1).
+      const edgeHits = edges.filter((e) => e.id !== l.id && segmentHitsBox(e.p, e.q, box)).length;
+      if (!edgeHits && !names.some((n) => overlaps(box, n)) && !placed.some((n) => overlaps(box, n)) && !icons.some((n) => overlaps(box, n, 0))) {
         best = { at, box, cost: 0 };
         break;
       }
       // A name is never to be covered: it weighs far more than a pill or an icon.
-      const cost = nameCost * 100 + pillCost * 10 + iconCost;
+      const cost = nameCost * 100 + pillCost * 10 + iconCost + edgeHits * 2000;
       if (!best || cost < best.cost) best = { at, box, cost };
     }
     out.set(l.id, best!.at);
@@ -321,7 +324,7 @@ export function freeLayout(p: Placement): Placement {
       const hy = i.shape === "circle" ? i.r : i.hy;
       return { l: i.cx - hx, r: i.cx + hx, t: i.cy - hy, b: i.cy + hy };
     });
-    const at = placePills(lines, names, icons);
+    const at = placePills(lines, names, icons, drawn.map((d) => ({ id: d.e.id, p: d.p, q: d.q })));
     for (const e of edges) {
       const spot = at.get(e.id);
       if (spot) (e.data as Record<string, unknown>)["pill"] = spot;

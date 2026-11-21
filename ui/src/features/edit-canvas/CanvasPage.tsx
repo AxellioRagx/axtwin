@@ -922,7 +922,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       // The free layout: every node of the fragment near the drop point, the hosts included (the
       // template's layout names only some of them), so nothing it made is left at the origin.
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
-      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }) : done.positions;
+      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }, { clear: true }) : done.positions;
       if (Object.keys(positions).length) onPinMany(positions);
       if (done.ports.length) setHighlight((h) => ({ names: done.ports, n: (h?.n ?? 0) + 1 }));
     },
@@ -957,7 +957,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       // The free layout: everything the drop made -- its new segment's implied switch, the peers --
       // stands near the drop point too (2026-11-20: they landed at the canvas's top-left corner).
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
-      if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }));
+      // A drop on the pane never lands on a box already there: the group moves clear (2026-11-21).
+      if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
     [pendingDrop, edit, onPin, onPinMany, personas],

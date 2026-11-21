@@ -11,8 +11,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { Template } from "../src/api/types";
 import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
+import { pinBox, placeDropped } from "../src/features/edit-canvas/add/placeDrop";
+import { DEVICE_H, DEVICE_W } from "../src/features/edit-canvas/layout/geometry";
 import { applyTemplateDrop } from "../src/features/edit-canvas/add/template";
-import { FREE_FAN, freeEdgeEnds, freeLayout, nameBox, segmentHitsBox } from "../src/features/edit-canvas/canvas/free";
+import { alongLine, FREE_FAN, freeEdgeEnds, freeLayout, nameBox, pillBox, pillText, segmentHitsBox, type PillAt } from "../src/features/edit-canvas/canvas/free";
 import { absolutePosition, type Placement } from "../src/features/edit-canvas/canvas/placement";
 import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
@@ -317,5 +319,54 @@ describe("5. Ctrl+Enter checks as soon as the canvas page is shown", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(state.writes.filter((w) => w.op === "validate")).toHaveLength(1);
     field.remove();
+  });
+});
+
+describe("follow-ups: a drop never lands on a box, a pill never sits on another edge", () => {
+  const server = { card: "server", os: "linux", role: "file-server", persona: null, count: 1, prefix: "file-server", target: { pane: true }, image: null } as const;
+  const known = { "host:router1-1": { x: 300, y: 0 }, "host:router2-1": { x: 0, y: 300 }, "host:router3-1": { x: 300, y: 300 } };
+  const hostNames = new Set(["file-server-1"]);
+  const overlapsAny = (pins: Record<string, { x: number; y: number }>) =>
+    Object.entries(pins).some(([key, p]) => {
+      const a = pinBox(key, p, hostNames);
+      return Object.values(known).some((k) => a.l < k.x + DEVICE_W && k.x < a.r && a.t < k.y + DEVICE_H && k.y < a.b);
+    });
+
+  it("a File server dropped on the pane where router1-1 stands: the server and its new LAN move clear, their shape kept", () => {
+    const m = readDoc(TRI_DOC);
+    const after = readDoc({ ...TRI_DOC, files: applyDeviceDrop(TRI_DOC, m, server).files }).te;
+    const at = { x: known["host:router1-1"].x + 20, y: known["host:router1-1"].y + 20 };
+    const fixed = { "host:file-server-1": at };
+    const asked = placeDropped(m.te, after, at, fixed, known);
+    expect(overlapsAny(asked)).toBe(true); // what the drop asked for lands on router1-1
+    const pins = placeDropped(m.te, after, at, fixed, known, { clear: true });
+    expect(Object.keys(pins).sort()).toEqual(Object.keys(asked).sort());
+    expect(overlapsAny(pins)).toBe(false);
+    const dx = pins["host:file-server-1"]!.x - asked["host:file-server-1"]!.x;
+    const dy = pins["host:file-server-1"]!.y - asked["host:file-server-1"]!.y;
+    for (const k of Object.keys(pins)) expect(pins[k]).toEqual({ x: asked[k]!.x + dx, y: asked[k]!.y + dy });
+  });
+
+  it("dropped in clear space: it stays exactly where it was dropped", () => {
+    const m = readDoc(TRI_DOC);
+    const after = readDoc({ ...TRI_DOC, files: applyDeviceDrop(TRI_DOC, m, server).files }).te;
+    const at = { x: 900, y: 600 };
+    expect(placeDropped(m.te, after, at, { "host:file-server-1": at }, known, { clear: true })).toEqual(placeDropped(m.te, after, at, { "host:file-server-1": at }, known));
+  });
+
+  it.each([
+    ["router1-1 above router3-1", known],
+    ["spread wide", { "host:router1-1": { x: 300, y: 0 }, "host:router2-1": { x: -200, y: 260 }, "host:router3-1": { x: 700, y: 300 } }],
+  ])("the triangle (%s): no transit's pill has another edge running under it", (_, pins) => {
+    const p = free(TRIANGLE, pins);
+    const ends = freeEdgeEnds(p);
+    const seglinks = p.edges.filter((e) => e.data?.kind === "seglink");
+    expect(seglinks).toHaveLength(3);
+    for (const e of seglinks) {
+      const d = e.data as unknown as { segment: string; cidr?: string; pill: PillAt };
+      const own = ends.get(e.id)!;
+      const box = pillBox(alongLine(own.p, own.q, d.pill), pillText(d));
+      for (const [id, o] of ends) if (id !== e.id) expect(segmentHitsBox(o.p, o.q, box), `${id} runs under ${d.segment}'s pill`).toBe(false);
+    }
   });
 });

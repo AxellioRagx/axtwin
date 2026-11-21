@@ -196,7 +196,9 @@ the Selection panel ("Not carried": one row per segment, each a click that
 selects that segment). A transit keeps its pill on
 its own line at the midpoint; one that would cover a node's name or another
 pill is nudged along its line (up to ±30% of its length), then off it, never
-onto a name. Every transit, in the free layout and the tree, wears the one
+onto a name; nor where another edge's line runs under it (2026-11-21), when any
+spot near its own line is clear of the others (three routers stacked a few px
+apart, as the first free placement can stack them, leave none). Every transit, in the free layout and the tree, wears the one
 neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue.
 **Placement of dropped nodes (2026-11-20, round 2, `add/placeDrop.ts`):** in
 the free layout everything a drop or a template makes gets a pin near the drop
@@ -207,7 +209,10 @@ the router it hangs from); a host group stands in the row under its switch
 spacing, continuing a row the segment already has; a template's layout applies
 relative to the drop point, and its hosts, which the layout does not name, join
 that row. Nothing a drop creates is left without a position (they had landed
-at the canvas's top-left corner). The tree keeps its own placement. The layout bar's
+at the canvas's top-left corner). A drop on the pane or a template never lands
+on a box already there (2026-11-21, `clearOf`): when any new pin overlaps an
+existing box (24px apart), the whole group moves, shape kept, to the nearest
+clear spot. The tree keeps its own placement. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 
@@ -411,7 +416,9 @@ criteria of its own beyond them.
   clears `ospf_area`; the "Not carried" box sits just above its segment wherever it is dragged
   (beside the first of several) and, clicked, lists its segments in the Selection panel; in the
   free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the
-  page mounts runs a validate.
+  page mounts runs a validate. Follow-ups: a File server dropped where router1-1 stands moves
+  clear with its LAN (shape kept), one dropped in clear space stays put; in a spread triangle no
+  transit's pill has another edge under it.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +
