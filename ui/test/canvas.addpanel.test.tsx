@@ -1,6 +1,6 @@
 /**
  * The canvas Add panel, phase 1 (`docs/design/canvas-add-panel.md` §3, §4, §10 "Automated (phase 1)"):
- * five device cards, Tools, Recent and no Images / "From other twins"; one search ("file" -> Server
+ * six device cards, Tools, Recent and no Images / "From other twins"; one search ("file" -> Server
  * with file-server preselected); the OS filtering the roles; a Server drop writing the profile's
  * image and the persona; the needs hint and its one-click peers; a drop and its popover choices as
  * one undo step; the drag, click and double-click paths; recent and favourites; the health line.
@@ -76,13 +76,13 @@ const files = (state: ReturnType<typeof seeded>["state"]) => async () => {
 };
 
 describe("the Add panel (phase 1, §10)", () => {
-  it("shows exactly five device cards, Tools, Recent and the health line -- no Images, no 'From other twins'", async () => {
+  it("shows exactly six device cards, Tools, Recent and the health line -- no Images, no 'From other twins'", async () => {
     const { api } = bare();
     renderAt(api, "/twins/bare/canvas");
     await screen.findAllByTestId("canvas-router");
     openPalette();
     const panel = within(screen.getByTestId("palette"));
-    expect(panel.getAllByTestId("add-card").map((c) => c.dataset["id"])).toEqual(["router", "switch", "server", "workstation", "ot"]);
+    expect(panel.getAllByTestId("add-card").map((c) => c.dataset["id"])).toEqual(["router", "l3switch", "switch", "server", "workstation", "ot"]);
     expect(panel.getAllByTestId("add-tool").map((c) => c.dataset["id"])).toEqual(["internet", "tap"]);
     expect(panel.getByTestId("add-recent")).toBeTruthy();
     expect(panel.getByTestId("add-health").textContent).toBe("no design hints");

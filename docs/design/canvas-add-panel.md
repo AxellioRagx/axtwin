@@ -70,11 +70,13 @@ case is covered by templates, §5, and by Open → Clone).
 
 ## 4. Devices
 
-Five cards, each with an icon and one line of explanation:
+Six cards, each with an icon and one line of explanation (the L3 switch
+added 2026-11-21):
 
 | Card | Writes | Options |
 |---|---|---|
-| **Router / firewall** | `kind: router` | Type: router or firewall. Placement: edge (internet uplink) or internal. Legs come from drawing links. |
+| **Router / firewall** | `kind: router` | Type: router or firewall. Placement: edge (internet uplink) or internal. Count N: N separate routers. Legs come from drawing links. |
+| **L3 switch** | `kind: router`, `role: l3-switch`, the `l3-switch` image profile (`vyos@1.5`) | Tier: core or aggregation (seeds the prefix `core` / `agg` only). Count N: N separate nodes. Advanced shows the image. Wired to a switch, it becomes that LAN's gateway (an addressed leg). |
 | **Switch** | `kind: switch` | Plain, or managed (VLANs). |
 | **Server** | `kind: host` + a server role | OS: Linux or Windows Server. Role (§4.1). |
 | **Workstation** | `kind: host` + an endpoint profile | OS: Linux or Windows. Profile: office user, developer, executive, power user, VoIP softphone, IoT, … |
@@ -294,7 +296,7 @@ Storage and API:
 ## 10. Acceptance
 
 - **Automated (phase 1):**
-  - the panel shows exactly five device cards, Tools, Recent, and no
+  - the panel shows exactly six device cards, Tools, Recent, and no
     Images or "From other twins";
   - search "file" → Server with role file-server preselected;
   - Windows filters roles to `os_family: windows`;

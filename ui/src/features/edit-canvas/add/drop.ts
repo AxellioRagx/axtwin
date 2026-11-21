@@ -10,7 +10,7 @@ import type { Files } from "../edit/commands";
 import { addSegment, addTap, attach, placeNodes, readDoc, setAttachmentAddress, setNodeField, setPersona, type DocModel, type WorkingDoc } from "../edit/document";
 import { insertSwitch, newSegmentOnRouter } from "../edit/switches";
 import { addNode } from "../edit/te";
-import type { CardId, Os } from "./catalog";
+import { L3_SWITCH_ROLE, type CardId, type Os } from "./catalog";
 
 /** Where the drop landed (`Canvas.tsx` `placeTarget`, §7.1 drop rules). */
 export type DropTarget =
@@ -37,7 +37,7 @@ export interface DeviceDrop {
   role: string | null;
   /** The persona bound to the group through the traffic profile, or null. */
   persona: string | null;
-  /** N instances, written as the group's `count:` (§4); 1 writes none. */
+  /** N instances: a host group's `count:` (§4; 1 writes none); for a router or an L3 switch, N separate nodes. */
   count: number;
   /** The group's name: `{prefix}-{n}`, the first free n from 1 (`router-1`, `router-2`, …). */
   prefix: string;
@@ -49,6 +49,8 @@ export interface DeviceDrop {
   /** Advanced: the persona knobs. */
   intensity?: number | null;
   schedule?: string | null;
+  /** L3 switch: the tier hint (it only seeds the prefix: `core`, `agg`; nothing else is written). */
+  tier?: "core" | "aggregation" | null;
   /** Router / firewall. */
   routerType?: "router" | "firewall";
   placement?: "edge" | "internal";
@@ -132,18 +134,20 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
   const names: string[] = [];
   let cur = doc;
   let segment: string | null = null;
-  if (spec.card === "router") {
+  if (spec.card === "router" || spec.card === "l3switch") {
+    // A router or an L3 switch: N separate named nodes (`core-1`, `core-2`; B6), never one fanned-out
+    // group -- each needs links of its own. An L3 switch is `kind: router`, `role: l3-switch`.
     const seg = "segment" in spec.target ? spec.target.segment : null;
-    const r = placeNodes(cur, model, { name: spec.prefix, count: 1, image: spec.image ?? "", role: spec.routerType === "firewall" ? "firewall" : "gw", kind: "router", segment: seg, numbered: true });
+    const role = spec.card === "l3switch" ? L3_SWITCH_ROLE : spec.routerType === "firewall" ? "firewall" : "gw";
+    const r = placeNodes(cur, model, { name: spec.prefix, count: Math.max(1, spec.count), image: spec.image ?? "", role, kind: "router", segment: seg, numbered: true });
     cur = { ...cur, files: r.files };
-    const name = r.names[0]!;
-    names.push(name);
+    names.push(...r.names);
     segment = seg;
     // Dropped on another router: it stands beside it with no leg yet (drag between them for a transit).
-    if (spec.placement === "edge") {
+    if (spec.card === "router" && spec.placement === "edge") {
       const inet = ensureInternet(cur, readDoc(cur), spec.image);
       cur = inet.doc;
-      cur = { ...cur, files: attach(cur, readDoc(cur), name, inet.segment) };
+      for (const name of r.names) cur = { ...cur, files: attach(cur, readDoc(cur), name, inet.segment) };
     }
     return { files: cur.files, names, segment };
   }

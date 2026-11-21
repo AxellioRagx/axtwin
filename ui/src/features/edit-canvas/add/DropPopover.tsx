@@ -2,7 +2,7 @@
  * The drop popover (`docs/design/canvas-add-panel.md` §4.1): the small form that opens where a card
  * landed -- the inspector's fields in context. OS (a segmented control), the role / profile grouped
  * by category and filtered by that OS (each row a label and one plain sentence), count and name
- * prefix, the router's type and placement, the switch's kind, the needs hint with its one-click
+ * prefix, the router's type and placement, the L3 switch's tier (it seeds the prefix only), the switch's kind, the needs hint with its one-click
  * "Add N <peers>", and Advanced (the resolved image with an override, the address, the persona's
  * intensity and schedule, the traffic generators). Nothing is written until it closes: Add, Esc
  * or a click outside commit (Esc and outside keep the defaults), Cancel drops nothing -- so the
@@ -34,13 +34,16 @@ export interface DropPopoverProps {
 }
 
 function targetText(card: CardId | null, target: DropTarget): string {
+  const routerLike = card === "router" || card === "l3switch";
   if ("segment" in target) return `on ${target.segment}`;
-  if ("router" in target) return card === "router" ? "beside it, no leg yet" : `on a new segment under ${target.router}`;
-  return card === "router" ? "on its own, no leg yet" : "on a new segment";
+  if ("router" in target) return routerLike ? "beside it, no leg yet" : `on a new segment under ${target.router}`;
+  return routerLike ? "on its own, no leg yet" : "on a new segment";
 }
 
-function roleDefaultPrefix(card: CardId, role: string | null, routerType: string, placement: string): string {
+function roleDefaultPrefix(card: CardId, role: string | null, routerType: string, placement: string, tier: string | null = null): string {
   if (card === "router") return placement === "edge" ? "edge" : routerType === "firewall" ? "fw" : "router";
+  // The tier hint only seeds the prefix (A3): nothing else is written.
+  if (card === "l3switch") return tier === "core" ? "core" : tier === "aggregation" ? "agg" : "l3sw";
   if (card === "switch") return "sw";
   return role ?? DEVICE_CARDS.find((c) => c.id === card)!.prefix;
 }
@@ -49,6 +52,8 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const card: CardId | null = item.kind === "device" ? (item.card ?? (item.id as CardId)) : null;
   const def = card ? DEVICE_CARDS.find((c) => c.id === card)! : null;
   const isHost = card === "server" || card === "workstation" || card === "ot";
+  // A count on a router or an L3 switch makes N separate named nodes (B6).
+  const counted = isHost || card === "router" || card === "l3switch";
   const [os, setOs] = useState<Os | null>(() => (def?.oses ? (item.os ?? def.oses[0]!) : null));
   const [traffic, setTraffic] = useState(() => Boolean(item.role && personas.find((p) => p.id === item.role)?.category === "traffic"));
   const [role, setRole] = useState<string | null>(() => (card && isHost ? (item.role ?? defaultRole(card, os, personas)) : null));
@@ -68,6 +73,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [routerType, setRouterType] = useState<"router" | "firewall">("router");
   const [placement, setPlacement] = useState<"internal" | "edge">("internal");
   const [switchType, setSwitchType] = useState<"plain" | "managed">("plain");
+  const [tier, setTier] = useState<"core" | "aggregation" | null>(null);
   const [prefix, setPrefix] = useState<string | null>(null);
   const [imageOverride, setImageOverride] = useState("");
   const [ip, setIp] = useState("");
@@ -80,7 +86,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const profile = card ? profileFor(card, os) : null;
   const resolved = imageFor(profiles, profile);
   const image = imageOverride.trim() || resolved;
-  const effPrefix = (prefix ?? (card ? roleDefaultPrefix(card, role, routerType, placement) : "")).trim() || (def?.prefix ?? "node");
+  const effPrefix = (prefix ?? (card ? roleDefaultPrefix(card, role, routerType, placement, tier) : "")).trim() || (def?.prefix ?? "node");
   // What the role and every peer already chosen still need (a workstation added for a file server
   // needs a domain controller in turn); a role this drop or its peers hold is met.
   const held = [...(role ? [role] : []), ...peers.map((p) => p.role)];
@@ -111,7 +117,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         os,
         role: isHost ? role : null,
         persona: isHost && persona ? persona.id : null,
-        count: isHost ? Math.max(1, count) : 1,
+        count: counted ? Math.max(1, count) : 1,
         prefix: effPrefix,
         target,
         image: card === "switch" ? null : image,
@@ -121,6 +127,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         routerType,
         placement,
         switchType,
+        tier: card === "l3switch" ? tier : null,
         peers: peers.map((p) => ({ card: p.card, os: p.os, role: p.role, persona: p.persona, count: p.count, image: imageFor(profiles, profileFor(p.card, p.os)) })),
       },
     };
@@ -177,6 +184,11 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
           </div>
         </>
       ) : null}
+      {card === "l3switch" ? (
+        <div className="cv-seg" role="group" aria-label="Tier" title="seeds the name prefix only">
+          {(["core", "aggregation"] as const).map((t) => <button key={t} type="button" aria-pressed={tier === t} className={tier === t ? "on" : ""} onClick={() => setTier((cur) => (cur === t ? null : t))}>{t}</button>)}
+        </div>
+      ) : null}
       {card === "switch" ? (
         <div className="cv-seg" role="group" aria-label="Switch kind">
           {(["plain", "managed"] as const).map((t) => <button key={t} type="button" aria-pressed={switchType === t} className={switchType === t ? "on" : ""} onClick={() => setSwitchType(t)}>{t === "managed" ? "managed (VLANs, RSTP)" : "plain"}</button>)}
@@ -200,7 +212,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
       ) : null}
       {card ? (
         <div className="row cv-drop-quick">
-          {isHost ? (
+          {counted ? (
             <label className="cv-count">
               ×
               <input type="number" min={1} max={999} aria-label="Count" value={count} onChange={(e) => setCount(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
