@@ -474,9 +474,15 @@ is one uniform tree, router → switch (real | implied) → hosts (Rendering rul
 - on an **implied switch**: the host joins that segment (a peer of its hosts);
 - on a **real switch** of one segment: that segment; of several: the native
   VLAN of its uplink trunk (one to a router first), else its most-populated
-  segment (`switchSegment`); the host's inspector then offers the **VLAN
+  segment (`switchSegment`), and the drop popover asks which (a Segment
+  picker, that one preselected; 2026-11-21); the host's inspector then offers the **VLAN
   picker** (`hostSwitch`, a `moveTo` re-addressed in the chosen segment);
-  a switch that carries nothing refuses, with the reason;
+  a switch that carries nothing refuses, with the reason. **Which node a drop is on
+  (2026-11-21, B2):** the node the browser has under the pointer, else the geometry -- of the
+  boxes under the point the one whose centre is nearest (a router's box reaching over a switch
+  beside it had taken drops aimed at the switch); a card CLICKED while a switch, host or router is
+  selected lands on it as a drop would (it had gone to the view's centre: "on a new segment under
+  agg-1"); a host dropped on joins that host's segment;
 - on a **router**: a new segment, the next free /24 in the router's site
   (`newSegmentOnRouter`, `edit/allocate.ts`), `zone_type: vlan`, the router's
   leg on it and the host on it -- one command, one undo step; it draws under

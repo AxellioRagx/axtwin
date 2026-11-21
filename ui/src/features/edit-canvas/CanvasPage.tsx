@@ -70,7 +70,7 @@ import { lanSitePrefix, nextFreeLan } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
-import type { PlaceVia } from "./Canvas";
+import type { PlaceChoices, PlaceVia } from "./Canvas";
 import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
 import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
@@ -875,12 +875,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // the §7.1 drop rules (a segment, a switch's segment, a router's new segment, the empty pane), then
   // its popover opens there; the commit writes the drop and every popover choice as ONE command.
   const onPlace = useCallback(
-    (item: PaletteItem, segment: string | null, _count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }) => {
+    (item: PaletteItem, segment: string | null, _count: number, at: { x: number; y: number } | null, via?: PlaceVia | PlaceChoices, screen?: { x: number; y: number }) => {
       if (via && "blocked" in via) {
         setBlocked(via.blocked);
         return;
       }
-      const target: DropTarget = segment ? { segment } : via && "router" in via ? { router: via.router } : { pane: true };
+      const target: DropTarget = segment ? (via && "choices" in via ? { segment, choices: via.choices, via: via.via } : { segment }) : via && "router" in via ? { router: via.router } : { pane: true };
       const where = screen ?? { x: 80, y: 80 };
       if (item.kind === "template") {
         const template = templates.find((t) => t.id === item.id);

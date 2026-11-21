@@ -58,17 +58,19 @@ describe("which segment a host dropped on a switch joins", () => {
     expect(switchSegment(st, "access-sw")).toEqual({ segment: "office", choices: ["office"] });
   });
   it("placeOnDevice / placeTarget: an implied switch is its segment, a switch its rule's, a router a new segment, the pane nothing", () => {
-    expect(placeOnDevice(te, "core")).toEqual({ segment: "users" });
+    // A switch of several says which it picked, and the choices the drop popover asks among (B2, 2026-11-21).
+    expect(placeOnDevice(te, "core")).toEqual({ segment: "users", choices: ["users", "voice"], via: "core" });
     expect(placeOnDevice(te, "gw")).toEqual({ router: "gw" });
     expect(placeOnDevice(te, "bare")).toMatchObject({ blocked: expect.stringContaining("bare carries no segment") });
-    expect(placeOnDevice(te, "pc")).toBeNull();
+    // A host is its own segment (a card dropped on it joins it, B2).
+    expect(placeOnDevice(te, "pc")).toEqual({ segment: "users" });
     const nodes = [
       { id: ID.segment("lab"), position: { x: 0, y: 0 }, width: 150, height: 66, data: { kind: "segment", name: "lab" } },
       { id: TREE_ID.device("core"), position: { x: 300, y: 0 }, width: 150, height: 66, data: { kind: "device", name: "core" } },
       { id: ID.router("gw"), position: { x: 600, y: 0 }, width: 150, height: 66, data: { kind: "router", name: "gw" } },
     ] as never;
     expect(placeTarget(nodes, { x: 75, y: 30 }, te)).toEqual({ segment: "lab" });
-    expect(placeTarget(nodes, { x: 375, y: 30 }, te)).toEqual({ segment: "users" });
+    expect(placeTarget(nodes, { x: 375, y: 30 }, te)).toEqual({ segment: "users", choices: ["users", "voice"], via: "core" });
     expect(placeTarget(nodes, { x: 675, y: 30 }, te)).toEqual({ router: "gw" });
     expect(placeTarget(nodes, { x: 1000, y: 30 }, te)).toBeNull();
   });

@@ -14,8 +14,9 @@ import { L3_SWITCH_ROLE, type CardId, type Os } from "./catalog";
 
 /** Where the drop landed (`Canvas.tsx` `placeTarget`, §7.1 drop rules). */
 export type DropTarget =
-  /** On a segment (an implied switch, or a real switch carrying one). */
-  | { segment: string }
+  /** On a segment (an implied switch, or a real switch carrying one); `choices` when a switch carrying
+   *  several was dropped on (the popover asks which, B2), `via` that switch. */
+  | { segment: string; choices?: string[]; via?: string | null }
   /** On a router: a new segment under it, the device on that. */
   | { router: string }
   /** On the empty pane: a host gets a new segment of its own, a router or switch stands alone. */

@@ -35,7 +35,7 @@ export interface DropPopoverProps {
 
 function targetText(card: CardId | null, target: DropTarget): string {
   const routerLike = card === "router" || card === "l3switch";
-  if ("segment" in target) return `on ${target.segment}`;
+  if ("segment" in target) return target.via ? `on ${target.via}` : `on ${target.segment}`;
   if ("router" in target) return routerLike ? "beside it, no leg yet" : `on a new segment under ${target.router}`;
   return routerLike ? "on its own, no leg yet" : "on a new segment";
 }
@@ -81,6 +81,9 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [schedule, setSchedule] = useState("");
   const [peers, setPeers] = useState<PeerOffer[]>([]);
   const [tapSensors, setTapSensors] = useState(sensors[0] ?? "");
+  // A switch carrying several segments was dropped on: which one (B2); its default is the switch's own pick.
+  const [segChoice, setSegChoice] = useState<string | null>(null);
+  const landing: DropTarget = "segment" in target && segChoice ? { segment: segChoice, via: target.via ?? null } : target;
   const groups = useMemo(() => (card ? rolesFor(card, os, personas, traffic) : []), [card, os, personas, traffic]);
   const persona = personas.find((p) => p.id === role) ?? null;
   const profile = card ? profileFor(card, os) : null;
@@ -105,8 +108,8 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
 
   const spec = (): DropCommit | null => {
     if (item.kind === "tool" && item.tool === "tap") {
-      if (!("segment" in target)) return null;
-      return { kind: "tap", segment: target.segment, sensors: tapSensors.split(",").map((s) => s.trim()).filter(Boolean) };
+      if (!("segment" in landing)) return null;
+      return { kind: "tap", segment: landing.segment, sensors: tapSensors.split(",").map((s) => s.trim()).filter(Boolean) };
     }
     if (!card) return null;
     const n = Number(intensity);
@@ -119,7 +122,7 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         persona: isHost && persona ? persona.id : null,
         count: counted ? Math.max(1, count) : 1,
         prefix: effPrefix,
-        target,
+        target: landing,
         image: card === "switch" ? null : image,
         ip: ip.trim() || null,
         intensity: intensity.trim() && Number.isFinite(n) ? n : null,
@@ -156,6 +159,18 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
           {title} <span className="muted">{targetText(card, target)}</span>
         </span>
       </div>
+      {"segment" in target && target.choices && target.choices.length > 1 ? (
+        <label className="cv-field">
+          <span className="cv-field-label">Segment</span>
+          <select aria-label="Segment" data-testid="drop-segment" value={segChoice ?? target.segment} onChange={(e) => setSegChoice(e.target.value)}>
+            {target.choices.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {item.kind === "tool" && item.tool === "tap" ? (
         <label className="cv-field">
           <span className="cv-field-label">Sensors</span>

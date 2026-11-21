@@ -109,7 +109,7 @@ describe("placement infers the segment", () => {
     const doc = { id: "multi", teFile: "te.yaml", files: { "te.yaml": te } };
     const model = readDoc(doc);
     const t = placeOnDevice(model.te, "core");
-    expect(t).toEqual({ segment: "users" });
+    expect(t).toEqual({ segment: "users", choices: ["users", "voice"], via: "core" });
     const placed = readTe(applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { segment: string }, image: "debian-12-cloud@v1" }).files["te.yaml"]!).nodes.find((n) => n.name === "srv-1")!;
     expect(placed.nets.map((l) => l.segment)).toEqual(["users"]);
     // The picker moves pc to the other VLAN, re-addressed there.

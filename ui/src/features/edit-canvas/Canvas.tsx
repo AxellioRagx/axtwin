@@ -73,7 +73,7 @@ export interface CanvasEditProps {
    *  segment, else the view's centre) or picked from the double-click quick-add. `segment` when it
    *  landed on one; `via`: on a router (a new segment under it, §7.1) or somewhere it cannot go;
    *  `screen`: the drop point in the canvas shell's pixels (where the drop popover opens). */
-  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }): void;
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia | PlaceChoices, screen?: { x: number; y: number }): void;
   /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
   onInsertSwitch?(segment: string): void;
   /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
@@ -218,14 +218,19 @@ export function Canvas(props: CanvasProps) {
 /** The segment whose box holds `at` (absolute canvas coordinates), by name. Pure. */
 /** The device (a switch or a router) whose box contains `at`, by name. Pure. */
 export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
+  // Of the boxes under the point, the one whose centre is nearest (B2, 2026-11-21): a router's box
+  // that reaches over a switch beside it no longer takes a drop aimed at the switch.
+  let best: { name: string; d: number } | null = null;
   for (const n of nodes) {
     if (n.data.kind !== "device" && n.data.kind !== "router") continue;
     const abs = absolutePosition(nodes, n.id);
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
-    if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
+    if (!abs || at.x < abs.x || at.x > abs.x + w || at.y < abs.y || at.y > abs.y + h) continue;
+    const d = Math.hypot(at.x - (abs.x + w / 2), at.y - (abs.y + h / 2));
+    if (!best || d < best.d) best = { name: n.data.name, d };
   }
-  return null;
+  return best?.name ?? null;
 }
 
 /** The data of the edge a tap chip was dropped on (a device link, or a segment's link). */
@@ -271,23 +276,48 @@ function edgeUnder(e: { clientX?: number; clientY?: number } | null | undefined)
  *  2026-11-11): a real switch's segment (`switchSegment`: its one segment, else its uplink's native,
  *  else its busiest), a router's new segment, or a reason it cannot. Pure. */
 export type PlaceVia = { router: string } | { blocked: string };
-export function placeOnDevice(te: TeModel, device: string): { segment: string } | PlaceVia | null {
+/** A segment target; `choices` when it came from a switch carrying several (the popover asks which, B2). */
+export type PlaceOn = { segment: string; choices?: string[]; via?: string };
+/** The segments a switch dropped on carries, when more than one: the popover asks which (B2). */
+export type PlaceChoices = { choices: string[]; via: string | null };
+export function placeOnDevice(te: TeModel, device: string): PlaceOn | PlaceVia | null {
   const n = te.nodes.find((x) => x.name === device);
   if (n?.kind === "router") return { router: device };
   if (n?.kind === "switch") {
-    const seg = switchSegment(te, device).segment;
-    return seg ? { segment: seg } : { blocked: `${device} carries no segment yet: link it to a router or give it a port first` };
+    const { segment: seg, choices } = switchSegment(te, device);
+    if (!seg) return { blocked: `${device} carries no segment yet: link it to a router or give it a port first` };
+    return choices.length > 1 ? { segment: seg, choices, via: device } : { segment: seg, via: device };
   }
+  // A host: its own segment (a card dropped on it, or clicked while it is selected, joins it).
+  if (n && n.nets[0]) return { segment: n.nets[0].segment };
   return null;
 }
 
-/** Where a palette item dropped at `at` lands: an implied switch's segment, else a device's (above),
- *  else nowhere (`null`: the empty canvas). Pure. */
-export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: number; y: number }, te: TeModel): { segment: string } | PlaceVia | null {
+/** Where a palette item dropped at `at` lands: the node the pointer is over (`hit`: the DOM's answer,
+ *  B2), else an implied switch's segment, else a device's (above), else nowhere (`null`: the empty
+ *  canvas). Pure. */
+export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: number; y: number }, te: TeModel, hit: string | null = null): PlaceOn | PlaceVia | null {
+  const under = hit ? nodes.find((n) => n.id === hit) : undefined;
+  if (under?.data.kind === "segment") return { segment: under.data.name };
+  if (under && (under.data.kind === "device" || under.data.kind === "router")) {
+    const t = placeOnDevice(te, under.data.name);
+    if (t) return t;
+  }
   const seg = segmentAt(nodes, at);
   if (seg) return { segment: seg };
   const dev = deviceAt(nodes, at);
   return dev ? placeOnDevice(te, dev) : null;
+}
+
+/** The React Flow node under a pointer event (its id), skipping the popovers and ghosts on top. jsdom
+ *  has no `elementsFromPoint`: null there (the geometry decides). */
+function nodeUnder(e: { clientX?: number; clientY?: number } | null | undefined): string | null {
+  if (!e || typeof e.clientX !== "number" || typeof e.clientY !== "number" || typeof document.elementsFromPoint !== "function") return null;
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const id = el.closest(".react-flow__node")?.getAttribute("data-id");
+    if (id) return id;
+  }
+  return null;
 }
 
 /** Whether a declared conduit's arc is drawn in the design view (2026-11-20, decluttered): the rail's
@@ -1155,10 +1185,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   /** Where an Add-panel item lands at `at` (§7.1 drop rules): on the segment or switch under it, on a
    *  router (a new segment under it), else on the empty pane. One path for a drag, a click and the quick-add. */
   const dropItem = useCallback(
-    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }) => {
+    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }, hit: string | null = null) => {
       if (!edit || !editing) return;
-      const t = placeTarget(rf.getNodes(), at, edit.model.te);
-      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, undefined, screen);
+      const t = placeTarget(rf.getNodes(), at, edit.model.te, hit);
+      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, t.choices ? { choices: t.choices, via: t.via ?? null } : undefined, screen);
       else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined, screen);
     },
     [edit, editing, rf],
@@ -1172,6 +1202,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const sel = selectionRef.current;
       if (sel.kind === "segment" && sel.names[0]) {
         edit.onPlace(item, sel.names[0], item.count ?? 1, null, undefined, screen);
+        return;
+      }
+      // A selected switch (B2, 2026-11-21: it had dropped at the view's centre, "on a new segment under
+      // agg-1"), host or router is where the card lands, as a drop on it would.
+      const on = sel.kind === "node" && sel.names.length === 1 ? placeOnDevice(edit.model.te, sel.names[0]!) : null;
+      if (on && !(item.kind === "device" && (item.card === "router" || item.card === "l3switch" || item.card === "switch") && !("router" in on))) {
+        if ("segment" in on) edit.onPlace(item, on.segment, item.count ?? 1, null, on.choices ? { choices: on.choices, via: on.via ?? null } : undefined, screen);
+        else edit.onPlace(item, null, item.count ?? 1, null, on, screen);
         return;
       }
       dropItem(item, rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y }), screen);
@@ -1205,7 +1243,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         return;
       }
       const box = shellRef.current?.getBoundingClientRect();
-      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) });
+      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }, nodeUnder(e));
     },
     [edit, editing, rf, dropItem],
   );

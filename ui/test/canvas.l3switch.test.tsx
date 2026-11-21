@@ -17,7 +17,8 @@ import { applyIntent, connectIntent, intentHint } from "../src/features/edit-can
 import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { attachDevices } from "../src/features/edit-canvas/edit/subtree";
 import { readTe } from "../src/features/edit-canvas/edit/te";
-import { panel, seeded, twinYaml } from "./helpers/canvasFixtures";
+import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
+import { card, check, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const PROFILES: ImageProfile[] = [
@@ -235,5 +236,66 @@ describe("B1: deleting a device takes what hangs on it", () => {
     const fixed = readDoc({ ...d, files: removeDanglingLinks(d, m) });
     expect(fixed.te.links.map((l) => l.a.port)).toEqual(["eth2"]);
     expect(healthHints(fixed.te, []).join(" ")).not.toMatch(/dangling/);
+  });
+});
+
+describe("B2: a host dropped on a switch joins that switch's LAN", () => {
+  const TOR = `twin_config:
+  id: dc
+  segments:
+    - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
+    - { name: rack1-mgmt, cidr: 10.200.1.0/24, zone_type: vlan }
+  nodes:
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5, nets: [{ segment: rack1-srv, ip: 10.200.0.1 }] }
+    - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
+    - { name: rack2-tor, kind: switch, role: l2-switch, nets: [{ segment: rack1-srv }, { segment: rack1-mgmt }] }
+    - { name: web, image: debian-12-cloud@v1, nets: [{ segment: rack1-srv, ip: 10.200.0.10 }] }
+`;
+  const box = (id: string, kind: "router" | "device", name: string, x: number, y: number, w: number, h: number) => ({ id, position: { x, y }, width: w, height: h, data: { kind, name } }) as unknown as Parameters<typeof placeTarget>[0][number];
+
+  it("the node under the pointer decides: a switch's one segment; of several, its pick with the choices to ask", () => {
+    const te = readTe(TOR);
+    const nodes = [box("r", "router", "agg-1", 0, 0, 200, 120), box("s1", "device", "rack1-tor", 150, 80, 80, 60), box("s2", "device", "rack2-tor", 400, 80, 80, 60)];
+    expect(placeTarget(nodes, { x: 0, y: 0 }, te, "s1")).toEqual({ segment: "rack1-srv", via: "rack1-tor" });
+    expect(placeTarget(nodes, { x: 0, y: 0 }, te, "s2")).toEqual({ segment: "rack1-srv", choices: ["rack1-srv", "rack1-mgmt"], via: "rack2-tor" });
+    // No DOM answer (jsdom): of the boxes under the point the nearest centre wins -- the router's box
+    // reaching over the switch no longer takes the drop.
+    expect(placeTarget(nodes, { x: 190, y: 110 }, te)).toEqual({ segment: "rack1-srv", via: "rack1-tor" });
+    expect(placeTarget(nodes, { x: 60, y: 40 }, te)).toEqual({ router: "agg-1" });
+    // A host dropped on is its own segment.
+    expect(placeOnDevice(te, "web")).toEqual({ segment: "rack1-srv" });
+  });
+
+  it("the drop popover asks which segment of a switch carrying several, and the host lands on the one picked", async () => {
+    const { api, state } = withTwin("dc", { "te.yaml": TOR });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-device");
+    // A selected switch is where a card's click lands (it had gone to the view's centre).
+    fireEvent.click(screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === "rack2-tor")!);
+    fireEvent.click(card("server"));
+    const pop = dropPopover();
+    expect(screen.getByTestId("drop-popover").textContent).toContain("on rack2-tor");
+    fireEvent.change(pop.getByTestId("drop-segment"), { target: { value: "rack1-mgmt" } });
+    fireEvent.click(pop.getByTestId("drop-add"));
+    await check();
+    const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+    const added = readTe(files["te.yaml"]!).nodes.filter((n) => n.kind === "host" && n.name !== "web");
+    expect(added).toHaveLength(1);
+    expect(added[0]!.nets[0]!.segment).toBe("rack1-mgmt");
+  });
+
+  it("a card clicked with a one-segment switch selected lands on its LAN, no question asked", async () => {
+    const { api, state } = withTwin("dc", { "te.yaml": TOR });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-device");
+    fireEvent.click(screen.getAllByTestId("canvas-device").find((d) => d.dataset["nodeId"] === "rack1-tor")!);
+    fireEvent.click(card("server"));
+    expect(screen.getByTestId("drop-popover").textContent).toMatch(/on rack1-(tor|srv)/);
+    expect(dropPopover().queryByTestId("drop-segment")).toBeNull();
+    fireEvent.click(dropPopover().getByTestId("drop-add"));
+    await check();
+    const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+    const added = readTe(files["te.yaml"]!).nodes.filter((n) => n.kind === "host" && n.name !== "web");
+    expect(added.map((n) => n.nets[0]!.segment)).toEqual(["rack1-srv"]);
   });
 });
