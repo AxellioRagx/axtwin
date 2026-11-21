@@ -63,7 +63,9 @@ def _render_ospf(fabric: dict[str, Any]) -> list[str]:
     if fabric.get("loopback"):
         loopback_area = "1" if fabric.get("role") == "area" else "0"
         out.append(f"set protocols ospf interface dum0 area {loopback_area}")
-        out.append("set protocols ospf interface dum0 passive enable")
+        # VyOS 1.4+ (1.5, 2026.06 rolling): bare `passive`; the 1.3 `passive enable`
+        # form is rejected ("passive [enable] is not valid", dev45 2026-11-21).
+        out.append("set protocols ospf interface dum0 passive")
     for itf in fabric.get("interfaces", []):
         area = itf.get("ospf_area")
         if area is None:

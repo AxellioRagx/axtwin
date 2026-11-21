@@ -277,3 +277,27 @@ def test_irb_no_invalid_egress_leak():
     s = set(render_routing(f))
     assert not any("next-hop-vrf" in x for x in s)
     assert not any("static route 0.0.0.0/0" in x for x in s)
+
+
+def _three_tier_agg() -> dict:
+    """An OSPF agg router as the planner builds it for three-tier-dc-manual on a
+    vyos@2026.06 image: loopback on dum0, p2p legs to the cores, a rack LAN leg."""
+    return {
+        "router_os": "vyos", "region": "dc", "igp": "ospf", "role": None,
+        "loopback": "10.255.0.11/32", "router_id": "10.255.0.11",
+        "interfaces": [
+            {"eth": "eth1", "net": "core1-agg1", "p2p": True, "ospf_area": 0, "vni": None},
+            {"eth": "eth2", "net": "core2-agg1", "p2p": True, "ospf_area": 0, "vni": None},
+            {"eth": "eth3", "net": "rack1", "p2p": False, "ospf_area": 0, "vni": None},
+        ],
+        "redistribute": [], "bfd": False,
+    }
+
+
+def test_ospf_passive_uses_vyos_14_plus_syntax():
+    """VyOS >= 1.4 (2026.06 on dev45) rejects `passive enable`
+    ("protocols ospf interface dum0 passive [enable] is not valid")."""
+    s = render_routing(_three_tier_agg())
+    assert "set protocols ospf interface dum0 passive" in s
+    assert "set protocols ospf interface dum0 area 0" in s
+    assert not any("passive enable" in x for x in s)
