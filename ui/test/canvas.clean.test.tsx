@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { DEVICE_W } from "../src/features/edit-canvas/layout/geometry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Template } from "../src/api/types";
@@ -91,7 +92,8 @@ describe("an untitled design undone back to empty is clean", () => {
     // A redo still brings the first router back where it stood (its pin was kept, dormant).
     fireEvent.click(screen.getByRole("button", { name: "Redo" }));
     await waitFor(() => expect(screen.getAllByTestId("canvas-router")).toHaveLength(1));
-    expect(Number(router(a!).dataset["x"])).toBeCloseTo(192, -1);
+    // Centred on its drop point (B5): x = 200 - half a device box, snapped to the grid.
+    expect(Math.abs(Number(router(a!).dataset["x"]) - (200 - DEVICE_W / 2))).toBeLessThanOrEqual(12);
   });
 });
 

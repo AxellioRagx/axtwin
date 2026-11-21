@@ -7,6 +7,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { BUS_ICON } from "../src/features/edit-canvas/canvas/bus";
+import { DEVICE_H, DEVICE_W } from "../src/features/edit-canvas/layout/geometry";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Persona, Template } from "../src/api/types";
@@ -70,7 +72,8 @@ describe("a drop in the free layout lands together, at the drop point", () => {
     const server = p["host:file-server-1"]!;
     const ws = p["host:corp-workstation-1"]!;
     const seg = Object.entries(p).find(([k]) => k.startsWith("segment:"))![1];
-    expect(dist(server, { x: 600, y: 400 })).toBeLessThanOrEqual(24); // the drop point (snapped to the grid)
+    // Centred on the drop point (B5, 2026-11-21: its top-left had been), snapped to the grid.
+    expect(dist({ x: server.x + BUS_ICON / 2, y: server.y + BUS_ICON / 2 }, { x: 600, y: 400 })).toBeLessThanOrEqual(24);
     // Nothing at the origin; everything within a template's box of the server.
     for (const q of [ws, seg]) expect(dist(q, server)).toBeLessThanOrEqual(TEMPLATE_BOX);
     expect(seg.y).toBeLessThan(server.y); // the switch above its first host
@@ -90,7 +93,8 @@ describe("a drop in the free layout lands together, at the drop point", () => {
     const gw = p["host:branch-gw"]!;
     const sw = p["host:branch-sw"]!;
     const users = p["host:branch-user"]!;
-    expect(dist(gw, { x: 600, y: 300 })).toBeLessThanOrEqual(24); // the drop point (snapped to the grid)
+    // The template's root centred on the drop point (B5), snapped to the grid.
+    expect(dist({ x: gw.x + DEVICE_W / 2, y: gw.y + DEVICE_H / 2 }, { x: 600, y: 300 })).toBeLessThanOrEqual(24);
     expect(sw).toEqual({ x: gw.x, y: gw.y + 140 });
     expect(users.y).toBeGreaterThan(sw.y);
     for (const q of [sw, users]) expect(dist(q, gw)).toBeLessThanOrEqual(TEMPLATE_BOX + 66 + 72);
@@ -111,5 +115,22 @@ describe("placeDropped (pure)", () => {
   it("a segment trunked to a real switch is carried by it (no implied switch to place)", () => {
     const te = readTe("twin_config:\n  id: t\n  segments:\n  - { name: lan, cidr: 10.1.0.0/24 }\n  nodes:\n  - { name: sw, kind: switch, image: '' }\n  - { name: gw, kind: router, image: x, nets: [ { segment: lan } ] }\n  links:\n  - { a: { device: gw, port: eth1 }, b: { device: sw, port: P1 }, mode: trunk, native: lan, vlans: [lan] }\n");
     expect(carrierOf(te, "lan")).toBe("sw");
+  });
+});
+
+describe("B5: the Internet tool lands at the pointer", () => {
+  it("its switch is centred on the drop point and its sink stands under it (it had always gone to the centre)", async () => {
+    const { api } = seeded({ personas: LIB, imageProfiles: PROFILES });
+    identityView();
+    renderAt(api, "/canvas/new");
+    await waitFor(() => expect(window.document.querySelector(".react-flow__pane")).not.toBeNull());
+    quickAdd("internet", 900, 520);
+    await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(1));
+    const p = positions();
+    const seg = Object.entries(p).find(([k]) => k.startsWith("segment:"))![1];
+    expect(dist({ x: seg.x + DEVICE_W / 2, y: seg.y + DEVICE_H / 2 }, { x: 900, y: 520 })).toBeLessThanOrEqual(24);
+    const sink = p["host:internet-sink"]!;
+    expect(sink.y).toBeGreaterThan(seg.y);
+    expect(dist(sink, seg)).toBeLessThanOrEqual(TEMPLATE_BOX);
   });
 });

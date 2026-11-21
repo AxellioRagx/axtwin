@@ -83,11 +83,16 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
 import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
-import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
+import { applyDeviceDrop, applyInternetDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
-import { besideSubtree, clearOf, placeDropped } from "./add/placeDrop";
+import { DEVICE_H, DEVICE_W } from "./layout/geometry";
+import { BUS_ICON } from "./canvas/bus";
+
+/** The top-left that centres a `w`×`h` box on `at` (B5: a drop lands AT the pointer). */
+const centred = (at: { x: number; y: number }, w: number, h: number) => ({ x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) });
+import { besideSubtree, clearOf, NEAR_RINGS, placeDropped } from "./add/placeDrop";
 import { TemplatePopover, TemplatesSection } from "./add/Templates";
 import { buildTemplate, carriedBindings, proposeTemplate, readMyTemplates, rememberMyTemplate, type Proposal } from "./add/saveTemplate";
 import { SaveTemplateDialog } from "./add/SaveTemplateDialog";
@@ -893,7 +898,17 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
       if (item.kind === "tool" && item.tool === "internet") {
         const router = "router" in target ? target.router : null;
-        if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files) === null) rememberAdd(item);
+        let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
+        if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => { const f = applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files; span = { before: m.te, after: readDoc({ ...d, files: f }).te }; return f; }) === null) {
+          rememberAdd(item);
+          // The internet's switch and sink stand where it was dropped (B5: it had always gone to the centre).
+          const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
+          if (layoutModeRef.current === "free" && made && at) {
+            const inet = made.after.segments.find((sg) => sg.name === INTERNET_SEGMENT && !made.before.segments.some((b) => b.name === sg.name));
+            const fixed = inet ? { [`segment:${inet.cidr}`]: { x: Math.round(at.x - DEVICE_W / 2), y: Math.round(at.y - DEVICE_H / 2) } } : {};
+            onPinMany(placeDropped(made.before, made.after, at, fixed, { ...settled.current, ...pinsRef.current }, { clear: true, maxRing: NEAR_RINGS }));
+          }
+        }
         return;
       }
       if (item.kind === "tool" && item.tool === "tap" && !("segment" in target)) {
@@ -914,7 +929,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       let drop: TemplateDrop | null = null;
       let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
       const reason = edit(`add template ${p.template.label}`, (d, m) => {
-        drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at);
+        // The template's root is centred on the pointer, as a card's device lands (B5).
+        drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at ? { x: p.at.x - DEVICE_W / 2, y: p.at.y - DEVICE_H / 2 } : null);
         span = { before: m.te, after: readDoc({ ...d, files: drop.files }).te };
         return drop.files;
       });
@@ -924,7 +940,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       // The free layout: every node of the fragment near the drop point, the hosts included (the
       // template's layout names only some of them), so nothing it made is left at the origin.
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
-      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }, { clear: true }) : done.positions;
+      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }, { clear: true, maxRing: NEAR_RINGS }) : done.positions;
       if (Object.keys(positions).length) onPinMany(positions);
       if (done.ports.length) setHighlight((h) => ({ names: done.ports, n: (h?.n ?? 0) + 1 }));
     },
@@ -955,7 +971,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       rememberAdd({ ...p.item, card: s.card, role: s.role, os: s.os, label: rolePersona ? personaLabel(rolePersona) : s.role ?? p.item.label });
       // A device dropped on the pane stands where it landed; a host on a segment hangs off it.
       const first = placed[0];
-      const fixed: Record<string, { x: number; y: number }> = p.at && first && !("segment" in s.target) ? { [`host:${first}`]: { x: Math.round(p.at.x), y: Math.round(p.at.y) } } : {};
+      // Centred on the pointer (B5, 2026-11-21), as a template and the Internet tool land.
+      const fixed: Record<string, { x: number; y: number }> = p.at && first && !("segment" in s.target) ? { [`host:${first}`]: centred(p.at, s.card === "router" || s.card === "l3switch" || s.card === "switch" ? DEVICE_W : BUS_ICON, s.card === "router" || s.card === "l3switch" || s.card === "switch" ? DEVICE_H : BUS_ICON) } : {};
       // The free layout: everything the drop made -- its new segment's implied switch, the peers --
       // stands near the drop point too (2026-11-20: they landed at the canvas's top-left corner).
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;

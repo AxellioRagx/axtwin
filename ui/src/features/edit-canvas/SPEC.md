@@ -254,7 +254,11 @@ that row. Nothing a drop creates is left without a position (they had landed
 at the canvas's top-left corner). A drop on the pane or a template never lands
 on a box already there (2026-11-21, `clearOf`): when any new pin overlaps an
 existing box (24px apart), the whole group moves, shape kept, to the nearest
-clear spot. **A dragged device carries what hangs from it (2026-11-21, B4, `free.ts` `dragFollowers`):** in the
+clear spot. **At the pointer (2026-11-21, B5):** a card's device, a template's root and the
+Internet tool's switch are centred on the drop point (a device's top-left had been; the Internet
+tool had no position at all and stood at the centre); a template or the Internet tool moves off a
+box only within `NEAR_RINGS` rings of it, else it lands at the pointer over it (a crowded canvas had
+sent a rack to the bottom edge). **A dragged device carries what hangs from it (2026-11-21, B4, `free.ts` `dragFollowers`):** in the
 free layout a switch dragged moves the hosts it hangs (their first leg on a segment it carries) by the
 same offset, and a router the implied switches of the segments it alone serves (no real switch, no
 other router) with their hosts; all of them are pinned where they land. **Alt**-drag moves the device
