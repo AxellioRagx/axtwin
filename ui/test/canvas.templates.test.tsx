@@ -15,6 +15,8 @@ import { searchAdd } from "../src/features/edit-canvas/add/catalog";
 import { applyTemplateDrop, countsText, evaluate, expandTemplate, settingsValues, substitute, templateCounts } from "../src/features/edit-canvas/add/template";
 import { readDoc } from "../src/features/edit-canvas/edit/document";
 import { readTfc } from "../src/features/edit-canvas/edit/tfc";
+import { applyDeviceDrop, applyInternetDrop } from "../src/features/edit-canvas/add/drop";
+import { lanSitePrefix, nextFreeLan, nextFreeSlash24 } from "../src/features/edit-canvas/edit/allocate";
 import { parseYaml, toPlain } from "../src/features/edit-canvas/edit/yaml";
 import { check, hosts, openPalette, seeded, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
@@ -170,5 +172,30 @@ describe("the Templates section and a template drop (§5.2)", () => {
     fireEvent.click(card());
     fireEvent.keyDown(window.document, { key: "Escape" });
     await waitFor(() => expect(hosts()).toEqual(["dmz-proxy", "dmz-web"]));
+  });
+});
+
+describe("B7: one LAN pool, never the internet's", () => {
+  it("a rack dropped beside the internet segment takes the design's LAN site, never 10.250 next to the internet's /24", () => {
+    let d = applyInternetDrop(EMPTY, readDoc(EMPTY), { pane: true }, "debian-12-cloud@v1");
+    let doc = { ...EMPTY, files: d.files };
+    expect(readDoc(doc).te.segments.map((s) => s.cidr)).toEqual(["10.250.0.0/24"]);
+    // With only the internet there, a template takes the default LAN prefix, as a hand drop does.
+    const rack = applyTemplateDrop(doc, readDoc(doc), tpl("datacenter-rack"), {}, PROFILES, null);
+    const cidrs = readDoc({ ...doc, files: rack.files }).te.segments.map((s) => s.cidr).filter((c) => c !== "10.250.0.0/24");
+    expect(cidrs.every((c) => c.startsWith("10.200."))).toBe(true);
+    // A hand-dropped switch then continues the same pool.
+    doc = { ...doc, files: rack.files };
+    d = applyDeviceDrop(doc, readDoc(doc), { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { pane: true }, image: null });
+    const all = readDoc({ ...doc, files: d.files }).te.segments.map((s) => s.cidr);
+    expect(all.filter((c) => c.startsWith("10.250."))).toEqual(["10.250.0.0/24"]);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("the allocator: the internet pool is no site and is fenced off, except for the internet itself", () => {
+    expect(lanSitePrefix(["10.250.0.0/24", "10.254.0.0/30", "10.200.3.0/24"])).toBe("10.200");
+    expect(lanSitePrefix(["10.250.0.0/24"])).toBeNull();
+    expect(nextFreeSlash24("10.250", ["10.250.0.0/24"])).toBe("10.250.1.0/24");
+    expect(nextFreeLan(null, ["10.250.0.0/24"])).toBe("10.200.0.0/24");
   });
 });

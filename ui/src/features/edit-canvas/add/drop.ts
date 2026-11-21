@@ -71,6 +71,7 @@ export interface DropResult {
 
 /** The segment an Internet tool makes and a router's edge placement uplinks to. */
 export const INTERNET_SEGMENT = "internet";
+/** The two-octet prefix of `allocate.ts` `INTERNET_POOL`. */
 export const INTERNET_PREFIX = "10.250";
 
 /** The name of a segment a drop makes (2026-11-20, round 2): `<base>-lan` -- the first host's role,
@@ -86,8 +87,8 @@ export function dropSegmentName(m: Pick<DocModel, "te">, base: string): string {
 /** A new LAN segment in the twin's first site (the next free /24 after the highest in use), else 10.200. */
 function newLan(doc: WorkingDoc, m: DocModel, base: string): { doc: WorkingDoc; segment: string } {
   const inPlay = m.te.segments.map((s) => s.cidr);
-  // The first LAN's site: the internet segment and every transit (TRANSIT_POOL) are not a site.
-  const prefix = lanSitePrefix(m.te.segments.filter((s) => s.name !== INTERNET_SEGMENT).map((s) => s.cidr));
+  // The first LAN's site: the internet (INTERNET_POOL) and every transit (TRANSIT_POOL) are not a site.
+  const prefix = lanSitePrefix(m.te.segments.map((s) => s.cidr));
   const cidr = nextFreeLan(prefix, inPlay);
   if (!cidr) throw new Error(`no free /24 under ${prefix ?? DEFAULT_LAN_PREFIX} for a new segment`);
   const segment = dropSegmentName(m, base);

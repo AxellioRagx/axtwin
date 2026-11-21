@@ -46,13 +46,16 @@ export function isNetworkAddress(cidr: string): boolean {
 export function nextFreeSlash24(prefix: string, inPlay: readonly string[], options: { after?: boolean } = {}): string | null {
   const base = /^\d{1,3}\.\d{1,3}$/.test(prefix) ? ipv4ToInt(`${prefix}.0.0`) : null;
   if (base === null) return null;
-  // Never a /24 inside the transit pool (2026-11-21): the pool is fenced off as if it were in play.
+  // Never a /24 inside the transit pool (2026-11-21), nor -- unless asked for it, as the Internet tool
+  // does -- inside the internet's (B7): the pools are fenced off as if they were in play.
   const pool = ipv4Range(TRANSIT_POOL);
+  const inet = ipv4Range(INTERNET_POOL);
   const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
   if (pool) ranges.push(pool);
+  if (inet && !(base >= inet.start && base <= inet.end)) ranges.push(inet);
   let from = 0;
   if (options.after) {
-    const under = ranges.filter((r) => r !== pool && r.start >= base && r.start < base + 65536);
+    const under = ranges.filter((r) => r !== pool && r !== inet && r.start >= base && r.start < base + 65536);
     if (under.length) from = Math.min(255, Math.floor((Math.max(...under.map((r) => r.end)) - base) / 256) + 1);
     if (from >= 256) from = 0;
   }
@@ -72,6 +75,17 @@ export const TRANSIT_POOL = "10.254.0.0/16";
  *  `10.200` -> `10.200.0.0/24`, `10.200.1.0/24`, ... -- outside `TRANSIT_POOL`. */
 export const DEFAULT_LAN_PREFIX = "10.200";
 
+/** Where the Internet tool's segment and sink live (`add/drop.ts` `ensureInternet`): never a LAN's
+ *  range (B7, 2026-11-21: a template rack had landed on 10.250.1.0/24, beside the internet's /24). */
+export const INTERNET_POOL = "10.250.0.0/16";
+
+/** Whether a CIDR overlaps `INTERNET_POOL`. */
+export function inInternetPool(cidr: string): boolean {
+  const r = ipv4Range(cidr);
+  const p = ipv4Range(INTERNET_POOL);
+  return !!r && !!p && r.start <= p.end && p.start <= r.end;
+}
+
 /** Whether a CIDR overlaps `TRANSIT_POOL` (a router-to-router transit, never a LAN). */
 export function inTransitPool(cidr: string): boolean {
   const r = ipv4Range(cidr);
@@ -83,7 +97,7 @@ export function inTransitPool(cidr: string): boolean {
  *  prefers first), skipping every CIDR inside `TRANSIT_POOL`; `null` when there is no LAN. */
 export function lanSitePrefix(cidrs: readonly (string | null | undefined)[]): string | null {
   for (const c of cidrs) {
-    if (!c || inTransitPool(c)) continue;
+    if (!c || inTransitPool(c) || inInternetPool(c)) continue;
     const r = ipv4Range(c);
     if (r) return `${Math.floor(r.start / 16777216) % 256}.${Math.floor(r.start / 65536) % 256}`;
   }

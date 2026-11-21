@@ -144,9 +144,13 @@ its implied switch standing where it was dropped. **Allocation ranges
 (`10.254.0.0/16`), skipping any LAN in play; a LAN never takes an address
 there. Every LAN-making path (palette drop, router -> empty pane, *Add a
 segment*, a host on a router, a template with `subnet: auto`) takes its site
-prefix from the LANs only (`lanSitePrefix`: every CIDR inside the pool is left
-out), and with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
-`10.200.1.0/24`, …; a template falls back to its own placeholders first);
+prefix from the LANs only (`lanSitePrefix`: every CIDR inside the transit pool
+or the internet's, `INTERNET_POOL` `10.250.0.0/16`, is left out -- B7, 2026-11-21:
+a template rack had landed on `10.250.1.0/24` beside the internet's `/24`), and
+with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
+`10.200.1.0/24`, …; a template too since B7 -- one LAN pool for both paths;
+it had fallen back to its own placeholders); `nextFreeSlash24` fences the
+internet pool off as it does the transit pool, except for the Internet tool's own prefix;
 `nextFreeSlash24` never returns a `/24` overlapping the pool, and a copied
 transit (a template's, a duplicate's) takes the next free `/30` instead. **router / host -> segment**
 attaches; **router (or L3 switch) <-> switch** (2026-11-21, `subtree.ts` `gatewayOnSwitch`, either
