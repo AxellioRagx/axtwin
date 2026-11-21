@@ -10,11 +10,11 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ImageProfile } from "../src/api/types";
-import { DEVICE_CARDS, imageFor, isL3Switch, profileFor, searchAdd } from "../src/features/edit-canvas/add/catalog";
+import { DEVICE_CARDS, healthHints, imageFor, isL3Switch, profileFor, searchAdd } from "../src/features/edit-canvas/add/catalog";
 import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
 import { gatewayAddress } from "../src/features/edit-canvas/edit/allocate";
 import { applyIntent, connectIntent, intentHint } from "../src/features/edit-canvas/edit/connect";
-import { readDoc, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
+import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
 import { attachDevices } from "../src/features/edit-canvas/edit/subtree";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { panel, seeded, twinYaml } from "./helpers/canvasFixtures";
@@ -170,5 +170,70 @@ describe("A4: an L3 switch on the canvas", () => {
     expect(within(fw).getByRole("heading", { level: 3 }).textContent).toBe("Router agg-2");
     expect(within(fw).queryByTestId("switch-note")).toBeNull();
     expect(fw.textContent).not.toMatch(/a switch's attachments are its own ports|a switch is a device wired by links/);
+  });
+});
+
+describe("B1: deleting a device takes what hangs on it", () => {
+  const AGGS = `twin_config:
+  id: dc
+  segments:
+    - { name: up, cidr: 10.1.0.0/24, zone_type: vlan }
+  nodes:
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5, net: up }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5, net: up }
+`;
+  /** A switch dropped on the pane, wired to both routers. */
+  function wired(): WorkingDoc {
+    let d = doc(AGGS);
+    const r = applyDeviceDrop(d, readDoc(d), { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { pane: true }, image: null });
+    d = { ...d, files: r.files };
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: applyIntent(d, readDoc(d), connectIntent(readDoc(d).te, { kind: "router", name: agg }, { kind: "switch", name: "sw-1" })) };
+    return d;
+  }
+
+  it("add switch -> link to two routers -> delete switch -> the Check passes: no link, no segment, no leg left", () => {
+    const d = wired();
+    const before = readDoc(d);
+    expect(before.te.links).toHaveLength(2);
+    expect(removalPlan(before, "sw-1")).toEqual({ links: [0, 1], segments: ["switch-lan"], hosted: {} });
+    const m = readDoc({ ...d, files: removeNode(d, before, "sw-1") });
+    expect(m.te.links).toEqual([]);
+    expect(m.te.segments.map((s) => s.name)).toEqual(["up"]);
+    expect(m.te.nodes.find((n) => n.name === "agg-1")!.nets.map((l) => l.segment)).toEqual(["up"]);
+    expect(m.findings.filter((f) => f.severity === "error")).toEqual([]);
+    expect(danglingLinks(m.te)).toEqual([]);
+  });
+
+  it("a segment with hosts still on it is kept by default (it is implied again); unticked, it goes too", () => {
+    let d = wired();
+    const r = applyDeviceDrop(d, readDoc(d), { card: "server", os: "linux", role: "web-tier", persona: null, count: 2, prefix: "web", target: { segment: "switch-lan" }, image: "debian-12-cloud@v1" });
+    d = { ...d, files: r.files };
+    const m0 = readDoc(d);
+    expect(removalPlan(m0, "sw-1").hosted).toEqual({ "switch-lan": 2 });
+    const kept = readDoc({ ...d, files: removeNode(d, m0, "sw-1") });
+    expect(kept.te.segments.map((s) => s.name)).toEqual(["up", "switch-lan"]);
+    expect(kept.te.links).toEqual([]);
+    expect(kept.findings.filter((f) => f.severity === "error")).toEqual([]);
+    const gone = readDoc({ ...d, files: removeNode(d, m0, "sw-1", { keepSegments: false }) });
+    expect(gone.te.segments.map((s) => s.name)).toEqual(["up"]);
+    expect(gone.te.nodes.find((n) => n.name === "agg-2")!.nets.map((l) => l.segment)).toEqual(["up"]);
+  });
+
+  it("removing a segment drops it from the links that carry it; a link left carrying nothing goes", () => {
+    const te = `${RACK.replace("net: rack1-srv }", "nets: [{ segment: rack1-srv }, { segment: other }] }").replace("    - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }\n", "    - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }\n    - { name: other, cidr: 10.200.1.0/24 }\n")}  links:\n    - { a: { device: agg-1, port: eth1 }, b: { device: rack1-tor, port: P1 }, mode: trunk, vlans: [rack1-srv, other] }\n    - { a: { device: agg-2, port: eth1 }, b: { device: rack1-tor, port: P2 }, mode: trunk, native: other, vlans: [other] }\n`;
+    const d = doc(te);
+    const m = readDoc({ ...d, files: removeSegment(d, readDoc(d), "other") });
+    expect(m.te.links.map((l) => ({ native: l.native, vlans: l.vlans }))).toEqual([{ native: null, vlans: ["rack1-srv"] }]);
+  });
+
+  it("a dangling link (a node or a segment the twin does not have) is a design hint whose one click removes it", () => {
+    const te = `${RACK}  links:\n    - { a: { device: agg-1, port: eth1 }, b: { device: gone-sw, port: P1 }, mode: trunk, native: rack1-srv, vlans: [rack1-srv] }\n    - { a: { device: agg-2, port: eth1 }, b: { device: rack1-tor, port: P2 }, mode: trunk, native: nowhere, vlans: [nowhere] }\n    - { a: { device: agg-2, port: eth2 }, b: { device: rack1-tor, port: P3 }, mode: trunk, native: rack1-srv, vlans: [rack1-srv] }\n`;
+    const d = doc(te);
+    const m = readDoc(d);
+    expect(danglingLinks(m.te)).toEqual([0, 1]);
+    expect(healthHints(m.te, [])).toContain("2 dangling links");
+    const fixed = readDoc({ ...d, files: removeDanglingLinks(d, m) });
+    expect(fixed.te.links.map((l) => l.a.port)).toEqual(["eth2"]);
+    expect(healthHints(fixed.te, []).join(" ")).not.toMatch(/dangling/);
   });
 });

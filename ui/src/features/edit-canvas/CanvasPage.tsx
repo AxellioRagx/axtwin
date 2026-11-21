@@ -72,7 +72,7 @@ import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
 import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
-import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -2046,7 +2046,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data && model
               ? {
-                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
+                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} fixes={danglingLinks(model.te).length ? [{ label: `Remove ${danglingLinks(model.te).length === 1 ? "it" : "them"}`, run: () => void edit("remove dangling links", (d, m) => removeDanglingLinks(d, m)) }] : []} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
                   quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} templates={templates} onPick={pick} onClose={close} />,
                   ...(pendingTemplate
                     ? {

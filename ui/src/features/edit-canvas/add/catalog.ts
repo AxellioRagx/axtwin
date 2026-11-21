@@ -7,6 +7,7 @@
  * list: every role is read from `GET /api/personas`. Pure -- no React (storage reads guarded).
  */
 import type { ImageProfile, Persona, Template } from "../../../api/types";
+import { danglingLinks } from "../edit/document";
 import { carriedBy, parkedDevices } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
 import { L3_SWITCH_ROLE } from "../model/roles";
@@ -294,6 +295,9 @@ export function healthHints(te: TeModel, personas: readonly Persona[]): string[]
   }
   const bare = te.segments.filter((s) => !routed.has(s.name)).length;
   if (bare) out.push(`${bare} segment${bare === 1 ? "" : "s"} with no router`);
+  // B1: a link naming a node or a segment the twin no longer has (the hint's fix removes them).
+  const dangling = danglingLinks(te).length;
+  if (dangling) out.push(`${dangling} dangling link${dangling === 1 ? "" : "s"}`);
   return out;
 }
 

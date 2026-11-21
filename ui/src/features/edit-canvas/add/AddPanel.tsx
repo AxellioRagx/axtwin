@@ -19,6 +19,8 @@ export interface AddPanelProps {
   templateList?: readonly Template[];
   /** The design-health hints (`catalog.ts` `healthHints`). */
   health: readonly string[];
+  /** One-click fixes the hints offer (B1: "Remove 2 dangling links"). */
+  fixes?: ReadonlyArray<{ label: string; run(): void }>;
   disabled: boolean;
   note: string | null;
   /** The Templates section (phase 2), when there is one. */
@@ -102,7 +104,7 @@ export function AddHits({ hits, disabled, onPick }: { hits: readonly AddHit[]; d
   );
 }
 
-export function AddPanel({ personas, templateList = [], health, disabled, note, templates }: AddPanelProps) {
+export function AddPanel({ personas, templateList = [], health, fixes = [], disabled, note, templates }: AddPanelProps) {
   const target = useAddTarget();
   const [query, setQuery] = useState("");
   const [favourites, setFavourites] = useState<AddRef[]>(() => readRefs(FAVOURITES_KEY));
@@ -175,6 +177,11 @@ export function AddPanel({ personas, templateList = [], health, disabled, note, 
       )}
       <p className="muted cv-add-health" data-testid="add-health">
         {health.length ? health.join(" · ") : "no design hints"}
+        {fixes.map((f) => (
+          <button key={f.label} type="button" className="link" disabled={disabled} data-testid="add-health-fix" onClick={f.run}>
+            {f.label}
+          </button>
+        ))}
       </p>
     </aside>
   );

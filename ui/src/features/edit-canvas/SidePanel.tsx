@@ -29,6 +29,7 @@ import {
   readDoc,
   removeLink,
   removeNode,
+  removalPlan,
   removeSegment,
   removeTap,
   renameNode,
@@ -731,7 +732,7 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
         </button>
       </div>
       <h4>Actions</h4>
-      <button type="button" className="danger" disabled={ro} data-testid="remove-subtree" title="remove the devices, hosts, links and segments of this subtree" onClick={() => { if (p.apply(`remove ${p.root}'s subtree`, (d, m) => { let files = d.files; let model = m; for (const h of [...t.hosts, ...t.devices]) { files = removeNode({ ...d, files }, model, h); model = readDoc({ ...d, files }); } for (const s of t.segments) { files = removeSegment({ ...d, files }, model, s); model = readDoc({ ...d, files }); } return files; }) === null) p.onSelect?.({ kind: "none" }); }}>
+      <button type="button" className="danger" disabled={ro} data-testid="remove-subtree" title="remove the devices, hosts, links and segments of this subtree" onClick={() => { if (p.apply(`remove ${p.root}'s subtree`, (d, m) => { let files = d.files; let model = m; for (const h of [...t.hosts, ...t.devices]) { files = removeNode({ ...d, files }, model, h, { keepSegments: false }); model = readDoc({ ...d, files }); } for (const s of t.segments) { if (!model.te.segments.some((x) => x.name === s)) continue; files = removeSegment({ ...d, files }, model, s); model = readDoc({ ...d, files }); } return files; }) === null) p.onSelect?.({ kind: "none" }); }}>
         Remove subtree
       </button>
     </section>
@@ -811,6 +812,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
   const [legTarget, setLegTarget] = useState("");
+  const [keepHosted, setKeepHosted] = useState(true);
   const [mergeTarget, setMergeTarget] = useState("");
   if (!n) return <p className="muted">node {p.name} is not in the document</p>;
   const mergeInto = mergeTargets(p.model, n.name);
@@ -1056,9 +1058,33 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </button>
         </div>
       ) : null}
-      <button type="button" className="danger" disabled={ro} onClick={() => p.apply(`remove ${n.name}`, (d, m) => removeNode(d, m, n.name))}>
-        Remove node group
-      </button>
+      {(() => {
+        // B1: what goes with it -- its links and, for a switch, the segments it alone carried; a segment
+        // with hosts still on it is kept unless this is unticked.
+        const plan = removalPlan(p.model, n.name);
+        const hosted = Object.keys(plan.hosted);
+        const gone = plan.segments.filter((seg) => !plan.hosted[seg] || !keepHosted);
+        return (
+          <>
+            {plan.links.length || plan.segments.length ? (
+              <p className="muted hint" data-testid="remove-plan">
+                removes {plan.links.length ? `${plan.links.length} link${plan.links.length === 1 ? "" : "s"}` : ""}
+                {plan.links.length && gone.length ? " and " : ""}
+                {gone.length ? `segment${gone.length === 1 ? "" : "s"} ${gone.join(", ")}` : ""} with it
+              </p>
+            ) : null}
+            {hosted.length ? (
+              <label className="cv-check" data-testid="keep-segment">
+                <input type="checkbox" checked={keepHosted} disabled={ro} onChange={(e) => setKeepHosted(e.target.checked)} />
+                keep {hosted.map((seg) => `${seg} (${plan.hosted[seg]} host${plan.hosted[seg] === 1 ? "" : "s"} on it)`).join(", ")}
+              </label>
+            ) : null}
+            <button type="button" className="danger" disabled={ro} data-testid="remove-node" onClick={() => p.apply(`remove ${n.name}`, (d, m) => removeNode(d, m, n.name, { keepSegments: hosted.length ? keepHosted : undefined }))}>
+              Remove {n.kind === "switch" ? "switch" : n.kind === "router" ? (isL3Switch(n) ? "L3 switch" : "router") : "node group"}
+            </button>
+          </>
+        );
+      })()}
     </section>
   );
 }
@@ -1082,7 +1108,7 @@ function NodesPanel(p: SidePanelProps & { names: string[] }) {
           Duplicate
         </button>
       </div>
-      <button type="button" className="danger" disabled={p.locked} onClick={() => p.apply(`remove ${p.names.length} groups`, (d, m) => p.names.reduce((files, name) => removeNode({ ...d, files }, m, name), d.files))}>
+      <button type="button" className="danger" disabled={p.locked} onClick={() => p.apply(`remove ${p.names.length} groups`, (d) => p.names.reduce((files, name) => (readDoc({ ...d, files }).te.nodes.some((x) => x.name === name) ? removeNode({ ...d, files }, readDoc({ ...d, files }), name) : files), d.files))}>
         Remove all
       </button>
     </section>

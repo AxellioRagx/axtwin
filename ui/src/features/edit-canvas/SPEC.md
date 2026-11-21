@@ -159,6 +159,14 @@ so is refused. It had been one bare trunk with no leg: the router was not the LA
 inspector showed the segment under "add a leg on…") and the engine refuses such a link to a VM
 (NSW-050, a segment the router has no leg on; NSW-060, a VM trunk carries one segment). **switch <->
 switch / host** links (`attachDevices`), unchanged.
+**Delete takes what hangs on it (2026-11-21, `document.ts` `removeNode` / `removalPlan`):**
+removing a node removes every `links[]` entry naming it (or one of its instances) and its traffic
+binding; removing a switch also removes the segments it alone carried, each with the legs on it and
+its carrying on every link (a link left carrying nothing goes; `removeSegment` does the same for any
+segment). A segment with hosts still on it is kept by default -- it draws as an implied switch again
+-- and the node panel's "keep <segment> (N hosts on it)" unticked removes it too; the panel says what
+goes ("removes 2 links and segment rack1-srv with it"). A link naming a node or a segment the twin
+does not have is a design hint ("1 dangling link") with a one-click remove (`removeDanglingLinks`).
 **Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
 chain, ring, full mesh, hub & spoke (the first selected is the hub), one
 undo step for the batch. The dialog lists each pair as "new: a--b" (the real,

@@ -497,6 +497,38 @@ export function removeNode(text: string, name: string): string {
   return t.out();
 }
 
+/** The `links[]` indices whose either end names node group `name` or one of its instances (`web01`). */
+export function linksNaming(te: Pick<TeModel, "nodes" | "links">, name: string): number[] {
+  return te.links.filter((l) => [l.a.device, l.b.device].some((d) => d === name || nodeOfEnd(te, d)?.node.name === name)).map((l) => l.index);
+}
+
+/** Remove a node group AND every `links[]` entry naming it (B1, 2026-11-21: a deleted switch had left
+ *  its links on the routers, which the engine refuses -- CV-040). `removeNode` alone stays the raw splice
+ *  a caller re-adding the same name uses (`fabric.ts`, `members.ts`). */
+export function removeNodeAndLinks(text: string, name: string): string {
+  for (const i of linksNaming(readTe(text), name).sort((x, y) => y - x)) text = removeLink(text, i);
+  return removeNode(text, name);
+}
+
+/** Drop segment `name` from every link that carries it (its native or a VLAN); a link left carrying
+ *  nothing goes (B1: a removed segment had stayed on the links, CV-044). */
+export function unlinkSegment(text: string, name: string): string {
+  const te = readTe(text);
+  for (const l of [...te.links].sort((x, y) => y.index - x.index)) {
+    if (l.native !== name && !l.vlans.includes(name)) continue;
+    const vlans = l.vlans.filter((v) => v !== name);
+    const native = l.native === name ? null : l.native;
+    if (!vlans.length && !native) {
+      text = removeLink(text, l.index);
+      continue;
+    }
+    if (l.native === name) text = setLinkField(text, l.index, "native", null);
+    if (l.vlans.includes(name)) text = setLinkField(text, l.index, "vlans", vlans.length ? vlans : native ? [native] : []);
+    if (l.mode === "access" && !vlans.length && native) text = setLinkField(text, l.index, "vlans", [native]);
+  }
+  return text;
+}
+
 /** Set (or with `null`, remove) a scalar field of a node group, keeping the
  *  node's other lines; a new key lands at its conventional place. */
 export function setNodeField(text: string, name: string, key: "name" | "role" | "image" | "count" | "kind" | "stp", value: string | number | null): string {
