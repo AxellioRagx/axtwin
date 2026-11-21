@@ -997,7 +997,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       // stands near the drop point too (2026-11-20: they landed at the canvas's top-left corner).
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
       // A drop on the pane never lands on a box already there: the group moves clear (2026-11-21).
-      if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
+      // Hosts onto a segment or a switch stand in the row under it even with no drop point (round 3 item 3a).
+      if (layoutModeRef.current === "free" && made && (p.at || "segment" in s.target)) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
     [pendingDrop, edit, onPin, onPinMany, personas, selection, model],

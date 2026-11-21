@@ -28,6 +28,7 @@ import {
   type Node,
   type NodeChange,
   type Viewport,
+  getViewportForBounds,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -36,7 +37,7 @@ import type { TopologyExport } from "../../api/types";
 import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
 import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
-import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
+import { ID, absolutePosition, allNodesBounds, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
 import { dragFollowers, iconOf } from "./canvas/free";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
@@ -1252,19 +1253,22 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const box = shellRef.current?.getBoundingClientRect();
       const screen = { x: Math.round((box?.width ?? 800) / 2), y: Math.round((box?.height ?? 600) / 2) };
       const sel = selectionRef.current;
+      // The view's centre in flow coordinates: where a card clicked onto a selection falls back to when
+      // its switch has no known spot (round 3 item 3a: hosts had landed at the origin, off screen).
+      const centre = rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y });
       if (sel.kind === "segment" && sel.names[0]) {
-        edit.onPlace(item, sel.names[0], item.count ?? 1, null, undefined, screen);
+        edit.onPlace(item, sel.names[0], item.count ?? 1, centre, undefined, screen);
         return;
       }
       // A selected switch (B2, 2026-11-21: it had dropped at the view's centre, "on a new segment under
       // agg-1"), host or router is where the card lands, as a drop on it would.
       const on = sel.kind === "node" && sel.names.length === 1 ? placeOnDevice(edit.model.te, sel.names[0]!) : null;
       if (on && !(item.kind === "device" && (item.card === "router" || item.card === "l3switch" || item.card === "switch") && !("router" in on))) {
-        if ("segment" in on) edit.onPlace(item, on.segment, item.count ?? 1, null, on.choices ? { choices: on.choices, via: on.via ?? null } : undefined, screen);
-        else edit.onPlace(item, null, item.count ?? 1, null, on, screen);
+        if ("segment" in on) edit.onPlace(item, on.segment, item.count ?? 1, centre, on.choices ? { choices: on.choices, via: on.via ?? null } : undefined, screen);
+        else edit.onPlace(item, null, item.count ?? 1, centre, on, screen);
         return;
       }
-      dropItem(item, rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y }), screen);
+      dropItem(item, centre, screen);
     },
     [edit, editing, rf, dropItem],
   );
@@ -1576,6 +1580,20 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     return parts;
   }, [placement]);
 
+  // Zoom to fit over EVERY node (round 3 item 3b): React Flow's fitView counts only measured nodes.
+  const fitAll = useCallback(
+    (duration?: number) => {
+      const b = allNodesBounds(rf.getNodes());
+      const box = shellRef.current?.getBoundingClientRect();
+      if (!b || !box || !box.width || !box.height) {
+        void rf.fitView({ duration, maxZoom: FIT_MAX_ZOOM });
+        return;
+      }
+      void rf.setViewport(getViewportForBounds(b, box.width, box.height, 0.1, FIT_MAX_ZOOM, 0.1), { duration });
+    },
+    [rf],
+  );
+
   // The rail's shortcuts: only when the keyboard is on the canvas, never in a field.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1596,7 +1614,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
         case "c": if (edit && !locked) setTool("connect"); break;
-        case "f": void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }); break;
+        case "f": fitAll(300); break;
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
@@ -1611,7 +1629,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, [rf, edit, locked, togglePopover, provenanceOverlay, startCarry]);
+  }, [rf, edit, locked, togglePopover, provenanceOverlay, startCarry, fitAll]);
 
   const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
 
@@ -1620,7 +1638,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: "Pan", key: "H, or hold Space", icon: <Icon.pan />, pressed: tool === "pan" || spaceHeld, onClick: () => setTool("pan") },
     { name: "Zoom in", key: "+", icon: <Icon.zoomIn />, onClick: () => void rf.zoomIn({ duration: 200 }) },
     { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
-    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) },
+    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => fitAll(300) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
@@ -1682,7 +1700,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const t = menu.target;
     const items: Array<{ label: string; run(): void; danger?: boolean }> = [];
     if (t.kind === "pane") {
-      items.push({ label: "Zoom to fit", run: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) });
+      items.push({ label: "Zoom to fit", run: () => fitAll(300) });
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
@@ -1727,7 +1745,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
     return items;
-  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry]);
+  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry, fitAll]);
 
   return (
     <FindingsContext.Provider value={findings}>

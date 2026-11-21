@@ -828,7 +828,12 @@ page, not a card in one:
   stays until dismissed.
 - **Positions.** The view fits ONCE, when the first nodes are measured (or
   the session's viewport is restored), never on an edit; F / Zoom to fit is
-  the explicit way. In the design view a site's or segment's computed
+  the explicit way, and it frames EVERY node the layout holds -- absolute positions and declared
+  sizes, hidden ones left out (`placement.ts` `allNodesBounds`; round 3 item 3b: React Flow's own
+  fitView counts only measured nodes). **Hosts added to a selected switch (round 3 item 3a):** a card
+  clicked with a switch, segment or host selected stands in the row under that switch, centred on
+  it, like a template's layout (`placeDropped` with no drop point), and falls back to the view's
+  centre when the switch has no known spot -- it had landed at the origin, off screen. In the design view a site's or segment's computed
   position settles for the session (`CanvasPage` `settled`): a mutation
   packs only what has no position yet, so adding a node never shuffles its
   neighbours. A box without a pin never lands under a pinned one: it takes
