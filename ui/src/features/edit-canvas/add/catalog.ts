@@ -7,6 +7,7 @@
  * list: every role is read from `GET /api/personas`. Pure -- no React (storage reads guarded).
  */
 import type { ImageProfile, Persona, Template } from "../../../api/types";
+import { inTransitPool } from "../edit/allocate";
 import { danglingLinks } from "../edit/document";
 import { carriedBy, parkedDevices } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
@@ -276,6 +277,28 @@ export function peerOffer(role: string, personas: readonly Persona[]): PeerOffer
   return { role, card, os: card === "ot" ? null : osOf(p), persona: p.id, count, label: `Add ${count} ${noun}` };
 }
 
+/** The LANs with two or more gateways (A6, 2026-11-21): a segment outside the transit pool with a leg
+ *  of two or more routers (an L3 switch is one) and a host or a switch on it. With no shared VIP (first-hop
+ *  redundancy is not modelled: design D5), the servers route through one of them only. */
+export function twoGatewayLans(te: Pick<TeModel, "nodes" | "links" | "segments">): Array<{ segment: string; routers: string[] }> {
+  const out: Array<{ segment: string; routers: string[] }> = [];
+  for (const s of te.segments) {
+    if (inTransitPool(s.cidr)) continue;
+    const routers = te.nodes.filter((n) => n.kind === "router" && n.nets.some((l) => l.segment === s.name)).map((n) => n.name);
+    if (routers.length < 2) continue;
+    const lan = te.nodes.some((n) => n.kind !== "router" && n.nets.some((l) => l.segment === s.name)) || te.nodes.some((n) => n.kind === "switch" && carriedBy(te as TeModel, n.name).includes(s.name));
+    if (lan) out.push({ segment: s.name, routers });
+  }
+  return out;
+}
+
+/** The two-gateway hint's words: "rack1-srv has two gateways (agg-1, agg-2) and no shared VIP -- servers will use only one". */
+export function twoGatewayText(g: { segment: string; routers: string[] }): string {
+  const n = g.routers.length;
+  const word = n === 2 ? "two" : n === 3 ? "three" : String(n);
+  return `${g.segment} has ${word} gateways (${g.routers.join(", ")}) and no shared VIP — servers will use only one`;
+}
+
 /** The design-health line: hints only, never a Check ("2 roles missing peers · 1 segment with no router"). */
 export function healthHints(te: TeModel, personas: readonly Persona[]): string[] {
   const out: string[] = [];
@@ -295,6 +318,8 @@ export function healthHints(te: TeModel, personas: readonly Persona[]): string[]
   }
   const bare = te.segments.filter((s) => !routed.has(s.name)).length;
   if (bare) out.push(`${bare} segment${bare === 1 ? "" : "s"} with no router`);
+  // A6: a LAN with two gateways and no shared VIP.
+  for (const g of twoGatewayLans(te)) out.push(twoGatewayText(g));
   // B1: a link naming a node or a segment the twin no longer has (the hint's fix removes them).
   const dangling = danglingLinks(te).length;
   if (dangling) out.push(`${dangling} dangling link${dangling === 1 ? "" : "s"}`);

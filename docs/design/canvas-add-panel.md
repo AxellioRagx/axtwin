@@ -281,6 +281,30 @@ Storage and API:
 - **D3:** new `catalog/templates/` and the templates API (§5.3).
 - **D4:** remove Images and "From other twins" from the panel; traffic
   generators hidden under Advanced.
+- **D5 (proposed 2026-11-21, awaiting sign-off): first-hop redundancy on a
+  LAN with two gateways.** Today a rack LAN wired to agg-1 and agg-2 gets two
+  addressed router legs (`.1`, `.2`) and the canvas only hints "two gateways
+  and no shared VIP — servers will use only one"; nothing fails over. Two ways
+  to express a VRRP pair: **(a)** a `vrrp:` block on a segment
+  (`vrrp: { vip: 10.200.0.1, members: [agg-1, agg-2], priority: {agg-1: 200} }`),
+  validated (every member a router with a leg on the segment, on a VyOS image;
+  the VIP inside the segment and pinned by no leg; the hosts' default gateway
+  becomes the VIP) and rendered by `configure-router` as VyOS
+  `high-availability vrrp group` on each member's leg -- a locked
+  `IR_SCHEMA.md` (segment field) and `OP_CATALOG.md` (configure-router input)
+  change, plus the planner's first-leg gateway rule reading the VIP; on the
+  canvas, the segment panel gets "Shared gateway (VRRP)" (VIP defaulting to
+  `.1`, members re-pinned to `.2`, `.3`) and the hint goes. **(b)** corp-twin's
+  pattern: the pair are `kind: host` Debian VMs with `role: l3-switch` running
+  keepalived through an install script (`catalog/twins/corp-twin/scripts/
+  serve-vrrp-l3.sh`, one sync group, VIPs not owned by any leg) -- no contract
+  change, which is why corp-twin chose it, but the members stop being routers:
+  no VyOS, no planner OSPF on their transits, no FAB-080 fabric, and a script
+  per twin. **Recommendation: (a).** The canvas's L3 switch is a VyOS
+  `kind: router` precisely so the planner renders its legs and OSPF; (b) would
+  make a redundant pair the one place it is not, and the three-tier template
+  (Part C) would ship a script. (a) is one schema field and one op input,
+  expressible on every VyOS pair the canvas can draw. Not built until signed off.
 
 ## 9. Phases
 

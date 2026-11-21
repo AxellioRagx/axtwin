@@ -10,7 +10,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ImageProfile } from "../src/api/types";
-import { DEVICE_CARDS, healthHints, imageFor, isL3Switch, profileFor, searchAdd } from "../src/features/edit-canvas/add/catalog";
+import { DEVICE_CARDS, healthHints, imageFor, isL3Switch, profileFor, searchAdd, twoGatewayLans } from "../src/features/edit-canvas/add/catalog";
 import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
 import { gatewayAddress } from "../src/features/edit-canvas/edit/allocate";
 import { applyIntent, connectIntent, intentHint } from "../src/features/edit-canvas/edit/connect";
@@ -364,5 +364,35 @@ describe("B3: Duplicate subtree makes the next rack", () => {
     const pos = copyPositions(m, "rack1-tor", r, known, at);
     expect(pos["host:rack2-web"]).toEqual({ x: at.x - 40, y: 330 });
     expect(pos["host:rack2-app"]).toEqual({ x: at.x + 40, y: 330 });
+  });
+});
+
+describe("A6: two gateways on one LAN", () => {
+  it("a second router on a LAN shows the hint (health line and the segment); one gateway or a transit does not", () => {
+    let d = doc(RACK);
+    d = { ...d, files: gatewayOnSwitch(d, readDoc(d), "agg-1", "rack1-tor") };
+    expect(twoGatewayLans(readDoc(d).te)).toEqual([]);
+    expect(healthHints(readDoc(d).te, []).join(" ")).not.toMatch(/gateways/);
+    d = { ...d, files: gatewayOnSwitch(d, readDoc(d), "agg-2", "rack1-tor") };
+    const te = readDoc(d).te;
+    expect(twoGatewayLans(te)).toEqual([{ segment: "rack1-srv", routers: ["agg-1", "agg-2"] }]);
+    expect(healthHints(te, [])).toContain("rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one");
+    // A router-to-router transit (two routers, nothing else, in the transit pool) is not a LAN.
+    const transit = readTe(`twin_config:\n  id: t\n  segments:\n    - { name: a--b, cidr: 10.254.0.0/30, zone_type: vlan }\n  nodes:\n    - { name: a, kind: router, image: x, nets: [{ segment: a--b, ip: 10.254.0.1 }] }\n    - { name: b, kind: router, image: x, nets: [{ segment: a--b, ip: 10.254.0.2 }] }\n`);
+    expect(twoGatewayLans(transit)).toEqual([]);
+  });
+
+  it("the segment's panel says it too", async () => {
+    let d = doc(RACK);
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: gatewayOnSwitch(d, readDoc(d), agg, "rack1-tor") };
+    const { api } = withTwin("dc", { "te.yaml": d.files["te.yaml"]! });
+    renderAt(api, "/twins/dc/canvas");
+    await screen.findAllByTestId("canvas-device");
+    fireEvent.click(screen.getAllByTestId("canvas-device").find((x) => x.dataset["nodeId"] === "rack1-tor")!);
+    // The switch's panel lists what it carries; a click opens the segment's.
+    const np = await panel().findByTestId("node-panel");
+    fireEvent.click(within(within(np).getByTestId("carried-segments")).getByRole("button"));
+    const sp = await panel().findByTestId("segment-panel");
+    expect(within(sp).getByTestId("two-gateways").textContent).toBe("rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one");
   });
 });

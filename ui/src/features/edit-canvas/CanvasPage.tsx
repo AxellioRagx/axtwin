@@ -82,7 +82,7 @@ import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft, type LayoutMode } f
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
-import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, writeRefs } from "./add/catalog";
+import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
 import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
@@ -1505,7 +1505,13 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           return;
         }
         const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : intent.kind === "gateway" ? `${intent.router} gateway on ${intent.switch}` : `link ${intent.a} — ${intent.b}`;
-        if (edit(label, (d, m) => applyIntent(d, m, intent)) !== null) return;
+        let after: DocModel["te"] | null = null;
+        if (edit(label, (d, m) => { const f = applyIntent(d, m, intent); after = readDoc({ ...d, files: f }).te; return f; }) !== null) return;
+        // A6: the second gateway on a LAN says so at once (the hint stays on the health line and the segment).
+        if (intent.kind === "gateway" && after) {
+          const two = twoGatewayLans(after).filter((g) => intent.segments.includes(g.segment) && g.routers.includes(intent.router));
+          if (two.length) setExitNote(two.map(twoGatewayText).join("; "));
+        }
         // A new LAN stands where it was dropped: its implied switch's pin.
         if (intent.kind === "lan" && at) onPin(`segment:${intent.cidr}`, at);
         if (intent.kind === "transit" || intent.kind === "lan") setSelection({ kind: "segment", names: [intent.name] });

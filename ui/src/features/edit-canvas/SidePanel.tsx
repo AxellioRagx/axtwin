@@ -57,7 +57,7 @@ import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
-import { isL3Switch } from "./add/catalog";
+import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
 import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
@@ -1139,6 +1139,10 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
       <h3>
         Segment <span className="mono">{s.name}</span>
       </h3>
+      {(() => {
+        const g = twoGatewayLans(p.model.te).find((x) => x.segment === s.name);
+        return g ? <p className="muted hint cv-warn" data-testid="two-gateways">{twoGatewayText(g)}</p> : null;
+      })()}
       {carrier ? (
         <p className="muted hint" data-testid="segment-carrier">
           carried by switch{" "}
