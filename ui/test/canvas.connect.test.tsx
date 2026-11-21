@@ -77,13 +77,13 @@ describe("the connect commands", () => {
     expect(transits).toHaveLength(6);
     expect(new Set(transits.map((s) => s.cidr)).size).toBe(6);
     expect(transits.every((s) => s.ospfArea === 0)).toBe(true);
-    // A ring over the mesh adds nothing: every pair is linked.
+    // A ring over the mesh adds nothing: every pair is linked, and with no OSPF/image choice it is refused.
     const d2 = { ...d, files: mesh.files };
-    expect(() => wireRouters(d2, readDoc(d2), four, "ring")).toThrow(/every pair is already linked/);
+    expect(() => wireRouters(d2, readDoc(d2), four, "ring")).toThrow(/all pairs already linked/);
     // A chain where one pair is linked: that pair is left out and named.
     const one = connectRouters(d, readDoc(d), "a", "b");
     const d3 = { ...d, files: one.files };
-    expect(wireRouters(d3, readDoc(d3), ["a", "b", "c"], "chain")).toMatchObject({ made: ["b--c"], skipped: ["a–b"] });
+    expect(wireRouters(d3, readDoc(d3), ["a", "b", "c"], "chain")).toMatchObject({ made: ["b--c"], skipped: ["a--b"] });
   });
 });
 
@@ -218,7 +218,7 @@ describe("on the page", () => {
     fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 3 routers as/));
     const dlg = await screen.findByTestId("wire-dialog");
     fireEvent.click(within(dlg).getByLabelText("ring"));
-    expect(dlg.textContent).toContain("r1–r2, r2–r3, r3–r1");
+    expect(within(dlg).getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(["new: r1--r2", "new: r2--r3", "new: r1--r3"]);
     fireEvent.click(within(dlg).getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(screen.queryByTestId("wire-dialog")).toBeNull());
     expect(screen.getByTestId("exit-note").textContent).toContain("3 transits made");

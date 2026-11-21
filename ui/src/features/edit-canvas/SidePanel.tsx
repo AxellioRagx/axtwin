@@ -56,11 +56,13 @@ import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
+import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
   | { kind: "none" }
   | { kind: "node"; names: string[] }
-  | { kind: "segment"; names: string[] }
+  /** `uncarried`: picked through the "Not carried" box, whose words the panel repeats. */
+  | { kind: "segment"; names: string[]; uncarried?: boolean }
   | { kind: "leg"; node: string; segment: string }
   /** A `links[]` entry, by its list index (the device tree, topology-layers §2.3). */
   | { kind: "link"; index: number }
@@ -203,6 +205,7 @@ export function SidePanel(p: SidePanelProps) {
     <aside className="cv-side" aria-label="Properties" data-testid="side-panel">
       {selection.kind === "node" && selection.names.length === 1 ? <NodePanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "node" && selection.names.length > 1 ? <NodesPanel {...p} names={selection.names} /> : null}
+      {selection.kind === "segment" && selection.uncarried ? <UncarriedNote names={selection.names} onSelect={p.onSelect} /> : null}
       {selection.kind === "segment" && selection.names.length === 1 ? <SegmentPanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "segment" && selection.names.length > 1 ? <SegmentsPanel {...p} names={selection.names} /> : null}
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
@@ -214,6 +217,26 @@ export function SidePanel(p: SidePanelProps) {
       {selection.kind === "annotation" ? <AnnotationPanel {...p} id={selection.id} /> : null}
       {selection.kind === "none" ? <TwinPanel {...p} /> : null}
     </aside>
+  );
+}
+
+/** The "Not carried" box, clicked (2026-11-21): its tooltip's words, and each segment it holds as a
+ *  row that selects that one segment. */
+function UncarriedNote(p: { names: string[]; onSelect?: SidePanelProps["onSelect"] }) {
+  return (
+    <section className="cv-side-section" data-testid="uncarried-note">
+      <h3>Not carried</h3>
+      <ul className="cv-legs">
+        {p.names.map((s) => (
+          <li key={s} data-testid="uncarried-row" data-segment={s}>
+            <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "segment", names: [s] })} title="select this segment">
+              {uncarriedLine(s)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="muted hint">Add a router leg on {p.names.length === 1 ? "it" : "one"} (or a link to a switch a router reaches) to place it in the tree.</p>
+    </section>
   );
 }
 
@@ -1064,6 +1087,8 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
   // §7.1: the real switch that carries it, else it is drawn as an implied switch (presentation only).
   const carrier = p.model.te.nodes.find((n) => n.kind === "switch" && carriedBy(p.model.te, n.name).includes(s.name)) ?? null;
   const groups = on.filter((n) => n.kind !== "router" && n.kind !== "switch" && n.nets[0]?.segment === s.name && !(n.countValue === 1 && typeof n.count === "number"));
+  // A router-to-router transit (two routers and nothing else on it), or one already running OSPF.
+  const isTransit = s.ospfArea !== null || (on.length === 2 && on.every((n) => n.kind === "router"));
   return (
     <section className="cv-side-section" data-testid="segment-panel" data-implied={carrier ? undefined : "true"}>
       <h3>
@@ -1109,6 +1134,24 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
           {s.zoneType && !ZONE_TYPES.includes(s.zoneType) ? <option value={s.zoneType}>{s.zoneType}</option> : null}
         </select>
       </Field>
+      {isTransit ? (
+        <Field label="OSPF area" hint="ospf_area on this transit's router legs; empty = off">
+          <Text
+            ariaLabel="OSPF area"
+            value={s.ospfArea === null ? "" : String(s.ospfArea)}
+            disabled={ro}
+            mono
+            placeholder="off"
+            onCommit={(v) =>
+              p.apply(`ospf area of ${s.name}`, (d) => {
+                const t = v.trim();
+                if (t && !/^\d+$/.test(t)) throw new Error(`an OSPF area is a whole number (0, 1, …), got '${t}'`);
+                return setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+              })
+            }
+          />
+        </Field>
+      ) : null}
       <h4>On this segment</h4>
       {on.length === 0 ? <p className="muted">nothing attached</p> : <p className="mono">{on.map((n) => `${n.name}${n.countValue > 1 ? ` ×${n.countValue}` : ""}`).join(", ")}</p>}
       <SegmentTaps {...p} segment={s.name} />

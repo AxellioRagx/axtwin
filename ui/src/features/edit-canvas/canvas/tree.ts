@@ -60,7 +60,7 @@ import { BUS_ICON, OVERFLOW_LANE_H } from "./bus";
 import { HUE_GREY, hueOf, TRANSIT_HUE } from "./hues";
 import { routeOrthogonal, type Box, type RouteRequest } from "./orthogonal";
 import { selectPairs } from "./pairs";
-import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
+import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, uncarriedLine, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
 
 export interface TreeOptions {
   /** The expand keys the operator opened (`carrier:`, `site:`, `hosts:`). */
@@ -734,7 +734,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
     const n = notCarried.length;
     // In plain words, per segment (2026-11-20, round 2), and a click selects them so they can be found.
     const segs = notCarried.filter((id) => id.startsWith(ID.segment(""))).map((id) => id.slice(ID.segment("").length));
-    const title = segs.length ? `${segs.map((s) => `${s} isn't on any router: nothing outside it can reach it`).join("\n")}\nclick to select ${segs.length === 1 ? "it" : "them"}` : "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree";
+    const title = segs.length ? `${segs.map(uncarriedLine).join("\n")}\nclick to select ${segs.length === 1 ? "it" : "them"}` : "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree";
     nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title, segments: segs } });
   }
   // The implied switches (rule 2): the segment's own data, drawn as a dashed switch.

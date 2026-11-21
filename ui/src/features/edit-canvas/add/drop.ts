@@ -5,12 +5,11 @@
  * today's twin-config vocabulary through the existing commands (`placeNodes`, `setPersona`,
  * `setNodeField`, `attach`, `insertSwitch`, `addTap`); no schema change. Pure -- no React.
  */
-import { nextFreeSlash24 } from "../edit/allocate";
+import { DEFAULT_LAN_PREFIX, lanSitePrefix, nextFreeLan, nextFreeSlash24 } from "../edit/allocate";
 import type { Files } from "../edit/commands";
 import { addSegment, addTap, attach, placeNodes, readDoc, setAttachmentAddress, setNodeField, setPersona, type DocModel, type WorkingDoc } from "../edit/document";
 import { insertSwitch, newSegmentOnRouter } from "../edit/switches";
 import { addNode } from "../edit/te";
-import { twoOctetPrefix } from "../model/keys";
 import type { CardId, Os } from "./catalog";
 
 /** Where the drop landed (`Canvas.tsx` `placeTarget`, §7.1 drop rules). */
@@ -84,9 +83,10 @@ export function dropSegmentName(m: Pick<DocModel, "te">, base: string): string {
 /** A new LAN segment in the twin's first site (the next free /24 after the highest in use), else 10.200. */
 function newLan(doc: WorkingDoc, m: DocModel, base: string): { doc: WorkingDoc; segment: string } {
   const inPlay = m.te.segments.map((s) => s.cidr);
-  const prefix = (m.te.segments.find((s) => s.name !== INTERNET_SEGMENT) ? twoOctetPrefix(m.te.segments.find((s) => s.name !== INTERNET_SEGMENT)!.cidr) : null) ?? "10.200";
-  const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
-  if (!cidr) throw new Error(`no free /24 under ${prefix} for a new segment`);
+  // The first LAN's site: the internet segment and every transit (TRANSIT_POOL) are not a site.
+  const prefix = lanSitePrefix(m.te.segments.filter((s) => s.name !== INTERNET_SEGMENT).map((s) => s.cidr));
+  const cidr = nextFreeLan(prefix, inPlay);
+  if (!cidr) throw new Error(`no free /24 under ${prefix ?? DEFAULT_LAN_PREFIX} for a new segment`);
   const segment = dropSegmentName(m, base);
   return { doc: { ...doc, files: addSegment(doc, { name: segment, cidr, zoneType: "vlan" }) }, segment };
 }

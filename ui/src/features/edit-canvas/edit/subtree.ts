@@ -13,7 +13,7 @@
  * trunk carrying what the deeper one carries) or a device and a host (an
  * access link on the host's first segment), with free ports at both ends.
  */
-import { allocateHostAddresses, ipv4Range, nextFreeSlash24, takenAddresses } from "./allocate";
+import { allocateHostAddresses, inTransitPool, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
@@ -302,6 +302,10 @@ export function copyInto(doc: WorkingDoc, target: DocModel, source: DocModel, se
       const clash = inPlay.find((c) => overlaps(c, options.firstCidr!));
       if (clash) throw new Error(`${options.firstCidr} overlaps ${clash}, already in the design`);
       cidr = options.firstCidr;
+    } else if (inTransitPool(seg.cidr)) {
+      // A copied router-to-router transit stays a transit: the next free /30 in the pool, never a /24.
+      cidr = nextFreeTransit(inPlay);
+      if (!cidr) throw new Error(`the transit pool is full; no /30 left for a copy of ${s}`);
     } else {
       const prefix = options.prefix || (options.firstCidr ? prefixOf(options.firstCidr) : null) || prefixOf(seg.cidr);
       cidr = prefix ? nextFreeSlash24(prefix, inPlay, { after: true }) : null;

@@ -13,7 +13,7 @@
  * then off it when it would cover a node's name or another pill (`freeLayout` sets `data.pill`).
  */
 import { DEVICE_H } from "../layout/geometry";
-import { absolutePosition, ID, type CanvasEdge, type CanvasNode, type Placement } from "./placement";
+import { absolutePosition, ID, type CanvasEdge, type CanvasNode, type LabelSide, type Placement } from "./placement";
 
 /** A fan wide enough that nothing folds: a free design shows every segment it has. */
 export const FREE_FAN = 10_000;
@@ -120,21 +120,90 @@ function pillBox(c: Point, text: string): Box {
 }
 
 /** The name label a node carries, as a box (a router's, switch's or implied switch's name and sub
- *  line above its icon; a host's caption under it), or null. Estimated from the label fonts. */
-export function nameBox(n: IconSource & { label?: string | null; sub?: string | null }): Box | null {
+ *  line above its icon -- or beside / below it, `side`; a host's caption under it), or null.
+ *  Estimated from the label fonts. */
+export function nameBox(n: IconSource & { label?: string | null; sub?: string | null }, side: LabelSide = "above"): Box | null {
   const kind = n.kind ?? n.type;
   const chars = Math.max(n.label?.length ?? 0, n.sub?.length ?? 0);
   if (!chars) return null;
   if (kind === "router" || kind === "device" || kind === "segment") {
+    const cx = n.x + n.w / 2;
+    const cy = n.y + n.h - ICON_BOX / 2;
+    const full = chars * 7.4 + 8;
+    if (side === "right") return { l: cx + ICON_BOX / 2 + 4, r: cx + ICON_BOX / 2 + 4 + full, t: cy - LABEL_H / 2, b: cy + LABEL_H / 2 };
+    if (side === "left") return { l: cx - ICON_BOX / 2 - 4 - full, r: cx - ICON_BOX / 2 - 4, t: cy - LABEL_H / 2, b: cy + LABEL_H / 2 };
+    if (side === "below") return { l: cx - full / 2, r: cx + full / 2, t: n.y + n.h + 2, b: n.y + n.h + 2 + LABEL_H };
     const w = Math.min(n.w, chars * 7.4 + 4);
     // The name and its sub line stack above the icon (flex-end): the box's top to the icon's top.
-    return { l: n.x + n.w / 2 - w / 2, r: n.x + n.w / 2 + w / 2, t: n.y + n.h - ICON_BOX - 34, b: n.y + n.h - ICON_BOX - 2 };
+    return { l: cx - w / 2, r: cx + w / 2, t: n.y + n.h - ICON_BOX - 34, b: n.y + n.h - ICON_BOX - 2 };
   }
   if (kind === "host") {
     const w = chars * 6.2 + 6;
     return { l: n.x + n.w / 2 - w / 2, r: n.x + n.w / 2 + w / 2, t: n.y + n.h + 5, b: n.y + n.h + 19 };
   }
   return null;
+}
+/** A name and its sub line, two 12px lines with their halo. */
+const LABEL_H = 32;
+
+/** Whether the segment p→q passes through the box (Liang–Barsky). Pure. */
+export function segmentHitsBox(p: Point, q: Point, b: Box): boolean {
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  let lo = 0;
+  let hi = 1;
+  for (const [den, num] of [[-dx, p.x - b.l], [dx, b.r - p.x], [-dy, p.y - b.t], [dy, b.b - p.y]] as const) {
+    if (den === 0) {
+      if (num < 0) return false;
+      continue;
+    }
+    const t = num / den;
+    if (den < 0) lo = Math.max(lo, t);
+    else hi = Math.min(hi, t);
+    if (lo > hi) return false;
+  }
+  return true;
+}
+
+/** The sides a name tries, in order: above (the tree's own), then beside the icon, then below. */
+const LABEL_SIDES: LabelSide[] = ["above", "right", "left", "below"];
+
+/** Where each router's, switch's and implied switch's name stands (2026-11-21): above its icon
+ *  unless an edge would cross it there, else the first side no edge crosses (the fewest, when every
+ *  side is crossed). Only nodes that move off "above" are in the map. Pure. */
+export function labelSides(srcs: ReadonlyMap<string, IconSource & { label?: string | null; sub?: string | null }>, lines: ReadonlyArray<{ p: Point; q: Point }>): Map<string, LabelSide> {
+  const out = new Map<string, LabelSide>();
+  for (const [id, s] of srcs) {
+    const kind = s.kind ?? s.type;
+    if (kind !== "router" && kind !== "device" && kind !== "segment") continue;
+    let best: { side: LabelSide; hits: number } | null = null;
+    for (const side of LABEL_SIDES) {
+      const box = nameBox(s, side);
+      if (!box) break;
+      const hits = lines.filter((l) => segmentHitsBox(l.p, l.q, box)).length;
+      if (!best || hits < best.hits) best = { side, hits };
+      if (!hits) break;
+    }
+    if (best && best.side !== "above") out.set(id, best.side);
+  }
+  return out;
+}
+
+/** The "Not carried" box in the free layout (2026-11-21): just above the one segment it holds, or
+ *  beside the first when it holds several -- the other spot, or the left, when that is taken --
+ *  never more than a row away. Its top-left, or null when it holds nothing drawn. Pure. */
+export function uncarriedSpot(box: { w: number; h: number }, targets: readonly Box[], taken: readonly Box[]): Point | null {
+  const first = targets[0];
+  if (!first) return null;
+  const GAP = 16;
+  const cx = (first.l + first.r) / 2;
+  const cy = (first.t + first.b) / 2;
+  const above = { x: cx - box.w / 2, y: first.t - GAP - box.h };
+  const right = { x: first.r + GAP, y: cy - box.h / 2 };
+  const left = { x: first.l - GAP - box.w, y: cy - box.h / 2 };
+  const spots = targets.length === 1 ? [above, right, left] : [right, above, left];
+  const clear = spots.find((at) => !taken.some((t) => overlaps({ l: at.x, t: at.y, r: at.x + box.w, b: at.y + box.h }, t, 4)));
+  return clear ?? spots[0]!;
 }
 
 /** The candidate spots a pill tries, in order: the midpoint, then along the line out to ±30%, then
@@ -188,6 +257,9 @@ export function canonicalEnds(sourceId: string, targetId: string, src: Icon, dst
   return { p: a, q: b, flipped };
 }
 
+/** The "Not carried" box's node id (`tree.ts`). */
+const UNCARRIED = "chrome:uncarried";
+
 export function freeLayout(p: Placement): Placement {
   const ids = new Set(p.nodes.map((n) => n.id));
   const sources = new Map(p.nodes.flatMap((n) => {
@@ -209,19 +281,40 @@ export function freeLayout(p: Placement): Placement {
     // it (the name wears a halo, `canvas.css`), never across its text.
     return { ...e, source, data, zIndex: FREE_EDGE_Z } as CanvasEdge;
   });
-  // Every pill (a transit's) on its own line, clear of the names and of each other.
-  const lines: Array<{ id: string; p: Point; q: Point; text: string }> = [];
+  // The "Not carried" box beside what it holds, not where dagre left it (2026-11-21).
+  let nodes = p.nodes;
+  const held = edges.filter((e) => e.source === UNCARRIED).map((e) => sources.get(e.target)).filter((s): s is NonNullable<typeof s> => !!s);
+  const chrome = nodes.find((n) => n.id === UNCARRIED);
+  if (chrome && held.length) {
+    const asBox = (s: IconSource) => ({ l: s.x, t: s.y, r: s.x + s.w, b: s.y + s.h });
+    const taken = [...sources.entries()].filter(([id]) => id !== UNCARRIED).map(([, s]) => asBox(s));
+    const at = uncarriedSpot({ w: chrome.width ?? 0, h: chrome.height ?? 0 }, held.map(asBox), taken);
+    if (at) {
+      nodes = nodes.map((n) => (n.id === UNCARRIED ? { ...n, position: at, parentId: undefined } : n));
+      sources.set(UNCARRIED, { ...sources.get(UNCARRIED)!, x: at.x, y: at.y });
+    }
+  }
+  // Every edge as drawn (point to point between icons), for the names and the pills to keep clear of.
+  const drawn: Array<{ e: CanvasEdge; p: Point; q: Point }> = [];
   for (const e of edges) {
-    const d = e.data as { kind?: string; segment?: string; cidr?: string } | undefined;
-    if (d?.kind !== "seglink" || !d.segment) continue;
     const s = sources.get(e.source);
     const t = sources.get(e.target);
     if (!s || !t) continue;
     const { p: a, q: b } = canonicalEnds(e.source, e.target, iconOf(s), iconOf(t));
+    drawn.push({ e, p: a, q: b });
+  }
+  // A name an edge would cross moves beside (or below) its icon (2026-11-21).
+  const sides = labelSides(sources, drawn);
+  if (sides.size) nodes = nodes.map((n) => (sides.has(n.id) ? ({ ...n, data: { ...n.data, labelSide: sides.get(n.id) } } as CanvasNode) : n));
+  // Every pill (a transit's) on its own line, clear of the names and of each other.
+  const lines: Array<{ id: string; p: Point; q: Point; text: string }> = [];
+  for (const { e, p: a, q: b } of drawn) {
+    const d = e.data as { kind?: string; segment?: string; cidr?: string } | undefined;
+    if (d?.kind !== "seglink" || !d.segment) continue;
     lines.push({ id: e.id, p: a, q: b, text: pillText({ segment: d.segment, cidr: d.cidr }) });
   }
   if (lines.length) {
-    const names = [...sources.values()].map(nameBox).filter((b): b is Box => b !== null);
+    const names = [...sources.entries()].map(([id, s]) => nameBox(s, sides.get(id))).filter((b): b is Box => b !== null);
     const icons = [...sources.values()].map((s) => {
       const i = iconOf(s);
       const hx = i.shape === "circle" ? i.r : i.half;
@@ -234,7 +327,7 @@ export function freeLayout(p: Placement): Placement {
       if (spot) (e.data as Record<string, unknown>)["pill"] = spot;
     }
   }
-  return { ...p, edges };
+  return { ...p, nodes, edges };
 }
 
 /** The ends of every free edge between two drawn nodes, from the placement (what the edge

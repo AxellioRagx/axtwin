@@ -208,6 +208,17 @@
 /* A device's name and sub line wear a halo of the canvas colour, so an edge that passes under them
    (the free layout draws its edges under the nodes) never runs across their text. */
 .cv-router .cv-icon-name, .cv-router .cv-icon-sub { background: color-mix(in srgb, var(--bg) 88%, transparent); border-radius: 3px; padding: 0 3px; }
+/* Free layout (2026-11-21): a name an edge would cross stands beside or below its icon instead
+   (`free.ts` `labelSides`); the icon stays where it is, flush with the box's bottom-centre. */
+.cv-router[data-label-side] { position: relative; }
+.cv-router[data-label-side] .cv-icon-name, .cv-router[data-label-side] .cv-icon-sub { position: absolute; max-width: none; white-space: nowrap; }
+.cv-router[data-label-side="right"] .cv-icon-name, .cv-router[data-label-side="right"] .cv-icon-sub { left: calc(50% + 21px); }
+.cv-router[data-label-side="left"] .cv-icon-name, .cv-router[data-label-side="left"] .cv-icon-sub { right: calc(50% + 21px); text-align: right; }
+.cv-router[data-label-side="right"] .cv-icon-name, .cv-router[data-label-side="left"] .cv-icon-name { bottom: 17px; }
+.cv-router[data-label-side="right"] .cv-icon-sub, .cv-router[data-label-side="left"] .cv-icon-sub { top: calc(100% - 17px); }
+.cv-router[data-label-side="below"] .cv-icon-name, .cv-router[data-label-side="below"] .cv-icon-sub { left: 50%; transform: translateX(-50%); }
+.cv-router[data-label-side="below"] .cv-icon-name { top: calc(100% + 2px); }
+.cv-router[data-label-side="below"] .cv-icon-sub { top: calc(100% + 18px); }
 .cv-router.selected .cv-icon-box, .cv-router.cv-armed .cv-icon-box { box-shadow: 0 0 0 2px var(--accent); }
 .canvas-shell.compact .cv-router .cv-icon-sub { display: none; }
 .cv-overflow { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px; border: 1px dashed var(--muted); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 12.5px; cursor: pointer; }

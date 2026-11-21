@@ -73,7 +73,7 @@ the same two-mode discipline CORE's GUI uses.
 validates and nothing is written while the operator edits. A command refuses
 only a request it cannot express (a node that no longer exists); anything it
 can write lands, incomplete or not -- a parked switch included (its `not
-attached` badge stays). **Check** (the bar's button, Ctrl+Enter when no field
+attached` badge stays). **Check** (the bar's button, Ctrl+Enter, bound page-wide from the moment the page is shown, when no text field
 has focus) sends the files on screen to `POST /api/validate`, folds in the
 canvas's own structural findings (`validate.ts`), each parked switch
 (`CV-PARK`) and an empty untitled design (`CV-EMPTY`), and records the answer
@@ -139,12 +139,26 @@ device under the pointer lit: **router -> router** a transit segment
 `fab-link`), a leg for each router at the `/30`'s `.1` and `.2`; a pair that
 already shares a segment is refused with the reason. **router -> empty pane** a
 new LAN (the next free `/24`, as the palette's Segment) with the router's leg,
-its implied switch standing where it was dropped. **router / host -> segment**
+its implied switch standing where it was dropped. **Allocation ranges
+(2026-11-21, `edit/allocate.ts`):** transits take `/30`s from `TRANSIT_POOL`
+(`10.254.0.0/16`), skipping any LAN in play; a LAN never takes an address
+there. Every LAN-making path (palette drop, router -> empty pane, *Add a
+segment*, a host on a router, a template with `subnet: auto`) takes its site
+prefix from the LANs only (`lanSitePrefix`: every CIDR inside the pool is left
+out), and with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
+`10.200.1.0/24`, …; a template falls back to its own placeholders first);
+`nextFreeSlash24` never returns a `/24` overlapping the pool, and a copied
+transit (a template's, a duplicate's) takes the next free `/30` instead. **router / host -> segment**
 attaches; **switch <-> router / switch** links (`attachDevices`), unchanged.
 **Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
 chain, ring, full mesh, hub & spoke (the first selected is the hub), one
-undo step for the batch, a linked pair left out and named; *run OSPF on these
-links* sets `ospf_area` on each new transit -- which the planner passes to the
+undo step for the batch. The dialog lists each pair as "new: a--b" (the real,
+sorted transit name) or "already linked: <its transit>"; a pair already linked
+keeps its transit, and when every pair is linked it says "all pairs already
+linked" and Connect applies only the OSPF / image choices (nothing ticked:
+refused, nothing to change). *Run OSPF on these links* sets `ospf_area` on
+every transit of the selection's pairs, new or already drawn, in the same undo
+step -- which the planner passes to the
 VyOS leg config, but OSPF comes up only with a VyOS router, a node
 `routing:` block and a `fabric:` region with `igp: ospf`. Ticked, the dialog
 lists each selected router not on the `router-ospf` image profile
@@ -152,7 +166,10 @@ lists each selected router not on the `router-ospf` image profile
 what a dropped router gets) and offers "switch these routers to vyos@1.5",
 checked by default, in the same undo step; the `routing:` block and the
 `fabric:` region are not written, and the dialog says so in one line. The created segment, its CIDR and the leg addresses edit in the
-inspector as any.
+inspector as any; a transit's inspector (two routers and nothing else on it,
+or one with `ospf_area` already) has an **OSPF area** field: a whole number
+writes `ospf_area`, empty removes it (off), so one link is set without the
+dialog.
 
 **Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
 opens in the **free** layout (every catalog twin, authored or cast, and every
@@ -167,7 +184,16 @@ leg, link) runs from the centre of one ICON to the centre of the other,
 clipped at each icon's outline (a router's circle, a switch's rounded box, a
 host's circle); no fixed top/bottom handle, and the same line whichever end
 the drag started from. Free edges draw under the nodes, and a device's name
-wears a halo, so a line never runs across a name. A transit keeps its pill on
+wears a halo. **Names (2026-11-21):** a router's, switch's or implied
+switch's name and sub line stand above its icon unless an edge would cross
+them there; then they stand beside the icon (right, else left), else below it
+(`free.ts` `labelSides`: the first side no edge crosses), so no edge crosses a
+name label. **The "Not carried" box** stands just above the one segment it
+holds, or beside the first when it holds several (the other spot, or the left,
+when that is taken), never more than a row away (`free.ts` `uncarriedSpot`);
+it keeps its tooltip, and a click selects its segments with the same words in
+the Selection panel ("Not carried": one row per segment, each a click that
+selects that segment). A transit keeps its pill on
 its own line at the midpoint; one that would cover a node's name or another
 pill is nudged along its line (up to ±30% of its length), then off it, never
 onto a name. Every transit, in the free layout and the tree, wears the one
@@ -377,6 +403,15 @@ criteria of its own beyond them.
   one segment" notice is the neutral `notice info`; a brand-new untitled design has no note (its
   state is on the pill); the "Not carried" box says "segment-4 isn't on any router: nothing outside
   it can reach it" on hover and a click selects the segment.
+- **Automated, live check of 2026-11-20 (*`canvas.livecheck1120.test.tsx`*):** a File server
+  dropped on a transits-only design (and router -> pane, a host on a router, every built-in
+  template) gets a LAN outside `10.254.0.0/16`, a design with LANs keeps its prefix; the wiring
+  dialog on an all-linked triangle lists "already linked: <transit>" per pair, creates nothing and
+  sets `ospf_area` on the 3 transits in one undo step; a transit's OSPF area field writes and
+  clears `ospf_area`; the "Not carried" box sits just above its segment wherever it is dragged
+  (beside the first of several) and, clicked, lists its segments in the Selection panel; in the
+  free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the
+  page mounts runs a validate.
 - **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
   pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
   dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +

@@ -66,12 +66,12 @@ import { FREE_FAN, freeLayout } from "./canvas/free";
 import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
-import { nextFreeSlash24 } from "./edit/allocate";
+import { lanSitePrefix, nextFreeLan } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
 import type { PlaceVia } from "./Canvas";
-import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePairs, wireRouters, type WireShape } from "./edit/connect";
+import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
 import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
@@ -81,7 +81,6 @@ import { adoptBaselineProvenance } from "./edit/provenance";
 import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft, type LayoutMode } from "./edit/useLayoutDraft";
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
-import { twoOctetPrefix } from "./model/keys";
 import { AddPanel } from "./add/AddPanel";
 import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, writeRefs } from "./add/catalog";
 import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
@@ -718,6 +717,21 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     writeUntitled(editor.files, editor.stack, origin, Boolean(untitledSeed && sameFiles(editor.files, untitledSeed.files)));
   }, [untitled, editor.files, editor.stack, origin, untitledSeed]);
 
+  // Ctrl+Enter runs Check, bound at the page level (2026-11-21): on the window, in the capture
+  // phase (before anything on the page can stop it), from the moment the page is shown -- not only once the canvas has had a click -- and
+  // still ignored while a text field has the focus.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "Enter") return;
+      const target = e.target as HTMLElement | null;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+      e.preventDefault();
+      void runCheckRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   // Ctrl+Z / Ctrl+Y over the command stack, when no field has the focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -725,10 +739,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       const target = e.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       const k = e.key.toLowerCase();
-      if (k === "enter") {
-        e.preventDefault();
-        void runCheckRef.current();
-      } else if (k === "o") {
+      if (k === "o") {
         e.preventDefault();
         setOpenDialog(true);
       } else if (k === "z" && !e.shiftKey) {
@@ -847,11 +858,11 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       const sel = selectionRef.current;
       const nearName = near ?? (sel.kind === "segment" ? sel.names[0] : sel.kind === "node" ? m.te.nodes.find((n) => n.name === sel.names[0])?.nets[0]?.segment : sel.kind === "leg" ? sel.segment : undefined);
       const nearSeg = nearName ? m.te.segments.find((s) => s.name === nearName) : undefined;
-      const prefix = (nearSeg ? twoOctetPrefix(nearSeg.cidr) : null) ?? (m.te.segments[0] ? twoOctetPrefix(m.te.segments[0].cidr) : null) ?? "10.200";
+      const prefix = lanSitePrefix([nearSeg?.cidr, ...inPlay]);
       // The next /24 AFTER the highest in use under the prefix (.10, .20 -> .21), not the
-      // first free one (.0, the site's own network address, legal but surprising).
-      const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
-      if (!cidr) throw new Error(`no free /24 under ${prefix}`);
+      // first free one (.0, the site's own network address, legal but surprising); never a transit's.
+      const cidr = nextFreeLan(prefix, inPlay);
+      if (!cidr) throw new Error(`no free /24 under ${prefix ?? "the default LAN prefix"}`);
       const taken = new Set(m.te.segments.map((s) => s.name));
       let n = m.te.segments.length + 1;
       while (taken.has(`segment-${n}`)) n++;
@@ -1879,20 +1890,23 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               const w = wireDialog;
               let made: string[] = [];
               let skipped: string[] = [];
+              let ospfSet: string[] = [];
               const switchTo = w.ospf && w.switchImage && ospfImage && model ? { to: ospfImage, routers: ospfImageGaps(model.te, w.routers, ospfImage).map((g) => g.router) } : null;
               const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape}`, (d, m) => {
                 const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null });
                 made = r.made;
                 skipped = r.skipped;
+                ospfSet = r.ospf;
                 return r.files;
               });
               if (reason) return;
               setWireDialog(null);
-              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf ? ` (ospf_area ${w.area})` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
+              const onOld = ospfSet.filter((t) => !made.includes(t));
+              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf && made.length ? ` (ospf_area ${w.area})` : ""}${onOld.length ? `; ospf_area ${w.area} set on ${onOld.join(", ")}` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
             }}
           >
             <h2 style={{ marginTop: 0 }}>Connect {wireDialog.routers.length} routers</h2>
-            <p className="muted">Each pair gets a transit segment (a /30 from 10.254.0.0/16) with a leg for both routers; a pair already linked is left as it is. One undo step.</p>
+            <p className="muted">Each pair gets a transit segment (a /30 from 10.254.0.0/16) with a leg for both routers; a pair already linked keeps its transit (OSPF, when ticked, is set on it too). One undo step.</p>
             <fieldset className="field">
               <legend>As</legend>
               {(["chain", "ring", "mesh", "hub"] as const).map((sh) => (
@@ -1904,7 +1918,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             </fieldset>
             <label className="cv-check">
               <input type="checkbox" checked={wireDialog.ospf} onChange={(e) => setWireDialog({ ...wireDialog, ospf: e.target.checked })} />
-              run OSPF on these links (<span className="mono">ospf_area</span> on each new transit)
+              run OSPF on these links (<span className="mono">ospf_area</span> on each transit, new or already drawn)
             </label>
             {wireDialog.ospf ? <OspfImageCheck te={model?.te ?? null} routers={wireDialog.routers} ospfImage={ospfImage} on={wireDialog.switchImage} onChange={(on) => setWireDialog({ ...wireDialog, switchImage: on })} /> : null}
             {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Not written here: each router&apos;s <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>; without them OSPF does not come up.</p> : null}
@@ -1914,7 +1928,19 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                 <input id="wire-area" type="number" min={0} value={wireDialog.area} onChange={(e) => setWireDialog({ ...wireDialog, area: Math.max(0, Number(e.target.value) || 0) })} />
               </div>
             ) : null}
-            <p className="muted mono">{wirePairs(wireDialog.routers, wireDialog.shape).map(([a, b]) => `${a}–${b}`).join(", ")}</p>
+            {(() => {
+              const plan = model ? wirePlan(model.te, wireDialog.routers, wireDialog.shape) : [];
+              return (
+                <div data-testid="wire-plan">
+                  {plan.length && plan.every((r) => r.kind === "linked") ? <p className="muted" data-testid="wire-all-linked">all pairs already linked{wireDialog.ospf ? ": Connect sets OSPF (and the image) only" : ""}</p> : null}
+                  <ul className="muted mono" style={{ margin: 0, paddingLeft: "1.2em" }}>
+                    {plan.map((r) => (
+                      <li key={`${r.a}|${r.b}`} data-testid="wire-plan-row">{wirePlanText(r)}</li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })()}
             {blocked ? <div className="error" role="alert">{blocked}</div> : null}
             <div className="row-actions">
               <button type="submit" className="primary">Connect</button>

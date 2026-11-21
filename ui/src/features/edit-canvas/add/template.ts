@@ -13,7 +13,7 @@ import { readDoc, type DocModel, type WorkingDoc } from "../edit/document";
 import { copyInto } from "../edit/subtree";
 import { addConduit, addLink, addNode, addSegment, type NewLink, type TeNet } from "../edit/te";
 import { emptyTfc, setAssignment } from "../edit/tfc";
-import { twoOctetPrefix } from "../model/keys";
+import { lanSitePrefix } from "../edit/allocate";
 
 export type Values = Record<string, number | string>;
 type Point = { x: number; y: number };
@@ -263,8 +263,9 @@ export function applyTemplateDrop(doc: WorkingDoc, model: DocModel, tpl: Templat
   const subnet = tpl.params.find((p) => (p.type ?? "int") === "cidr");
   const given_ = subnet ? String(x.values[subnet.name] ?? "auto").trim() : "auto";
   const firstCidr = given_ && given_ !== "auto" ? given_ : null;
-  // `auto`: the design's own site (its first segment's two-octet prefix), else the template's placeholders.
-  const site = model.te.segments[0] ? twoOctetPrefix(model.te.segments[0].cidr) : null;
+  // `auto`: the design's own site (its first LAN's two-octet prefix; a transit is not a site), else
+  // the template's placeholders.
+  const site = lanSitePrefix(model.te.segments.map((s) => s.cidr));
   const set = {
     devices: source.te.nodes.filter((n) => n.kind !== "host").map((n) => n.name),
     segments: source.te.segments.map((s) => s.name),

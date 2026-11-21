@@ -206,7 +206,10 @@ template:
 1. The card shows a small preview of the shape and the device counts.
 2. On drop, a settings form opens at the drop point.
 3. The fragment is expanded with the settings, then names are prefixed and
-   CIDRs allocated through the duplicate-subtree engine.
+   CIDRs allocated through the duplicate-subtree engine (`subnet: auto`: the
+   design's first LAN's prefix -- a transit in `10.254.0.0/16` is not a LAN --
+   else the template's own; never inside the transit pool, ui `SPEC.md`
+   "Allocation ranges").
 4. The result lands as **one undo step**, expanded, with its open ports
    highlighted.
 5. Each component can then be configured like any other.

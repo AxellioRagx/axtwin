@@ -206,6 +206,7 @@ export function ImpliedSwitchNode(p: P) {
       className={`cv-router cv-device cv-implied${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-segment"
       data-implied="true"
+      data-label-side={d.labelSide}
       data-cidr={d.cidr}
       data-name={d.name}
       data-source={d.source ?? undefined}
@@ -477,6 +478,7 @@ export function DeviceNode(p: P) {
       className={`cv-router cv-device${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-device"
       data-node-id={d.name}
+      data-label-side={d.labelSide}
       data-device-kind={d.deviceKind}
       data-hue={d.hue}
       data-source={d.source ?? undefined}
@@ -579,6 +581,7 @@ export function RouterNode(p: P) {
       className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-router"
       data-node-id={d.name}
+      data-label-side={d.labelSide}
       data-gateway={gateway || undefined}
       data-hue={d.hue}
       data-source={d.source ?? undefined}

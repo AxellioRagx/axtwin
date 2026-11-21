@@ -319,7 +319,7 @@ export function addSegment(doc: WorkingDoc, seg: { name: string; cidr: string; z
   return withTe(doc, (t) => teAddSegment(t, seg));
 }
 
-export function setSegmentField(doc: WorkingDoc, name: string, key: "cidr" | "zone_type", value: string | null): Files {
+export function setSegmentField(doc: WorkingDoc, name: string, key: "cidr" | "zone_type" | "ospf_area", value: string | number | null): Files {
   return withTe(doc, (t) => teSetSegmentField(t, name, key, value));
 }
 

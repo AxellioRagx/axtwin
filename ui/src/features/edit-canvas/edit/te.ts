@@ -398,7 +398,7 @@ export function addSegment(text: string, seg: { name: string; cidr: string; zone
   return t.out();
 }
 
-export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type", value: string | null): string {
+export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type" | "ospf_area", value: string | number | null): string {
   const t = new TeText(text);
   const it = t.segment(name);
   const m = it.value as YMap;
