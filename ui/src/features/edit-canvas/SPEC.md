@@ -440,9 +440,18 @@ criteria of its own beyond them.
     says "copy of <id>", and the first Save suggests `<id>-copy`. The source
     twin is never written.
   - Unsaved guard: a non-blank untitled design, an undeployed design or a draft
-    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close or an in-app link (XTwin, Open,
-    the top menu) leaves it; letting an untitled design go drops its browser copy.
-    The browser's Back is not guarded (no data router).
+    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close (the
+    browser's own question), an in-app link (XTwin, Open's rows, the top menu) or the browser's Back
+    leaves it. **Round 3 item 4 (2026-11-21):** the question is the page's own dialog, not a yes/no:
+    *Save as draft…* (the draft dialog; once the draft is written the page goes where the link
+    pointed -- Back stays on the draft), *Discard* (an untitled design drops its browser copy; a
+    deployed twin's unpushed edits say "Leave (edits stay in this browser)"), *Cancel*. Back is caught
+    by a sentinel history entry pushed while there is unsaved work (`areas/shell/leaveGuard.ts`; a
+    plain router cannot cancel a popstate, so the sentinel absorbs it). An untitled design with work
+    is kept under `axr-canvas-undo:twin:__untitled__` (files and stack). **Open's rows settle:** a click
+    on a picker row that appeared or moved less than `ROW_SETTLE_MS` (300 ms) ago is dropped at the
+    window's capture phase (`TwinList`), so a list loading under the pointer opens nothing
+    (`canvas.leave.test.tsx`).
     **Clean rule (2026-11-20, round 2):** an untitled design is clean when its document is at its
     blank start (a clone never is) and it has no live layout pin and no annotation. A pin whose node
     no longer exists (removed, or undone away) is dormant on a design kept in this browser: kept, so a

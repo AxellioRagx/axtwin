@@ -52,7 +52,7 @@ import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
 import { conduitOf, checkBadge, checkPasses, checkStatus, findingPins, findingTarget, localFindings, mergeFindings, refusalAsCheck, targetKey, type CheckRecord } from "./edit/check";
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
-import { useLeaveGuard } from "../../areas/shell/leaveGuard";
+import { useLeaveGuard, type LeaveVia } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
 import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -519,6 +519,9 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   // Save as draft (always available) and the draft's Replace <origin> confirm.
   const [draftOpen, setDraftOpen] = useState(false);
+  // Round 3 item 4: the leave guard's question, and where to go once a "Save as draft" from it lands.
+  const [leaveAsk, setLeaveAsk] = useState<{ via: LeaveVia; proceed: () => void } | null>(null);
+  const pendingLeave = useRef<LeaveVia | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   // B3: the bulk-wiring dialog (2+ routers, a shape, OSPF on the new transits or not).
   /** The bulk wiring dialog; `split`: the first `split` routers are one set, the rest the other (`across`, B6). */
@@ -1158,7 +1161,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         clearUntitled();
       }
       setDraftOpen(false);
-      navigate(`/canvas/drafts/${encodeURIComponent(newId)}`);
+      // Saved from the leave question: go where the operator was going (a link); Back stays on the draft.
+      const via = pendingLeave.current;
+      pendingLeave.current = null;
+      navigate(via?.kind === "link" ? via.href : `/canvas/drafts/${encodeURIComponent(newId)}`);
       return `saved as draft ${newId}${draftOrigin ? `; ${draftOrigin} is not changed` : ""}`;
     });
   // On a draft: Save draft rewrites it (no gate, nothing else touched).
@@ -1592,14 +1598,29 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   useLeaveGuard(
     untitledWork || (!untitled && !deployed && editor.dirty) || unsynced,
     untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : unsynced ? "The working copy has edits not pushed to the twin (Apply or Persist push them); they stay in this browser. Leave anyway?" : "The design has unsaved changes. Leave without saving them?",
-    untitled
-      ? () => {
-          leaving.current = true;
-          leavingLayout.current = true;
-          clearUntitled();
-        }
-      : undefined,
+    undefined,
+    // Round 3 item 4: Save as draft / Discard / Cancel, not a yes/no (an untitled design was lost to one).
+    (via, proceed) => setLeaveAsk({ via, proceed }),
   );
+  const discardAndLeave = () => {
+    const ask = leaveAsk;
+    setLeaveAsk(null);
+    if (!ask) return;
+    if (untitled) {
+      leaving.current = true;
+      leavingLayout.current = true;
+      clearUntitled();
+    }
+    ask.proceed();
+  };
+  const draftAndLeave = () => {
+    const ask = leaveAsk;
+    setLeaveAsk(null);
+    if (!ask) return;
+    pendingLeave.current = ask.via;
+    setExitError(null);
+    setDraftOpen(true);
+  };
 
   // The layout group floats on the canvas, not in the twin bar (SPEC.md "Shell and chrome"): the bar holds the document's exits only.
   const layoutBar = layout.data ? (
@@ -1897,8 +1918,39 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           busy={busy === "save-draft"}
           error={exitError ? exitErrorText(exitError) : null}
           onSave={(newId) => void saveAsDraft(newId)}
-          onClose={() => setDraftOpen(false)}
+          onClose={() => {
+            pendingLeave.current = null;
+            setDraftOpen(false);
+          }}
         />
+      ) : null}
+      {leaveAsk ? (
+        <div className="modal-backdrop" data-testid="leave-backdrop">
+          <div className="modal panel" role="alertdialog" aria-modal="true" aria-label="Unsaved changes" data-testid="leave-dialog">
+            <h2 style={{ marginTop: 0 }}>Unsaved changes</h2>
+            <p>
+              {untitled
+                ? "This untitled design is kept only in this browser and is not saved to the catalog."
+                : unsynced
+                  ? "The working copy has edits not pushed to the twin (Apply or Persist push them)."
+                  : "The design has unsaved changes."}{" "}
+              {leaveAsk.via.kind === "back" ? "Going back leaves it." : "Opening another design leaves it."}
+            </p>
+            <div className="row-actions">
+              {whoami.can_write ? (
+                <button type="button" className="primary" onClick={draftAndLeave} data-testid="leave-draft" autoFocus>
+                  Save as draft…
+                </button>
+              ) : null}
+              <button type="button" className="danger" onClick={discardAndLeave} data-testid="leave-discard">
+                {unsynced && !untitled ? "Leave (edits stay in this browser)" : "Discard"}
+              </button>
+              <button type="button" onClick={() => setLeaveAsk(null)} data-testid="leave-cancel" autoFocus={!whoami.can_write}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {saveTpl && model ? (
         <SaveTemplateDialog

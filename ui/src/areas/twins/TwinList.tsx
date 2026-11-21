@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { useApi } from "../../api/context";
@@ -25,6 +25,9 @@ import { useLoad } from "../shell/useLoad";
  * each labelled `draft` with the twin it may replace: a draft opens on the
  * canvas and is never deployed (no Deploy action).
  */
+/** How long a picker row must have been where it is before a click on it counts (round 3 item 4). */
+export const ROW_SETTLE_MS = 300;
+
 export type TwinListProps = { mode: "manage" } | { mode: "pick"; onPick: () => void };
 
 export function TwinList(props: TwinListProps) {
@@ -56,6 +59,28 @@ export function TwinList(props: TwinListProps) {
   }, [all, query]);
   const skipped = twins.data?.skipped ?? [];
 
+  // Round 3 item 4: in the picker, a click on a row that appeared (or moved) under the pointer less
+  // than ROW_SETTLE_MS ago is ignored -- the list loading under a click had opened the wrong design.
+  // Stopped at the window, in the capture phase, so no link, row or leave guard ever sees it.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const layoutSig = `${rows.map((t) => t.id).join("|")}#${draftRows.map((d) => d.id).join("|")}#${deploys.data ? 1 : 0}`;
+  const settledAt = useRef(0);
+  useEffect(() => {
+    settledAt.current = Date.now() + ROW_SETTLE_MS;
+  }, [layoutSig]);
+  useEffect(() => {
+    if (!pick) return;
+    const shield = (e: globalThis.MouseEvent) => {
+      const el = e.target as Element | null;
+      if (!el?.closest || !listRef.current?.contains(el) || !el.closest("tbody tr")) return;
+      if (Date.now() >= settledAt.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("click", shield, true);
+    return () => window.removeEventListener("click", shield, true);
+  }, [pick]);
+
   const target = (t: TwinListItem) => (pick ? `/canvas/${encodeURIComponent(t.id)}` : `/twins/${encodeURIComponent(t.id)}`);
   // A click on the row's empty space follows its first link (pick: through the guard) or navigates (manage).
   const onRow = (e: MouseEvent<HTMLTableRowElement>, t: TwinListItem) => {
@@ -65,7 +90,7 @@ export function TwinList(props: TwinListProps) {
   };
 
   return (
-    <>
+    <div ref={listRef} style={{ display: "contents" }} data-testid={pick ? "open-list" : undefined}>
       {pick ? <input type="search" aria-label="Search twins" placeholder="search by id or imprint" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus autoComplete="off" /> : null}
       <ErrorLine error={twins.error} prefix="could not list twins" />
       {twins.loading && !twins.data ? <p className="muted">Loading…</p> : null}
@@ -238,6 +263,6 @@ export function TwinList(props: TwinListProps) {
           </ul>
         </>
       ) : null}
-    </>
+    </div>
   );
 }
