@@ -7,7 +7,7 @@
  * list: every role is read from `GET /api/personas`. Pure -- no React (storage reads guarded).
  */
 import type { ImageProfile, Persona, Template } from "../../../api/types";
-import { inTransitPool } from "../edit/allocate";
+import { inInternetPool, inTransitPool } from "../edit/allocate";
 import { danglingLinks } from "../edit/document";
 import { carriedBy, parkedDevices } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
@@ -284,10 +284,14 @@ export function twoGatewayLans(te: Pick<TeModel, "nodes" | "links" | "segments">
   const out: Array<{ segment: string; routers: string[] }> = [];
   for (const s of te.segments) {
     if (inTransitPool(s.cidr) || s.vrrp) continue; // a VRRP group is the shared VIP (D5)
+    // Server and user LANs only (round 3 item 5c): never the internet (two cores uplinked to it) or a sink's segment.
+    if (s.name === "internet" || s.egress || inInternetPool(s.cidr)) continue;
     const routers = te.nodes.filter((n) => n.kind === "router" && n.nets.some((l) => l.segment === s.name)).map((n) => n.name);
     if (routers.length < 2) continue;
-    const lan = te.nodes.some((n) => n.kind !== "router" && n.nets.some((l) => l.segment === s.name)) || te.nodes.some((n) => n.kind === "switch" && carriedBy(te as TeModel, n.name).includes(s.name));
-    if (lan) out.push({ segment: s.name, routers });
+    // ...and only one with a host on it (a switch with nothing behind it yet is no LAN to warn about).
+    const hosts = te.nodes.filter((n) => n.kind === "host" && n.nets.some((l) => l.segment === s.name));
+    if (!hosts.length || hosts.every((n) => n.role === "internet-sink")) continue;
+    out.push({ segment: s.name, routers });
   }
   return out;
 }

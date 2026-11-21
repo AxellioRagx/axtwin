@@ -14,7 +14,7 @@ import type { ImageProfile, Persona } from "../../../api/types";
 import type { TeModel } from "../edit/te";
 import type { PaletteItem } from "../edit/EditContext";
 import { DEVICE_CARDS, defaultRole, imageFor, missingPeers, peerOffer, personaBlurb, personaLabel, profileFor, rolesFor, type CardId, type Os, type PeerOffer } from "./catalog";
-import type { DeviceDrop, DropTarget } from "./drop";
+import { INTERNET_SEGMENT, type DeviceDrop, type DropTarget } from "./drop";
 import { usePopoverAt } from "./usePopoverAt";
 
 export type DropCommit = { kind: "device"; spec: DeviceDrop } | { kind: "tap"; segment: string; sensors: string[] };
@@ -75,6 +75,10 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [placement, setPlacement] = useState<"internal" | "edge">("internal");
   const [switchType, setSwitchType] = useState<"plain" | "managed">("plain");
   const [tier, setTier] = useState<"core" | "aggregation" | null>(null);
+  // A core L3 switch's internet uplink (round 3 item 5d): on by default when the design has an internet.
+  const hasInternet = te.segments.some((s) => s.name === INTERNET_SEGMENT);
+  const [uplink, setUplink] = useState<boolean | null>(null);
+  const uplinkOn = uplink ?? hasInternet;
   const [prefix, setPrefix] = useState<string | null>(null);
   const [imageOverride, setImageOverride] = useState("");
   const [ip, setIp] = useState("");
@@ -132,6 +136,8 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         placement,
         switchType,
         tier: card === "l3switch" ? tier : null,
+        uplink: card === "l3switch" && tier === "core" ? uplinkOn : false,
+        sinkImage: imageFor(profiles, "linux-server"),
         peers: peers.map((p) => ({ card: p.card, os: p.os, role: p.role, persona: p.persona, count: p.count, image: imageFor(profiles, profileFor(p.card, p.os)) })),
       },
     };
@@ -204,6 +210,11 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
         <div className="cv-seg" role="group" aria-label="Tier" title="seeds the name prefix only">
           {(["core", "aggregation"] as const).map((t) => <button key={t} type="button" aria-pressed={tier === t} className={tier === t ? "on" : ""} onClick={() => setTier((cur) => (cur === t ? null : t))}>{t}</button>)}
         </div>
+      ) : null}
+      {card === "l3switch" && tier === "core" ? (
+        <label className="row" data-testid="drop-uplink" title="a leg on the internet segment for each core, as a Router's edge placement wires it; the internet (and its sink) is made when the design has none">
+          <input type="checkbox" checked={uplinkOn} onChange={(e) => setUplink(e.target.checked)} /> uplink to internet{hasInternet ? "" : " (makes the internet)"}
+        </label>
       ) : null}
       {card === "switch" ? (
         <div className="cv-seg" role="group" aria-label="Switch kind">

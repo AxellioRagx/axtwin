@@ -5,7 +5,7 @@
  * today's twin-config vocabulary through the existing commands (`placeNodes`, `setPersona`,
  * `setNodeField`, `attach`, `insertSwitch`, `addTap`); no schema change. Pure -- no React.
  */
-import { DEFAULT_LAN_PREFIX, lanSitePrefix, nextFreeLan, nextFreeSlash24 } from "../edit/allocate";
+import { DEFAULT_LAN_PREFIX, gatewayAddress, lanSitePrefix, nextFreeLan, nextFreeSlash24 } from "../edit/allocate";
 import type { Files } from "../edit/commands";
 import { addSegment, addTap, attach, placeNodes, readDoc, setAttachmentAddress, setNodeField, setPersona, type DocModel, type WorkingDoc } from "../edit/document";
 import { insertSwitch, newSegmentOnRouter } from "../edit/switches";
@@ -55,6 +55,10 @@ export interface DeviceDrop {
   /** Router / firewall. */
   routerType?: "router" | "firewall";
   placement?: "edge" | "internal";
+  /** L3 switch, core tier (round 3 item 5d): uplink each to the internet, as a Router's edge placement does. */
+  uplink?: boolean;
+  /** The internet sink's image when an uplink makes the internet (the `linux-server` profile). */
+  sinkImage?: string | null;
   /** Switch: plain, or managed (`stp: rstp`; it trunks VLANs as any native switch does). */
   switchType?: "plain" | "managed";
   /** The needs hint's one-click peers, dropped on the same segment. */
@@ -82,6 +86,13 @@ export function dropSegmentName(m: Pick<DocModel, "te">, base: string): string {
   let name = stem;
   for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
   return name;
+}
+
+/** The stem a switch's new LAN is named from (round 3 item 5a): its prefix without the last token
+ *  (`rack1-tor` -> `rack1`, so `rack1-lan`), the prefix itself when it is one token (`sw` -> `sw-lan`). */
+export function lanStemOf(prefix: string): string {
+  const parts = prefix.split("-").filter(Boolean);
+  return parts.length >= 2 ? parts.slice(0, -1).join("-") : prefix || "switch";
 }
 
 /** A new LAN segment in the twin's first site (the next free /24 after the highest in use), else 10.200. */
@@ -151,6 +162,19 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
       cur = inet.doc;
       for (const name of r.names) cur = { ...cur, files: attach(cur, readDoc(cur), name, inet.segment) };
     }
+    // A core L3 switch's uplink (round 3 item 5d): a leg on the internet, pinned as a gateway (.1, .2, ...)
+    // so two cores never share the address the planner gives a lone router leg.
+    if (spec.card === "l3switch" && spec.uplink) {
+      const inet = ensureInternet(cur, readDoc(cur), spec.sinkImage ?? null);
+      cur = inet.doc;
+      for (const name of r.names) {
+        const m = readDoc(cur);
+        if (m.te.nodes.find((n) => n.name === name)?.nets.some((l) => l.segment === inet.segment)) continue;
+        const ip = gatewayAddress(m.te, inet.segment);
+        cur = { ...cur, files: attach(cur, m, name, inet.segment) };
+        if (ip) cur = { ...cur, files: setAttachmentAddress(cur, readDoc(cur), name, inet.segment, ip) };
+      }
+    }
     return { files: cur.files, names, segment };
   }
   if (spec.card === "switch") {
@@ -160,14 +184,17 @@ export function applyDeviceDrop(doc: WorkingDoc, model: DocModel, spec: DeviceDr
       names.push(out.name);
       segment = spec.target.segment;
     } else {
-      // Count N (B6): N switches, each on a LAN of its own (sw-1 on switch-lan, sw-2 on switch-lan-2).
+      // Count N (B6): N switches, each on a LAN of its own (sw-1 on sw-lan, sw-2 on sw-lan-2).
+      // Round 3: the LAN is named after the switch (`rack1-tor` -> `rack1-lan`, 5a); one switch takes the
+      // bare prefix, the -N suffix only when there are several (5b).
+      const many = Math.max(1, spec.count) > 1;
       for (let k = 0; k < Math.max(1, spec.count); k++) {
-        const land = landing(cur, readDoc(cur), spec.target, spec.card);
+        const land = landing(cur, readDoc(cur), spec.target, lanStemOf(spec.prefix));
         cur = land.doc;
         segment ??= land.segment;
         const m = readDoc(cur);
         const taken = new Set(m.te.nodes.map((n) => n.name));
-        let name = `${spec.prefix}-1`;
+        let name = many ? `${spec.prefix}-1` : spec.prefix;
         for (let i = 2; taken.has(name); i++) name = `${spec.prefix}-${i}`;
         const text = cur.files[cur.teFile];
         if (text === undefined) throw new Error(`the document has no '${cur.teFile}' to edit`);

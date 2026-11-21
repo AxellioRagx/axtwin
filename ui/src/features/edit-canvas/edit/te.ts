@@ -774,7 +774,9 @@ export function copyNames(base: string, count: number, taken: ReadonlySet<string
   const out: string[] = [];
   let n = 1;
   while (out.length < count) {
-    const candidate = count === 1 && !numbered && !taken.has(base) ? base : `${base}-${n}`;
+    // One node takes the bare name; numbered or not, the -N suffix is for N > 1 (round 3 item 5b). A
+    // numbered single whose bare name is taken continues at -2 (`core`, then `core-2`).
+    const candidate = count === 1 && !taken.has(base) ? base : count === 1 && numbered && n === 1 ? `${base}-2` : `${base}-${n}`;
     n++;
     if (!taken.has(candidate) && !out.includes(candidate)) out.push(candidate);
     if (n > count + taken.size + 1000) break;

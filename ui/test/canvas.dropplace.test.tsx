@@ -69,8 +69,8 @@ describe("a drop in the free layout lands together, at the drop point", () => {
     fireEvent.click(screen.getByTestId("drop-add"));
     await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(2));
     const p = positions();
-    const server = p["host:file-server-1"]!;
-    const ws = p["host:corp-workstation-1"]!;
+    const server = p["host:file-server"]!;
+    const ws = p["host:corp-workstation"]!;
     const seg = Object.entries(p).find(([k]) => k.startsWith("segment:"))![1];
     // Centred on the drop point (B5, 2026-11-21: its top-left had been), snapped to the grid.
     expect(dist({ x: server.x + BUS_ICON / 2, y: server.y + BUS_ICON / 2 }, { x: 600, y: 400 })).toBeLessThanOrEqual(24);

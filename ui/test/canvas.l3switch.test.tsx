@@ -192,7 +192,7 @@ describe("B1: deleting a device takes what hangs on it", () => {
     let d = doc(AGGS);
     const r = applyDeviceDrop(d, readDoc(d), { card: "switch", os: null, role: null, persona: null, count: 1, prefix: "sw", target: { pane: true }, image: null });
     d = { ...d, files: r.files };
-    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: applyIntent(d, readDoc(d), connectIntent(readDoc(d).te, { kind: "router", name: agg }, { kind: "switch", name: "sw-1" })) };
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: applyIntent(d, readDoc(d), connectIntent(readDoc(d).te, { kind: "router", name: agg }, { kind: "switch", name: "sw" })) };
     return d;
   }
 
@@ -200,8 +200,8 @@ describe("B1: deleting a device takes what hangs on it", () => {
     const d = wired();
     const before = readDoc(d);
     expect(before.te.links).toHaveLength(2);
-    expect(removalPlan(before, "sw-1")).toEqual({ links: [0, 1], segments: ["switch-lan"], hosted: {} });
-    const m = readDoc({ ...d, files: removeNode(d, before, "sw-1") });
+    expect(removalPlan(before, "sw")).toEqual({ links: [0, 1], segments: ["sw-lan"], hosted: {} });
+    const m = readDoc({ ...d, files: removeNode(d, before, "sw") });
     expect(m.te.links).toEqual([]);
     expect(m.te.segments.map((s) => s.name)).toEqual(["up"]);
     expect(m.te.nodes.find((n) => n.name === "agg-1")!.nets.map((l) => l.segment)).toEqual(["up"]);
@@ -211,15 +211,15 @@ describe("B1: deleting a device takes what hangs on it", () => {
 
   it("a segment with hosts still on it is kept by default (it is implied again); unticked, it goes too", () => {
     let d = wired();
-    const r = applyDeviceDrop(d, readDoc(d), { card: "server", os: "linux", role: "web-tier", persona: null, count: 2, prefix: "web", target: { segment: "switch-lan" }, image: "debian-12-cloud@v1" });
+    const r = applyDeviceDrop(d, readDoc(d), { card: "server", os: "linux", role: "web-tier", persona: null, count: 2, prefix: "web", target: { segment: "sw-lan" }, image: "debian-12-cloud@v1" });
     d = { ...d, files: r.files };
     const m0 = readDoc(d);
-    expect(removalPlan(m0, "sw-1").hosted).toEqual({ "switch-lan": 2 });
-    const kept = readDoc({ ...d, files: removeNode(d, m0, "sw-1") });
-    expect(kept.te.segments.map((s) => s.name)).toEqual(["up", "switch-lan"]);
+    expect(removalPlan(m0, "sw").hosted).toEqual({ "sw-lan": 2 });
+    const kept = readDoc({ ...d, files: removeNode(d, m0, "sw") });
+    expect(kept.te.segments.map((s) => s.name)).toEqual(["up", "sw-lan"]);
     expect(kept.te.links).toEqual([]);
     expect(kept.findings.filter((f) => f.severity === "error")).toEqual([]);
-    const gone = readDoc({ ...d, files: removeNode(d, m0, "sw-1", { keepSegments: false }) });
+    const gone = readDoc({ ...d, files: removeNode(d, m0, "sw", { keepSegments: false }) });
     expect(gone.te.segments.map((s) => s.name)).toEqual(["up"]);
     expect(gone.te.nodes.find((n) => n.name === "agg-2")!.nets.map((l) => l.segment)).toEqual(["up"]);
   });
