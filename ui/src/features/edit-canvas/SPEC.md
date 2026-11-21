@@ -1069,7 +1069,18 @@ one its `confidence`.
    re-allocates there (`duplicateSubtree`'s `prefix`); Enter parks in place,
    Esc cancels; a marquee that takes a switch and only devices below it is
    that switch's subtree (`marqueeSubtree`). Not built: the copy's pills follow
-   the tree's placement, not the pinned root.
+   the tree's placement, not the pinned root. **The next rack (2026-11-21, B3):**
+   a root named `<stem><n>…` (`rack1-tor`) renumbers every copied name that
+   starts with `<stem><n>` to the first free number (`rack2-tor`, `rack2-web`,
+   `rack2-srv`, then `rack3`; `nextNumberedRename`), other names keep `-2`; the
+   copy's devices, implied switches AND hosts keep their places relative to its
+   root (`copyPositions`), its root at the drop point or, with none (Enter, the
+   panel), just right of the original (`besideSubtree`), clear of every box;
+   **same uplinks as the original** (the carried copy's **U**, the panel's
+   duplicate choice) wires the copy to every device the original hangs from
+   (`uplinksOf`: the routers and switches an up link joins to its root, the
+   routers with a leg on its segments) -- a router as the copy's LAN gateway
+   (A5's `gatewayOnSwitch`), a switch by a trunk -- in the same undo step.
 
 Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
 taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and

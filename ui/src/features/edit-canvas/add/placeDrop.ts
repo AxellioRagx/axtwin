@@ -17,6 +17,8 @@
 import { DEVICE_H, DEVICE_W } from "../layout/geometry";
 import { BUS_ICON } from "../canvas/bus";
 import { HOST_GAP, TREE_NODE_SEP, TREE_RANK_SEP } from "../canvas/tree";
+import type { DocModel } from "../edit/document";
+import { subtreeOf } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
 
 export interface Point {
@@ -150,4 +152,22 @@ export function clearOf(pos: Record<string, Point>, known: Readonly<Record<strin
     }
   }
   return pos;
+}
+
+/** Where a copy of `root`'s subtree stands when no drop point says (B3, 2026-11-21: Enter, the panel, a
+ *  copy wired to a device): its root just right of the original subtree's boxes, on the root's row.
+ *  Null when the original root has no position (the layout places the copy). */
+export function besideSubtree(model: DocModel, root: string, known: Readonly<Record<string, Point>>): Point | null {
+  const r = known[`host:${root}`];
+  if (!r) return null;
+  const t = subtreeOf(model, root);
+  const hosts = new Set(model.te.nodes.filter((n) => n.kind === "host").map((n) => n.name));
+  const cidr = (seg: string) => model.te.segments.find((x) => x.name === seg)?.cidr;
+  const keys = [...t.devices.map((d) => `host:${d}`), ...t.hosts.map((h) => `host:${h}`), ...t.segments.map((seg) => `segment:${cidr(seg) ?? ""}`)];
+  let right = r.x + DEVICE_W;
+  for (const k of keys) {
+    const p = known[k];
+    if (p) right = Math.max(right, pinBox(k, p, hosts).r);
+  }
+  return round({ x: right + CLEAR_GAP * 2, y: r.y });
 }

@@ -52,7 +52,7 @@ import type { Files } from "./edit/commands";
 import type { TeModel } from "./edit/te";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
-import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
+import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf, uplinksOf } from "./edit/subtree";
 import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
@@ -112,6 +112,8 @@ export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes
 }
 
 export interface SidePanelProps {
+  /** Duplicate a subtree through the page (positions beside the original, B3); absent, the panel applies it itself. */
+  onDuplicate?(root: string, attachTo: string | null, opts: { sameUplinks?: boolean }): void;
   twinId: string;
   model: DocModel;
   /** The baseline's model, for what a promote would assert; null when unknown. */
@@ -698,9 +700,15 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
   const ro = p.locked;
   const devices = p.model.te.nodes.filter((n) => (n.kind === "switch" || n.kind === "router") && !t.devices.includes(n.name));
   const count = subtreeCount(p.model, t);
-  const dup = (attachTo: string | null) => {
+  const ups = uplinksOf(p.model, p.root);
+  const SAME = "\u0000same";
+  const dup = (choice: string | null) => {
+    const attachTo = choice === SAME ? null : choice;
+    const sameUplinks = choice === SAME;
+    // The page's own path places the copy beside the original, its hosts with it (B3).
+    if (p.onDuplicate) return p.onDuplicate(p.root, attachTo, { sameUplinks });
     const r = { root: "" };
-    if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });
+    if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : sameUplinks ? " with the same uplinks" : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo, { sameUplinks }); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });
   };
   return (
     <section className="cv-side-section" data-testid="subtree-panel">
@@ -719,10 +727,11 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
         <dd className="mono">{t.uplink ? `${t.uplink.a.device}#${t.uplink.a.port} — ${t.uplink.b.device}#${t.uplink.b.port}` : "none (parked)"}</dd>
       </dl>
       <h4>Duplicate <span className="muted">· topology</span></h4>
-      <p className="muted hint">names follow -2, -3…; every copied segment takes the next free /24 in its prefix and its hosts addresses in it; roles, personas, counts and member overrides copy; taps never do</p>
+      <p className="muted hint">names follow -2, -3… (a numbered prefix, rack1, takes the next free number: rack2); every copied segment takes the next free /24 in its prefix and its hosts addresses in it; roles, personas, counts and member overrides copy; taps never do</p>
       <div className="row cv-inline">
         <select aria-label="Duplicate subtree onto device" value={target} disabled={ro} onChange={(e) => setTarget(e.target.value)}>
           <option value="">parked (attach later)</option>
+          {ups.length ? <option value={SAME}>same uplinks as the original ({ups.join(", ")})</option> : null}
           {devices.map((d) => (
             <option key={d.name} value={d.name}>{d.name}</option>
           ))}

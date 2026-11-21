@@ -15,7 +15,8 @@ import { applyDeviceDrop } from "../src/features/edit-canvas/add/drop";
 import { gatewayAddress } from "../src/features/edit-canvas/edit/allocate";
 import { applyIntent, connectIntent, intentHint } from "../src/features/edit-canvas/edit/connect";
 import { danglingLinks, readDoc, removalPlan, removeDanglingLinks, removeNode, removeSegment, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
-import { attachDevices } from "../src/features/edit-canvas/edit/subtree";
+import { attachDevices, copyPositions, duplicateSubtree, gatewayOnSwitch, nextNumberedRename, parkedDevices, uplinksOf } from "../src/features/edit-canvas/edit/subtree";
+import { besideSubtree } from "../src/features/edit-canvas/add/placeDrop";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { placeOnDevice, placeTarget } from "../src/features/edit-canvas/Canvas";
 import { card, check, dropPopover, panel, seeded, twinYaml } from "./helpers/canvasFixtures";
@@ -297,5 +298,71 @@ describe("B2: a host dropped on a switch joins that switch's LAN", () => {
     const files = (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
     const added = readTe(files["te.yaml"]!).nodes.filter((n) => n.kind === "host" && n.name !== "web");
     expect(added.map((n) => n.nets[0]!.segment)).toEqual(["rack1-srv"]);
+  });
+});
+
+describe("B3: Duplicate subtree makes the next rack", () => {
+  /** rack1: a ToR on its LAN with web / app servers, dual-homed (A5) to agg-1 and agg-2. */
+  function rack1(): WorkingDoc {
+    let d = doc(`twin_config:
+  id: dc
+  segments:
+    - { name: rack1-srv, cidr: 10.200.0.0/24, zone_type: vlan }
+  nodes:
+    - { name: agg-1, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: agg-2, kind: router, role: l3-switch, image: vyos@1.5 }
+    - { name: rack1-tor, kind: switch, role: l2-switch, net: rack1-srv }
+    - name: rack1-web
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: rack1-srv, ip: 10.200.0.10 }
+    - { name: rack1-app, image: debian-12-cloud@v1, count: 2, net: rack1-srv }
+`);
+    for (const agg of ["agg-1", "agg-2"]) d = { ...d, files: gatewayOnSwitch(d, readDoc(d), agg, "rack1-tor") };
+    return d;
+  }
+
+  it("names renumber the shared prefix (rack2, then rack3); 'same uplinks' wires the copy to agg-1 and agg-2 as its gateways", () => {
+    let d = rack1();
+    const m = readDoc(d);
+    expect(uplinksOf(m, "rack1-tor")).toEqual(["agg-1", "agg-2"]);
+    const r = duplicateSubtree(d, m, "rack1-tor", null, { sameUplinks: true });
+    expect(r.root).toBe("rack2-tor");
+    expect(r.names).toMatchObject({ "rack1-tor": "rack2-tor", "rack1-web": "rack2-web", "rack1-app": "rack2-app", "rack1-srv": "rack2-srv" });
+    d = { ...d, files: r.files };
+    const m2 = readDoc(d);
+    expect(m2.te.segments.find((s) => s.name === "rack2-srv")!.cidr).toBe("10.200.1.0/24");
+    expect(m2.te.nodes.find((n) => n.name === "agg-1")!.nets).toContainEqual({ segment: "rack2-srv", ip: "10.200.1.1" });
+    expect(m2.te.nodes.find((n) => n.name === "agg-2")!.nets).toContainEqual({ segment: "rack2-srv", ip: "10.200.1.2" });
+    expect(m2.te.links.filter((l) => l.b.device === "rack2-tor").map((l) => [l.a.device, l.native])).toEqual([["agg-1", "rack2-srv"], ["agg-2", "rack2-srv"]]);
+    expect(m2.findings.filter((f) => f.severity === "error")).toEqual([]);
+    expect(parkedDevices(m2.te)).toEqual([]);
+    // The next copy (of either rack) is rack3.
+    const r3 = duplicateSubtree(d, m2, "rack1-tor", null, { sameUplinks: true });
+    expect(r3.root).toBe("rack3-tor");
+    expect(Object.values(r3.names)).toEqual(expect.arrayContaining(["rack3-web", "rack3-srv"]));
+  });
+
+  it("without 'same uplinks' the copy is parked (no link to the aggregations), as before; a name with no number keeps -2", () => {
+    const d = rack1();
+    const r = duplicateSubtree(d, readDoc(d), "rack1-tor", null);
+    expect(readDoc({ ...d, files: r.files }).te.links.filter((l) => l.b.device === "rack2-tor")).toEqual([]);
+    expect(nextNumberedRename(readDoc(d).te, "access")).toBeNull();
+    const rn = nextNumberedRename(readDoc(d).te, "rack1-tor")!;
+    expect(rn("rack1-web", new Set())).toBe("rack2-web");
+    expect(rn("shared-printer", new Set())).toBe("shared-printer-2");
+  });
+
+  it("the copy keeps its hosts' places relative to the root; with no drop point it stands beside the original", () => {
+    const d = rack1();
+    const m = readDoc(d);
+    const known = { "host:rack1-tor": { x: 100, y: 200 }, "host:rack1-web": { x: 60, y: 330 }, "host:rack1-app": { x: 140, y: 330 } };
+    const r = duplicateSubtree(d, m, "rack1-tor", null, { sameUplinks: true });
+    const at = besideSubtree(m, "rack1-tor", known)!;
+    expect(at.y).toBe(200);
+    expect(at.x).toBeGreaterThan(140);
+    const pos = copyPositions(m, "rack1-tor", r, known, at);
+    expect(pos["host:rack2-web"]).toEqual({ x: at.x - 40, y: 330 });
+    expect(pos["host:rack2-app"]).toEqual({ x: at.x + 40, y: 330 });
   });
 });

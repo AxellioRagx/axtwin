@@ -56,7 +56,7 @@ import { resolveSearch } from "./model/search";
 import { AddContext, PALETTE_MIME } from "./add/AddContext";
 import type { Selection } from "./SidePanel";
 import type { FindingPin } from "./edit/check";
-import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
+import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes, uplinksOf } from "./edit/subtree";
 import { DEVICE_H, DEVICE_W } from "./layout/geometry";
 import { twoOctetPrefix } from "./model/keys";
 import { crossingText, DetailContext, edgeTypes, FindingsContext, FoldFindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
@@ -102,7 +102,7 @@ export interface CanvasEditProps {
   /** Copy the subtree under `root` (§6.2, §6.3): attached by a trunk to `attachTo`, else parked; a
    *  parked copy dropped on the canvas stands at `at` (its root's top-left); `prefix` re-allocates
    *  every copied segment under another site. The page selects the copy. */
-  onDuplicateSubtree?(root: string, drop?: { attachTo?: string | null; at?: { x: number; y: number } | null; prefix?: string | null }): void;
+  onDuplicateSubtree?(root: string, drop?: { attachTo?: string | null; at?: { x: number; y: number } | null; prefix?: string | null; sameUplinks?: boolean }): void;
   /** The attach tool between two devices or a device and a host, or a parked device dropped on another (§6.3, §6.4): one `links[]` entry. */
   onLink?(from: string, to: string): void;
   annotations: Annotation[];
@@ -824,7 +824,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // ---- §6.2 / §6.3: Ctrl+D (or the menu) carries a floating copy of the subtree under the cursor;
   // a press drops it -- onto a switch or router (a trunk), or on the canvas (parked where it lands,
   // re-allocated under the site it lands under); Enter parks it in place, Esc or the right button cancels.
-  const [carry, setCarry] = useState<{ root: string; label: string; devices: string[]; prefixes: string[]; x: number; y: number; target: ReturnType<typeof carryTarget> | null } | null>(null);
+  const [carry, setCarry] = useState<{ root: string; label: string; devices: string[]; prefixes: string[]; uplinks: string[]; same: boolean; x: number; y: number; target: ReturnType<typeof carryTarget> | null } | null>(null);
   const carryRef = useRef<typeof carry>(null);
   carryRef.current = carry;
   const pointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -834,7 +834,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const t = subtreeOrNull(edit.model, root);
       if (!t) return;
       const label = `copy of ${root} · ${subtreeCount(edit.model, t)}`;
-      setCarry({ root, label, devices: t.devices, prefixes: subtreePrefixes(edit.model, root), x: pointer.current.x, y: pointer.current.y, target: null });
+      setCarry({ root, label, devices: t.devices, prefixes: subtreePrefixes(edit.model, root), uplinks: uplinksOf(edit.model, root), same: false, x: pointer.current.x, y: pointer.current.y, target: null });
     },
     [edit],
   );
@@ -843,14 +843,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const c = carryRef.current;
       if (!c || !edit?.onDuplicateSubtree) return;
       setCarry(null);
+      const same = c.same && c.uplinks.length > 0;
       if (clientX === null || clientY === null) {
-        edit.onDuplicateSubtree(c.root);
+        edit.onDuplicateSubtree(c.root, same ? { sameUplinks: true } : undefined);
         return;
       }
       const at = rf.screenToFlowPosition({ x: clientX, y: clientY }, { snapToGrid: false });
       const t = carryTarget(rf.getNodes(), at, c.devices, c.prefixes);
       if ("attachTo" in t) edit.onDuplicateSubtree(c.root, { attachTo: t.attachTo });
-      else edit.onDuplicateSubtree(c.root, { at: { x: at.x - DEVICE_W / 2, y: at.y - DEVICE_H / 2 }, prefix: t.prefix });
+      else edit.onDuplicateSubtree(c.root, { at: { x: at.x - DEVICE_W / 2, y: at.y - DEVICE_H / 2 }, prefix: t.prefix, ...(same ? { sameUplinks: true } : {}) });
     },
     [edit, rf],
   );
@@ -867,6 +868,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       if (e.key === "Enter") {
         e.preventDefault();
         dropCarry(null, null);
+      }
+      // U: the copy takes the same uplinks as the original (B3), or is parked again.
+      if (e.key === "u" || e.key === "U") {
+        e.preventDefault();
+        setCarry((d) => (d && d.uplinks.length ? { ...d, same: !d.same } : d));
       }
     };
     window.addEventListener("pointermove", move);
@@ -1874,8 +1880,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           {carry ? (
             <div className="cv-carry-ghost" role="status" data-testid="carry-ghost" data-target={carry.target ? ("attachTo" in carry.target ? `device:${carry.target.attachTo}` : `park:${carry.target.prefix ?? ""}`) : undefined} style={{ left: carry.x + 14, top: carry.y + 14 }}>
               <strong>{carry.label}</strong>
-              <span>{carry.target && "attachTo" in carry.target ? `drop: trunk it from ${carry.target.attachTo}` : carry.target && carry.target.prefix ? `drop: park it here, re-allocated under ${carry.target.prefix}` : "drop: park it here (not attached) · or on a switch or router"}</span>
-              <span className="muted">Enter parks it in place · Esc cancels</span>
+              <span>{carry.target && "attachTo" in carry.target ? `drop: trunk it from ${carry.target.attachTo}` : `drop: ${carry.same && carry.uplinks.length ? `place it here with the same uplinks (${carry.uplinks.join(", ")})` : "park it here (not attached)"}${carry.target && carry.target.prefix ? `, re-allocated under ${carry.target.prefix}` : ""} · or on a switch or router`}</span>
+              <span className="muted" data-testid="carry-keys">{carry.uplinks.length ? `U: ${carry.same ? "parked instead" : `same uplinks as the original (${carry.uplinks.join(", ")})`} · ` : ""}Enter {carry.same && carry.uplinks.length ? "places" : "parks"} it in place · Esc cancels</span>
             </div>
           ) : null}
           {menu && menuItems.length ? (

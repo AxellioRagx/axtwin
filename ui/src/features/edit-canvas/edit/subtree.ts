@@ -211,7 +211,53 @@ export function copyPositions(model: DocModel, root: string, result: Pick<Duplic
     const ncidr = nn ? result.cidrs[nn] : undefined;
     if (p && ncidr) out[`segment:${ncidr}`] = shift(p);
   }
+  // The hosts keep their place relative to the root too (B3, 2026-11-21: they had landed far from their switch).
+  for (const h of t.hosts) {
+    const p = positions[`host:${h}`];
+    const nn = result.names[h];
+    if (p && nn && h !== root) out[`host:${nn}`] = shift(p);
+  }
   return out;
+}
+
+/** The next rack's names (B3, 2026-11-21): when the subtree's root is named `<stem><n>...` (`rack1-tor`),
+ *  every copied name that starts with `<stem><n>` takes `<stem><k>`, k the first number past n that no
+ *  node or segment of the target starts with (`rack2`, then `rack3`); any other name (or a clash) takes
+ *  `-2`, `-3`. Null when the root carries no such number (the caller keeps `-2`). */
+export function nextNumberedRename(target: Pick<TeModel, "nodes" | "segments">, root: string): ((name: string, taken: ReadonlySet<string>) => string) | null {
+  const m = /^([A-Za-z][A-Za-z_]*?)(\d+)(?=[-_.]|$)/.exec(root);
+  if (!m) return null;
+  const stem = m[1]!;
+  const n = Number(m[2]);
+  const head = `${stem}${m[2]}`;
+  const all = [...target.nodes.map((x) => x.name), ...target.segments.map((x) => x.name)];
+  const used = (k: number) => all.some((x) => x === `${stem}${k}` || new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${k}[-_.]`).test(x));
+  let k = n + 1;
+  while (used(k)) k++;
+  return (name, taken) => {
+    if (name === head || name.startsWith(`${head}-`) || name.startsWith(`${head}_`) || name.startsWith(`${head}.`)) {
+      const nn = `${stem}${k}${name.slice(head.length)}`;
+      if (!taken.has(nn)) return nn;
+    }
+    return copyName(name, taken);
+  };
+}
+
+/** The devices the original subtree hangs from (B3): the routers and switches outside it that an `up`
+ *  link joins to its root, and the routers with a leg on one of its segments (a gateway). In document order. */
+export function uplinksOf(model: DocModel, root: string): string[] {
+  const te = model.te;
+  const t = subtreeOf(model, root);
+  const inside = new Set([...t.devices, ...t.hosts]);
+  const out = new Set<string>();
+  for (const l of te.links) {
+    if (l.state !== "up") continue;
+    const other = l.a.device === root ? l.b.device : l.b.device === root ? l.a.device : null;
+    const n = other ? te.nodes.find((x) => x.name === other) : undefined;
+    if (n && isDevice(n) && !inside.has(n.name)) out.add(n.name);
+  }
+  for (const n of te.nodes) if (n.kind === "router" && !inside.has(n.name) && n.nets.some((l) => t.segments.includes(l.segment))) out.add(n.name);
+  return te.nodes.filter((n) => out.has(n.name)).map((n) => n.name);
 }
 
 /** `{name}-2`, `{name}-3`, … the first not taken (§6.2: the copy is the second of its name). */
@@ -229,6 +275,9 @@ export interface DuplicateOptions {
   /** Re-allocate every copied segment under this two-octet prefix (`10.180`): the copy was dropped
    *  under another site (§6.3). Absent: each copy stays in its original's prefix. */
   prefix?: string | null;
+  /** "Same uplinks as the original" (B3): the copy is wired to every device the original hangs from
+   *  (`uplinksOf`) -- a router as that LAN's gateway (`gatewayOnSwitch`, A5), a switch by a trunk. */
+  sameUplinks?: boolean;
 }
 
 /** The two-octet prefixes the subtree's segments sit in. */
@@ -378,7 +427,8 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
   const upCarried = attachTo === null && tree.uplink ? [...(tree.uplink.native ? [tree.uplink.native] : []), ...tree.uplink.vlans].filter((s, i, xs) => tree.segments.includes(s) && xs.indexOf(s) === i) : [];
   // The bindings copy only when the bundle has a traffic profile to copy them into (as before).
   const source = model.tfcPath && doc.files[model.tfcPath] !== undefined ? model : { ...model, tfc: null };
-  const copied = copyInto(doc, model, source, tree, { prefix: options.prefix ?? null, extraLegs: (name) => (name === root ? upCarried : []) });
+  const rename = nextNumberedRename(model.te, root);
+  const copied = copyInto(doc, model, source, tree, { prefix: options.prefix ?? null, extraLegs: (name) => (name === root ? upCarried : []), ...(rename ? { rename } : {}) });
   const { names, cidrs } = copied;
   const seg = (s: string) => names[s] ?? s;
   let text = copied.files[doc.teFile]!;
@@ -393,7 +443,18 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     const rootPort = up ? (up.a.device === root ? up.a.port : up.b.port) : freePort(readDocTe(text, doc), newRoot);
     text = addLink(text, { a: { device: attachTo, port: freePort(readDocTe(text, doc), attachTo) }, b: { device: newRoot, port: rootPort }, mode: "trunk", native, vlans: vlans.length || native ? vlans : carried });
   }
-  return { files: { ...copied.files, [doc.teFile]: text }, names, root: newRoot, cidrs };
+  let files: Files = { ...copied.files, [doc.teFile]: text };
+  if (attachTo === null && options.sameUplinks) {
+    const newRootNode = readDocTe(text, doc).nodes.find((n) => n.name === newRoot);
+    for (const up of uplinksOf(model, root)) {
+      const cur: WorkingDoc = { ...doc, files };
+      const m = readDoc(cur);
+      const u = m.te.nodes.find((n) => n.name === up);
+      if (!u) continue;
+      files = u.kind === "router" && newRootNode?.kind === "switch" ? gatewayOnSwitch(cur, m, up, newRoot) : attachDevices(cur, m, up, newRoot);
+    }
+  }
+  return { files, names, root: newRoot, cidrs };
 }
 
 function readDocTe(text: string, doc: WorkingDoc): TeModel {

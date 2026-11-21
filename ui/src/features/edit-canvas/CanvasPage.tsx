@@ -87,7 +87,7 @@ import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } fro
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
-import { placeDropped } from "./add/placeDrop";
+import { besideSubtree, clearOf, placeDropped } from "./add/placeDrop";
 import { TemplatePopover, TemplatesSection } from "./add/Templates";
 import { buildTemplate, carriedBindings, proposeTemplate, readMyTemplates, rememberMyTemplate, type Proposal } from "./add/saveTemplate";
 import { SaveTemplateDialog } from "./add/SaveTemplateDialog";
@@ -966,6 +966,24 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     [pendingDrop, edit, onPin, onPinMany, personas],
   );
 
+  // Duplicate subtree (§6.2, B3): the copy keeps the original's shape -- its root at the drop point, or
+  // beside the original when there is none (Enter, a device, the panel) -- its devices, implied switches
+  // and hosts around it (they had landed far from their switch), clear of every box already there.
+  const onDuplicate = useCallback(
+    (root: string, attachTo: string | null, drop: { at?: { x: number; y: number } | null; prefix?: string | null; sameUplinks?: boolean }) => {
+      let r: { result: DuplicateResult; model: DocModel; after: DocModel["te"] } | null = null;
+      const prefix = drop.prefix ?? null;
+      const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : drop.sameUplinks ? " with the same uplinks" : ""}${prefix ? ` under ${prefix}` : ""}`;
+      if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix, sameUplinks: Boolean(drop.sameUplinks) }); r = { result: out, model: m, after: readDoc({ ...d, files: out.files }).te }; return out.files; }) !== null || !r) return;
+      const done: { result: DuplicateResult; model: DocModel; after: DocModel["te"] } = r;
+      const known = { ...settled.current, ...pinsRef.current };
+      const at = drop.at ?? besideSubtree(done.model, root, known);
+      if (at) onPinMany(clearOf(copyPositions(done.model, root, done.result, known, at), known, done.after));
+      setSelection({ kind: "subtree", root: done.result.root });
+    },
+    [edit, onPinMany],
+  );
+
   // ---- exits ----
   const files = editor.files;
   const filesRef = useRef(files);
@@ -1496,18 +1514,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
-      onDuplicateSubtree: (root, drop) => {
-        let r: { result: DuplicateResult; model: DocModel } | null = null;
-        const attachTo = drop?.attachTo ?? null;
-        const prefix = drop?.prefix ?? null;
-        const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}${prefix ? ` under ${prefix}` : ""}`;
-        if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r = { result: out, model: m }; return out.files; }) !== null || !r) return;
-        const done: { result: DuplicateResult; model: DocModel } = r;
-        // Dropped on empty canvas: the parked copy stands where it was dropped, its root at the
-        // drop point and its devices and implied switches in the original's shape around it (side-car positions).
-        if (!attachTo && drop?.at) onPinMany(copyPositions(done.model, root, done.result, { ...settled.current, ...pinsRef.current }, drop.at));
-        setSelection({ kind: "subtree", root: done.result.root });
-      },
+      onDuplicateSubtree: (root, drop) => onDuplicate(root, drop?.attachTo ?? null, drop ?? {}),
       onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,
       onAnnotations: setAnnotations,
@@ -1519,7 +1526,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         setSaveTpl({ proposal, bare, stripped: carriedBindings(model, proposal.set.hosts, personas).stripped, bareStripped: bare ? carriedBindings(model, bare.set.hosts, personas).stripped : [], busy: false, error: null });
       },
     };
-  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas]);
+  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas, onDuplicate]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -2116,6 +2123,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                         onProvenance={pit !== null ? onProvenance : undefined}
                         provenanceBlock={provenanceBlock}
                         onSelect={setSelection}
+                        onDuplicate={(root, attachTo, opts) => onDuplicate(root, attachTo, opts)}
                         sensors={declaredSensors}
                         sensorTarget={sensorTargetName}
                         onConvertFabric={onConvertFabric}
