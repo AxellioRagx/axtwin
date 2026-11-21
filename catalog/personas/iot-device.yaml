@@ -1,5 +1,8 @@
 persona:
   id: iot-device
+  category: endpoint
+  label: "IoT device"
+  blurb: "A small device reporting MQTT/CoAP to a protocol gateway, with a daily check-in."
   os_family: linux
   drive: replay
   emits:

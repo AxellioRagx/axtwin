@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { Target } from "../src/api/types";
 import { readTap } from "../src/features/edit-canvas/edit/tap";
-import { DEPLOY, document, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
+import { DEPLOY, document, enabled, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TAP = "tap-plan:\n  target: corp-auth\n  bindings:\n    - selector: { scope: segment, target: net-lan }\n      sensors: [XPress-SW-A, Old-Sensor]\n      mode: exclusive\n";
@@ -92,7 +92,10 @@ describe("the tap inspector's Sensors", () => {
     expect(within(field).getAllByTestId("stale-sensor").map((r) => r.dataset["sensor"])).toEqual(["XPress-SW-A", "Old-Sensor"]);
     fireEvent.click(within(field).getByLabelText("Sensor Zeek-K"));
     await settle();
-    // Deployed: the edit lands in the working copy.
+    // Deployed: the edit stays local until Apply pushes it to the working copy.
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
+    fireEvent.click(await enabled("Apply"));
+    await waitFor(() => expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(true));
     const put = state.writes.filter((w) => w.op === "put-deploy-config").at(-1) as { body: { files: Record<string, string> } };
     expect(readTap(put.body.files["tap/default.yaml"]!).bindings[0]!.sensors).toEqual(["XPress-SW-A", "Old-Sensor", "Zeek-K"]);
   });

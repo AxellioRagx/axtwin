@@ -18,6 +18,9 @@
 # never crossing a tap. See loadgen-l1.yaml for the full finding.
 persona:
   id: loadgen-l3
+  category: traffic
+  label: "Load generator (l3)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: linux
   drive: scripted
   emits:

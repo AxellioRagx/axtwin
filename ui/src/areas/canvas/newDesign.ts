@@ -1,29 +1,31 @@
 /**
- * What `/canvas/new` writes through A3 `POST /api/twin-configs`: a BLANK
- * design, or a copy of a twin-config in the catalog under a new id.
+ * The document behind `/canvas/new`: an UNTITLED design that lives in the
+ * browser until its first Save, which is a Save-As (`POST /api/twin-configs`)
+ * under an id the operator names then.
  *
- * A blank design is the smallest document the engine accepts: one segment
- * and no nodes (`twin_config.segments` may not be empty -- "no segments left
- * after `when` gating" -- while `nodes` may), with the root manifest the
- * loader needs (`twin.yaml`, `containment: uncontained`: the te file declares
- * no egress posture). The validator answers PASS with the "network has no
- * nodes attached" warning, which is the canvas's starting point.
+ * A blank design is the smallest document the loader reads: the te file with
+ * no segments and no nodes, and the root manifest the loader needs
+ * (`twin.yaml`, `containment: uncontained`: the te file declares no egress
+ * posture). The engine refuses a twin_config with no segments ("no segments
+ * left after `when` gating"), so the canvas holds an untitled design with
+ * none back from Save with a plain reason -- never a hidden default segment.
  */
-import { saveAsFiles, type WorkingDoc } from "../../features/edit-canvas/edit/document";
-import { isNetworkAddress } from "../../features/edit-canvas/edit/allocate";
 
 /** The ids `POST /api/twin-configs` accepts (the fake and `_is_safe_catalog_ref` agree). */
 export const DESIGN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export const DEFAULT_SEGMENT = "lan";
-export const DEFAULT_CIDR = "10.0.0.0/24";
+/** The placeholder id an untitled design carries until its Save-As renames it. */
+export const UNTITLED_ID = "untitled";
+
+/** Why an untitled design cannot be saved yet. */
+export const NO_SEGMENT_REASON = "add at least one segment before saving";
 
 export interface BlankDesign {
   id: string;
-  description: string;
-  segment: string;
-  cidr: string;
+  description?: string;
+  /** The first segment; none gives `segments: []` (the untitled canvas's start). */
+  segment?: { name: string; cidr: string };
 }
 
 /** A YAML double-quoted scalar: JSON's string form is one. */
@@ -31,31 +33,24 @@ function quoted(s: string): string {
   return JSON.stringify(s);
 }
 
-/** Why the form cannot be submitted yet, or null. */
-export function blankDesignProblem(d: BlankDesign): string | null {
-  if (!DESIGN_ID.test(d.id)) return "the id must start with a letter or digit and use only letters, digits, '.', '_' and '-'";
-  if (!NAME.test(d.segment)) return "the segment name must start with a letter or digit and use only letters, digits, '.', '_' and '-'";
-  if (!isNetworkAddress(d.cidr)) return `'${d.cidr}' is not an IPv4 network address in CIDR form (10.1.2.0/24)`;
-  return null;
-}
-
 /** The two files of a blank design. */
 export function blankDesignFiles(d: BlankDesign): Record<string, string> {
-  const description = d.description.trim() || `${d.id}: a twin designed on the canvas.`;
+  // Neither the comments nor the default description name the id: a Save-As rewrites the id lines only.
+  const description = d.description?.trim() || "a twin designed on the canvas.";
+  const segments = d.segment ? ["  segments:", `    - { name: ${d.segment.name}, cidr: ${d.segment.cidr}, zone_type: vlan }`] : ["  segments: []"];
   const te = [
-    `# ${d.id} -- designed on the axTwin canvas; the twin config (te tier).`,
+    "# Designed on the XTwin canvas; the twin config (te tier).",
     "twin_config:",
     `  id: ${d.id}`,
     `  description: ${quoted(description)}`,
     "",
-    "  segments:",
-    `    - { name: ${d.segment}, cidr: ${d.cidr}, zone_type: vlan }`,
+    ...segments,
     "",
     "  nodes: []",
     "",
   ].join("\n");
   const manifest = [
-    `# ${d.id} -- the root manifest: which file is each tier's default.`,
+    "# The root manifest: which file is each tier's default.",
     "twin:",
     `  id: ${d.id}`,
     `  description: ${quoted(description)}`,
@@ -68,8 +63,10 @@ export function blankDesignFiles(d: BlankDesign): Record<string, string> {
   return { "te.yaml": te, "twin.yaml": manifest };
 }
 
-/** A copy of an existing document under `newId`: the canvas's own Save-As rewrite. */
-export function copiedDesignFiles(source: { id: string; te_file: string; files: Record<string, string> }, newId: string): Record<string, string> {
-  const doc: WorkingDoc = { id: source.id, teFile: source.te_file, files: { ...source.files } };
-  return saveAsFiles(doc, newId);
+/** Why `id` cannot name a new design, or null: the API's id rule, then the ids already in the catalog. */
+export function designIdProblem(id: string, taken: ReadonlySet<string>): string | null {
+  if (!id) return "give the design an id";
+  if (!DESIGN_ID.test(id)) return "the id must start with a letter or digit and use only letters, digits, '.', '_' and '-'";
+  if (taken.has(id)) return `'${id}' is already in the catalog; pick another id`;
+  return null;
 }

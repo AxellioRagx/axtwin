@@ -4,6 +4,9 @@
 # hard to spot underneath this, which is the honest test of a detection rule.
 persona:
   id: streaming-media-client
+  category: endpoint
+  label: "Streaming media client"
+  blurb: "Pulls video segments through the proxy every few seconds: steady cover traffic."
   os_family: linux
   drive: scripted
   emits:

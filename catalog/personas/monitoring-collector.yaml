@@ -1,6 +1,9 @@
 # talks to everything — modeled deliberately.
 persona:
   id: monitoring-collector
+  category: network
+  label: "Monitoring server"
+  blurb: "Polls and collects from every host: HTTP scrapes, syslog, SNMP and NetFlow."
   os_family: linux
   drive: real-service
   emits:

@@ -1,6 +1,9 @@
 # deterministic interval -- ideal anomaly baseline.
 persona:
   id: plc
+  category: ot
+  label: "PLC"
+  blurb: "A controller answering the HMI over Modbus, DNP3 and EtherNet/IP on a fixed cycle."
   os_family: linux
   drive: scripted
   emits:

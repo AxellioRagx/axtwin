@@ -129,3 +129,20 @@ def test_annotation_bounds_duplicates_and_type(tmp_path):
     big = "<text>" + "x" * (8 * 1024 - len("<text></text>")) + "</text>"
     r = c.put(URL, json=dict(_LAYOUT, annotations=[dict(_ANN[0], id=f"a{i}", svg=big) for i in range(200)]))
     assert r.status_code == 200, r.text
+
+
+def test_layout_mode_round_trips_stays_absent_and_refuses_unknown(tmp_path):
+    c = _c(tmp_path)
+    put = c.put(URL, json=dict(_LAYOUT, mode="free"))
+    assert put.status_code == 200, put.text
+    assert put.json()["mode"] == "free" and c.get(URL).json()["mode"] == "free"
+    on_disk = tmp_path / "imprints" / ID / "layout.json"
+    assert json.loads(on_disk.read_text())["mode"] == "free"
+    # Absent stays absent: no key on disk, `null` on the wire.
+    r = c.put(URL, json=dict(_LAYOUT, etag=put.json()["etag"]))
+    assert r.status_code == 200 and r.json()["mode"] is None
+    assert "mode" not in json.loads(on_disk.read_text())
+    t = c.put(URL, json=dict(_LAYOUT, mode="tree", etag=r.json()["etag"]))
+    assert t.status_code == 200 and t.json()["mode"] == "tree"
+    bad = c.put(URL, json=dict(_LAYOUT, mode="radial", etag=t.json()["etag"]))
+    assert bad.status_code == 400, bad.text

@@ -141,6 +141,14 @@ export const Icon = {
       <path d="M8 3v10M3 8h10" />
     </Svg>
   ),
+  /** The rail's Connect tool: two nodes and the wire a drag draws between them. */
+  connect: () => (
+    <Svg>
+      <circle cx="3.5" cy="12.5" r="2" />
+      <circle cx="12.5" cy="3.5" r="2" />
+      <path d="M5 11l6-6" strokeDasharray="2 1.5" />
+    </Svg>
+  ),
   attach: () => (
     <Svg>
       <circle cx="4" cy="4" r="2" />
@@ -228,6 +236,12 @@ export const Icon = {
     </Svg>
   ),
   /** The Lab overlay (targets-and-lab §2.3): a flask -- the O2 components beside the twin. */
+  conduit: () => (
+    <Svg>
+      <path d="M2.5 4v1.5a6 6 0 0 0 11 0V4" strokeDasharray="1.6 1.6" />
+      <path d="M1 3.5h3M12 3.5h3" />
+    </Svg>
+  ),
   lab: () => (
     <Svg>
       <path d="M6 1.5h4M6.5 1.5v4L2.5 13a1 1 0 0 0 .9 1.5h9.2a1 1 0 0 0 .9-1.5L9.5 5.5v-4" />

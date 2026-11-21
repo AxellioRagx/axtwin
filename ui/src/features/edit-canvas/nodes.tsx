@@ -22,10 +22,42 @@ import { evidenceClassName, saturationFor } from "./model/evidence";
 import type { DetailLevel } from "./model/detail";
 import { SWITCH_ROLES, switchBadge } from "./model/roles";
 import { encodePoints, type Point } from "./canvas/legs";
-import { midOf, roundedPath } from "./canvas/orthogonal";
+import { dropPoint, midOf, roundedPath } from "./canvas/orthogonal";
 import { HANDLE, type CanvasEdge, type CanvasNode, type EdgeRoute } from "./canvas/placement";
+import { alongLine, canonicalEnds, iconOf, type PillAt } from "./canvas/free";
+import type { FindingPin } from "./edit/check";
 import { useEdit } from "./edit/EditContext";
+import { conduitImplemented } from "./edit/te";
 import { Icon, RoleIcon } from "./icons";
+
+/** The last Check's findings pinned on the elements they name (`edit/check.ts` `findingPins`),
+ *  keyed `node:<group>`, `segment:<name>`, `link:<i>`, `tap:<i>`; empty when nothing was checked. */
+export const FindingsContext = createContext<ReadonlyMap<string, FindingPin>>(new Map());
+
+/** Findings on elements a fold hides, counted on the fold node (keyed by its node id). */
+export const FoldFindingsContext = createContext<ReadonlyMap<string, { count: number; severity: "error" | "warning" }>>(new Map());
+
+/** The count a fold wears for the findings on what it hides. */
+function FoldFindingBadge({ id }: { id: string }) {
+  const pin = useContext(FoldFindingsContext).get(id);
+  if (!pin) return null;
+  return (
+    <span className={`cv-finding-badge ${pin.severity}`} data-testid="finding-badge-fold" data-severity={pin.severity} title={`${pin.count} finding${pin.count === 1 ? "" : "s"} behind this fold`}>
+      {pin.count}
+    </span>
+  );
+}
+
+/** The pin a Check's findings put on one element: a count in the worst severity's colour, the messages on hover. */
+export function FindingBadge({ k }: { k: string }) {
+  const pin = useContext(FindingsContext).get(k);
+  if (!pin) return null;
+  return (
+    <span className={`cv-finding-badge ${pin.severity}`} data-testid="finding-badge" data-key={k} data-severity={pin.severity} title={pin.messages.join("\n")}>
+      {pin.messages.length}
+    </span>
+  );
+}
 
 /** The level of detail (`model/detail.ts`), read by the nodes and edges
  *  through context so a zoom crossing never rebuilds the node array. At
@@ -80,18 +112,35 @@ export interface Glow {
 export const NO_GLOW: Glow = { hosts: new Set(), arcs: new Set() };
 export const GlowContext = createContext<Glow>(NO_GLOW);
 
-/** Every node offers the three handles the edges attach to. In edit mode a
- *  host's or router's bottom handle is a connection SOURCE and a bus's top
- *  handle a TARGET -- dragging one to the other is the attach gesture;
- *  read-only, none accepts a connection. */
-function Handles({ role = "none" }: { role?: "host" | "segment" | "none" }) {
-  const edit = useEdit();
-  const live = Boolean(edit && !edit.locked);
+/** Every node offers the three handles the edges attach to. They only anchor edges (the tree's
+ *  routes, the smoothstep fallback): no handle starts or ends a connection -- the connect zones below do. */
+function Handles(_: { role?: "host" | "segment" | "none" } = {}) {
   return (
     <>
-      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={live && role === "segment"} />
-      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={live && role === "host"} />
+      <Handle type="target" position={Position.Top} id={HANDLE.top} isConnectable={false} />
+      <Handle type="source" position={Position.Bottom} id={HANDLE.bottom} isConnectable={false} />
       <Handle type="target" position={Position.Bottom} id={HANDLE.bottomIn} isConnectable={false} />
+    </>
+  );
+}
+
+/** A device's connect zone (2026-11-20, round 2): the ring around a router's or switch's icon (the
+ *  icon itself is the move zone) or around a host, with four dots that show on hover. A press on it
+ *  starts the canvas's connect drag (`Canvas.tsx`, `data-connect-zone`); edit mode only. */
+function ConnectRing({ shape }: { shape: "circle" | "box" | "host" }) {
+  const edit = useEdit();
+  if (!edit || edit.locked) return null;
+  // Two layers: the zone (on top, hollowed by its clip-path so the icon under its middle stays the
+  // move zone) takes the press; the dashed ring and its dots under it are drawn only.
+  return (
+    <>
+      <span className={`cv-connect-ring cv-connect-${shape}`} aria-hidden="true">
+        <i className="cv-connect-dot top" />
+        <i className="cv-connect-dot right" />
+        <i className="cv-connect-dot bottom" />
+        <i className="cv-connect-dot left" />
+      </span>
+      <span className={`cv-connect-zone cv-connect-${shape} nodrag`} data-connect-zone="ring" data-testid="connect-ring" title="drag to connect" />
     </>
   );
 }
@@ -148,7 +197,7 @@ export function ImpliedSwitchNode(p: P) {
   const overlay = useContext(OverlayContext);
   const dim = useDim(d.kind === "segment" ? d.source : null);
   if (d.kind !== "segment") return null;
-  const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.placing || edit.rehomeTarget === d.name));
+  const target = Boolean(edit && !edit.locked && (edit.attachFrom || edit.rehomeTarget === d.name));
   const served = d.served ?? [];
   const legend = [...d.roleBadges].sort((a, b) => b.count - a.count).map((g) => `${g.role} ${g.count}`).join(" · ");
   const hostsWord = `${d.hosts} host${d.hosts === 1 ? "" : "s"}${d.ghosts ? ` · ${d.ghosts} ghost${d.ghosts === 1 ? "" : "s"}` : ""}`;
@@ -157,6 +206,7 @@ export function ImpliedSwitchNode(p: P) {
       className={`cv-router cv-device cv-implied${p.selected ? " selected" : ""}${target ? " cv-target" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-segment"
       data-implied="true"
+      data-label-side={d.labelSide}
       data-cidr={d.cidr}
       data-name={d.name}
       data-source={d.source ?? undefined}
@@ -176,6 +226,7 @@ export function ImpliedSwitchNode(p: P) {
         <span className="badge cv-segment-count" title={hostsWord} data-testid="segment-count">{d.hosts}</span>
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`segment:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -219,6 +270,7 @@ export function HostFoldNode(p: P) {
       >
         {d.open ? "fold" : `+${d.hidden}`}
       </button>
+      <FoldFindingBadge id={p.id} />
       <Handles />
     </div>
   );
@@ -349,11 +401,13 @@ export function HostNode(p: P) {
       onDragOver={edit && !edit.locked && group ? (e) => { if (draggingMember && draggingMember.from !== d.nodeId) { e.preventDefault(); e.stopPropagation(); } } : undefined}
       onDrop={edit && !edit.locked && group ? (e) => { const m = draggingMember; if (!m || m.from === d.nodeId) return; draggingMember = null; e.preventDefault(); e.stopPropagation(); edit.onMoveMember(m.from, m.index, d.nodeId); } : undefined}
     >
+      <ConnectRing shape="host" />
       <span className="cv-ring" style={{ opacity: saturationFor(d.roleConfidence) }} title={d.role ?? "no role discovered"} data-role={d.roleLabel}>
         {sw ? <Icon.switch /> : <RoleIcon label={d.roleLabel} />}
       </span>
       {sw ? <span className="cv-role-badge" data-testid="role-badge" title={`role: ${d.role}`}>{switchBadge(d.role!)}</span> : null}
       <ProvenanceMark source={d.source} confidence={d.confidence} />
+      <FindingBadge k={`node:${d.nodeId}`} />
       {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
       {group && group.countValue > 1 ? (
         <span className={`badge cv-count-badge${group.members.length ? " has-overrides" : ""}${edit?.membersOpen.has(d.nodeId) ? " open" : ""}`} data-testid="count-badge" data-overrides={group.members.length || undefined} title={`${group.countValue} instances (count: ${String(group.count)})${group.members.length ? `; ${group.members.length} with a role override` : ""}; double-click for the members`} onDoubleClick={(e) => { e.stopPropagation(); edit?.onToggleMembers(d.nodeId); }}>
@@ -424,6 +478,7 @@ export function DeviceNode(p: P) {
       className={`cv-router cv-device${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-device"
       data-node-id={d.name}
+      data-label-side={d.labelSide}
       data-device-kind={d.deviceKind}
       data-hue={d.hue}
       data-source={d.source ?? undefined}
@@ -438,11 +493,13 @@ export function DeviceNode(p: P) {
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.ports.length ? `${d.ports.length} port${d.ports.length === 1 ? "" : "s"}` : `${d.segments.length} segment${d.segments.length === 1 ? "" : "s"}`}</span>
       <span className="cv-icon-box" aria-hidden="true">
+        <ConnectRing shape={d.deviceKind === "switch" ? "box" : "circle"} />
         {d.deviceKind === "switch" ? <Icon.switch /> : <Icon.router />}
         <span className="cv-role-badge cv-device-badge" data-testid="device-badge">{d.badge}</span>
-        {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: attach it to a switch or router before Apply or Save">not attached</span> : null}
+        {d.parked ? <span className="cv-parked-badge" data-testid="parked-badge" title="parked: not attached to a switch or router; a Check reports it">not attached</span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`node:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -479,6 +536,7 @@ export function TapNode(p: P) {
     <div className={`cv-tap${p.selected ? " selected" : ""}${overlay ? " cv-ov-tap" : ""}${dim}`} data-sensors={d.sensors.length} data-source={d.source ?? "authored"} data-testid="canvas-tap" data-tap={d.id} data-target={d.target} data-scope={d.scope} style={{ width: p.width, height: p.height }} title={`tap on ${d.scope} ${d.target}${d.sensors.length ? ` → ${d.sensors.join(", ")}` : " (no sensor named)"}`}>
       <span className="cv-tap-chip">tap</span>
       <ProvenanceMark source={d.source} />
+      <FindingBadge k={`tap:${d.id}`} />
       <Handles />
     </div>
   );
@@ -523,6 +581,7 @@ export function RouterNode(p: P) {
       className={`cv-router${p.selected ? " selected" : ""}${armed ? " cv-armed" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-router"
       data-node-id={d.name}
+      data-label-side={d.labelSide}
       data-gateway={gateway || undefined}
       data-hue={d.hue}
       data-source={d.source ?? undefined}
@@ -538,10 +597,12 @@ export function RouterNode(p: P) {
       <span className="mono cv-icon-name">{d.name}</span>
       <span className="muted cv-icon-sub">{d.segments.length} leg{d.segments.length === 1 ? "" : "s"}</span>
       <span className="cv-icon-box" aria-hidden="true">
+        <ConnectRing shape="circle" />
         <Icon.router />
         {gateway ? <span className="cv-wan-badge" data-testid="wan-badge" title={wan ?? undefined}><Icon.globe /></span> : null}
         <ProvenanceMark source={d.source} confidence={d.confidence} />
       </span>
+      <FindingBadge k={`node:${d.name}`} />
       {card.open ? (
         <div className={`cv-card${card.flip.left ? " flip-left" : ""}${card.flip.up ? " flip-up" : ""}`} role="tooltip" data-testid="canvas-hover-card">
           <div className="mono">{d.name}</div>
@@ -596,6 +657,7 @@ export function OverflowNode(p: P) {
     <div className={`cv-overflow${d.label && !d.expanded ? " cv-site-fold" : ""}`} data-testid="canvas-overflow" data-fold={d.siteKey} data-expanded={d.expanded || undefined} style={{ width: p.width, height: p.height }} title={d.expanded ? "fold these back" : d.label ? `site ${d.label}: click to show its segments` : "show the rest of this branch"}>
       <span>{d.expanded ? (d.label ? `${d.label} · fold` : `fold ${d.hidden} back`) : d.label ? d.label : `+${d.hidden} more`}</span>
       <span className="muted">{d.expanded ? "click to collapse" : `${d.label ? "" : `of ${d.total} segments · `}${d.hosts ?? 0} host${d.hosts === 1 ? "" : "s"}`}</span>
+      <FoldFindingBadge id={p.id} />
       <Handles />
     </div>
   );
@@ -660,6 +722,9 @@ type E = EdgeProps<CanvasEdge>;
 export function ArcEdge(e: E) {
   const glow = useContext(GlowContext);
   const detail = useContext(DetailContext);
+  const edit = useEdit();
+  const findings = useContext(FindingsContext);
+  const [hover, setHover] = useState(false);
   const d = e.data;
   if (!d || d.kind !== "arc") return null;
   const dx = Math.abs(e.targetX - e.sourceX);
@@ -667,6 +732,32 @@ export function ArcEdge(e: E) {
   const base = Math.max(e.sourceY, e.targetY) + depth;
   const path = `M ${e.sourceX} ${e.sourceY} C ${e.sourceX} ${base}, ${e.targetX} ${base}, ${e.targetX} ${e.targetY}`;
   const lit = glow.arcs.has(d.key);
+  // The design view: a declared conduit is a thin dotted connector labelled "conduit", in the warning
+  // colour when no node implements it (a leg on BOTH segments -- the engine refuses that).
+  const conduits = edit && d.arcKind === "asserted" ? (d.conduits ?? []) : [];
+  if (conduits.length) {
+    const open = conduits.filter((c) => !conduitImplemented(edit!.model.te, c.a, c.b));
+    const keys = conduits.map((c) => `conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}`);
+    const pinned = keys.map((k) => findings.get(k)).filter((p): p is FindingPin => Boolean(p));
+    const pin = pinned.length ? { severity: pinned.some((p) => p.severity === "error") ? "error" : "warning", messages: pinned.flatMap((p) => p.messages) } : null;
+    // Labels collapse (2026-11-20): "conduit" on hover or selection only; a failing one keeps "no route".
+    const full = `conduit${conduits.length > 1 ? ` ×${conduits.length}` : ""}${open.length ? " · no route" : ""}`;
+    const label = e.selected || hover ? full : open.length ? "no route" : undefined;
+    const title = conduits.map((c) => `${c.a} ↔ ${c.b}${conduitImplemented(edit!.model.te, c.a, c.b) ? "" : " (no node on both segments, no chain of routers between them)"}`).join("\n");
+    return (
+      <g data-testid="canvas-conduit" data-label={label ?? ""} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} data-key={d.key} data-open={open.length || undefined} data-conduits={conduits.map((c) => `${c.a}|${c.b}`).join(",")} className={`cv-conduit${open.length ? " open" : ""}${e.selected ? " selected" : ""}`}>
+        <title>{title}</title>
+        <BaseEdge id={e.id} path={path} className="cv-arc cv-arc-conduit" label={label} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg interactionWidth={12} />
+        {pin ? (
+          <g className={`cv-finding-badge-edge ${pin.severity}`} data-testid="finding-badge" data-key={keys[0]} data-severity={pin.severity} transform={`translate(${(e.sourceX + e.targetX) / 2}, ${base - 22})`}>
+            <title>{pin.messages.join("\n")}</title>
+            <circle r={8} />
+            <text textAnchor="middle" dy="0.35em">{pin.messages.length}</text>
+          </g>
+        ) : null}
+      </g>
+    );
+  }
   return (
     <g data-testid="canvas-arc" data-key={d.key} className={lit ? "glow" : ""}>
       <BaseEdge id={e.id} path={path} style={e.style} className={`cv-arc cv-arc-${d.arcKind}${lit ? " glow" : ""}`} label={detail === "full" ? d.label : undefined} labelX={(e.sourceX + e.targetX) / 2} labelY={base - 6} labelShowBg />
@@ -693,6 +784,21 @@ function useTreeRoute(e: E): Point[] | null {
   return Math.abs(a.x - ra.x) < 0.5 && Math.abs(a.y - ra.y) < 0.5 && Math.abs(b.x - rb.x) < 0.5 && Math.abs(b.y - rb.y) < 0.5 ? route.points : null;
 }
 
+/** A free-layout edge's two ends (`canvas/free.ts`): centre to centre between the two icons, clipped
+ *  at each outline, in canonical order (the smaller node id's end first) so the line is the same
+ *  whichever way it was dragged; read from the live nodes, so it follows a drag. Null off the free layout. */
+function useFreeEnds(e: E): { p: Point; q: Point; flipped: boolean } | null {
+  const free = Boolean((e.data as { free?: boolean } | undefined)?.free);
+  const src = useInternalNode(e.source);
+  const dst = useInternalNode(e.target);
+  if (!free || !src || !dst) return null;
+  const icon = (n: NonNullable<typeof src>) =>
+    iconOf({ type: n.type, kind: (n.data as { kind?: string }).kind, x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured?.width ?? n.width ?? 0, h: n.measured?.height ?? n.height ?? 0 });
+  return canonicalEnds(e.source, e.target, icon(src), icon(dst));
+}
+
+const straight = (p: Point, q: Point) => `M ${p.x} ${p.y} L ${q.x} ${q.y}`;
+
 /** The radius of the port dot where a drop meets its bus. */
 export const PORT_DOT = 3.5;
 
@@ -714,12 +820,15 @@ export function LegEdge(e: E) {
   const kind = e.data?.kind;
   const tree = useTreeRoute(e);
   const routed = tree;
+  // The free layout (B2): icon centre to icon centre, clipped at both outlines (`canvas/free.ts`).
+  const fe = useFreeEnds(e);
   // No route (an end was dragged): an orthogonal smoothstep between the handles, never a diagonal through a box.
-  const step = routed ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
-  const pts: Point[] = routed ?? [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }];
-  const mid = midOf(pts);
-  const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : [step![0], step![1], step![2]];
-  void src;
+  const step = routed || fe ? null : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  const pts: Point[] = routed ?? (fe ? (fe.flipped ? [fe.q, fe.p] : [fe.p, fe.q]) : [{ x: e.sourceX, y: e.sourceY }, { x: e.sourceX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: (e.sourceY + e.targetY) / 2 }, { x: e.targetX, y: e.targetY }]);
+  // A router's leg labels its own drop into the target; every other edge its route's middle.
+  const mid = src?.type === "router" ? dropPoint(pts) : midOf(pts);
+  const freeMid = fe ? alongLine(fe.p, fe.q, { t: 0.5, off: 0 }) : null;
+  const [path, labelX, labelY] = routed ? [roundedPath(routed), mid.x, mid.y] : fe ? [straight(fe.p, fe.q), freeMid!.x, freeMid!.y] : [step![0], step![1], step![2]];
   const folded = kind === "leg" || kind === "stub" ? ((e.data as { folded?: number }).folded ?? 0) : 0;
   const parts = folded || (kind !== "leg" && kind !== "stub") ? null : legParts(e.id);
   const leg = edit && parts ? (edit.model.te.nodes.find((n) => n.name === parts.node)?.nets.find((l) => l.segment === parts.segment) ?? null) : null;
@@ -736,7 +845,7 @@ export function LegEdge(e: E) {
   // A real switch's first access edge of each segment keeps its VLAN label on (§7.1 rule 1).
   const vlan = kind === "leg" ? (e.data as { vlan?: string }).vlan : undefined;
   return (
-    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} data-vlan={vlan} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
+    <g data-testid="canvas-leg" data-leg={e.id} data-pts={encodePoints(pts)} data-kind={kind} data-folded={folded || undefined} data-fan={kind === "fan" ? (e.data as { count: number }).count : undefined} data-bus={kind === "bus" || undefined} data-routed={routed ? "true" : undefined} data-free={fe ? "true" : undefined} data-vlan={vlan} className={`${e.selected ? "selected" : ""}${folded ? " folded" : ""}`} style={hue ? ({ "--hue": hue } as React.CSSProperties) : undefined}>
       <BaseEdge id={e.id} path={path} className={`cv-leg${e.selected ? " selected" : ""}${cls}`} style={hue ? { ...e.style, stroke: hue } : e.style} label={vlan && !e.selected ? vlan : label} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={0} />
       {dot ? <circle className={`cv-port${kind === "stub" ? " cv-port-stub" : ""}`} cx={end.x} cy={end.y} r={PORT_DOT} style={hue ? { fill: hue, stroke: hue } : undefined} data-testid="port-dot" /> : null}
     </g>
@@ -756,17 +865,23 @@ export function TrunkEdge(e: E) {
  *  inspector can show its row. */
 export function LinkEdge(e: E) {
   const overlay = useContext(OverlayContext);
-  const labels = useContext(LabelsContext);
   const routed = useTreeRoute(e);
+  const fe = useFreeEnds(e);
   const d = e.data;
   if (!d || (d.kind !== "link" && d.kind !== "seglink")) return null;
-  const mid = routed ? midOf(routed) : null;
-  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
+  // A transit segment's pill sits on its own drop into the child router; a link labels its middle.
+  const mid = routed ? (d.kind === "seglink" ? dropPoint(routed) : midOf(routed)) : null;
+  // The free layout: icon to icon, the pill on its own line where `freeLayout` found it room.
+  const pillAt = fe ? alongLine(fe.p, fe.q, ((d as { pill?: PillAt }).pill ?? { t: 0.5, off: 0 })) : null;
+  const [path, labelX, labelY] = routed && mid ? [roundedPath(routed), mid.x, mid.y] : fe && pillAt ? [straight(fe.p, fe.q), pillAt.x, pillAt.y] : getSmoothStepPath({ sourceX: e.sourceX, sourceY: e.sourceY, sourcePosition: Position.Bottom, targetX: e.targetX, targetY: e.targetY, targetPosition: Position.Top, borderRadius: 6 });
   if (d.kind === "seglink") {
-    // A segment only routers are on (fab-link): one router-to-router wire, labelled with the segment.
+    // A segment only routers are on (a transit, fab-link): one thick router-to-router wire, its
+    // segment a pill (name · CIDR) on the drop into the child router.
     return (
-      <g data-testid="canvas-seglink" data-segment={d.segment} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
-        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={labels === "none" ? undefined : d.segment} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+      <g data-testid="canvas-seglink" data-segment={d.segment} data-path={fe ? path : undefined} data-source={d.source ?? undefined} data-label-at={`${labelX},${labelY}`} className={`cv-link-edge cv-seglink${e.selected ? " selected" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
+        {/* C1: the pill (name · CIDR) shows at every Labels setting; C2: unconfirmed under the overlay is a "?" on it, never a dash. */}
+        <BaseEdge id={e.id} path={path} className="cv-link" style={{ ...e.style, stroke: d.hue }} label={`${overlay && d.source === "unconfirmed" ? "? " : ""}${d.cidr ? `${d.segment} · ${d.cidr}` : d.segment}`} labelX={labelX} labelY={labelY} labelShowBg labelBgPadding={[6, 2]} labelBgBorderRadius={8} labelBgStyle={{ stroke: d.hue, strokeWidth: 1 }} interactionWidth={14} />
+        <EdgeFindingBadge k={`segment:${d.segment}`} x={labelX} y={labelY - 14} />
       </g>
     );
   }
@@ -774,6 +889,20 @@ export function LinkEdge(e: E) {
   return (
     <g data-testid="canvas-link" data-link={d.index} data-state={d.state} data-mode={d.mode} data-source={d.source ?? undefined} className={`cv-link-edge${e.selected ? " selected" : ""}${weak ? " weak" : ""}${overlay ? ` cv-ov-edge-${d.source ?? "authored"}` : ""}`} style={{ "--hue": d.hue } as React.CSSProperties}>
       <BaseEdge id={e.id} path={path} className={`cv-link${e.selected ? " selected" : ""}${weak ? " cv-link-weak" : ""}`} style={{ ...e.style, stroke: d.hue }} label={e.selected ? d.label : undefined} labelX={labelX} labelY={labelY} labelShowBg interactionWidth={14} />
+      <EdgeFindingBadge k={`link:${d.index}`} x={labelX} y={labelY} />
+    </g>
+  );
+}
+
+/** A Check's pin on an edge (a link, a transit segment): a dot with the count at the edge's label point. */
+function EdgeFindingBadge({ k, x, y }: { k: string; x: number; y: number }) {
+  const pin = useContext(FindingsContext).get(k);
+  if (!pin) return null;
+  return (
+    <g className={`cv-finding-badge-edge ${pin.severity}`} data-testid="finding-badge" data-key={k} data-severity={pin.severity} transform={`translate(${x}, ${y})`}>
+      <title>{pin.messages.join("\n")}</title>
+      <circle r={8} />
+      <text textAnchor="middle" dy="0.35em">{pin.messages.length}</text>
     </g>
   );
 }

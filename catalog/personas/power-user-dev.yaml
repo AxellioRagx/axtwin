@@ -1,6 +1,9 @@
 # docs/DESIGN_BRIEF_twin_model.md §5.2 — noisier egress, package pulls.
 persona:
   id: power-user-dev
+  category: endpoint
+  label: "Developer"
+  blurb: "A Linux developer box: git, SSH and package pulls through the proxy, plus domain logons."
   os_family: linux
   drive: scripted
   emits:

@@ -26,13 +26,21 @@ export function readManifest(text: string): Manifest {
 }
 
 export function setManifestId(text: string, id: string): string {
+  return setManifestScalar(text, "id", id);
+}
+
+export function setManifestDescription(text: string, description: string): string {
+  return setManifestScalar(text, "description", description);
+}
+
+function setManifestScalar(text: string, key: "id" | "description", value: string): string {
   const doc = parseYaml(text);
   const lines = [...doc.lines];
   const tw = get(doc.root, "twin");
   if (!tw || tw.kind !== "map") return text;
-  const e = entry(tw, "id");
-  if (e) replaceValueOnLine(lines, e, encodeScalar(id));
-  else insertLines(lines, tw.start, [`${" ".repeat(tw.indent)}id: ${encodeScalar(id)}`]);
+  const e = entry(tw, key);
+  if (e) replaceValueOnLine(lines, e, encodeScalar(value));
+  else insertLines(lines, tw.start, [`${" ".repeat(tw.indent)}${key}: ${encodeScalar(value)}`]);
   return joinLines(lines, doc.trailingNewline);
 }
 

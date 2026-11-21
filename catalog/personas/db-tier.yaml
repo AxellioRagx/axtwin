@@ -1,6 +1,9 @@
 # tight peer set = clean baseline: from the app tier only.
 persona:
   id: db-tier
+  category: business
+  label: "Database server"
+  blurb: "MySQL/Postgres answering the web tier only; a tight, clean baseline."
   os_family: linux
   drive: real-service
   emits:

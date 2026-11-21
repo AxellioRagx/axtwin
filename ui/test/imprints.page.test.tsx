@@ -23,19 +23,28 @@ function run(id: string, name: string, status: DiscoveryRun["status"], created_a
 }
 
 describe("the top menu", () => {
-  it("has Discovery with Sources and Runs beneath it, Imprints, Twins, Targets and Canvas", async () => {
+  it("has XTwin, then Discovery with Sources, Runs and Imprints beneath it, Twins and Targets", async () => {
     const { api } = fakeApi();
     renderAt(api, "/discovery/runs");
     const areas = screen.getByRole("navigation", { name: "Areas" });
-    expect(areas.textContent).toBe("DiscoveryImprintsTwinsTargetsCanvas▾");
+    expect(areas.textContent).toBe("DiscoveryTwinsTargets");
     const sub = screen.getByRole("navigation", { name: "Discovery" });
-    expect(sub.textContent).toBe("SourcesRuns");
+    expect(sub.textContent).toBe("SourcesRunsImprints");
     expect(screen.getByRole("link", { name: "Runs" }).className).toContain("active");
     expect(screen.getByRole("link", { name: "Sources" }).className).not.toContain("active");
     expect(screen.getByRole("link", { name: "Discovery" }).className).toContain("active");
   });
 
-  it("shows no Discovery sub-menu under Imprints or Twins", async () => {
+  it("puts Imprints under Discovery: the sub-menu shows it active, Discovery lit", async () => {
+    const { api } = fakeApi();
+    renderAt(api, "/imprints");
+    const sub = screen.getByRole("navigation", { name: "Discovery" });
+    expect(within(sub).getByRole("link", { name: "Imprints" }).className).toContain("active");
+    expect(within(sub).getByRole("link", { name: "Sources" }).className).not.toContain("active");
+    expect(screen.getByRole("link", { name: "Discovery" }).className).toContain("active");
+  });
+
+  it("shows no Discovery sub-menu under Twins", async () => {
     const { api } = fakeApi();
     renderAt(api, "/twins");
     await screen.findByRole("heading", { name: "Twins" });

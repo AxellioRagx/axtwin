@@ -14,11 +14,14 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
+  addConduit as teAddConduit,
   addLink as teAddLink,
   addNode,
+  conduitImplemented,
+  removeConduit as teRemoveConduit,
   addSegment as teAddSegment,
   copyNames,
   emptyTe,
@@ -34,6 +37,7 @@ import {
   setNodeField as teSetNodeField,
   setNodeNets,
   setSegmentField as teSetSegmentField,
+  setTwinDescription,
   setTwinId,
   type NewNode,
   type TeModel,
@@ -147,7 +151,8 @@ export function documentTree(te: TeModel, id: string): TwinTree {
 }
 
 export function documentGraph(model: DocModel, id: string): AuthoredGraph {
-  return authoredGraph(documentTopology(model.te, id), documentTree(model.te, id));
+  // The document's own conduits: drawn in the design view as declared connectors (`canvas/pairs.ts`).
+  return authoredGraph(documentTopology(model.te, id), documentTree(model.te, id), model.te.conduits.map((c) => ({ from: c.from, to: c.to })));
 }
 
 // ---------------------------------------------------------------------------
@@ -172,13 +177,16 @@ export interface PlaceRequest {
   resources?: Record<string, string | number> | null;
   /** A `count:` written on each copy (a template's fan-out), as opposed to N copies. */
   fanOut?: number | string;
+  /** Always `{name}-{n}`, the first free n from 1, even for a single copy (an Add-panel card's
+   *  drop: `router-1`, `router-2`, …, 2026-11-20 round 2); otherwise a single copy keeps `{name}` when free. */
+  numbered?: boolean;
 }
 
 /** Place `count` copies of a node template on a segment, each named
  *  `{name}-{n}` and pinned to the segment's next free address (C3.2). */
 export function placeNodes(doc: WorkingDoc, model: DocModel, req: PlaceRequest): { files: Files; names: string[] } {
   const taken = new Set(model.te.nodes.map((n) => n.name));
-  const names = copyNames(req.name, Math.max(1, req.count), taken);
+  const names = copyNames(req.name, Math.max(1, req.count), taken, req.numbered);
   let addresses: string[] = [];
   if (req.segment) {
     if (!model.te.segments.some((s) => s.name === req.segment)) throw new Error(`no segment named '${req.segment}'`);
@@ -291,7 +299,7 @@ export function setAttachmentAddress(doc: WorkingDoc, model: DocModel, node: str
   return withTe(doc, (t) => setNodeNets(t, node, n.nets.map((l) => (l.segment === segment ? { ...l, ip } : l))));
 }
 
-export function setNodeField(doc: WorkingDoc, node: string, key: "role" | "image" | "count" | "kind", value: string | number | null): Files {
+export function setNodeField(doc: WorkingDoc, node: string, key: "role" | "image" | "count" | "kind" | "stp", value: string | number | null): Files {
   return withTe(doc, (t) => teSetNodeField(t, node, key, value));
 }
 
@@ -311,7 +319,7 @@ export function addSegment(doc: WorkingDoc, seg: { name: string; cidr: string; z
   return withTe(doc, (t) => teAddSegment(t, seg));
 }
 
-export function setSegmentField(doc: WorkingDoc, name: string, key: "cidr" | "zone_type", value: string | null): Files {
+export function setSegmentField(doc: WorkingDoc, name: string, key: "cidr" | "zone_type" | "ospf_area", value: string | number | null): Files {
   return withTe(doc, (t) => teSetSegmentField(t, name, key, value));
 }
 
@@ -326,9 +334,27 @@ export function removeSegment(doc: WorkingDoc, model: DocModel, name: string): F
   for (const n of model.te.nodes) {
     if (n.nets.some((l) => l.segment === name)) text = setNodeNets(text, n.name, n.nets.filter((l) => l.segment !== name));
   }
+  // A conduit naming it goes with it (the engine refuses one whose segment is gone), last index first.
+  for (const c of [...model.te.conduits].reverse()) if (c.from === name || c.to === name) text = teRemoveConduit(text, c.index);
   text = teRemoveSegment(text, name);
   return { ...doc.files, [doc.teFile]: text };
 }
+
+/** Declare a conduit between two segments of the twin (one undo step). Refused for a segment that is
+ *  not there, a segment with itself, or a pair already declared (either direction). */
+export function addConduit(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {
+  for (const s of [from, to]) if (!model.te.segments.some((x) => x.name === s)) throw new Error(`no segment named '${s}'`);
+  if (from === to) throw new Error("a conduit joins two different segments");
+  if (model.te.conduits.some((c) => (c.from === from && c.to === to) || (c.from === to && c.to === from))) throw new Error(`a conduit between ${from} and ${to} is already declared`);
+  return withTe(doc, (t) => teAddConduit(t, from, to));
+}
+
+export function removeConduit(doc: WorkingDoc, model: DocModel, index: number): Files {
+  if (!model.te.conduits.some((c) => c.index === index)) throw new Error(`no conduit at index ${index}`);
+  return withTe(doc, (t) => teRemoveConduit(t, index));
+}
+
+export { conduitImplemented };
 
 /** Merge segment `from` into `to`: every leg moves over, `from` goes. */
 export function mergeSegments(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {
@@ -480,9 +506,31 @@ export function setSensorsOnTaps(doc: WorkingDoc, model: DocModel, indices: numb
   return { ...doc.files, [model.tapPath]: text };
 }
 
-/** The files a Save-As writes: the same document under a new id. */
-export function saveAsFiles(doc: WorkingDoc, newId: string): Files {
-  const files = withTe(doc, (t) => setTwinId(t, newId));
-  if (files[MANIFEST] !== undefined) files[MANIFEST] = setManifestId(files[MANIFEST]!, newId);
-  return files;
+export interface SaveAsOptions {
+  /** Written into `twin_config.description` and `twin.description` when given (non-blank). */
+  description?: string;
+}
+
+/** The files a Save-As writes: the same document under a new id (and, when given, a new description). */
+export function saveAsFiles(doc: WorkingDoc, newId: string, options: SaveAsOptions = {}): Files {
+  if (doc.files[doc.teFile] === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
+  return renamedFiles(doc.files, doc.teFile, newId, options) as Files;
+}
+
+/** The same rewrite over a partial file set (a command's before/after text): the te file and the
+ *  manifest take the new id and description, every other path is carried as it is. */
+export function renamedFiles<T extends string | undefined>(files: Record<string, T>, teFile: string, newId: string, options: SaveAsOptions = {}): Record<string, T> {
+  const description = options.description?.trim() || null;
+  const out: Record<string, T> = { ...files };
+  const te = files[teFile];
+  if (te !== undefined) {
+    const withId = setTwinId(te, newId);
+    out[teFile] = (description ? setTwinDescription(withId, description) : withId) as T;
+  }
+  const manifest = files[MANIFEST];
+  if (manifest !== undefined) {
+    const withId = setManifestId(manifest, newId);
+    out[MANIFEST] = (description ? setManifestDescription(withId, description) : withId) as T;
+  }
+  return out;
 }

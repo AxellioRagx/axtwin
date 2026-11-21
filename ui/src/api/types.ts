@@ -603,6 +603,8 @@ export interface LayoutDoc {
   plane: string | null;
   /** `[]` for a document without the key; an empty list PUT back writes no key. */
   annotations: LayoutAnnotation[];
+  /** The canvas's layout mode as last saved (`tree` | `free`); absent: none chosen (the canvas picks). */
+  mode?: "tree" | "free" | null;
   warnings?: string[];
 }
 
@@ -614,6 +616,7 @@ export interface LayoutWrite {
   plane: string;
   etag: string | null;
   annotations?: LayoutAnnotation[];
+  mode?: "tree" | "free";
 }
 
 /** `POST /api/validate {document}`: a twin-config bundle validated through the Save / Persist path, nothing written. */
@@ -645,6 +648,56 @@ export interface Persona {
   requires: string[];
   summary: string;
   emits: PersonaEmit[];
+  /** The Add panel's role group (`docs/design/canvas-add-panel.md` §4.2): `identity`, `business`,
+   *  `network`, `endpoint`, `ot`, `traffic`, `other`. Absent from an older server: the UI applies
+   *  the same fallback (`add/catalog.ts` `personaCategory`). */
+  category?: string;
+  /** The human name ("File server"); the id when the file names none. */
+  label?: string;
+  /** One plain sentence; "" when the file names none. */
+  blurb?: string;
+}
+
+/** `GET /api/image-profiles` (`docs/design/canvas-add-panel.md` §4.3): the image a dropped device gets. */
+export interface ImageProfile {
+  name: string;
+  /** `null`: the profile names no image ("no image for this profile"). */
+  image: string | null;
+}
+
+/** A canvas template's setting (`docs/design/canvas-add-panel.md` §5). */
+export interface TemplateParam {
+  name: string;
+  label?: string;
+  type?: "int" | "percent" | "name" | "cidr";
+  default?: number | string | null;
+  min?: number;
+  max?: number;
+}
+
+/** `GET /api/templates[/{id}]`: the file's `template:` mapping as written (settings not applied). */
+export interface Template {
+  id: string;
+  builtin: boolean;
+  label: string;
+  description: string;
+  icon: string;
+  params: TemplateParam[];
+  ports: Array<{ name: string; device: string }>;
+  /** Twin-config vocabulary with `{expr}` substitution: segments, nodes, links, conduits, assignments. */
+  fragment: Record<string, unknown>;
+  /** Relative positions by (expanded) node or segment name. */
+  layout: Record<string, { x: number; y: number }>;
+}
+
+export interface TemplateList {
+  templates: Template[];
+  warnings: string[];
+}
+
+export interface ImageProfileList {
+  profiles: ImageProfile[];
+  warnings: string[];
 }
 
 export interface PersonaList {
@@ -690,6 +743,44 @@ export interface TwinConfigDetail {
 export interface TwinConfigWrite {
   id?: string;
   files: Record<string, string>;
+}
+
+/** A draft's last Check, as the canvas recorded it when it wrote the draft (`api/Spec.md` A3d). */
+export interface DraftCheck {
+  disposition: string;
+  errors: number;
+  warnings: number;
+  checked_at?: string | null;
+}
+
+/** One row of `GET /api/drafts`: a document kept WITHOUT the validation gate, outside the twin
+ *  catalog, never deployable. `origin` is the twin a passing draft may replace. */
+export interface DraftSummary {
+  id: string;
+  origin?: string | null;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_check?: DraftCheck | null;
+  draft: true;
+}
+
+export interface DraftList {
+  drafts: DraftSummary[];
+}
+
+/** `GET /api/drafts/{id}`: the row with its document (only for a caller that may write). */
+export interface DraftDetail extends DraftSummary {
+  document?: TwinConfigDocument | null;
+  warnings?: string[];
+}
+
+/** `POST /api/drafts` (a new id) and `PUT /api/drafts/{id}`: no validation gate. */
+export interface DraftWrite {
+  id?: string;
+  files: Record<string, string>;
+  origin?: string | null;
+  last_check?: DraftCheck | null;
 }
 
 /** Three kinds from 2026-11-07 (`docs/design/topology-layers.md` §4): `traffic` and `taps`
@@ -947,11 +1038,22 @@ export interface TargetList {
   targets: Target[];
 }
 
+/** What a finding is about (`api/Spec.md`, validate): a segment or node by name, a conduit by its two
+ *  segments, a link or tap by index. Absent on findings the engine cannot tie to one element. */
+export interface FindingSubject {
+  kind: "segment" | "node" | "conduit" | "link" | "tap" | string;
+  name?: string | null;
+  from?: string | null;
+  to?: string | null;
+  index?: number | null;
+}
+
 export interface ValidationFinding {
   rule_id: string;
   severity: "error" | "warning" | "info" | string;
   message: string;
   location?: string | null;
+  subject?: FindingSubject | null;
 }
 
 /** `POST /api/fabric-conversion`: a document's bridge VMs converted to native switches as one fabric

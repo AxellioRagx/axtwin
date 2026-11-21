@@ -1,0 +1,28 @@
+# Built-in canvas template (docs/design/canvas-add-panel.md §5.1). Read-only
+# through the API; copy it with Save as template to make your own.
+template:
+  id: branch-office
+  builtin: true
+  label: Branch office
+  description: An edge router and a switch with the branch's users behind it.
+  icon: branch
+  params:
+    - { name: users, label: Users, type: int, default: 10, min: 1, max: 500 }
+    - { name: prefix, label: Name prefix, type: name, default: branch }
+    - { name: subnet, label: Subnet, type: cidr, default: auto }
+  ports:
+    - { name: wan, device: "{prefix}-gw" }
+  fragment:
+    segments:
+      - { name: "{prefix}-lan", cidr: 10.0.0.0/24, zone_type: vlan }
+    nodes:
+      - { name: "{prefix}-gw", kind: router, role: gw, profile: router, net: "{prefix}-lan" }
+      - { name: "{prefix}-sw", kind: switch, role: l2-switch }
+      - { name: "{prefix}-user", role: corp-workstation, profile: windows-client, count: "{users}", net: "{prefix}-lan" }
+    links:
+      - { a: { device: "{prefix}-gw", port: eth1 }, b: { device: "{prefix}-sw", port: P1 }, mode: trunk, native: "{prefix}-lan", vlans: ["{prefix}-lan"] }
+    assignments:
+      - { node: "{prefix}-user", persona: corp-workstation }
+  layout:
+    "{prefix}-gw": { x: 0, y: 0 }
+    "{prefix}-sw": { x: 0, y: 140 }

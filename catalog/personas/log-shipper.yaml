@@ -4,6 +4,9 @@
 # this is the twin generating the telemetry the O2 layer collects.
 persona:
   id: log-shipper
+  category: network
+  label: "Log shipper"
+  blurb: "Ships syslog, NetFlow and beats to the monitoring server at a high packet rate."
   os_family: linux
   drive: scripted
   emits:

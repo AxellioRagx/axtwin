@@ -1,6 +1,9 @@
 # high-rate time-series ingest — best synthesized as a replay of a captured template.
 persona:
   id: historian
+  category: ot
+  label: "Historian"
+  blurb: "High-rate time-series ingest from the HMI over OPC UA and MQTT."
   os_family: linux
   drive: replay
   emits:

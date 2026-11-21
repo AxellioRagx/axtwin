@@ -2,6 +2,9 @@
 # MQTT/HTTPS (IT side); its own north-south crossing is the point of the role.
 persona:
   id: protocol-gateway
+  category: ot
+  label: "Protocol gateway"
+  blurb: "The IT/OT conduit: reads PLCs and the historian, publishes to the IT side."
   os_family: linux
   drive: real-service
   emits:

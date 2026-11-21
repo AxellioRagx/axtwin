@@ -1,21 +1,22 @@
 import { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation } from "react-router";
 
 import { useApi } from "../../api/context";
 import { UNKNOWN_WHOAMI, WhoamiContext, signinHref } from "../../api/whoami";
-import { CanvasMenu } from "../canvas/CanvasMenu";
+import { BrandMark } from "./BrandMark";
 import { TopbarSlotContext } from "./topbar";
 import { useLoad } from "./useLoad";
 
-/** The header: the areas (Discovery with its Sources and Runs beneath it, Imprints,
- *  Twins, Targets, Canvas with its designs listed in a drop-down and Designs / New design
- *  beneath it), and who the operator is under the API's write policy (A8). The
+/** The header: XTwin, the home link -- the blank, untitled canvas at `/` -- then the areas
+ *  (Discovery with Sources, Runs and Imprints beneath it, Twins, Targets), and who the
+ *  operator is under the API's write policy (A8). An existing twin opens on the canvas
+ *  through the canvas bar's Open… (or a twin's Canvas link). The
  *  console holds no credential: `GET /api/whoami` on load names the caller and
  *  whether writes will be accepted; a write that is refused anyway says so.
  *
  *  Two kinds of route (ui/Spec.md "Shell"): list and detail pages live in the
  *  centred `.main` column under the bar and a sub-bar; a canvas route
- *  (`/canvas/:id`, `/twins/:id/canvas`) is the page -- it fills the window
+ *  (`/`, `/canvas/new`, `/canvas/:id`, `/twins/:id/canvas`) is the page -- it fills the window
  *  under the one bar and renders its title, pills and exits INTO the bar
  *  through `TopbarPortal`. */
 export function AppFrame() {
@@ -26,25 +27,25 @@ export function AppFrame() {
   const who = useLoad((signal) => api.whoami(signal).catch(() => UNKNOWN_WHOAMI), []);
   const whoami = who.data ?? UNKNOWN_WHOAMI;
   const { pathname } = useLocation();
-  const inDiscovery = pathname === "/discovery" || pathname.startsWith("/discovery/");
-  const inCanvas = pathname === "/canvas" || pathname.startsWith("/canvas/") || /^\/twins\/[^/]+\/canvas$/.test(pathname);
-  const openDesign = /^\/canvas\/([^/]+)$/.exec(pathname)?.[1] ?? /^\/twins\/([^/]+)\/canvas$/.exec(pathname)?.[1] ?? null;
-  const designId = openDesign && openDesign !== "new" ? decodeURIComponent(openDesign) : null;
-  const isCanvas = designId !== null;
+  const inImprints = pathname === "/imprints" || pathname.startsWith("/imprints/");
+  const inDiscovery = pathname === "/discovery" || pathname.startsWith("/discovery/") || inImprints;
+  // `/` and `/canvas/new` are the untitled design; `/canvas/<id>` and `/twins/<id>/canvas` a named one; `/canvas/drafts/<id>` a draft.
+  const isCanvas = pathname === "/" || /^\/canvas\/[^/]+$/.test(pathname) || /^\/canvas\/drafts\/[^/]+$/.test(pathname) || /^\/twins\/[^/]+\/canvas$/.test(pathname);
   const signin = signinHref(whoami.signin_url);
   return (
     <WhoamiContext.Provider value={whoami}>
       <div className={`frame${isCanvas ? " canvas-frame" : ""}`}>
         <header className="topbar">
-          <span className="brand">axTwin</span>
+          <Link to="/" className="brand" aria-label="XTwin: a new design on the canvas" title="XTwin: a new design on the canvas">
+            <BrandMark />
+            <span>Twin</span>
+          </Link>
           <nav aria-label="Areas">
             <NavLink to="/discovery" className={() => (inDiscovery ? "active" : "")}>
               Discovery
             </NavLink>
-            <NavLink to="/imprints">Imprints</NavLink>
             <NavLink to="/twins">Twins</NavLink>
             <NavLink to="/targets">Targets</NavLink>
-            <CanvasMenu active={inCanvas} />
           </nav>
           <div className="topbar-slot" ref={setSlot} />
           {who.data ? (
@@ -63,18 +64,11 @@ export function AppFrame() {
         </header>
         {inDiscovery ? (
           <nav className="subbar" aria-label="Discovery">
-            <NavLink to="/discovery" className={() => (pathname.startsWith("/discovery/runs") ? "" : "active")}>
+            <NavLink to="/discovery" className={() => (pathname.startsWith("/discovery/runs") || inImprints ? "" : "active")}>
               Sources
             </NavLink>
             <NavLink to="/discovery/runs">Runs</NavLink>
-          </nav>
-        ) : null}
-        {inCanvas && !isCanvas ? (
-          <nav className="subbar" aria-label="Canvas">
-            <NavLink to="/canvas" end>
-              Designs
-            </NavLink>
-            <NavLink to="/canvas/new">New design</NavLink>
+            <NavLink to="/imprints">Imprints</NavLink>
           </nav>
         ) : null}
         <TopbarSlotContext.Provider value={slot}>

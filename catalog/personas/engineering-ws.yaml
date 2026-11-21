@@ -1,6 +1,9 @@
 # occasional, high-signal PLC programming bursts.
 persona:
   id: engineering-ws
+  category: endpoint
+  label: "Engineering workstation"
+  blurb: "A Windows box that programs PLCs over Modbus in occasional bursts."
   os_family: windows
   drive: scripted
   emits:

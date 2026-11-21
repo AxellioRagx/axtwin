@@ -1,5 +1,8 @@
 persona:
   id: hmi
+  category: ot
+  label: "HMI"
+  blurb: "Operator screen polling PLCs every few seconds and reporting to the historian."
   os_family: linux
   drive: scripted
   emits:

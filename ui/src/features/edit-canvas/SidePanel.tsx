@@ -3,18 +3,21 @@
  * modals", now the floating inspector's Selection tab): the selected node
  * group, segment, attachment or annotation, or the twin's own properties
  * when nothing is selected. `Checks` is the inspector's other tab: the
- * validation state and -- on a deployed twin -- every pending change with
+ * last on-demand Check and -- on a deployed twin -- every pending change with
  * the blast radius the API classified it with (*live · traffic*, *live · taps*
  * or *re-plan*; `docs/design/topology-layers.md` §4). Every
- * field writes through the editor's `apply`, which blocks an invalid edit
- * with its reason (shown on the canvas's strip, not here).
+ * field writes through the editor's `apply`, which refuses only a request
+ * the command cannot express (the reason shows on the canvas's strip).
  */
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { PendingChange, Persona, ValidateResult, ValidationFinding } from "../../api/types";
+import type { PendingChange, Persona, ValidationFinding } from "../../api/types";
 import { errorText } from "../../areas/shell/parts";
 import type { Annotation } from "./edit/annotations";
+import { checkBadge, checkStatus, findingTarget, targetKey, type CheckRecord } from "./edit/check";
 import {
+  conduitImplemented,
+  removeConduit,
   addSpan,
   addTap,
   attach,
@@ -45,6 +48,7 @@ import {
   type WorkingDoc,
 } from "./edit/document";
 import type { Files } from "./edit/commands";
+import type { TeModel } from "./edit/te";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
@@ -52,21 +56,58 @@ import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
+import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
   | { kind: "none" }
   | { kind: "node"; names: string[] }
-  | { kind: "segment"; names: string[] }
+  /** `uncarried`: picked through the "Not carried" box, whose words the panel repeats. */
+  | { kind: "segment"; names: string[]; uncarried?: boolean }
   | { kind: "leg"; node: string; segment: string }
   /** A `links[]` entry, by its list index (the device tree, topology-layers §2.3). */
   | { kind: "link"; index: number }
   /** A tap binding, by its index in the tap plan (§8). */
   | { kind: "tap"; index: number }
+  /** A `conduits[]` entry, by its list index. */
+  | { kind: "conduit"; index: number }
   /** One member of a `×N` group (§5). */
   | { kind: "member"; node: string; index: number }
   /** A device and everything below it (§6). */
   | { kind: "subtree"; root: string }
   | { kind: "annotation"; id: string };
+
+/** The selection with what no longer exists in the document left out (2026-11-20, round 2: an undo
+ *  took branch-gw and branch-sw away and the Selection tab still listed them). Nothing left is no
+ *  selection -- the Twin summary. An annotation is not the document's: kept. Returns `sel` itself
+ *  when nothing changed. Pure. */
+export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null }): Selection {
+  const te = model.te;
+  const node = (n: string) => te.nodes.find((x) => x.name === n);
+  switch (sel.kind) {
+    case "node":
+    case "segment": {
+      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) : te.segments.some((s) => s.name === n)));
+      if (names.length === sel.names.length) return sel;
+      return names.length ? { ...sel, names } : { kind: "none" };
+    }
+    case "leg":
+      return node(sel.node)?.nets.some((l) => l.segment === sel.segment) ? sel : { kind: "none" };
+    case "link":
+      return te.links.some((l) => l.index === sel.index) ? sel : { kind: "none" };
+    case "conduit":
+      return te.conduits.some((c) => c.index === sel.index) ? sel : { kind: "none" };
+    case "tap":
+      return model.tap?.bindings.some((b) => b.index === sel.index) ? sel : { kind: "none" };
+    case "member": {
+      const n = node(sel.node);
+      return n && sel.index <= n.countValue ? sel : { kind: "none" };
+    }
+    case "subtree":
+      return node(sel.root) ? sel : { kind: "none" };
+    default:
+      return sel;
+  }
+}
 
 export interface SidePanelProps {
   twinId: string;
@@ -95,12 +136,6 @@ export interface SidePanelProps {
   annotations: Annotation[];
   onAnnotation(id: string, patch: Partial<Annotation>): void;
   onRemoveAnnotation(id: string): void;
-  /** The API's refusal of the last write, verbatim, or null. */
-  serverReason: string | null;
-  /** The API's latest document validate for the files on screen, or null while none has answered. */
-  validation: { result: ValidateResult | null; error: unknown } | null;
-  /** A validate is in flight or owed for the files on screen. */
-  validating: boolean;
   /** On a deployed twin: the API's classification of every pending change. */
   changes: PendingChange[] | null;
   /** The reason the last edit was blocked, shown until the next edit. */
@@ -170,10 +205,12 @@ export function SidePanel(p: SidePanelProps) {
     <aside className="cv-side" aria-label="Properties" data-testid="side-panel">
       {selection.kind === "node" && selection.names.length === 1 ? <NodePanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "node" && selection.names.length > 1 ? <NodesPanel {...p} names={selection.names} /> : null}
+      {selection.kind === "segment" && selection.uncarried ? <UncarriedNote names={selection.names} onSelect={p.onSelect} /> : null}
       {selection.kind === "segment" && selection.names.length === 1 ? <SegmentPanel {...p} name={selection.names[0]!} /> : null}
       {selection.kind === "segment" && selection.names.length > 1 ? <SegmentsPanel {...p} names={selection.names} /> : null}
       {selection.kind === "leg" ? <LegPanel {...p} node={selection.node} segment={selection.segment} /> : null}
       {selection.kind === "link" ? <LinkPanel {...p} index={selection.index} /> : null}
+      {selection.kind === "conduit" ? <ConduitPanel {...p} index={selection.index} /> : null}
       {selection.kind === "tap" ? <TapPanel {...p} index={selection.index} /> : null}
       {selection.kind === "member" ? <MemberPanel {...p} node={selection.node} index={selection.index} /> : null}
       {selection.kind === "subtree" ? <SubtreePanel {...p} root={selection.root} /> : null}
@@ -183,13 +220,35 @@ export function SidePanel(p: SidePanelProps) {
   );
 }
 
-/** The inspector's Checks tab. `onDiscard(path)` puts one file back to the
- *  baseline's text (a pending change is one file's delta), when the page has
- *  the baseline and the canvas is not locked. */
-export function Checks(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating" | "changes"> & { onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined; taps?: TapSensorProps | undefined }) {
+/** The "Not carried" box, clicked (2026-11-21): its tooltip's words, and each segment it holds as a
+ *  row that selects that one segment. */
+function UncarriedNote(p: { names: string[]; onSelect?: SidePanelProps["onSelect"] }) {
+  return (
+    <section className="cv-side-section" data-testid="uncarried-note">
+      <h3>Not carried</h3>
+      <ul className="cv-legs">
+        {p.names.map((s) => (
+          <li key={s} data-testid="uncarried-row" data-segment={s}>
+            <button type="button" className="cv-link-row" onClick={() => p.onSelect?.({ kind: "segment", names: [s] })} title="select this segment">
+              {uncarriedLine(s)}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="muted hint">Add a router leg on {p.names.length === 1 ? "it" : "one"} (or a link to a switch a router reaches) to place it in the tree.</p>
+    </section>
+  );
+}
+
+/** The inspector's Checks tab: the last Check (on demand, `edit/check.ts`) with its findings --
+ *  a click on one selects and zooms to the element it names -- the taps that need a sensor, and
+ *  on a deployed twin the pending changes. `onDiscard(path)` puts one file back to the
+ *  baseline's text (a pending change is one file's delta), when the page has the baseline and
+ *  the canvas is not locked. */
+export function Checks(p: Pick<SidePanelProps, "model" | "changes"> & { check: CheckRecord | null; files: Files | null; checking: boolean; onCheck(): void; onFinding?: ((f: ValidationFinding) => void) | undefined; onDiscard?: ((path: string) => void) | undefined; provenance?: { filter: string | null; onFilter(source: string | null): void; fallback?: "discovered" | "authored" } | undefined; taps?: TapSensorProps | undefined }) {
   return (
     <div className="cv-side cv-checks" data-testid="checks">
-      <Validation findings={p.model.findings} serverReason={p.serverReason} validation={p.validation} validating={p.validating} />
+      <Validation model={p.model} check={p.check} files={p.files} checking={p.checking} onCheck={p.onCheck} onFinding={p.onFinding} />
       {p.taps ? <TapsNeedSensor model={p.model} {...p.taps} /> : null}
       {p.changes ? <Changes changes={p.changes} onDiscard={p.onDiscard} /> : null}
       {p.provenance ? <ProvenanceSummary model={p.model} filter={p.provenance.filter} onFilter={p.provenance.onFilter} fallback={p.provenance.fallback ?? "authored"} /> : null}
@@ -275,19 +334,10 @@ function ProvenanceSummary({ model, filter, onFilter, fallback }: { model: DocMo
   );
 }
 
-/** The validation state word: the canvas's structural findings, the API's
- *  refusal and the API's document validate, folded into one of three. */
-export function validationState(p: Pick<SidePanelProps, "serverReason" | "validation" | "validating"> & { findings: ValidationFinding[] }): "invalid" | "validating" | "valid" {
-  const local = p.findings.filter((f) => f.severity === "error");
-  const apiErrors = (p.validation?.result?.findings ?? []).filter((f) => f.severity === "error");
-  const apiFailed = p.validation !== null && (p.validation.error !== null || apiErrors.length > 0);
-  return local.length || p.serverReason || apiFailed ? "invalid" : p.validating ? "validating" : "valid";
-}
-
-/** What the Checks tab wears on its strip: the validation state word (the
- *  gate's answer at a glance, without opening the tab). */
-export function checksBadge(p: Pick<SidePanelProps, "model" | "serverReason" | "validation" | "validating">): string {
-  return validationState({ findings: p.model.findings, serverReason: p.serverReason, validation: p.validation, validating: p.validating });
+/** What the Checks tab wears on its strip: the Check's state word (`unchecked`, `valid`,
+ *  `invalid (N)`, `changed since check`), the gate's answer at a glance. */
+export function checksBadge(p: { check: CheckRecord | null; files: Files | null; checking?: boolean }): string {
+  return p.checking ? "checking…" : checkBadge(p.check, p.files);
 }
 
 // ---------------------------------------------------------------------------
@@ -330,42 +380,52 @@ function Text({ value, onCommit, disabled, ariaLabel, placeholder, mono, list }:
   );
 }
 
-/** The validation state: the canvas's structural findings (instant) and the
- *  API's document validate (the gate), each finding with its rule and place. */
-function Validation({ findings, serverReason, validation, validating }: { findings: ValidationFinding[]; serverReason: string | null; validation: SidePanelProps["validation"]; validating: boolean }) {
-  const local = findings.filter((f) => f.severity === "error");
-  const api = validation?.result?.findings ?? [];
-  const state = validationState({ findings, serverReason, validation, validating });
+/** The last Check: its state word, the Check button (Ctrl+Enter), and every finding with its rule
+ *  and place; a finding that names an element is a button that selects and zooms to it. */
+function Validation({ model, check, files, checking, onCheck, onFinding }: { model: DocModel; check: CheckRecord | null; files: Files | null; checking: boolean; onCheck(): void; onFinding?: ((f: ValidationFinding) => void) | undefined }) {
+  const status = checkStatus(check, files);
+  const word = checking ? "checking…" : checkBadge(check, files);
+  const findings = check?.result?.findings ?? [];
   return (
     <section className="cv-side-section" data-testid="validation">
-      <h3>Validation</h3>
-      <p className={state === "valid" ? "ok" : state === "invalid" ? "error" : "muted"} role="status" data-testid="validation-word">
-        {state}
-      </p>
-      {validation?.error ? <p className="error">the API could not validate: {errorText(validation.error)}</p> : null}
-      {local.length ? (
-        <p className="muted" data-testid="validation-local">
-          canvas: {local.length} error{local.length === 1 ? "" : "s"} the API's pass does not cover (the twin IR's own rules)
+      <h3>Check</h3>
+      <div className="row cv-inline">
+        <p className={status === "valid" ? "ok" : status === "invalid" ? "error" : "muted"} role="status" data-testid="validation-word" data-status={status}>
+          {word}
         </p>
-      ) : null}
-      {validation?.result && !validating ? (
+        <button type="button" onClick={onCheck} disabled={checking || !files} data-testid="check-tab-run" title="validate the files on screen (Ctrl+Enter)">
+          {checking ? "Checking…" : "Check"}
+        </button>
+      </div>
+      {status === "unchecked" ? <p className="muted hint">nothing validates while you edit: Check judges the files on screen, and Save needs a passing Check on unchanged files</p> : null}
+      {status === "changed" ? <p className="muted hint">the files changed since the last Check; its findings below are for the files it judged</p> : null}
+      {check?.error ? <p className="error">the API could not validate: {errorText(check.error)}</p> : null}
+      {check?.result ? (
         <p className="muted" data-testid="validation-api">
-          API: {validation.result.disposition.toLowerCase()} · {validation.result.errors} error{validation.result.errors === 1 ? "" : "s"}, {validation.result.warnings} warning{validation.result.warnings === 1 ? "" : "s"}
+          {check.result.disposition.toLowerCase()} · {check.result.errors} error{check.result.errors === 1 ? "" : "s"}, {check.result.warnings} warning{check.result.warnings === 1 ? "" : "s"}
         </p>
       ) : null}
       <ul className="cv-findings" data-testid="findings">
-        {local.map((f, i) => (
-          <li key={`l${i}`} data-testid="finding" data-rule={f.rule_id}>
-            <span className="mono">{f.rule_id}</span> <span className="badge bad">error</span> {f.message}
-            {f.location ? <span className="muted"> · {f.location}</span> : null}
-          </li>
-        ))}
-        {api.filter((f) => !local.some((l) => l.rule_id === f.rule_id && l.message === f.message)).map((f, i) => (
-          <li key={`a${i}`} data-testid="finding" data-rule={f.rule_id} data-severity={f.severity}>
-            <span className="mono">{f.rule_id}</span> <span className="badge">{f.severity}</span> {f.message}
-            {f.location ? <span className="muted"> · {f.location}</span> : null}
-          </li>
-        ))}
+        {findings.map((f, i) => {
+          const target = findingTarget(f, model);
+          const body = (
+            <>
+              <span className="mono">{f.rule_id}</span> <span className={`badge${f.severity === "error" ? " bad" : ""}`}>{f.severity}</span> {f.message}
+              {f.location ? <span className="muted"> · {f.location}</span> : null}
+            </>
+          );
+          return (
+            <li key={i} data-testid="finding" data-rule={f.rule_id} data-severity={f.severity} data-target={target ? targetKey(target) : undefined}>
+              {target && onFinding ? (
+                <button type="button" className="cv-link-row cv-finding-row" onClick={() => onFinding(f)} title="select it on the canvas and zoom to it">
+                  {body}
+                </button>
+              ) : (
+                body
+              )}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -1027,6 +1087,8 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
   // §7.1: the real switch that carries it, else it is drawn as an implied switch (presentation only).
   const carrier = p.model.te.nodes.find((n) => n.kind === "switch" && carriedBy(p.model.te, n.name).includes(s.name)) ?? null;
   const groups = on.filter((n) => n.kind !== "router" && n.kind !== "switch" && n.nets[0]?.segment === s.name && !(n.countValue === 1 && typeof n.count === "number"));
+  // A router-to-router transit (two routers and nothing else on it), or one already running OSPF.
+  const isTransit = s.ospfArea !== null || (on.length === 2 && on.every((n) => n.kind === "router"));
   return (
     <section className="cv-side-section" data-testid="segment-panel" data-implied={carrier ? undefined : "true"}>
       <h3>
@@ -1072,6 +1134,24 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
           {s.zoneType && !ZONE_TYPES.includes(s.zoneType) ? <option value={s.zoneType}>{s.zoneType}</option> : null}
         </select>
       </Field>
+      {isTransit ? (
+        <Field label="OSPF area" hint="ospf_area on this transit's router legs; empty = off">
+          <Text
+            ariaLabel="OSPF area"
+            value={s.ospfArea === null ? "" : String(s.ospfArea)}
+            disabled={ro}
+            mono
+            placeholder="off"
+            onCommit={(v) =>
+              p.apply(`ospf area of ${s.name}`, (d) => {
+                const t = v.trim();
+                if (t && !/^\d+$/.test(t)) throw new Error(`an OSPF area is a whole number (0, 1, …), got '${t}'`);
+                return setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+              })
+            }
+          />
+        </Field>
+      ) : null}
       <h4>On this segment</h4>
       {on.length === 0 ? <p className="muted">nothing attached</p> : <p className="mono">{on.map((n) => `${n.name}${n.countValue > 1 ? ` ×${n.countValue}` : ""}`).join(", ")}</p>}
       <SegmentTaps {...p} segment={s.name} />
@@ -1471,6 +1551,70 @@ function TapWhere(p: SidePanelProps & { b: TapBinding }) {
 
 /** A `links[]` entry (the device tree, topology-layers §2.3): its two ports,
  *  mode, the segments it carries, its state -- all editable -- and provenance. */
+/** A declared conduit (`conduits[]`): its two segments, whether a node implements it (a leg on BOTH --
+ *  the engine refuses it otherwise), the fix (a router on one segment gets a leg on the other), Remove,
+ *  and its provenance. */
+function ConduitPanel(p: SidePanelProps & { index: number }) {
+  const c = p.model.te.conduits.find((x) => x.index === p.index);
+  const [router, setRouter] = useState("");
+  if (!c) return <p className="muted">no conduit at index {p.index}</p>;
+  const ro = p.locked;
+  const ok = conduitImplemented(p.model.te, c.from, c.to);
+  // Routers on exactly one of the two segments, and the leg each would need.
+  const fixes = p.model.te.nodes
+    .filter((n) => n.kind === "router")
+    .flatMap((n) => {
+      const onFrom = n.nets.some((l) => l.segment === c.from);
+      const onTo = n.nets.some((l) => l.segment === c.to);
+      return onFrom !== onTo ? [{ router: n.name, missing: onFrom ? c.to : c.from }] : [];
+    });
+  const chosen = fixes.find((f) => f.router === router) ?? fixes[0] ?? null;
+  return (
+    <section className="cv-side-section" data-testid="conduit-panel">
+      <h3>
+        Conduit <span className="mono">{c.from} ↔ {c.to}</span>
+      </h3>
+      <p className={ok ? "muted" : "warn-line"} data-testid="conduit-state">
+        {ok ? "implemented: a node on both segments, or a chain of routers between them" : "no node has a leg on both segments and no chain of routers joins them: the engine refuses this conduit until one does"}
+      </p>
+      {!ok ? (
+        fixes.length ? (
+          <div className="row cv-inline" data-testid="conduit-fix">
+            <select aria-label="Router to fix the conduit" value={chosen?.router ?? ""} disabled={ro} onChange={(e) => setRouter(e.target.value)}>
+              {fixes.map((f) => (
+                <option key={f.router} value={f.router}>
+                  {f.router} (+ leg on {f.missing})
+                </option>
+              ))}
+            </select>
+            <button type="button" disabled={ro || !chosen} onClick={() => chosen && p.apply(`attach ${chosen.router} to ${chosen.missing}`, (d, m) => attach(d, m, chosen.router, chosen.missing))}>
+              Add a router leg to fix
+            </button>
+          </div>
+        ) : (
+          <p className="muted hint">no router is on either segment: attach a router to both, or remove the conduit</p>
+        )
+      ) : null}
+      <h4>Provenance</h4>
+      <dl className="facts">
+        <dt>Source</dt>
+        <dd data-testid="conduit-source">{c.source ?? "authored"}{typeof c.confidence === "number" ? ` (${c.confidence.toFixed(2)})` : ""}</dd>
+        {c.vantage ? (
+          <>
+            <dt>Vantage</dt>
+            <dd className="mono">{c.vantage}</dd>
+          </>
+        ) : null}
+      </dl>
+      <div className="row-actions">
+        <button type="button" className="danger" disabled={ro} data-testid="conduit-remove" onClick={() => { if (p.apply(`remove conduit ${c.from} ↔ ${c.to}`, (d, m) => removeConduit(d, m, c.index)) === null) p.onSelect?.({ kind: "none" }); }}>
+          Remove
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function LinkPanel(p: SidePanelProps & { index: number }) {
   const link = p.model.te.links[p.index];
   if (!link) return <p className="muted">no link at index {p.index}</p>;

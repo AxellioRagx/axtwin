@@ -5,12 +5,11 @@
  * segment is still the L2 primitive a host's `net` names; these only choose WHICH segment
  * and write the ordinary twin-config edits for it. Pure -- no React.
  */
-import { nextFreeSlash24 } from "./allocate";
+import { lanSitePrefix, nextFreeLan } from "./allocate";
 import type { Files } from "./commands";
 import { addLink, addSegment, attach, readDoc, type DocModel, type WorkingDoc } from "./document";
 import { carriedBy, freePort } from "./subtree";
 import { addNode, type TeModel } from "./te";
-import { twoOctetPrefix } from "../model/keys";
 
 /** The segment a host dropped on switch `sw` joins (§7.1 drop rules): the one segment it carries;
  *  of several, the native VLAN of its uplink trunk, else the most-populated one. `choices` are
@@ -50,18 +49,25 @@ function freeName(base: string, taken: ReadonlySet<string>): string {
  *  router's site (the two-octet prefix of its first leg; else of the twin's first segment; else
  *  10.200), named `segment-N`, `zone_type: vlan`, with the router's leg on it. It draws under a new
  *  implied switch. */
-export function newSegmentOnRouter(doc: WorkingDoc, model: DocModel, router: string): { files: Files; segment: string } {
+export function newSegmentOnRouter(doc: WorkingDoc, model: DocModel, router: string, base: string | null = null): { files: Files; segment: string } {
   const r = model.te.nodes.find((n) => n.name === router);
   if (!r || r.kind !== "router") throw new Error(`no router named '${router}'`);
   const cidrOf = (seg: string | undefined) => model.te.segments.find((s) => s.name === seg)?.cidr;
   const inPlay = model.te.segments.map((s) => s.cidr);
-  const prefix = twoOctetPrefix(cidrOf(r.nets[0]?.segment) ?? "") ?? twoOctetPrefix(model.te.segments[0]?.cidr ?? "") ?? "10.200";
-  const cidr = nextFreeSlash24(prefix, inPlay, { after: true }) ?? nextFreeSlash24("10.200", inPlay);
-  if (!cidr) throw new Error(`no free /24 under ${prefix} for a new segment on ${router}`);
+  const prefix = lanSitePrefix([...r.nets.map((l) => cidrOf(l.segment)), ...inPlay]);
+  const cidr = nextFreeLan(prefix, inPlay);
+  if (!cidr) throw new Error(`no free /24 under ${prefix ?? "the default LAN prefix"} for a new segment on ${router}`);
   const taken = new Set(model.te.segments.map((s) => s.name));
-  let n = model.te.segments.length + 1;
-  while (taken.has(`segment-${n}`)) n++;
-  const segment = `segment-${n}`;
+  let segment: string;
+  if (base) {
+    // A drop's segment is named for what it is for (`file-server-lan`), `-2`, `-3` when taken.
+    segment = base;
+    for (let i = 2; taken.has(segment); i++) segment = `${base}-${i}`;
+  } else {
+    let n = model.te.segments.length + 1;
+    while (taken.has(`segment-${n}`)) n++;
+    segment = `segment-${n}`;
+  }
   const withSeg: WorkingDoc = { ...doc, files: addSegment(doc, { name: segment, cidr, zoneType: "vlan" }) };
   return { files: attach(withSeg, readDoc(withSeg), router, segment), segment };
 }

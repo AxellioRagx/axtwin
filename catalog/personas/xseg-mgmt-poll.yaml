@@ -12,6 +12,9 @@
 # from a single emit, which is what a real scrape loop does.
 persona:
   id: xseg-mgmt-poll
+  category: traffic
+  label: "Cross-segment (mgmt-poll)"
+  blurb: "A traffic generator whose peers sit on another segment, so routed ports see load."
   os_family: linux
   drive: scripted
   emits:

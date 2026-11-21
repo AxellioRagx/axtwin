@@ -7,14 +7,14 @@
  * `retargetTap` -> the editor -> the deploy's working copy, the same callback the tap inspector's Scope/Target use
  * (driven below on a deployed twin, asserting the PUT of the working copy).
  */
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { tapDropSelector } from "../src/features/edit-canvas/Canvas";
 import { readDoc, retargetTap } from "../src/features/edit-canvas/edit/document";
 import { readTap } from "../src/features/edit-canvas/edit/tap";
 import { readTe } from "../src/features/edit-canvas/edit/te";
-import { DEPLOY, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
+import { DEPLOY, enabled, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TE = `twin_config:
@@ -92,6 +92,10 @@ describe("dropping a tap chip", () => {
     // The same onRetargetTap the drop calls: boundary -> segment.
     fireEvent.change(within(panel).getByLabelText("Tap scope"), { target: { value: "segment" } });
     await settle();
+    // Local until Apply pushes it (on a passing Check).
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
+    fireEvent.click(await enabled("Apply"));
+    await waitFor(() => expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(true));
     const puts = state.writes.filter((w) => w.op === "put-deploy-config" && w.id === "dep-drag") as Array<{ body: { files: Record<string, string> } }>;
     expect(puts.length).toBeGreaterThan(0);
     const tap = puts.at(-1)!.body.files["tap/default.yaml"]!;

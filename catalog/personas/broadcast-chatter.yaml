@@ -14,6 +14,9 @@
 # `requires` nothing and binds onto any twin.
 persona:
   id: broadcast-chatter
+  category: endpoint
+  label: "Broadcast chatter"
+  blurb: "LLMNR, NBNS, mDNS and SSDP noise every host on the segment hears."
   os_family: windows
   drive: scripted
   emits:

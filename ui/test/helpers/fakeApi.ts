@@ -22,9 +22,13 @@ import type {
   LayoutDoc,
   PendingChange,
   Persona,
+  ImageProfile,
+  Template,
   ProbeResult,
   TwinConfigDetail,
   TwinConfigDocument,
+  DraftCheck,
+  DraftDetail,
   ValidateResult,
   ValidationFinding,
   TwinSummary,
@@ -136,8 +140,12 @@ export interface FakeState {
   layouts: Record<string, LayoutDoc>;
   twinConfigs: TwinConfigSummary[];
   personas: Persona[];
+  imageProfiles: ImageProfile[];
+  templates: Template[];
   /** The twin-config documents (`api/Spec.md` A3), by id: the baseline each editor opens. */
   documents: Record<string, TwinConfigDocument>;
+  /** The drafts area (`api/Spec.md` A3d), by id: documents kept without the validation gate. */
+  drafts: Record<string, { document: TwinConfigDocument; origin: string | null; last_check: DraftCheck | null; created_at: string; updated_at: string }>;
   /** What `GET /api/deploys` lists. */
   deploys: DeploySummary[];
   /** The images the fake's manifests know; an image outside it is an error finding (default: every image a seeded document names). */
@@ -198,7 +206,16 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     layouts: {},
     twinConfigs: [],
     personas: [],
+    templates: [],
+    imageProfiles: [
+      { name: "linux-server", image: "debian-12-cloud@v1" },
+      { name: "linux-client", image: "debian-12-cloud@v1" },
+      { name: "windows-server", image: "windows-server-2022@v1" },
+      { name: "windows-client", image: "win11-finance@v4" },
+      { name: "router", image: "debian-12-cloud@v1" },
+    ],
     documents: {},
+    drafts: {},
     deploys: [],
     exits: {},
     replayFails: {},
@@ -568,7 +585,7 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       }
       if (doc.imprint !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `request body: document declares imprint '${doc.imprint}' but is being written for '${id}'`, url: "" });
       const annotations = checkAnnotations(doc.annotations ?? [], `layout for '${id}'`);
-      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane, annotations };
+      const saved: LayoutDoc = { imprint_id: id, path: `/store/twins/${id}/generated/layout.json`, exists: true, etag: `layout-etag-${nextId++}`, schema: doc.schema, imprint: doc.imprint, pins: { ...doc.pins }, plane: doc.plane, annotations, ...(doc.mode ? { mode: doc.mode } : {}) };
       state.layouts[id] = saved;
       return saved;
     },
@@ -577,6 +594,37 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async listPersonas() {
       return { twin: null, personas: state.personas, warnings: [] };
+    },
+    async listImageProfiles() {
+      return { profiles: state.imageProfiles, warnings: [] };
+    },
+    async listTemplates() {
+      return { templates: state.templates, warnings: [] };
+    },
+    async createTemplate(template) {
+      state.writes.push({ op: "create-template", id: template.id, body: template });
+      if (state.templates.some((t) => t.id === template.id)) throw new ApiError({ kind: "conflict", status: 409, message: `template '${template.id}' already exists`, url: "" });
+      const saved = { ...template, builtin: false };
+      state.templates = [...state.templates, saved];
+      return saved;
+    },
+    async putTemplate(id, template) {
+      const cur = state.templates.find((t) => t.id === id);
+      if (!cur) throw notFound(`template '${id}'`);
+      if (cur.builtin) throw new ApiError({ kind: "forbidden", status: 403, message: `template '${id}' is built in`, detail: { code: "builtin" }, url: "" });
+      state.templates = state.templates.map((t) => (t.id === id ? { ...template, id, builtin: false } : t));
+      return state.templates.find((t) => t.id === id)!;
+    },
+    async deleteTemplate(id) {
+      const cur = state.templates.find((t) => t.id === id);
+      if (!cur) throw notFound(`template '${id}'`);
+      if (cur.builtin) throw new ApiError({ kind: "forbidden", status: 403, message: `template '${id}' is built in`, detail: { code: "builtin" }, url: "" });
+      state.templates = state.templates.filter((t) => t.id !== id);
+    },
+    async getTemplate(id) {
+      const t = state.templates.find((x) => x.id === id);
+      if (!t) throw notFound(`template '${id}'`);
+      return t;
     },
     async getTwinConfig(id) {
       const d = state.documents[id];
@@ -609,6 +657,40 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       // After a Persist the deploy's working copy equals the baseline: clean.
       for (const d of state.deploys) if (d.scenario_id === id) delete state.workingCopies[d.deploy_id];
       return detailOf(existing);
+    },
+    async listDrafts() {
+      return { drafts: Object.keys(state.drafts).sort().map((id) => draftOf(id, false)) };
+    },
+    async getDraft(id) {
+      if (!state.drafts[id]) throw notFound(`draft '${id}'`);
+      return draftOf(id, true);
+    },
+    async createDraft(body) {
+      state.writes.push({ op: "create-draft", id: body.id, body });
+      const id = body.id ?? "";
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) throw new ApiError({ kind: "bad-request", status: 400, message: `'id' ${JSON.stringify(id)} is not a usable draft id`, url: "" });
+      if (state.drafts[id] || state.documents[id] || state.twins[id]) throw new ApiError({ kind: "conflict", status: 409, message: `'${id}' is already a twin or a draft; a draft never overwrites`, url: "" });
+      const teFile = teFileOf(body.files);
+      const te = readTe(body.files[teFile] ?? "");
+      if (te.id !== id) throw new ApiError({ kind: "bad-request", status: 400, message: `document declares twin_config.id '${te.id}' but is written as '${id}'`, url: "" });
+      const at = stamp();
+      state.drafts[id] = { document: { id, te_file: teFile, files: { ...body.files }, skipped: [] }, origin: body.origin ?? null, last_check: body.last_check ?? null, created_at: at, updated_at: at };
+      return draftOf(id, true);
+    },
+    async putDraft(id, body) {
+      state.writes.push({ op: "put-draft", id, body });
+      const d = state.drafts[id];
+      if (!d) throw notFound(`draft '${id}'`);
+      d.document = { ...d.document, files: { ...body.files } };
+      if (body.origin !== undefined && body.origin !== null) d.origin = body.origin;
+      d.last_check = body.last_check ?? null;
+      d.updated_at = stamp();
+      return draftOf(id, true);
+    },
+    async deleteDraft(id) {
+      state.writes.push({ op: "delete-draft", id });
+      if (!state.drafts[id]) throw notFound(`draft '${id}'`);
+      delete state.drafts[id];
     },
     async listDeploys() {
       return { deploys: [...state.deploys], warnings: [] };
@@ -759,6 +841,11 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
       const te = readTe(text);
       if (te.id !== id) findings.push({ rule_id: "DOC-002", severity: "error", message: `document declares twin_config.id '${te.id}' but is validated as '${id}'`, location: "twin_config.id" });
       findings.push(...validateTe(te));
+      // The engine's expansion cross-check (`TC-CONDUIT`): a conduit no node implements, with its subject.
+      for (const c of te.conduits) {
+        const both = te.nodes.some((n) => n.nets.some((l) => l.segment === c.from) && n.nets.some((l) => l.segment === c.to));
+        if (!both) findings.push({ rule_id: "TC-CONDUIT", severity: "error", message: `config '${id}': twin_config '${id}': conduit '${c.from}' -> '${c.to}' has no node attached to BOTH segments -- add a multi-homed router leg on both, or drop the conduit`, location: `twin_config.conduits[${c.from}->${c.to}]`, subject: { kind: "conduit", name: null, from: c.from, to: c.to, index: null } });
+      }
       const known = new Set(state.images ?? Object.values(state.documents).flatMap((d) => readTe(d.files[d.te_file] ?? "").nodes.map((n) => n.image)));
       for (const n of te.nodes) if (n.image && !known.has(n.image)) findings.push({ rule_id: "IMG-010", severity: "error", message: `node '${n.name}': image '${n.image}' has no manifest under the images root`, location: `twin_config.nodes[${n.name}].image` });
     }
@@ -775,6 +862,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     if (bad.length) {
       throw new ApiError({ kind: "unprocessable", status: 422, message: `twin-config '${id}' fails validation (${bad.length} error(s)): ${bad[0]!.rule_id} ${bad[0]!.message}`, detail: { code: "invalid", findings: bad }, url: "" });
     }
+  }
+
+  function draftOf(id: string, withDocument: boolean): DraftDetail {
+    const d = state.drafts[id]!;
+    const te = readTe(d.document.files[d.document.te_file] ?? "");
+    return { id, origin: d.origin, description: te.description, created_at: d.created_at, updated_at: d.updated_at, last_check: d.last_check, draft: true, ...(withDocument ? { document: { ...d.document, files: { ...d.document.files } }, warnings: [] } : {}) };
   }
 
   function detailOf(d: TwinConfigDocument): TwinConfigDetail {

@@ -93,7 +93,7 @@ export function treeStructure(topology: Topology): TreeStructure {
   return { devices, links, sources, confidences, homes };
 }
 
-export function authoredGraph(topology: Topology, tree: TwinTree | null): AuthoredGraph {
+export function authoredGraph(topology: Topology, tree: TwinTree | null, conduits?: ReadonlyArray<{ from: string; to: string }>): AuthoredGraph {
   const networks = topology.nodes.filter((n) => n.type === "network");
   const netById = new Map(networks.map((n) => [n.id, n]));
   const cidrOf = (netId: string): string => netById.get(netId)?.cidr ?? netId;
@@ -188,6 +188,7 @@ export function authoredGraph(topology: Topology, tree: TwinTree | null): Author
     deployMinOccupancy: 0,
     routers,
     segmentRoster: networks.map((n) => ({ name: n.id, cidr: cidrOf(n.id), zone_type: zoneByName.get(n.id) ?? null })),
+    ...(conduits ? { conduits: conduits.map((c) => ({ from: c.from, to: c.to })) } : {}),
   };
   return { exportData, cast, extraLegs, uplinks, tree: treeStructure(topology) };
 }

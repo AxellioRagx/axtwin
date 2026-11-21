@@ -138,11 +138,31 @@ class NodeDetailDTO(BaseModel):
 # --------------------------------------------------------------------------
 # Findings DTO (validate) — §4
 # --------------------------------------------------------------------------
+class FindingSubjectDTO(BaseModel):
+    """What a finding is ABOUT, for the canvas to mark: `segment` / `node`
+    use `name`; `conduit` uses `from` / `to` (segment names); `link` / `tap`
+    use `index` (position in `links[]` / the tap plan). Unused keys are null.
+    The wire key `from` is a Python keyword, so the field is `from_` with
+    alias `from` (accepted and emitted as `from`)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    kind: str  # segment | node | conduit | link | tap
+    name: Optional[str] = None
+    from_: Optional[str] = Field(default=None, alias="from")
+    to: Optional[str] = None
+    index: Optional[int] = None
+
+
 class FindingDTO(BaseModel):
+    """One validator / expansion / tier-loader finding. `subject` (optional)
+    names the twin-config element it is about, when known."""
+
     rule_id: str
     severity: str  # error | warning | info
     message: str
     location: Optional[str] = None
+    subject: Optional[FindingSubjectDTO] = None
 
 
 class PreflightDTO(BaseModel):
@@ -1971,6 +1991,8 @@ class LayoutDocDTO(BaseModel):
     # `None` = a LEGACY file with no stamp, which is what a pin saved before
     # the stamp existed looks like; it is NOT "the current plane" (LES-289).
     plane: Optional[str] = None
+    # The canvas layout mode: "tree" | "free"; None = no choice saved.
+    mode: Optional[str] = None
     # The canvas's annotations (free text and shapes as positioned SVG
     # snippets; `ui/src/features/edit-canvas/SPEC.md`). Optional in the file:
     # a document without the key stays `axr-layout/1` and round-trips
@@ -2343,6 +2365,53 @@ class PersonaDTO(BaseModel):
     requires: list[str] = []
     summary: str = ""
     emits: list[PersonaEmitDTO] = []
+    # The canvas Add panel's role picker (docs/design/canvas-add-panel.md §4.2):
+    # `category` with the fallback applied (`traffic` / `other` when the file
+    # names none), `label` (the id when absent), `blurb` ("" when absent).
+    category: str = "other"
+    label: str = ""
+    blurb: str = ""
+
+
+class TemplateDTO(BaseModel):
+    """A canvas template (docs/design/canvas-add-panel.md §5): the file's
+    `template:` mapping as written (settings not applied; the canvas and
+    `axrange.api.templates.expand` apply them)."""
+
+    id: str
+    builtin: bool = False
+    label: str
+    description: str = ""
+    icon: str = ""
+    params: list[dict[str, Any]] = []
+    ports: list[dict[str, Any]] = []
+    fragment: dict[str, Any] = {}
+    layout: dict[str, Any] = {}
+
+
+class TemplateWriteRequest(BaseModel):
+    """`POST /api/templates` / `PUT /api/templates/{id}`: the `template:`
+    mapping to store (validated on save, §5.3; `builtin` is refused)."""
+
+    template: dict[str, Any]
+
+
+class TemplateListDTO(BaseModel):
+    templates: list[TemplateDTO]
+    warnings: list[str] = []
+
+
+class ImageProfileDTO(BaseModel):
+    """One image profile (docs/design/canvas-add-panel.md §4.3): the image a
+    dropped device gets; `image: null` when the profile names none."""
+
+    name: str
+    image: Optional[str] = None
+
+
+class ImageProfileListDTO(BaseModel):
+    profiles: list[ImageProfileDTO]
+    warnings: list[str] = []
 
 
 class PersonaListDTO(BaseModel):
@@ -2553,6 +2622,45 @@ class TwinConfigWriteRequest(BaseModel):
 
     id: Optional[str] = None
     files: dict[str, str]
+
+
+class DraftCheckDTO(BaseModel):
+    """The last validation the console ran on a draft (`api/Spec.md` A3d)."""
+
+    disposition: str
+    errors: int = 0
+    warnings: int = 0
+    checked_at: Optional[str] = None
+
+
+class DraftWriteRequest(BaseModel):
+    """`POST /api/drafts` (`id` required, must be new) and `PUT
+    /api/drafts/{id}` (`id`, if given, must match the path). No validation."""
+
+    id: Optional[str] = None
+    files: dict[str, str]
+    origin: Optional[str] = None
+    last_check: Optional[DraftCheckDTO] = None
+
+
+class DraftSummaryDTO(BaseModel):
+    id: str
+    origin: Optional[str] = None
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
+    last_check: Optional[DraftCheckDTO] = None
+    draft: bool = True
+
+
+class DraftListDTO(BaseModel):
+    drafts: list[DraftSummaryDTO]
+
+
+class DraftDetailDTO(DraftSummaryDTO):
+    # Only on a read the policy accepts (a bundle holds lab passwords).
+    document: Optional[TwinConfigDocumentDTO] = None
+    warnings: list[str] = []
 
 
 class PendingChangeDTO(BaseModel):

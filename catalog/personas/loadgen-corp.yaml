@@ -10,6 +10,9 @@
 # peer_scope self-resolution trap.
 persona:
   id: loadgen-corp
+  category: traffic
+  label: "Load generator (corp)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: linux
   drive: scripted
   emits:

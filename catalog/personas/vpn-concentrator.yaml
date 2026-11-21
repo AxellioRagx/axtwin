@@ -1,5 +1,8 @@
 persona:
   id: vpn-concentrator
+  category: network
+  label: "VPN gateway"
+  blurb: "Terminates IKE/IPsec, WireGuard and SSL VPN sessions from the internet."
   os_family: linux
   drive: real-service
   emits:

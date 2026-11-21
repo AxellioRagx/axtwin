@@ -24,7 +24,6 @@ import {
   useReactFlow,
   useStore,
   useStoreApi,
-  type Connection,
   type Edge,
   type Node,
   type NodeChange,
@@ -38,6 +37,7 @@ import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
 import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
 import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
+import { iconOf } from "./canvas/free";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
@@ -48,16 +48,18 @@ import type { DocModel } from "./edit/document";
 import { boundaryAt, portOnLink, sameSelector, selectorOf, type TapSelector } from "./edit/tap";
 import type { TeModel } from "./edit/te";
 import { switchSegment } from "./edit/switches";
+import { connectIntent, intentHint, type ConnectEnd, type ConnectIntent } from "./edit/connect";
 import { LabOverlay, type LabSource } from "./canvas/LabOverlay";
 import { MEMBERS_ZOOM, invZoom, nextLevel, nextMode, zoomBucket, type DetailLevel, type DetailMode } from "./model/detail";
 import type { ConsoleGraph, GraphNode } from "./model/graph";
 import { resolveSearch } from "./model/search";
-import { PALETTE_MIME, placesWithoutSegment } from "./Palette";
+import { AddContext, PALETTE_MIME } from "./add/AddContext";
 import type { Selection } from "./SidePanel";
+import type { FindingPin } from "./edit/check";
 import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
 import { DEVICE_H, DEVICE_W } from "./layout/geometry";
 import { twoOctetPrefix } from "./model/keys";
-import { crossingText, DetailContext, edgeTypes, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
+import { crossingText, DetailContext, edgeTypes, FindingsContext, FoldFindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
 import { arcScope, arcShown } from "./canvas/evidence";
 import "./canvas.css";
 
@@ -67,13 +69,19 @@ export interface CanvasEditProps {
   locked: boolean;
   selection: Selection;
   onSelection(sel: Selection): void;
-  placing: PaletteItem | null;
-  onPlacing(item: PaletteItem | null): void;
-  /** A palette item landed on a segment (or nowhere, `segment: null`). */
-  /** `via`: the drop landed on a router (a new segment under it, §7.1) or somewhere it cannot go. */
-  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia): void;
+  /** An Add-panel item landed (`docs/design/canvas-add-panel.md` §3): dragged, clicked (the selected
+   *  segment, else the view's centre) or picked from the double-click quick-add. `segment` when it
+   *  landed on one; `via`: on a router (a new segment under it, §7.1) or somewhere it cannot go;
+   *  `screen`: the drop point in the canvas shell's pixels (where the drop popover opens). */
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }): void;
   /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
   onInsertSwitch?(segment: string): void;
+  /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
+  onAddConduit?(from: string, to: string): void;
+  /** A handle drag decided what to make (`edit/connect.ts`); `at` is the drop point on the pane (a new LAN). */
+  onConnectIntent?(intent: ConnectIntent, at?: { x: number; y: number }): void;
+  /** 2+ routers selected, the menu's "Connect as…": the bulk-wiring dialog. */
+  onWireRouters?(routers: string[]): void;
   onAttach(node: string, segment: string): void;
   /** An existing chip was dropped onto another segment. */
   onMove(node: string, segment: string): void;
@@ -99,6 +107,11 @@ export interface CanvasEditProps {
   onLink?(from: string, to: string): void;
   annotations: Annotation[];
   onAnnotations(list: Annotation[]): void;
+  /** Devices to select once they are drawn (a template's open ports after its drop, canvas-add-panel
+   *  §5.2); `n` re-fires it. Applied through the same selection a click makes. */
+  highlight?: { names: string[]; n: number } | null;
+  /** "Save as template…" on the selection (canvas-add-panel §5.3): the page opens its dialog. */
+  onSaveTemplate?(): void;
 }
 
 export interface CanvasProps {
@@ -130,13 +143,32 @@ export interface CanvasProps {
   layoutBar?: ReactNode;
   /** Phase 2: the editing gestures. Absent = Phase 1's read-only canvas. */
   edit?: CanvasEditProps;
-  /** Edit mode: the palette, shown as a popover off the rail's `+`. */
+  /** Edit mode: the Add panel, shown as a popover off the rail's `+`. */
   palette?: ReactNode;
+  /** Edit mode: what floats over the canvas at a drop point (the Add panel's drop popover). */
+  overlay?: ReactNode;
+  /** Edit mode: the double-click quick-add's content (the Add panel's search); `pick` drops an item at the pointer. */
+  quickAdd?: (pick: (item: PaletteItem) => void, close: () => void) => ReactNode;
   /** Edit mode: the inspector's Selection tab (the property panels) and its
    *  Checks tab (validation + pending changes), with the badge the tab wears. */
   inspector?: { selection: ReactNode; checks: ReactNode | null; checksBadge: string | null };
   /** The deployed (or default) target's lab, for the rail's Lab overlay (targets-and-lab §2.3); absent: no toggle. */
   lab?: LabSource | null;
+  /** The last Check's findings pinned on the elements they name (`edit/check.ts`). */
+  findings?: ReadonlyMap<string, FindingPin>;
+  /** Zoom to the element a finding names (`node:<group>`, `segment:<name>`, `link:<i>`, `tap:<i>`); `n` re-fires it. */
+  focus?: { key: string; n: number } | null;
+}
+
+const NO_FINDINGS: ReadonlyMap<string, FindingPin> = new Map();
+
+/** The finding key a canvas node answers to (`nodes.tsx` `FindingBadge` reads the same), or null. */
+export function findingKeyOf(d: CanvasNode["data"]): string | null {
+  if (d.kind === "host") return `node:${d.nodeId}`;
+  if (d.kind === "device" || d.kind === "router") return `node:${d.name}`;
+  if (d.kind === "segment") return `segment:${d.name}`;
+  if (d.kind === "tap") return `tap:${d.id}`;
+  return null;
 }
 
 const DEFAULT_GLOW_SECONDS = 8;
@@ -258,6 +290,19 @@ export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: num
   return dev ? placeOnDevice(te, dev) : null;
 }
 
+/** Whether a declared conduit's arc is drawn in the design view (2026-11-20, decluttered): the rail's
+ *  Conduits toggle is on, the conduit (its arc) is selected, one of its segments is selected, or the
+ *  last Check pinned a finding on it -- a failure is never hidden. Pure. */
+export function conduitVisible(s: { on: boolean; selectedKey: string | null; selectedSegments: readonly string[]; findings: ReadonlyMap<string, unknown> }, pairs: ReadonlyArray<{ a: string; b: string }>, key: string): boolean {
+  if (s.on || s.selectedKey === key) return true;
+  return pairs.some((c) => s.selectedSegments.includes(c.a) || s.selectedSegments.includes(c.b) || s.findings.has(`conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}`));
+}
+
+/** A selection a template can be saved from: nodes, segments or a subtree (§5.3). */
+export function selectionSavable(sel: Selection): boolean {
+  return (sel.kind === "node" && sel.names.length > 0) || (sel.kind === "segment" && sel.names.length > 0) || sel.kind === "subtree";
+}
+
 export function segmentAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
   for (const n of nodes) {
     if (n.data.kind !== "segment") continue;
@@ -295,11 +340,15 @@ export function carryTarget(nodes: Parameters<typeof deviceAt>[0], at: { x: numb
   return { prefix: site && !prefixes.includes(site) ? site : null };
 }
 
-/** A handle drag from a host or router onto a segment: the attach gesture's ends. Pure. */
-export function connectionToAttach(c: Pick<Connection, "source" | "target">): { node: string; segment: string } | null {
-  const node = c.source.startsWith("host:") ? c.source.slice(5) : c.source.startsWith("router:") ? c.source.slice(7) : null;
-  const segment = c.target.startsWith(ID.segment("")) ? c.target.slice(ID.segment("").length) : null;
-  return node && segment ? { node, segment } : null;
+/** What a canvas node is to the connect gesture (`edit/connect.ts`). */
+export function connectEndOf(node: Pick<CanvasNode, "data"> | undefined | null): ConnectEnd | null {
+  const d = node?.data;
+  if (!d) return null;
+  if (d.kind === "router") return { kind: "router", name: d.name };
+  if (d.kind === "device") return { kind: d.deviceKind === "router" ? "router" : "switch", name: d.name };
+  if (d.kind === "host") return { kind: "host", name: d.nodeId };
+  if (d.kind === "segment") return { kind: "segment", name: d.name };
+  return null;
 }
 
 type MenuTarget = Parameters<EditState["onContextMenu"]>[1];
@@ -310,6 +359,16 @@ type MenuSubject = MenuTarget | { kind: "pane"; at: { x: number; y: number } };
 type Popover = "find" | "traffic" | "palette" | "annotate";
 
 /** The Lab overlay's toggle (targets-and-lab §2.3), off by default, kept per user in this browser. */
+/** The rail's Conduits toggle (off by default), per browser. */
+const CONDUITS_KEY = "axr-canvas-conduits";
+function readConduits(): boolean {
+  try {
+    return localStorage.getItem(CONDUITS_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
 const LAB_KEY = "axr-canvas-lab";
 function readLab(): boolean {
   try {
@@ -329,7 +388,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, inspector, lab = null }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -337,7 +396,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // ---- the chrome (`SPEC.md` "Shell and chrome"): the rail's tool, which
   // popover is open, which inspector tab is open (null = the tab strip only;
   // a click on a node opens Selection), and the read-only selection.
-  const [tool, setTool] = useState<"select" | "pan">("select");
+  // Connect (C, edit mode): a drag from anywhere on a device draws a link instead of moving it; Esc or V returns to Select.
+  const [tool, setTool] = useState<"select" | "pan" | "connect">("select");
   // Space held: pan with any button while it is down (a trackpad has no middle button).
   const [spaceHeld, setSpaceHeld] = useState(false);
   useEffect(() => {
@@ -398,6 +458,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // The provenance overlay (§3.3): off, a dot on asserted and authored items; on, every state.
   const [overlayPref, setOverlay] = useState<boolean>(readOverlay);
   // The Lab overlay: chrome over the drawing, never a node and never an edit.
+  const [conduitsOn, setConduitsOn] = useState<boolean>(readConduits);
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONDUITS_KEY, conduitsOn ? "on" : "off");
+    } catch {
+      // per-viewer convenience only
+    }
+  }, [conduitsOn]);
   const [labOn, setLabOn] = useState<boolean>(readLab);
   useEffect(() => {
     try {
@@ -445,8 +513,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const [alt, setAlt] = useState(false);
   const [attachArmed, setAttachArmed] = useState(false);
   const [attachFrom, setAttachFrom] = useState<string | null>(null);
-  // A handle drag (the attach gesture) is in flight: every bus's target handle grows to its whole lane.
-  const [connecting, setConnecting] = useState(false);
+  // "Declare conduit to…": the segment it starts from, until the next segment click (Esc cancels).
+  const [conduitFrom, setConduitFrom] = useState<string | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; target: MenuSubject } | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -590,6 +658,17 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const ids = new Set([...t.devices.map((d) => (graph.routers.some((r) => r.name === d) ? ID.router(d) : `device:${d}`)), ...t.segments.map(ID.segment), ...t.hosts.map(ID.host)]);
     setNodes((ns) => ns.map((n) => (n.selected === ids.has(n.id) ? n : { ...n, selected: ids.has(n.id) })));
   }, [subtreeKey, edit?.model, graph, setNodes, edit]);
+  // A highlight the page asked for (a template's open ports, canvas-add-panel §5.2): selected as a
+  // click would select them, once every one of them is drawn; then done.
+  const highlightDone = useRef<number | null>(null);
+  const highlight = edit?.highlight ?? null;
+  useEffect(() => {
+    if (!edit || !highlight || highlightDone.current === highlight.n) return;
+    const ids = highlight.names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : edit.model.te.nodes.find((x) => x.name === n)?.kind === "switch" ? `device:${n}` : ID.host(n)));
+    if (!ids.every((id) => nodes.some((x) => x.id === id))) return;
+    highlightDone.current = highlight.n;
+    select({ kind: "node", names: highlight.names }, ids);
+  }, [highlight, nodes, graph, edit, select]);
   /** Alt-click / the menu's Select subtree (§6.1): the device and everything below it, as one selection. */
   const selectSubtree = useCallback(
     (root: string) => {
@@ -609,10 +688,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const down = (e: KeyboardEvent) => {
       if (e.key === "Alt") setAlt(true);
       if (e.key === "Escape") {
+        setTool((t) => (t === "connect" ? "select" : t));
         setCarry(null);
         setAttachArmed(false);
         setAttachFrom(null);
-        edit.onPlacing(null);
+        setConduitFrom(null);
         setMenu(null);
         setPopover(null);
         select({ kind: "none" }, []);
@@ -702,6 +782,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // React Flow (no marquee, no pan) by stopping the native mousedown in the capture phase.
   const [legDrag, setLegDrag] = useState<{ node: string; segment: string; hue: string; from: { x: number; y: number }; to: { x: number; y: number }; over: string | null } | null>(null);
   const legDragRef = useRef<typeof legDrag>(null);
+  // ---- the connect drag (2026-11-20, round 2): a press on a device's connect zone -- a router's or
+  // switch's ring, a host's dots -- or anywhere on a device while the Connect tool is on, draws a
+  // rubber line from its icon; released on another device or a segment it makes what
+  // `edit/connect.ts` says (a transit, an attach, a link), on the empty pane a router's new LAN. The
+  // icon itself stays the move zone. Our own gesture, not React Flow's handle drag: it starts from
+  // any zone, and it runs (and is tested) without layout.
+  const [wire, setWire] = useState<{ from: string; end: ConnectEnd; down: { x: number; y: number }; start: { x: number; y: number }; to: { x: number; y: number }; over: string | null; moved: boolean } | null>(null);
+  const wireRef = useRef<typeof wire>(null);
+  wireRef.current = wire;
   // ---- §6.2 / §6.3: Ctrl+D (or the menu) carries a floating copy of the subtree under the cursor;
   // a press drops it -- onto a switch or router (a trunk), or on the canvas (parked where it lands,
   // re-allocated under the site it lands under); Enter parks it in place, Esc or the right button cancels.
@@ -769,6 +858,26 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         return;
       }
       if (!editing || !edit || e.button !== 0) return;
+      if (tool !== "pan" && !spaceHeld) {
+        const el = e.target instanceof Element ? e.target : null;
+        const nodeEl = el?.closest(".react-flow__node");
+        const zone = el?.closest("[data-connect-zone]");
+        const nodeId = nodeEl?.getAttribute("data-id") ?? null;
+        const node = nodeId && (zone || tool === "connect") ? rf.getNode(nodeId) : undefined;
+        const end = connectEndOf(node);
+        if (node && nodeId && end && end.kind !== "segment" && end.kind !== "pane") {
+          const shell = shellRef.current?.getBoundingClientRect();
+          const abs = absolutePosition(rf.getNodes(), nodeId) ?? node.position;
+          const icon = iconOf({ type: node.type, kind: node.data.kind, x: abs.x, y: abs.y, w: node.measured?.width ?? node.width ?? 0, h: node.measured?.height ?? node.height ?? 0 });
+          const c = rf.flowToScreenPosition({ x: icon.cx, y: icon.cy });
+          const at = { x: e.clientX - (shell?.left ?? 0), y: e.clientY - (shell?.top ?? 0) };
+          setWire({ from: nodeId, end, down: { x: e.clientX, y: e.clientY }, start: { x: c.x - (shell?.left ?? 0), y: c.y - (shell?.top ?? 0) }, to: at, over: null, moved: false });
+          // Kept from React Flow: no node drag, no marquee (the native mousedown is stopped below too).
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
       const id = legUnder(e.target, e.clientX, e.clientY);
       const parts = id ? legParts(id) : null;
       if (!parts || parts.kind !== "leg") return;
@@ -781,14 +890,69 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       setLegDrag({ node: parts.node, segment: parts.segment, hue, from, to, over: null });
       e.preventDefault();
     },
-    [editing, edit, legUnder, rf, dropCarry],
+    [editing, edit, legUnder, rf, dropCarry, tool, spaceHeld],
   );
   const onShellMouseDownCapture = useCallback((e: React.MouseEvent) => {
-    if (legDragRef.current || carryRef.current) {
+    if (legDragRef.current || carryRef.current || wireRef.current) {
       e.stopPropagation();
       e.preventDefault();
     }
   }, []);
+  const wireOn = wire !== null;
+  useEffect(() => {
+    if (!wireOn) return;
+    const shellEl = shellRef.current;
+    /** The node under the pointer (by hit-test where the browser has one, else the event's target), not the one the drag left. */
+    const nodeUnder = (e: PointerEvent): string | null => {
+      const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(e.clientX, e.clientY) : null;
+      const el = hit ?? (e.target instanceof Element ? e.target : null);
+      const id = el?.closest(".react-flow__node")?.getAttribute("data-id") ?? null;
+      return id && id !== wireRef.current?.from ? id : null;
+    };
+    const lit = (id: string | null) => {
+      shellEl?.querySelectorAll(".react-flow__node.cv-wire-over").forEach((n) => n.classList.remove("cv-wire-over"));
+      if (id) shellEl?.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`)?.classList.add("cv-wire-over");
+    };
+    const move = (e: PointerEvent) => {
+      const box = shellEl?.getBoundingClientRect();
+      const over = nodeUnder(e);
+      lit(over);
+      setWire((w) => (w ? { ...w, to: { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }, over, moved: w.moved || Math.hypot(e.clientX - w.down.x, e.clientY - w.down.y) > 4 } : w));
+    };
+    const up = (e: PointerEvent) => {
+      const w = wireRef.current;
+      lit(null);
+      setWire(null);
+      if (!w || !edit?.onConnectIntent) return;
+      const moved = w.moved || Math.hypot(e.clientX - w.down.x, e.clientY - w.down.y) > 4;
+      if (!moved) return; // a press and release in place: the click (React Flow's) selects
+      const over = nodeUnder(e);
+      const to = over ? connectEndOf(rf.getNode(over)) : null;
+      if (to) {
+        edit.onConnectIntent(connectIntent(edit.model.te, w.end, to));
+        return;
+      }
+      // Off any node, inside the canvas: a router's new LAN where it was dropped; anything else springs back.
+      const hit = typeof document.elementFromPoint === "function" ? document.elementFromPoint(e.clientX, e.clientY) : (e.target instanceof Element ? e.target : null);
+      if (over || w.end.kind !== "router" || !hit || !shellEl?.contains(hit) || hit.closest(".react-flow__node")) return;
+      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      edit.onConnectIntent(connectIntent(edit.model.te, w.end, { kind: "pane" }), { x: Math.round(at.x), y: Math.round(at.y) });
+    };
+    const cancel = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        lit(null);
+        setWire(null);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("keydown", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("keydown", cancel);
+    };
+  }, [wireOn, edit, rf]);
   useEffect(() => {
     if (!legDrag) return;
     const move = (e: PointerEvent) => {
@@ -843,6 +1007,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         pendingFit.current = { key: node.data.siteKey };
         onToggleSite(node.data.siteKey);
       }
+      // The "Not carried" box: a click selects its segments, so they can be found (2026-11-20, round 2).
+      if (node.data.kind === "uncarried" && edit) {
+        const segs = node.data.segments ?? [];
+        if (segs.length) select({ kind: "segment", names: segs, uncarried: true }, segs.map(ID.segment));
+        return;
+      }
       // A switch's host fold (`+N`, the per-switch host budget) opens or closes in place.
       if (node.data.kind === "hostfold") {
         onToggleSite(node.data.key);
@@ -877,6 +1047,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       const d = node.data;
       const cur = selectionRef.current;
+      // "Declare conduit to…" armed: the clicked segment (an implied switch, or the one segment a real switch carries) is its other end.
+      if (editing && conduitFrom && edit.onAddConduit && (d.kind === "segment" || d.kind === "device")) {
+        const to = d.kind === "segment" ? d.name : switchSegment(edit.model.te, d.name).segment;
+        if (to && to !== conduitFrom) {
+          edit.onAddConduit(conduitFrom, to);
+          setConduitFrom(null);
+          return;
+        }
+      }
       if (d.kind === "tap") {
         select({ kind: "tap", index: Number(d.id) }, [node.id]);
         return;
@@ -885,22 +1064,13 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         selectSubtree(d.name);
         return;
       }
-      // An armed host item clicked on a switch or a router places there (§7.1), as a drop would.
-      if (editing && edit.placing && !placesWithoutSegment(edit.placing) && (d.kind === "router" || d.kind === "device")) {
-        const t = placeOnDevice(edit.model.te, d.name);
-        if (t) {
-          if ("segment" in t) edit.onPlace(edit.placing, t.segment, edit.placing.count ?? 1, null);
-          else edit.onPlace(edit.placing, null, edit.placing.count ?? 1, null, t);
-          return;
-        }
-      }
       if (d.kind === "host" || d.kind === "router" || d.kind === "device") {
         const name = d.kind === "host" ? d.nodeId : d.name;
         const names = e.shiftKey && cur.kind === "node" ? [...cur.names.filter((n) => n !== name), name] : [name];
         select({ kind: "node", names }, names.map((n) => (graph.routers.some((r) => r.name === n) ? ID.router(n) : edit.model.te.nodes.find((x) => x.name === n)?.kind === "switch" ? `device:${n}` : ID.host(n))));
       } else if (d.kind === "segment") {
         // While a gesture is armed a segment is its TARGET, not the selection's subject.
-        if (!(editing && (edit.placing || (attachArmed && attachFrom)))) {
+        if (!(editing && attachArmed && attachFrom)) {
           const names = e.shiftKey && cur.kind === "segment" ? [...cur.names.filter((n) => n !== d.name), d.name] : [d.name];
           select({ kind: "segment", names }, names.map(ID.segment));
         }
@@ -909,10 +1079,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       }
       if (!editing) return;
       if (node.data.kind === "segment") {
-        if (edit.placing) {
-          edit.onPlace(edit.placing, node.data.name, edit.placing.count ?? 1, null);
-          return;
-        }
         if (attachArmed && attachFrom) {
           edit.onAttach(attachFrom, node.data.name);
           setAttachFrom(null);
@@ -933,14 +1099,25 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         setAttachFrom(name);
       }
     },
-    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, select, selectSubtree, legAt, graph],
+    [onToggleSite, toggleFolded, toggleFanOpen, edit, editing, attachArmed, attachFrom, conduitFrom, select, selectSubtree, legAt, graph],
   );
 
   // A click on a link edge (the device tree, §2.3) selects it for the inspector's link row.
   const onEdgeClick = useCallback(
     (_e: React.MouseEvent, edge: Edge) => {
-      const d = edge.data as { kind?: string; index?: number } | undefined;
-      if (!edit || !d || d.kind !== "link" || typeof d.index !== "number") return;
+      const d = edge.data as { kind?: string; index?: number; conduits?: Array<{ a: string; b: string }> } | undefined;
+      if (!edit || !d) return;
+      // A declared conduit's arc: its (first) conduit.
+      if (d.kind === "arc" && d.conduits?.length) {
+        const p = d.conduits[0]!;
+        const c = edit.model.te.conduits.find((x) => (x.from === p.a && x.to === p.b) || (x.from === p.b && x.to === p.a));
+        if (c) {
+          select({ kind: "conduit", index: c.index }, []);
+          setInspectorTab("selection");
+        }
+        return;
+      }
+      if (d.kind !== "link" || typeof d.index !== "number") return;
       select({ kind: "link", index: d.index }, []);
     },
     [edit, select],
@@ -955,8 +1132,12 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       // while the page re-places after a duplicate) is not a marquee. A pane click clears it first.
       if (selectionRef.current.kind === "subtree") return;
       const data = sel.map((n) => n.data as CanvasNode["data"]);
-      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : ""));
-      const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : ""));
+      // Only what the document still has: an undo that took the selected nodes away is echoed back
+      // by React Flow before they leave its store, and must not put them back in the selection.
+      const te = edit.model.te;
+      const hosts = data.filter((d) => d.kind === "host" || d.kind === "router" || d.kind === "device").map((d) => (d.kind === "host" ? d.nodeId : d.kind === "router" || d.kind === "device" ? d.name : "")).filter((n) => te.nodes.some((x) => x.name === n));
+      const segs = data.filter((d) => d.kind === "segment").map((d) => (d.kind === "segment" ? d.name : "")).filter((n) => te.segments.some((x) => x.name === n));
+      if (hosts.length + segs.length < 2) return;
       const next: Selection = hosts.length ? { kind: "node", names: hosts } : segs.length ? { kind: "segment", names: segs } : { kind: "none" };
       if (JSON.stringify(next) !== JSON.stringify(selectionRef.current)) edit.onSelection(next);
     },
@@ -971,12 +1152,44 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (root) selectSubtree(root);
   }, [edit, rf, selectSubtree]);
 
-  const onConnect = useCallback(
-    (c: Connection) => {
-      const a = connectionToAttach(c);
-      if (a && edit && editing) edit.onAttach(a.node, a.segment);
+  /** Where an Add-panel item lands at `at` (§7.1 drop rules): on the segment or switch under it, on a
+   *  router (a new segment under it), else on the empty pane. One path for a drag, a click and the quick-add. */
+  const dropItem = useCallback(
+    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }) => {
+      if (!edit || !editing) return;
+      const t = placeTarget(rf.getNodes(), at, edit.model.te);
+      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, undefined, screen);
+      else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined, screen);
     },
-    [edit, editing],
+    [edit, editing, rf],
+  );
+  /** A card's click (§3): onto the selected segment, else at the centre of the view. */
+  const addHere = useCallback(
+    (item: PaletteItem) => {
+      if (!edit || !editing) return;
+      const box = shellRef.current?.getBoundingClientRect();
+      const screen = { x: Math.round((box?.width ?? 800) / 2), y: Math.round((box?.height ?? 600) / 2) };
+      const sel = selectionRef.current;
+      if (sel.kind === "segment" && sel.names[0]) {
+        edit.onPlace(item, sel.names[0], item.count ?? 1, null, undefined, screen);
+        return;
+      }
+      dropItem(item, rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y }), screen);
+    },
+    [edit, editing, rf, dropItem],
+  );
+  const addContext = useMemo(() => ({ addHere }), [addHere]);
+  // The double-click quick-add (§3): the Add panel's search, at the pointer on the empty canvas.
+  const [quick, setQuick] = useState<{ left: number; top: number; at: { x: number; y: number } } | null>(null);
+  const onShellDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!edit || !editing || !quickAdd) return;
+      const el = e.target as Element | null;
+      if (!el?.closest?.(".react-flow__pane") || el.closest(".react-flow__node")) return;
+      const box = shellRef.current?.getBoundingClientRect();
+      setQuick({ left: e.clientX - (box?.left ?? 0), top: e.clientY - (box?.top ?? 0), at: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) });
+    },
+    [edit, editing, quickAdd, rf],
   );
 
   const onDrop = useCallback(
@@ -991,13 +1204,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       } catch {
         return;
       }
-      const at = rf.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      // A router item lands on the pane (it joins segments by legs); a host on a switch or a router (§7.1).
-      const t = placesWithoutSegment(item) ? null : placeTarget(rf.getNodes(), at, edit.model.te);
-      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at);
-      else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined);
+      const box = shellRef.current?.getBoundingClientRect();
+      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) });
     },
-    [edit, editing, rf],
+    [edit, editing, rf, dropItem],
   );
 
   const onContextMenu = useCallback<EditState["onContextMenu"]>((e, target) => {
@@ -1078,6 +1288,18 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // The edges are controlled, so the selected leg's flag is derived here.
   // The legs are structure and always drawn; an arc is evidence, drawn only
   // while lit by the overlay or touching the selection.
+  // The arc a selected conduit is drawn on (its anchors' key).
+  const selectedConduitKey = (() => {
+    if (edit?.selection.kind !== "conduit") return null;
+    const c = edit.model.te.conduits.find((x) => x.index === (edit.selection as { index: number }).index);
+    if (!c) return null;
+    return (placement.edges.find((e) => e.type === "arc" && (e.data as { conduits?: Array<{ a: string; b: string }> } | undefined)?.conduits?.some((p) => (p.a === c.from && p.b === c.to) || (p.a === c.to && p.b === c.from)))?.data as { key?: string } | undefined)?.key ?? null;
+  })();
+  const selectedSegments = edit?.selection.kind === "segment" ? edit.selection.names : [];
+  const conduitShown = useCallback(
+    (pairs: ReadonlyArray<{ a: string; b: string }>, key: string) => conduitVisible({ on: conduitsOn, selectedKey: selectedConduitKey, selectedSegments, findings }, pairs, key),
+    [conduitsOn, selectedConduitKey, selectedSegments.join("\n"), findings], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const selectedLegs = edit?.selection.kind === "leg" ? [`leg:${edit.selection.node}>${edit.selection.segment}`, `stub:${edit.selection.node}>${edit.selection.segment}`] : edit?.selection.kind === "link" ? [`link:${edit.selection.index}`] : [];
   const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes]);
   const scope = useMemo(() => arcScope(selectedNodes, graph, exportData, placement.anchorByName), [selectedNodes, graph, exportData, placement.anchorByName]);
@@ -1094,18 +1316,25 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     void fansOpen;
     const others = placement.edges.flatMap((e) => {
       if (e.type === "leg" && e.data?.kind === "leg") return [];
-      if (e.type === "arc") return e.data?.kind === "arc" && arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+      // A declared conduit in the design view (decluttered): drawn while the Conduits toggle is on, while it
+      // or one of its segments is selected, or while the last Check pins a finding on it (never hidden);
+      // observed pairs stay evidence.
+      if (e.type === "arc") {
+        if (e.data?.kind !== "arc") return [];
+        if (edit && e.data.arcKind === "asserted") return conduitShown(e.data.conduits ?? [], e.data.key) ? [selectedConduitKey === e.data.key ? { ...e, selected: true } : e] : [];
+        return arcShown(e.data.key, scope, glow.arcs) ? [e] : [];
+      }
       return [selectedLegs.includes(e.id) ? { ...e, selected: true } : e];
     });
     return [...others, ...structural.map((e) => (selectedLegs.includes(e.id) ? { ...e, selected: true } : e))];
-  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [placement.edges, selectedLegs.join(","), scope, glow.arcs, fanN, fansOpen, Boolean(edit), selectedConduitKey, conduitShown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rehomeTarget = legDrag?.over ?? null;
   // Members (§5): which `×N` groups show their chips (per page), the chip gestures.
   const onToggleMembers = toggleMembers;
   const onSelectMember = useCallback((name: string, index: number) => { if (edit) { edit.onSelection({ kind: "member", node: name, index }); setInspectorTab("selection"); } }, [edit]);
   const onMoveMember = useCallback((from: string, index: number, into: string) => edit?.onMoveMember?.(from, index, into), [edit]);
-  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, placing: edit.placing, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);
+  const editState = useMemo<EditState | null>(() => (edit ? { model: edit.model, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember } : null), [edit, locked, attachArmed, attachFrom, rehomeTarget, onContextMenu, membersOpen, onToggleMembers, onSelectMember, onMoveMember]);
 
   const align = useCallback(
     (axis: "h" | "v") => {
@@ -1154,6 +1383,63 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     },
     [rf, setNodes],
   );
+
+  // A finding on an element a fold hides is counted on the fold: a segment behind a `+N more` / site
+  // fold (its anchor is the fold), a host behind its switch's `+N` (or its segment's fold).
+  const foldFindings = useMemo(() => {
+    const out = new Map<string, { count: number; severity: "error" | "warning" }>();
+    if (!findings.size) return out;
+    const ids = new Set(placement.nodes.map((n) => n.id));
+    const drawn = new Set(placement.nodes.map((n) => findingKeyOf(n.data)).filter((k): k is string => k !== null));
+    const bump = (id: string, sev: "error" | "warning") => {
+      const cur = out.get(id) ?? { count: 0, severity: "warning" as const };
+      out.set(id, { count: cur.count + 1, severity: cur.severity === "error" || sev === "error" ? "error" : "warning" });
+    };
+    const foldOfSegment = (seg: string): string | null => {
+      const a = placement.anchorByName[seg];
+      return a && a !== seg && ids.has(a) ? a : null;
+    };
+    for (const [key, pin] of findings) {
+      if (drawn.has(key)) continue;
+      const n = pin.messages.length;
+      for (let i = 0; i < n; i++) {
+        if (key.startsWith("segment:")) {
+          const f = foldOfSegment(key.slice(8));
+          if (f) bump(f, pin.severity);
+        } else if (key.startsWith("node:") && edit) {
+          const seg = edit.model.te.nodes.find((x) => x.name === key.slice(5))?.nets[0]?.segment;
+          if (!seg) continue;
+          const f = foldOfSegment(seg);
+          const sw = placement.anchorByName[seg] === seg ? ID.segment(seg) : placement.anchorByName[seg];
+          const hostFold = sw ? `hostfold:${sw}` : null;
+          if (f) bump(f, pin.severity);
+          else if (hostFold && ids.has(hostFold)) bump(hostFold, pin.severity);
+        }
+      }
+    }
+    return out;
+  }, [findings, placement, edit]);
+
+  // A finding clicked in the Checks tab: zoom to the element it names (a link or a transit
+  // segment by its two ends). The page has already selected it.
+  const focusN = focus?.n ?? 0;
+  useEffect(() => {
+    if (!focus) return;
+    const ids = rf.getNodes().filter((n) => findingKeyOf(n.data) === focus.key).map((n) => n.id);
+    if (!ids.length) {
+      for (const e of rf.getEdges()) {
+        const d = e.data as { kind?: string; index?: number; segment?: string } | undefined;
+        const conduitHit = d?.kind === "arc" && (e.data as { conduits?: Array<{ a: string; b: string }> }).conduits?.some((c) => `conduit:${c.a < c.b ? `${c.a}|${c.b}` : `${c.b}|${c.a}`}` === focus.key);
+        if ((d?.kind === "link" && `link:${d.index}` === focus.key) || (d?.kind === "seglink" && `segment:${d.segment}` === focus.key) || conduitHit) ids.push(e.source, e.target);
+      }
+    }
+    if (!ids.length) return;
+    // Selected on the canvas too (the inspector stays on Checks, so the next finding is one click away).
+    const own = rf.getNodes().filter((n) => findingKeyOf(n.data) === focus.key).map((n) => n.id);
+    if (own.length) setNodes((ns) => ns.map((n) => ({ ...n, selected: own.includes(n.id) })));
+    void rf.fitView({ nodes: ids.map((id) => ({ id })), duration: 300, maxZoom: FIT_MAX_ZOOM, padding: 0.4 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusN]);
 
   const find = useCallback(() => {
     const r = resolveSearch(graph, query);
@@ -1219,6 +1505,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       switch (e.key) {
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
+        case "c": if (edit && !locked) setTool("connect"); break;
         case "f": void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }); break;
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
@@ -1249,6 +1536,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
     { name: `Fan-out: ${fanLabel(fanN)}`, icon: <Icon.fan />, pressed: fanN !== FAN_DEFAULT, onClick: () => setFanN(nextFan), testId: "rail-fan" },
     ...(provenanceOverlay ? [{ name: overlay ? "Provenance overlay: on" : "Provenance overlay: off", key: "O", icon: <Icon.overlay />, pressed: overlay, onClick: () => setOverlay((o) => !o), testId: "rail-overlay" }] : []),
+    ...(edit ? [{ name: conduitsOn ? "Conduits: shown" : "Conduits: hidden (a selected or failing one still shows)", icon: <Icon.conduit />, pressed: conduitsOn, onClick: () => setConduitsOn((v) => !v), testId: "rail-conduits" }] : []),
     ...(lab ? [{ name: labOn ? "Lab overlay: on" : "Lab overlay: off", icon: <Icon.lab />, pressed: labOn, onClick: () => setLabOn((v) => !v), testId: "rail-lab" }] : []),
     { name: "Light up traffic", key: "T", icon: <Icon.light />, pressed: popover === "traffic", onClick: () => togglePopover("traffic") },
     { name: "Find a node", key: "/", icon: <Icon.find />, pressed: popover === "find", onClick: () => togglePopover("find") },
@@ -1256,6 +1544,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   const editTools: RailButton[] | null = edit
     ? [
         { name: "Add to the design", key: "A", icon: <Icon.plus />, pressed: popover === "palette", onClick: () => togglePopover("palette"), testId: "rail-add" },
+        { name: "Connect", key: "C", icon: <Icon.connect />, pressed: tool === "connect", disabled: !editing, onClick: () => setTool((t) => (t === "connect" ? "select" : "connect")), testId: "rail-connect" },
         { name: attachArmed ? (attachFrom ? `Attach ${attachFrom} → click a segment` : "Attach: click a host") : "Attach", icon: <Icon.attach />, pressed: attachArmed, disabled: !editing, onClick: () => { setAttachArmed((a) => !a); setAttachFrom(null); }, testId: "rail-attach" },
         { name: "Snap to grid", icon: <Icon.snap />, pressed: snap, onClick: () => setSnap((v) => !v), testId: "rail-snap" },
         { name: "Show grid", icon: <Icon.grid />, pressed: grid, onClick: () => setGrid((g) => !g), testId: "rail-grid" },
@@ -1307,7 +1596,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
-        if (edit.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, null, edit.placing!.count ?? 1, t.at) });
+        if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
         items.push({ label: "Annotate here (rect)", run: () => addAnnotation("rect", t.at) });
@@ -1317,6 +1606,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     if (!edit) return [];
     if (t.kind === "host" || t.kind === "router") {
       const group = edit.model.te.nodes.find((n) => n.name === t.name);
+      // B3: two or more routers selected (this one among them) -- wire them as a chain, ring, mesh or hub.
+      const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
+      const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
+      if (group?.kind === "router" && routersPicked.length >= 2 && routersPicked.includes(t.name) && edit.onWireRouters) items.push({ label: `Connect ${routersPicked.length} routers as… (chain, ring, mesh, hub)`, run: () => edit.onWireRouters!(routersPicked) });
+      if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
       if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });
       items.push({
@@ -1331,9 +1625,9 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     } else if (t.kind === "leg") {
       items.push({ label: `Detach ${t.node} from ${t.segment}`, run: () => edit.onDetach(t.node, t.segment), danger: true });
     } else if (t.kind === "segment") {
-      if (edit.placing) items.push({ label: `Place ${edit.placing.label} here`, run: () => edit.onPlace(edit.placing!, t.name, edit.placing!.count ?? 1, null) });
       if (attachArmed && attachFrom) items.push({ label: `Attach ${attachFrom} here`, run: () => edit.onAttach(attachFrom, t.name) });
       if (edit.onInsertSwitch) items.push({ label: "Insert switch", run: () => edit.onInsertSwitch!(t.name) });
+      if (edit.onAddConduit) items.push({ label: "Declare conduit to… (then click the other segment)", run: () => setConduitFrom(t.name) });
       items.push({ label: "Add a segment in this site", run: () => edit.onAddSegment(t.name) });
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
@@ -1341,8 +1635,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry]);
 
   return (
+    <FindingsContext.Provider value={findings}>
+    <FoldFindingsContext.Provider value={foldFindings}>
     <GlowContext.Provider value={glow}>
       <EditContext.Provider value={editState}>
+      <AddContext.Provider value={editing ? addContext : null}>
       <DetailContext.Provider value={detail}>
       <LabelsContext.Provider value={labels}>
       <OverlayContext.Provider value={overlay}>
@@ -1352,18 +1649,33 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           onMouseMove={onShellMouseMove}
           onPointerDownCapture={onShellPointerDownCapture}
           onMouseDownCapture={onShellMouseDownCapture}
-          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${connecting ? " connecting" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${carry ? " carrying" : ""}${overlay ? " overlay" : ""}`}
+          className={`canvas-shell${editing ? " editing" : ""}${attachArmed ? " attaching" : ""}${wire ? " connecting" : ""}${tool === "connect" ? " connect-tool" : ""}${detail === "compact" ? " compact" : ""}${legDrag ? " rehoming" : ""}${carry ? " carrying" : ""}${overlay ? " overlay" : ""}`}
           data-testid="canvas"
           data-overlay={overlay ? "on" : "off"}
           data-zoom-target={zoomTarget ?? undefined}
           data-detail={detail}
           data-detail-mode={detailMode}
           data-panning={tool === "pan" || spaceHeld ? "true" : "false"}
+          data-tool={tool}
           data-locked={locked ? "true" : "false"}
           data-color-mode={colorMode}
           data-mode={edit ? (locked ? "view" : "edit") : "readonly"}
           onClick={() => setMenu(null)}
+          onDoubleClick={onShellDoubleClick}
         >
+          {editing && dropOverlay ? dropOverlay : null}
+          {editing && quick && quickAdd ? (
+            <div className="cv-quick-add" style={{ left: quick.left, top: quick.top }} data-testid="quick-add" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+              {quickAdd(
+                (item) => {
+                  const q = quick;
+                  setQuick(null);
+                  dropItem(item, q.at, { x: q.left, y: q.top });
+                },
+                () => setQuick(null),
+              )}
+            </div>
+          ) : null}
           {lab && labOn ? (
             <LabOverlay
               lab={lab}
@@ -1378,8 +1690,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             colorMode={colorMode}
-            nodesDraggable={!locked}
-            nodesConnectable={editing}
+            nodesDraggable={!locked && tool !== "connect"}
+            nodesConnectable={false}
             elementsSelectable
             panOnDrag={tool === "pan" || spaceHeld ? true : [1]}  // select mode: middle button pans; the right button is the pane menu
             selectionOnDrag={tool === "select" && !spaceHeld}
@@ -1395,9 +1707,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             onEdgeClick={onEdgeClick}
             onSelectionChange={onSelectionChange}
             onSelectionEnd={onSelectionEnd}
-            onConnect={onConnect}
-            onConnectStart={() => setConnecting(true)}
-            onConnectEnd={() => setConnecting(false)}
             onDrop={onDrop}
             onDragOver={(e) => {
               if (editing) {
@@ -1407,11 +1716,6 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             }}
             onPaneClick={(e) => {
               setMenu(null);
-              // An armed router lands where the pane is clicked, with no leg yet.
-              if (editing && edit?.placing && placesWithoutSegment(edit.placing) && edit.placing.kind !== "segment" && edit.placing.kind !== "persona") {
-                edit.onPlace(edit.placing, null, edit.placing.count ?? 1, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
-                return;
-              }
               const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
               select(leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "none" }, []);
             }}
@@ -1520,6 +1824,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
               <circle cx={legDrag.to.x} cy={legDrag.to.y} r={4} style={{ fill: legDrag.hue || "var(--accent)" }} />
             </svg>
           ) : null}
+          {wire && wire.moved ? (
+            <svg className="cv-rubber" aria-hidden="true" data-testid="connect-rubber" data-over={wire.over ?? undefined}>
+              <line x1={wire.start.x} y1={wire.start.y} x2={wire.to.x} y2={wire.to.y} style={{ stroke: "var(--accent)" }} />
+              <circle cx={wire.to.x} cy={wire.to.y} r={4} style={{ fill: "var(--accent)" }} />
+            </svg>
+          ) : null}
+          {wire && wire.moved && edit ? <WireHint te={edit.model.te} from={wire.end} over={wire.over ? connectEndOf(rf.getNode(wire.over)) : null} /> : null}
+          {conduitFrom ? <div className="cv-rehome-hint muted" role="status" data-testid="conduit-hint">conduit from {conduitFrom}: click the other segment · Esc cancels</div> : null}
           {legDrag ? <div className="cv-rehome-hint muted" role="status">{legDrag.over && legDrag.over !== legDrag.segment ? `drop: ${legDrag.node} ${legDrag.segment} → ${legDrag.over}` : `drag ${legDrag.node}'s ${legDrag.segment} port onto another bus · Esc cancels`}</div> : null}
           {carry ? (
             <div className="cv-carry-ghost" role="status" data-testid="carry-ghost" data-target={carry.target ? ("attachTo" in carry.target ? `device:${carry.target.attachTo}` : `park:${carry.target.prefix ?? ""}`) : undefined} style={{ left: carry.x + 14, top: carry.y + 14 }}>
@@ -1552,8 +1864,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       </OverlayContext.Provider>
       </LabelsContext.Provider>
       </DetailContext.Provider>
+      </AddContext.Provider>
       </EditContext.Provider>
     </GlowContext.Provider>
+    </FoldFindingsContext.Provider>
+    </FindingsContext.Provider>
   );
 }
 
@@ -1619,6 +1934,20 @@ function ReadOnlySelection({ graph, sel, placement }: { graph: ConsoleGraph; sel
         {n.occupancy !== null ? <><dt>occupancy</dt><dd>{Math.round(n.occupancy * 100)}%</dd></> : null}
         {n.isGhost ? <><dt>ghost</dt><dd>{n.ghostReasons.join(", ")}</dd></> : null}
       </dl>
+    </div>
+  );
+}
+
+/** The live hint while a handle is dragged (B1): what the drop would make, from the node under the
+ *  pointer (or the empty pane). */
+/** The connect drag's live hint: what dropping here would make (`edit/connect.ts`), or why not. */
+function WireHint({ te, from, over }: { te: DocModel["te"]; from: ConnectEnd; over: ConnectEnd | null }) {
+  const i = connectIntent(te, from, over ?? { kind: "pane" });
+  // Off a device, only a router makes something (a new LAN); anything else just springs back.
+  const text = !over && from.kind !== "router" && from.kind !== "pane" ? `drop ${from.name} on a router, a switch or a segment · Esc cancels` : intentHint(i);
+  return (
+    <div className={`cv-rehome-hint cv-connect-hint${i.kind === "refused" ? " refused" : ""}`} role="status" data-testid="connect-hint" data-intent={i.kind}>
+      {text}
     </div>
   );
 }

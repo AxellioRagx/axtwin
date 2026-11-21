@@ -78,6 +78,13 @@ PEER_SCOPES = ("one", "all")
 # See `docs/design/07-traffic-personas.md`.
 RESERVED_PEER_ROLES = ("egress", "internet", "broadcast", "multicast")
 
+# The canvas Add panel's role groups (docs/design/canvas-add-panel.md §4.1):
+# the values a persona file's optional `category:` takes. Display metadata
+# only -- nothing in the engine branches on it. A persona naming none falls
+# back to `traffic` (ids below) or `other` (`Persona.effective_category`).
+PERSONA_CATEGORIES = ("identity", "business", "network", "endpoint", "ot", "traffic", "other")
+TRAFFIC_ID_PREFIXES = ("loadgen-", "xseg-")
+
 # Open-but-curated protocol vocabulary (PSN-040) — covers every proto named
 # in the §5.2 starter catalog. New personas needing a proto not yet listed
 # add it here (open registry, like axrange.sensors' SENSOR_TYPES) rather than
@@ -196,6 +203,19 @@ class Persona:
     emits: tuple[Emit, ...] = ()
     requires: tuple[str, ...] = ()
     knobs: dict[str, Any] = field(default_factory=dict)
+    # --- 2026-11-20, the canvas Add panel (docs/design/canvas-add-panel.md
+    # §4.2, D1): optional DISPLAY metadata, read only by the UI's role picker.
+    # Absent -> "" (the API applies the fallback: `effective_category()`).
+    category: str = ""
+    label: str = ""
+    blurb: str = ""
+
+    def effective_category(self) -> str:
+        """The persona's category, with the §4.2 fallback for a file that names
+        none: `traffic` for the load/cross-segment generators, else `other`."""
+        if self.category:
+            return self.category
+        return "traffic" if self.id.startswith(TRAFFIC_ID_PREFIXES) else "other"
 
 
 def _load_emit(idx: int, raw: Any) -> Emit:
@@ -269,4 +289,17 @@ def load_persona(raw: dict[str, Any]) -> Persona:
         emits=emits,
         requires=tuple(str(r) for r in requires_raw),
         knobs=dict(knobs),
+        category=_opt_str(body, "category"),
+        label=_opt_str(body, "label"),
+        blurb=_opt_str(body, "blurb"),
     )
+
+
+def _opt_str(body: dict[str, Any], key: str) -> str:
+    """An optional display string: absent/null -> "", a scalar -> its text."""
+    v = body.get(key)
+    if v is None:
+        return ""
+    if isinstance(v, (dict, list, tuple)):
+        raise PersonaSchemaError(f"persona {body.get('id')!r}: {key} must be a string, got {v!r}")
+    return str(v).strip()

@@ -46,10 +46,13 @@ export function isNetworkAddress(cidr: string): boolean {
 export function nextFreeSlash24(prefix: string, inPlay: readonly string[], options: { after?: boolean } = {}): string | null {
   const base = /^\d{1,3}\.\d{1,3}$/.test(prefix) ? ipv4ToInt(`${prefix}.0.0`) : null;
   if (base === null) return null;
+  // Never a /24 inside the transit pool (2026-11-21): the pool is fenced off as if it were in play.
+  const pool = ipv4Range(TRANSIT_POOL);
   const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
+  if (pool) ranges.push(pool);
   let from = 0;
   if (options.after) {
-    const under = ranges.filter((r) => r.start >= base && r.start < base + 65536);
+    const under = ranges.filter((r) => r !== pool && r.start >= base && r.start < base + 65536);
     if (under.length) from = Math.min(255, Math.floor((Math.max(...under.map((r) => r.end)) - base) / 256) + 1);
     if (from >= 256) from = 0;
   }
@@ -60,6 +63,57 @@ export function nextFreeSlash24(prefix: string, inPlay: readonly string[], optio
     if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${prefix}.${n}.0/24`;
   }
   return null;
+}
+
+/** Where a router-to-router transit takes its `/30` (B1): a pool outside the sites' `/24`s. */
+export const TRANSIT_POOL = "10.254.0.0/16";
+
+/** The site prefix a new LAN takes when the design has no LAN yet (only transits, or nothing):
+ *  `10.200` -> `10.200.0.0/24`, `10.200.1.0/24`, ... -- outside `TRANSIT_POOL`. */
+export const DEFAULT_LAN_PREFIX = "10.200";
+
+/** Whether a CIDR overlaps `TRANSIT_POOL` (a router-to-router transit, never a LAN). */
+export function inTransitPool(cidr: string): boolean {
+  const r = ipv4Range(cidr);
+  const p = ipv4Range(TRANSIT_POOL);
+  return !!r && !!p && r.start <= p.end && p.start <= r.end;
+}
+
+/** The two-octet site prefix of the first LAN among `cidrs` (in order, so a caller puts the CIDR it
+ *  prefers first), skipping every CIDR inside `TRANSIT_POOL`; `null` when there is no LAN. */
+export function lanSitePrefix(cidrs: readonly (string | null | undefined)[]): string | null {
+  for (const c of cidrs) {
+    if (!c || inTransitPool(c)) continue;
+    const r = ipv4Range(c);
+    if (r) return `${Math.floor(r.start / 16777216) % 256}.${Math.floor(r.start / 65536) % 256}`;
+  }
+  return null;
+}
+
+/** The /24 a new LAN gets: the next free one after the highest in use under `prefix` (a LAN site
+ *  prefix, `lanSitePrefix`), else the first free one under `DEFAULT_LAN_PREFIX`; never in the pool. */
+export function nextFreeLan(prefix: string | null, inPlay: readonly string[]): string | null {
+  return (prefix ? nextFreeSlash24(prefix, inPlay, { after: true }) : null) ?? nextFreeSlash24(DEFAULT_LAN_PREFIX, inPlay, { after: !prefix });
+}
+
+/** The next free `/30` in `pool` (default `TRANSIT_POOL`), skipping every CIDR in play (any overlap),
+ *  or `null` when the pool is full. */
+export function nextFreeTransit(inPlay: readonly string[], pool: string = TRANSIT_POOL): string | null {
+  const p = ipv4Range(pool);
+  if (!p) return null;
+  const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
+  for (let start = p.start; start + 3 <= p.end; start += 4) {
+    const end = start + 3;
+    if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${intToIpv4(start)}/30`;
+  }
+  return null;
+}
+
+/** The two usable addresses of a `/30` (`.1` and `.2` of it). */
+export function transitEnds(cidr: string): [string, string] | null {
+  const r = ipv4Range(cidr);
+  if (!r || r.end - r.start !== 3) return null;
+  return [intToIpv4(r.start + 1), intToIpv4(r.start + 2)];
 }
 
 /** The first host address generated hosts are numbered from (`.10`). */

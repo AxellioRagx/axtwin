@@ -27,24 +27,26 @@ separate, later feature over the expanded IR and are not this canvas.
 ## Seam
 
 A consumer of the control-plane API only (`ui/Spec.md`); it defines no
-endpoint and holds no orchestration logic. Mounted as `/canvas/:id` in the
-console's **Canvas** area (`ui/src/areas/canvas/`: the top-menu entry whose
-drop-down lists the catalog's twins, the `/canvas` designs page, and
-`/canvas/new`, which writes a blank or copied twin-config through A3 and opens
-it); `/twins/:id/canvas` reaches the same page from a twin's page.
+endpoint and holds no orchestration logic. Mounted as `/canvas/:id`; `/` (XTwin,
+the home link) and `/canvas/new` are this page over an untitled design;
+`/twins/:id/canvas` reaches the same page from a twin's page. There is no
+Canvas menu: an existing twin opens through the bar's Open… (the Twins
+page's list, `areas/twins/TwinList.tsx`, as a picker).
 
 | Reads | Route |
 |---|---|
 | authored twin graph | `GET /api/scenarios/{id}/topology` (`TopologyDTO`: nodes typed `host\|router\|switch\|network`, edges host→network with `ip`) |
 | cast twin graph with observed evidence | `GET /api/twins/{id}/topology` (`TopologyExportDTO`: weighted `src/dst/proto/bytes/flows/evidence_class` edges, census) |
-| palette | `GET /api/twin-configs` images and node groups, `GET /api/personas` |
+| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles` (card + OS → image); spec: `docs/design/canvas-add-panel.md` |
 | positions | the layout document (`axr-layout`), extended with `host:<name>` pins beside the existing `site:` and `segment:` pins |
 
 | Writes | Route |
 |---|---|
-| undeployed config: Save / Save-As | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
-| deployed twin: working copy, Apply / Reset / Persist | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
-| every mutation, before Apply or Save is enabled | `POST /api/validate` |
+| undeployed config: Save / Save-As (each on a passing Check) | A3 `POST /api/twin-configs`, `PUT /api/twin-configs/{id}` |
+| untitled design: first Save (a Save-As), its layout draft | A3 `POST /api/twin-configs`, `PUT /api/twins/{id}/layout` |
+| deployed twin: Apply / Persist push the working copy, then run; Reset | A2 `GET\|PUT /api/deploys/{id}/config`, `config/apply`, `config/reset` |
+| Save as draft (always), Save draft, a draft's Replace <origin> | A3d `POST\|PUT /api/drafts[/{id}]`; Replace is A3 `PUT /api/twin-configs/{origin}` |
+| Check (the bar's button, Ctrl+Enter) -- on demand only | `POST /api/validate` |
 | positions and annotations | `PUT` of the layout document, ETag-guarded, on an explicit **Save layout** (or with a document Save / Persist) -- never a write per drag |
 
 The twin config never carries presentation. Positions, free text and shapes
@@ -67,6 +69,160 @@ the lifted tiered engine, undo/redo from a command stack over the working copy.
 view mode, canvas locked except annotations, while its deploy is running —
 the same two-mode discipline CORE's GUI uses.
 
+**The edit model: on-demand Check, explicit saves (2026-11-20).** Nothing
+validates and nothing is written while the operator edits. A command refuses
+only a request it cannot express (a node that no longer exists); anything it
+can write lands, incomplete or not -- a parked switch included (its `not
+attached` badge stays). **Check** (the bar's button, Ctrl+Enter, bound page-wide from the moment the page is shown, when no text field
+has focus) sends the files on screen to `POST /api/validate`, folds in the
+canvas's own structural findings (`validate.ts`), each parked switch
+(`CV-PARK`) and an empty untitled design (`CV-EMPTY`), and records the answer
+with exactly those files (`edit/check.ts`). Its badge (bar and Checks tab):
+`unchecked`, `valid`, `invalid (N)`, `changed since check`. Findings are
+pinned as badges on the device, segment, link or tap they name (the canvas's
+own by location, the engine's by the names they quote) and listed in the
+Checks tab, where a click selects the element and zooms to it.
+Every exit that overwrites a twin -- **Save** (A3 `PUT`), **Save As**,
+**Persist**, **Apply**, a draft's **Replace <origin>** -- opens only while the
+last Check passed AND the files are the ones it judged; the API validates
+again on the write and a 422 lands as the Check's findings, never as a
+rollback. **Save layout** stays separate and needs no Check. **Save as
+draft** is always open: a copy under a new id (suggested `<id>-draft`,
+checked against the twins and drafts) written to the drafts area (A3d)
+without the gate; the twin it came from is never touched. A draft
+(`/canvas/drafts/:id`, labelled `draft`, layout kept in this browser, no
+Deploy) has **Save draft** and, on a passing Check, **Replace <origin>**
+after an explicit confirm. On a **deployed** twin edits stay in this browser
+(the undo stack and the edited text survive a reload while the working copy
+is the text they were made over); Apply and Persist push the working copy
+and then run; a failing edit can only go to a draft; the poll still adopts
+another console's change but never over local edits.
+
+**Conduits in the design view (2026-11-20).** A `conduits[]` entry is drawn
+in Design view (decluttered the same day) only while the rail's **Conduits**
+toggle is on (off by default, per browser), while it or one of its segments is
+selected, or while the last Check pins a finding on it (a failure is never
+hidden); its label shows `conduit` on hover or selection only, a failing one
+keeping a short `no route`. It is a thin dotted connector between
+its two segments' anchors (implied or real switch, or the fold that holds
+one), on the arc geometry, never through a box; a conduit nothing implements
+(no node with a leg on BOTH segments and no chain of routers joining them --
+the engine's expansion refuses it, 2026-11-20) is drawn in the warning colour. Observed flows stay evidence (Light-up or a
+selection). Selecting a conduit opens its panel: whether it is implemented,
+*Add a router leg to fix* (a router on one segment gets a leg on the other),
+Remove, and its provenance. Declare one from a segment's menu (*Declare
+conduit to…*, then a click on the other segment). Each is one undo step
+(`te.ts` `addConduit` / `removeConduit`); removing or renaming a segment
+carries its conduits with it. **Findings on the canvas:** the API answers a
+document problem found while expanding (the conduit cross-check, a leg on an
+unknown segment, a bad link) as a FAIL finding with a `subject`, not as a
+failed request; the canvas pins each finding on the element its subject (else
+its location, else the names it quotes) names, and a fold that hides one
+wears the count. "The API could not validate" is left for a request that
+failed (network, 5xx); a 4xx on Check is a failing finding with its reason.
+
+**Connect gestures (2026-11-20, `edit/connect.ts`).** In edit mode hovering
+a router, switch or host shows its **connect zone**: a dashed ring around its
+icon with four dots, titled "drag to connect". For a router or switch the
+ring is the connect zone (crosshair) and the icon the move zone (move
+cursor); a host's ring likewise. A drag that starts on the ring draws a link;
+one that starts on the icon moves the node. The rail's **Connect** tool (C)
+makes a drag from anywhere on a device draw a link instead of moving it (no
+node moves while it is on); Esc or V returns to Select. The gesture is the
+canvas's own pointer drag (a rubber line from the icon), not React Flow's
+handle drag: handles only anchor edges. The drop decides what it makes, one
+undo step each, with a live hint ("new transit r1--r2 10.254.0.0/30") and the
+device under the pointer lit: **router -> router** a transit segment
+`<a>--<b>`, the two router names sorted so the drag's direction does not show
+(`-2`, `-3` when taken; existing names untouched), the next free `/30` of the transit pool
+(`10.254.0.0/16`), `zone_type: vlan` (as the catalog's transit, datacenter's
+`fab-link`), a leg for each router at the `/30`'s `.1` and `.2`; a pair that
+already shares a segment is refused with the reason. **router -> empty pane** a
+new LAN (the next free `/24`, as the palette's Segment) with the router's leg,
+its implied switch standing where it was dropped. **Allocation ranges
+(2026-11-21, `edit/allocate.ts`):** transits take `/30`s from `TRANSIT_POOL`
+(`10.254.0.0/16`), skipping any LAN in play; a LAN never takes an address
+there. Every LAN-making path (palette drop, router -> empty pane, *Add a
+segment*, a host on a router, a template with `subnet: auto`) takes its site
+prefix from the LANs only (`lanSitePrefix`: every CIDR inside the pool is left
+out), and with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
+`10.200.1.0/24`, …; a template falls back to its own placeholders first);
+`nextFreeSlash24` never returns a `/24` overlapping the pool, and a copied
+transit (a template's, a duplicate's) takes the next free `/30` instead. **router / host -> segment**
+attaches; **switch <-> router / switch** links (`attachDevices`), unchanged.
+**Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
+chain, ring, full mesh, hub & spoke (the first selected is the hub), one
+undo step for the batch. The dialog lists each pair as "new: a--b" (the real,
+sorted transit name) or "already linked: <its transit>"; a pair already linked
+keeps its transit, and when every pair is linked it says "all pairs already
+linked" and Connect applies only the OSPF / image choices (nothing ticked:
+refused, nothing to change). *Run OSPF on these links* sets `ospf_area` on
+every transit of the selection's pairs, new or already drawn, in the same undo
+step -- which the planner passes to the
+VyOS leg config, but OSPF comes up only with a VyOS router, a node
+`routing:` block and a `fabric:` region with `igp: ospf`. Ticked, the dialog
+lists each selected router not on the `router-ospf` image profile
+(`catalog/image-profiles.yaml`, `vyos@1.5`; the default `router` profile stays
+what a dropped router gets) and offers "switch these routers to vyos@1.5",
+checked by default, in the same undo step; the `routing:` block and the
+`fabric:` region are not written, and the dialog says so in one line. The created segment, its CIDR and the leg addresses edit in the
+inspector as any; a transit's inspector (two routers and nothing else on it,
+or one with `ospf_area` already) has an **OSPF area** field: a whole number
+writes `ospf_area`, empty removes it (off), so one link is set without the
+dialog.
+
+**Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
+opens in the **free** layout (every catalog twin, authored or cast, and every
+deployed one opens in the **tree** unless its side-car says `mode: free` --
+corrected the same day: finished twins had opened free):
+every box stays where it was dropped or dragged (its pin in the side-car), the
+first placement the tree's own -- except that routers joined by transits which
+have no position yet are spread (2026-11-21, `free.ts` `spreadRouters`): left
+to right in the order of their chain, alternately on two rows (a zig-zag, so
+no three stand on one line), each a pill's width and a margin past the last,
+each carrying the switches and hosts under it that have no position either
+(shape kept), no two carried groups overlapping; a router with a pin or a
+settled position never moves (dagre had stacked a triangle in a column a few px
+apart, every pill across another line) -- nothing folds, and every edge is drawn point
+to point (straight, a router's legs from the router itself, each host's
+access edge from its switch, hued by segment as in the tree; never a comb).
+**Edge drawing (2026-11-20, round 2):** every device-to-device edge (transit,
+leg, link) runs from the centre of one ICON to the centre of the other,
+clipped at each icon's outline (a router's circle, a switch's rounded box, a
+host's circle); no fixed top/bottom handle, and the same line whichever end
+the drag started from. Free edges draw under the nodes, and a device's name
+wears a halo. **Names (2026-11-21):** a router's, switch's or implied
+switch's name and sub line stand above its icon unless an edge would cross
+them there; then they stand beside the icon (right, else left), else below it
+(`free.ts` `labelSides`: the first side no edge crosses), so no edge crosses a
+name label. **The "Not carried" box** stands just above the one segment it
+holds, or beside the first when it holds several (the other spot, or the left,
+when that is taken), never more than a row away (`free.ts` `uncarriedSpot`);
+it keeps its tooltip, and a click selects its segments with the same words in
+the Selection panel ("Not carried": one row per segment, each a click that
+selects that segment). A transit keeps its pill on
+its own line at the midpoint; one that would cover a node's name or another
+pill is nudged along its line (up to ±30% of its length), then off it, never
+onto a name; nor where another edge's line runs under it (2026-11-21), when any
+spot near its own line is clear of the others (three routers stacked a few px
+apart, as the first free placement can stack them, leave none). Every transit, in the free layout and the tree, wears the one
+neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue.
+**Placement of dropped nodes (2026-11-20, round 2, `add/placeDrop.ts`):** in
+the free layout everything a drop or a template makes gets a pin near the drop
+point: a device the drop or the template's layout placed keeps that spot; a
+new segment's implied switch stands just above its first host (or just below
+the router it hangs from); a host group stands in the row under its switch
+(the real switch carrying its segment, else the implied one) with the tree's
+spacing, continuing a row the segment already has; a template's layout applies
+relative to the drop point, and its hosts, which the layout does not name, join
+that row. Nothing a drop creates is left without a position (they had landed
+at the canvas's top-left corner). A drop on the pane or a template never lands
+on a box already there (2026-11-21, `clearOf`): when any new pin overlaps an
+existing box (24px apart), the whole group moves, shape kept, to the nearest
+clear spot. The tree keeps its own placement. The layout bar's
+*Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
+in free mode tidies with the hierarchical (dagre) pass and stays free.
+
 **Two kinds of edit, classified by the API, shown by the canvas.** An
 attribute edit (persona, intensity, schedule, cadence, tap binding, a role
 change that keeps the image) applies live through the tier's playout; a
@@ -83,9 +239,9 @@ two segments that are one VLAN — the edit is offered a **promote to
 assertion** action that writes it through the imprint's assertions seam,
 re-casts, and re-opens the working copy; the canvas never writes assertions
 directly and never edits the imprint in place. A twin designed from scratch
-starts from the blank twin-config `/canvas/new` writes -- one empty segment
-and no nodes, since the engine refuses a config with no segment at all -- and
-has no imprint and no promote action.
+starts as an untitled design at `/` -- no segment and no nodes,
+held in the browser -- and has no imprint and no promote action. The engine
+refuses a config with no segment, so Save waits for one (with the reason).
 
 ## Feature set
 
@@ -98,10 +254,10 @@ canvas — the first two are what neither incumbent documents.
 
 | Area | Items | Tag |
 |---|---|---|
-| Palette & placement | searchable, categorised palette of images, personas and node groups (this twin's own; other twins' groups under a folded "From other twins"), with an availability cue per image; ONE placement rule (2026-11-06, the GNS3 pattern): a click arms the item, the next click on a segment places it (a router: a segment for its first leg or an empty spot for none), Esc disarms; drag-drop onto a segment; a segment is added at once, a persona binds to the selected node group at once; count field for N copies with `{name}-{n}` naming | app over RF `onDrop` |
+| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover (its role list scrolled to the preselected role) writes the drop and every choice as one undo step. A card's drop is named `{prefix}-{n}`, the first free n from 1 (`router-1`, `router-2`; 2026-11-20 round 2: the first had been plain `router`); a segment a drop makes is named for its first host's role, else the card (`file-server-lan`, `switch-lan`), `-2`, `-3` when taken. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; by default it takes the segments the selected routers and switches carry and their host groups when no unselected router or switch joins them -- a checked option, "Include the segments and hosts under the selected devices (N segments, M host groups)", unchecked the bare selection -- and only links and legs leaving that set become ports; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
-| Attaching (the twin's "linking") | drag a host onto a segment or from a host's handle to a segment bus; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | RF handles + app state machine |
+| Attaching (the twin's "linking") | drag a host onto a segment or from a host's connect ring to a segment's switch; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | app pointer drag + state machine |
 | | per-attachment label modes (all / selected / hidden); straight, bezier and orthogonal styles with curvature; colour, width, dash; state colours | RF, RF+ for labels and state |
 | | right-click on an attachment: capture, suspend, style, detach; impairment badge once the IR has an impairment concept | app; impairment API |
 | Node visuals | SVG icon sets and custom upload; resize; run-state tint and badges (locked, capturing, dirty); label style and position; hover card with address, role, evidence ring | RF+ |
@@ -130,11 +286,9 @@ assertion (a cast twin's role change or segment merge through
 rect, ellipse, line, per-item lock, hide-all). Not in Phase 2: the layout
 menu's hierarchical / force / radial presets, helper lines while dragging,
 per-attachment styles, icon sets and node resize, Ctrl+C/V/D, PNG/SVG
-export, the run-time row. **2026-10-31:** every mutation is validated by
-`POST /api/validate {document}` (debounced; Save, Save-As, Persist and Apply
-open only on a clean answer for the files on screen, the findings shown with
-rule and location; the canvas's structural check stays the instant hint and
-the working-copy PUT's refusal the backstop), and annotations live in the
+export, the run-time row. **2026-10-31** (superseded 2026-11-20 by the
+on-demand Check above): every mutation was validated by
+`POST /api/validate {document}`, debounced. Annotations live in the
 layout side-car's `annotations` list (positioned SVG snippets with lock and
 hidden flags, written with the pins, a set an earlier build kept in
 localStorage migrated once; the server refuses script,
@@ -181,6 +335,111 @@ criteria of its own beyond them.
   *re-plan* and Apply is disabled while Persist and Save-As stay enabled;
   promote-to-assertion on a cast twin re-opens a working copy whose
   baseline carries the change.
+- **Automated, New / Open (2026-11-19, *`canvas.untitled.test.tsx`*):**
+  - New: `/` (XTwin) and `/canvas/new` are an editable, blank, untitled canvas -- no form, no
+    read of a stored twin (twin, tree, topology, cast, deploys, twin-config,
+    layout), no Deploy. Its files, undo stack and layout draft are kept in this
+    browser (`twin:__untitled__`) and survive a reload.
+  - Segment gate: with no segment, a Check fails with "add at least one
+    segment before saving" (`CV-EMPTY`) and Save stays closed; the engine's
+    rule is not relaxed and no segment is added behind the operator.
+  - Save-As on first save (on a passing Check; Save as draft is the other first save): Save asks for an id (the API's id rule and the
+    catalog's ids checked before any request) and an optional description
+    (`twin_config.description`, `twin.description`); A3 writes it, the layout
+    draft and the undo stack move to the new id, the browser copy is dropped,
+    and the page is `/canvas/<id>`, clean. A named design's Save is unchanged.
+  - Open (the bar's Open…, Ctrl+O): the Twins page's list as a searchable
+    picker -- origin, deploy state per tier; a pick (its link or the row)
+    opens it on the canvas.
+  - Clone (Open's one row action, `/canvas/new?from=<id>`): the twin's
+    saved twin-config (the catalog baseline, not a deploy's working copy) and
+    its layout become the untitled design, ids renamed, nothing written; it is
+    unsaved from the start (the guard applies, a reload keeps it), the pill
+    says "copy of <id>", and the first Save suggests `<id>-copy`. The source
+    twin is never written.
+  - Unsaved guard: a non-blank untitled design, an undeployed design or a draft
+    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close or an in-app link (XTwin, Open,
+    the top menu) leaves it; letting an untitled design go drops its browser copy.
+    The browser's Back is not guarded (no data router).
+    **Clean rule (2026-11-20, round 2):** an untitled design is clean when its document is at its
+    blank start (a clone never is) and it has no live layout pin and no annotation. A pin whose node
+    no longer exists (removed, or undone away) is dormant on a design kept in this browser: kept, so a
+    redo puts its node back where it stood, but neither an unsaved change nor "something on the
+    canvas". The layout bar's count is the same rule: what differs (live pins, annotations, the mode)
+    from the layout as last loaded, saved or discarded to -- not a tally of gestures. Undone back to
+    its blank start, the untitled design's browser copy (stack and layout) is cleared, so the next New
+    opens empty.
+  - Selection after a document change (an edit, an undo, a redo): pruned to what still exists;
+    nothing left is no selection, and the inspector shows the Twin summary.
+- **Automated, on-demand Check and drafts (2026-11-20, *`canvas.edit.test.tsx`*,
+  *`canvas.exits.test.tsx`*, *`canvas.drafts.test.tsx`*, *`canvas.subtree.test.tsx`*):**
+  - No `POST /api/validate` fires on load or on an edit; the badge reads `unchecked`, then
+    `valid` after Check, then `changed since check` after one more edit; Ctrl+Enter checks.
+  - Save (and Save As, Persist, Apply) is disabled unless the last Check is valid and the files
+    are unchanged since it; a 422 on the write lands as the Check's findings, the edit kept.
+  - A failing Check leaves only Save as draft open; the draft call (`POST /api/drafts`) carries
+    the draft's own id and the origin, and the original twin is not written.
+  - A draft's Replace <origin> needs a passing Check of unchanged files and the confirm; it is the
+    origin's own `PUT`, the document renamed to the origin's id; the draft is kept.
+  - A deployed twin's edits make no `PUT` of the working copy until Apply or Persist; they survive
+    a reload over the same copy and are dropped when the copy changed meanwhile.
+  - Conduits (*`canvas.conduits.test.tsx`*): every conduit is an arc of the design placement;
+    an unimplemented one draws dotted, labelled and warning-coloured with its `TC-CONDUIT` finding
+    pinned; Check returns that finding (not a failed request) and it selects the conduit; Remove
+    and *Add a router leg to fix* each clear it by the next Check; *Declare conduit to…* adds one
+    (one undo step each).
+  - Findings pin on the element they name (a node, a segment, a link, a tap, a parked switch);
+    a click on one in the Checks tab selects it. Drafts are labelled in Open and on the Twins list.
+- **Automated, connect and free layout (2026-11-20, *`canvas.connect.test.tsx`*):** router ->
+  router makes one transit with a `/30` and a leg each at `.1` / `.2`, a second drag refused;
+  router -> pane makes a LAN segment; a full mesh of 4 makes 6 transits, a linked pair is refused;
+  the free layout keeps a dropped position, draws every edge point to point and gives a
+  triangle's three transits three different paths; the mode toggle is saved with the layout.
+  Round 2: in a 3-router triangle every edge end lies on its router icon's outline (within
+  2 px) and the drawing is the same whichever way each link was dragged; a transit is named
+  for its routers sorted; every transit wears `TRANSIT_HUE`; a pill is nudged off a name; a
+  drag from a router's ring makes a transit, from its icon draws nothing (it moves), and in
+  Connect mode a drag from the icon makes a transit; a ring dropped on a segment attaches.
+- **Automated, round 2 placement and clean rule (2026-11-20, *`canvas.dropplace.test.tsx`*,
+  *`canvas.clean.test.tsx`*):** a File server with "Add 5 workstations" dropped on the empty
+  canvas and the Branch office template each land with every node within a template's box of the
+  drop point (no edge longer than it); routers placed, linked and undone back to empty leave no
+  layout change, no leave prompt and nothing in browser storage, and a redo restores the router's
+  spot; a selection undone away shows the Twin summary.
+- **Automated, round 2 Add panel and small fixes (2026-11-20, *`canvas.savetemplate.test.tsx`*,
+  *`canvas.connect.test.tsx`*, *`canvas.smallfixes.test.tsx`*):** Branch office's router + switch
+  saves as 2 devices, 1 segment, 1 host group (10 users) and no port, the bare selection when the
+  option is unchecked; OSPF ticked lists each router off `router-ospf`'s image and switches them in
+  the wiring's undo step, or says no profile names one; routers are `router-1..3`; a drop's
+  segment is `file-server-lan`, then `-2`; the role list scrolls to File server; the "add at least
+  one segment" notice is the neutral `notice info`; a brand-new untitled design has no note (its
+  state is on the pill); the "Not carried" box says "segment-4 isn't on any router: nothing outside
+  it can reach it" on hover and a click selects the segment.
+- **Automated, live check of 2026-11-20 (*`canvas.livecheck1120.test.tsx`*):** a File server
+  dropped on a transits-only design (and router -> pane, a host on a router, every built-in
+  template) gets a LAN outside `10.254.0.0/16`, a design with LANs keeps its prefix; the wiring
+  dialog on an all-linked triangle lists "already linked: <transit>" per pair, creates nothing and
+  sets `ospf_area` on the 3 transits in one undo step; a transit's OSPF area field writes and
+  clears `ospf_area`; the "Not carried" box sits just above its segment wherever it is dragged
+  (beside the first of several) and, clicked, lists its segments in the Selection panel; in the
+  free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the
+  page mounts runs a validate. Follow-ups: a File server dropped where router1-1 stands moves
+  clear with its LAN (shape kept), one dropped in clear space stays put; in a spread triangle no
+  transit's pill has another edge under it; with no positions a triangle opens as a
+  zig-zag (pills clear, names uncrossed), a router with a position stays put, and each router's
+  LAN and hosts come along with no two groups overlapping.
+- **Automated, rendering fixes (2026-11-20, *`canvas.render-fixes.test.tsx`*):** a transit's
+  pill (name · CIDR) shows at every Labels setting; under the Provenance overlay a transit is not
+  dashed and an unconfirmed one wears "?" on its pill; a host label is cut to its column (icon +
+  gap) and shown whole on hover or selection.
+- **Acceptance (eyes):** 3 routers on an empty canvas can be wired as a triangle in 3 drags and
+  pass Check once each has a role and an image.
+- **Automated, edge routing (2026-11-20, *`canvas.orthogonal.test.ts`*):** two legs of one
+  router get distinct lane y's and exit x's; the hosts and role bands of one switch (real or
+  implied) share a lane, one per segment; a seglink's pill sits on the child's vertical drop; a bridge / fold edge
+  lanes by its source.
+- **Live (eyes), tier-cast:** gw's four legs render as four separate paths; no two legs share a
+  horizontal or a vertical; each segment label sits on its own leg.
 - **Live (eyes):** the largest cast twin in the catalog renders and pans at
   interactive rate; the element budgets below are measured, not assumed.
 
@@ -191,8 +450,9 @@ untouched; a segment stays the L2 primitive a host's `net` names. The drawing
 is one uniform tree, router → switch (real | implied) → hosts (Rendering rules
 1–9 below).
 
-**Drop rules** (palette drop, or an armed item clicked; `Canvas.tsx`
-`placeTarget` / `placeOnDevice`, `edit/switches.ts`):
+**Drop rules** (an Add-panel card dragged, clicked or quick-added -- see
+`docs/design/canvas-add-panel.md` §3/§4.1 for what each card writes;
+`Canvas.tsx` `placeTarget` / `placeOnDevice`, `edit/switches.ts`, `add/drop.ts`):
 
 - on an **implied switch**: the host joins that segment (a peer of its hosts);
 - on a **real switch** of one segment: that segment; of several: the native
@@ -204,7 +464,10 @@ is one uniform tree, router → switch (real | implied) → hosts (Rendering rul
   (`newSegmentOnRouter`, `edit/allocate.ts`), `zone_type: vlan`, the router's
   leg on it and the host on it -- one command, one undo step; it draws under
   a new implied switch;
-- a router item lands on the pane as before (it joins segments by legs);
+- a router lands on the pane (it joins segments by legs), or with the segment
+  it was dropped on as its first leg; a switch on a segment makes that
+  segment's implied switch real (Insert switch), on the pane it gets a new
+  segment of its own; a host on the empty pane gets a new segment of its own;
 - a host dragged onto another segment's switch moves there; a tap chip
   dragged onto a real switch becomes a segment tap on its segment.
 
@@ -356,8 +619,8 @@ Track B — the hierarchical device tree (brief "Canvas rendering"):
       router-to-router link labelled with it — `canvas.tree.test.tsx`,
       `canvas.orthogonal.test.ts`; datacenter shows `fab-r1 —fab-link— fab-r2` (`B1-datacenter.png`).
 - [x] R3-4: orthogonal edges routed through the gutters between ranks (`canvas/orthogonal.ts`:
-      down from the source, horizontal only in a gutter, one lane per parent, down a long
-      edge's reserved dagre column, into the target from above); a dragged end draws a
+      down from the source, horizontal only in a gutter, one lane per segment (2026-11-20; was
+      one per parent), down a long edge's reserved dagre column, into the target from above); a dragged end draws a
       smoothstep until Re-layout. The geometry test runs `placeTree` over canvas-test,
       datacenter, switch-test, corp-enterprise and corp-twin, folded and fully open, and
       asserts every structural edge is routed, axis-aligned and crosses no box —
@@ -391,9 +654,8 @@ Track B — the hierarchical device tree (brief "Canvas rendering"):
 Track C — duplicate subtree and console polish:
 
 - [x] R3-2: a switch no router reaches (a parked duplicate, a switch just placed — `edit/subtree.ts`
-      `parkedDevices`; a down link carries nothing) holds the document HERE: no API validate,
-      no working-copy sync, a `not attached` badge, a strip line and every exit (Save, Apply,
-      Persist, Save as) disabled with the reason; it validates and syncs again once attached.
+      `parkedDevices`; a down link carries nothing) wears a `not attached` badge and is a Check
+      finding (`CV-PARK`, from 2026-11-20; it used to hold every edit and exit HERE).
       The copy is one undo step; taps never copy; a parked copy keeps what its original's
       uplink carried as its own ports, so the attach tool trunks exactly those. A new box that
       would land on a settled one moves right into free space — `canvas.subtree.test.tsx`,
@@ -417,15 +679,14 @@ Track C — duplicate subtree and console polish:
 ## Routers
 
 A router joins segments rather than living on one (user, 2026-11-05), so it
-places without a segment: the palette's **Router** item (image: what the
-catalog's routers use, this twin's first; otherwise `router`, to be picked in
-the inspector) lands on the pane with a click or a drop, or with a selected
-or dropped-on segment as its first leg; the pane menu offers *Place Router
-here* while one is armed. A group copied from a router stays a router
-(`PaletteItem.nodeKind`). Its legs are the attach gesture or the node
+places without a segment: the Add panel's **Router / firewall** card (image:
+the `router` image profile, `catalog/image-profiles.yaml`) lands on the pane
+with a click or a drop, or with a selected or dropped-on segment as its first
+leg; an *edge* one is also uplinked to the internet segment
+(`docs/design/canvas-add-panel.md` §4, §6). Its legs are the attach gesture or the node
 panel's *Attach to segment*. An unattached router is a **warning** (CV-024,
-`validate.ts`), not an error, because every edit must leave the document
-free of errors and an error here would make a router impossible to place.
+`validate.ts`), not an error: a router is placed first and attached after,
+and a Check of a design mid-way should not fail for it.
 
 ## Shell and chrome
 
@@ -494,7 +755,7 @@ page, not a card in one:
 - **Left rail.** A floating vertical icon rail (`<Panel position="top-left">`,
   ~40 px, translucent): select, pan, zoom in/out, fit, lock-all, light-up,
   find; tooltip with name and shortcut on hover. Edit mode adds **+**, which
-  opens `Palette.tsx` as a popover, never a permanent sidebar; the
+  opens the Add panel (`add/AddPanel.tsx`) as a popover, never a permanent sidebar; the
   `220px 1fr 320px` grid in `canvas.css` goes. **Built 2026-11-05**
   (`chrome.tsx`, `icons.tsx`): the rail's view tools (V/H select or pan —
   select drags a marquee, pan drags the plane; +/−/F zoom; L lock; T
@@ -512,11 +773,10 @@ page, not a card in one:
   `Inspector` in `chrome.tsx`, 300 px, `top-right`; a node click opens
   *Selection* (in read-only mode the graph's facts for the host, router or
   segment; in edit mode `SidePanel.tsx`'s panels). A fourth tab, *Checks*,
-  holds what the old panel also carried — the validation state and, on a
-  deployed twin, the pending changes — and wears the validation word
-  (`valid` / `invalid` / `validating`) as its badge so the gate reads at a
-  glance. The blocked-edit reason and the API's refusal of the document
-  moved to the canvas's message strip. The placement warnings (segments
+  holds what the old panel also carried — the last Check and, on a
+  deployed twin, the pending changes — and wears the Check's word
+  (`unchecked` / `valid` / `invalid (N)` / `changed since check`) as its badge so the gate reads at a
+  glance. The reason a command refused a request is on the canvas's message strip. The placement warnings (segments
   behind "+N more", pairs not drawn) are the dismissible strip bottom-left;
   the page's notes (authored twin, cast omissions, layout on another plane,
   annotation count) are the *Notes* tab. The inspector's width is per tab
@@ -610,8 +870,8 @@ one its `confidence`.
    (`ID.segment`), type `impliedSwitch`, data the segment's
    (`kind: "segment"`, `implied: true`), under the router with a leg on it.
    It is presentation only and never written to the twin config;
-   (c) only routers are on it (a `/30`, `fab-link`): one router-to-router
-   `seglink`, as before;
+   (c) only routers are on it (a `/30`, `fab-link`, a transit): one
+   router-to-router `seglink`, drawn as a transit (rule 5);
    (d) a multi-homed host is a child of its first segment's switch and
    draws between it and the switch of each further segment (a `stub` from
    that switch, which also ranks above it).
@@ -650,6 +910,24 @@ one its `confidence`.
    branch, to that switch; none to a segment its own link reaches); a leg to
    a folded segment goes to the fold, once. Observed flows stay evidence:
    arcs under Light-up or for the selection.
+   **Routing (2026-11-20).** Every structural edge is orthogonal
+   (`canvas/orthogonal.ts`): down from its source, horizontal only in the
+   gutter between two ranks, into its target from above; no edge crosses a
+   box. Each lane has its own y in a gutter, and the lane is the **segment**
+   (`laneOf`, `seg:<name>`) for every edge of one segment -- a router's leg, a
+   seglink, a switch's access edge to a host or to a role band -- so a
+   router's legs are separate lines and a switch's hosts and role bands on
+   one segment share one (a switch of several segments: one line per
+   segment). An edge of no single segment (a bridge's `via`, a fold, a host
+   fold, a link, a stub) lanes by its source. A **router's edges leave spread across the lower arc of its ring**,
+   left to right in their targets' order (`ROUTER_EXIT_STEP`, inside the
+   ring), so no two legs share a vertical; one source's lanes nest (the
+   farthest-going on top) so a fan never crosses itself. A **transit** (a
+   seglink) is drawn solid at twice an access leg's weight (3.5 vs 1.75), in
+   the parent router's hue, with its segment as a pill (`name · CIDR`) on its
+   own drop into the child router; a router leg's hover label sits on its drop
+   too. Dashed stays reserved for weak / unconfirmed / presentation-only
+   edges.
 6. **Folding, per switch.** A switch (real or implied) shows at most
    `TREE_HOST_BUDGET` (8) host icons and a `+N` host fold last on its row
    (`hostfold:<switch node id>`, expand key `hosts:<switch node id>`); its
@@ -760,8 +1038,7 @@ one its `confidence`.
    segment -- with free ports at both ends; a parked device dragged onto
    another device attaches the same way. A parked switch is CV-048 on the
    canvas and NET-140 in the engine, but the expander refuses it outright,
-   so on a **deployed** twin the working copy's sync reverts a parked copy
-   with the reason in the strip: duplicate onto a device there. **Built
+   so a Check fails on it (`CV-PARK`) until it is attached. **Built
    2026-11-08**: Ctrl+D (or the menu) carries a floating copy under the cursor
    that says where it would land; a press drops it on a switch or router (a
    trunk) or on the canvas (parked, its root pinned where it landed); dropped

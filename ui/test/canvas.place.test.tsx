@@ -12,7 +12,7 @@ import { orderByRank } from "../src/features/edit-canvas/canvas/placement";
 import { placeTree } from "../src/features/edit-canvas/canvas/tree";
 import { documentGraph, readDoc } from "../src/features/edit-canvas/edit/document";
 import { buildGraph } from "../src/features/edit-canvas/model/graph";
-import { clickPane, item, seeded, segment, segments } from "./helpers/canvasFixtures";
+import { addDevice, addSegment, clickPane, seeded, segment, segments } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 const TE = `twin_config:
@@ -82,7 +82,7 @@ describe("positions settle for the session", () => {
     await screen.findAllByTestId("canvas-host");
     const before = positions();
     expect(Object.keys(before)).toContain("segment:10.1.0.0/24");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan", "segment-3"]));
     const after = positions();
     expect(after["segment:10.1.0.0/24"]).toEqual(before["segment:10.1.0.0/24"]);
@@ -91,15 +91,15 @@ describe("positions settle for the session", () => {
     expect(after["segment:10.1.2.0/24"]).not.toEqual(after["segment:10.1.0.0/24"]);
     expect(after["segment:10.1.2.0/24"]).not.toEqual(after["segment:10.1.1.0/24"]);
     // A node onto the new segment: still nothing else moves.
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
     fireEvent.click(segment("segment-3"));
+    addDevice("server");
     await waitFor(() => expect(screen.getAllByTestId("canvas-host").length).toBe(3));
     const later = positions();
     expect(later["segment:10.1.0.0/24"]).toEqual(before["segment:10.1.0.0/24"]);
     expect(later["segment:10.1.2.0/24"]).toEqual(after["segment:10.1.2.0/24"]);
-    // An armed router on an empty spot does not move them either.
-    fireEvent.click(item("router", "router"));
+    // A router on an empty spot does not move them either.
     clickPane();
+    addDevice("router");
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(2));
     expect(positions()["segment:10.1.1.0/24"]).toEqual(before["segment:10.1.1.0/24"]);
   });

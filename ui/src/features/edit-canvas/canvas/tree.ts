@@ -57,10 +57,10 @@ import { compareCidr, twoOctetPrefix } from "../model/keys";
 import { switchBadge } from "../model/roles";
 import type { ExtraLeg, TreeLink, TreeStructure } from "./authored";
 import { BUS_ICON, OVERFLOW_LANE_H } from "./bus";
-import { HUE_GREY, hueOf } from "./hues";
+import { HUE_GREY, hueOf, TRANSIT_HUE } from "./hues";
 import { routeOrthogonal, type Box, type RouteRequest } from "./orthogonal";
 import { selectPairs } from "./pairs";
-import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
+import { EDGE_Z, HANDLE, ID, LEG_CLASS, chipsOf, uncarriedLine, overflowAnchorKey, siteKeyOfOverflowAnchor, hostData, type CanvasEdge, type CanvasNode, type ChipSpec, type Crossing, type DeviceData, type Placement, type SegmentData, type Source } from "./placement";
 
 export interface TreeOptions {
   /** The expand keys the operator opened (`carrier:`, `site:`, `hosts:`). */
@@ -732,7 +732,10 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   }
   if (g.hasNode(UNCARRIED_ID)) {
     const n = notCarried.length;
-    nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title: "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree" } });
+    // In plain words, per segment (2026-11-20, round 2), and a click selects them so they can be found.
+    const segs = notCarried.filter((id) => id.startsWith(ID.segment(""))).map((id) => id.slice(ID.segment("").length));
+    const title = segs.length ? `${segs.map(uncarriedLine).join("\n")}\nclick to select ${segs.length === 1 ? "it" : "them"}` : "No router leg, switch or bridging host in the config reaches these segments: add a router leg or a link to place them in the tree";
+    nodes.push({ id: UNCARRIED_ID, type: "chrome", position: topLeft(UNCARRIED_ID), width: INTERNET_W, height: INTERNET_H, draggable: false, ...common, data: { kind: "uncarried", label: "Not carried", sub: `${n} item${n === 1 ? "" : "s"} no device reaches`, title, segments: segs } });
   }
   // The implied switches (rule 2): the segment's own data, drawn as a dashed switch.
   const hueOfSegment = (seg: GraphSegment): string => {
@@ -854,7 +857,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   for (const p of pairs) {
     const [a, b] = shallow(p.a, p.b);
     const seg = graph.segmentByName.get(p.segment);
-    edges.push({ id: TREE_ID.segLink(`${p.segment}:${b}`), type: "link", source: nodeIdOf(a), target: nodeIdOf(b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "seglink", segment: p.segment, cidr: seg?.observedCidr ?? "", a, b, hue: hueOfDevice(a), source: source(p.segment), label: `${p.segment}${seg ? ` · ${seg.observedCidr}` : ""}` } });
+    edges.push({ id: TREE_ID.segLink(`${p.segment}:${b}`), type: "link", source: nodeIdOf(a), target: nodeIdOf(b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.top, zIndex: EDGE_Z, data: { kind: "seglink", segment: p.segment, cidr: seg?.observedCidr ?? "", a, b, hue: TRANSIT_HUE, source: source(p.segment), label: `${p.segment}${seg ? ` · ${seg.observedCidr}` : ""}` } });
   }
   // The links (§2.3): between two devices, or from a device to a host's icon (its switch, or the fold, when not drawn).
   const drawnIds = new Set(nodes.map((n) => n.id));
@@ -994,7 +997,7 @@ export function placeTree(graph: ConsoleGraph, pins: Pins = NO_PINS, options: Tr
   const pairSel = selectPairs(graph, (name) => anchorByName[name] ?? null, { showAll: options.showAllPairs === true });
   const boxOfAnchor = (a: string): string => (anchorByName[a] === a ? ID.segment(a) : a);
   for (const p of pairSel.drawn) {
-    edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}` } });
+    edges.push({ id: `arc:${p.kind}:${p.key}`, type: "arc", source: boxOfAnchor(p.a), target: boxOfAnchor(p.b), sourceHandle: HANDLE.bottom, targetHandle: HANDLE.bottomIn, style: { strokeWidth: p.strokeWidth }, data: { kind: "arc", key: p.key, arcKind: p.kind, bytes: p.bytes, flows: p.flows, pairs: p.pairs, label: p.kind === "asserted" && !p.hasTraffic ? "conduit (declared, no traffic observed)" : `${p.bytes.toLocaleString()} bytes · ${p.flows.toLocaleString()} flows${p.pairs > 1 ? ` · ${p.pairs} pairs` : ""}`, ...(p.kind === "asserted" ? { conduits: p.conduits } : {}) } });
   }
 
   return { nodes, edges, width: (gw ?? 0) + CANVAS_PAD, height: (gh ?? 0) + CANVAS_PAD, overBudget: null, hiddenSegments, siteSegments, rows: rowsOut, hiddenPairs: pairSel.hiddenPairs, anchorByName, unplaced: graph.unplacedLocal.length };
@@ -1142,6 +1145,24 @@ export function absoluteBoxes(nodes: readonly CanvasNode[]): Map<string, Box> {
   return out;
 }
 
+/** How far apart a router's spread exits are, at most; and how far the outermost keeps inside its ring. */
+export const ROUTER_EXIT_STEP = 10;
+const ROUTER_EXIT_INSET = 4;
+
+/** The lane an edge runs in (`orthogonal.ts`): an edge of ONE segment -- a router's leg, a seglink,
+ *  a switch's access edge to a host or to a role band of that segment's hosts -- lanes by that
+ *  segment, so a router's legs are separate lines and a switch's hosts and role bands on one segment
+ *  share one; an edge of no single segment (a bridge's "via", a fold, a host fold, a link, a stub)
+ *  lanes by its source, as before. */
+export function laneOf(e: Pick<CanvasEdge, "id" | "source" | "data">): string {
+  const d = e.data;
+  if (d?.kind === "seglink" || (d?.kind === "leg" && d.segment)) return `seg:${d.segment}`;
+  // A role band's edge (`rungs:`) is a `carry` whose segment is the band's segment; a fold's carry
+  // names its target there instead, so only the band's id says it is one segment's.
+  if (d?.kind === "carry" && e.id.startsWith("rungs:") && d.segment) return `seg:${d.segment}`;
+  return e.source;
+}
+
 /** Route every structural edge orthogonally on the dagre ranks (`orthogonal.ts`); an edge whose
  *  end was pinned away from dagre's place, or that runs upward, keeps no route and draws a
  *  smoothstep. Mutates the edges' `data.route`. */
@@ -1181,6 +1202,7 @@ function routeTree(g: dagre.graphlib.Graph, nodes: readonly CanvasNode[], edges:
     return rank === undefined || rank < 0 ? null : { box, rank, top };
   };
   const reqs: RouteRequest[] = [];
+  const edgeOfReq: CanvasEdge[] = [];
   for (const e of edges) {
     if (e.type === "arc" || !e.data) continue;
     const s = endOf(e.source);
@@ -1196,7 +1218,24 @@ function routeTree(g: dagre.graphlib.Graph, nodes: readonly CanvasNode[], edges:
       }
       if (via.some((x) => Number.isNaN(x))) continue; // no column reserved: leave it to the smoothstep
     }
-    reqs.push({ id: e.id, src: s.box, dst: t.box, srcRank: s.rank, dstRank: t.rank, via, lane: e.source });
+    edgeOfReq.push(e);
+    reqs.push({ id: e.id, src: s.box, dst: t.box, srcRank: s.rank, dstRank: t.rank, via, lane: laneOf(e) });
+  }
+  // A router's edges leave across the bottom of its ring, left to right in their targets' order, so no
+  // two of its legs share a vertical (each leg is its own port).
+  const routerIds = new Set(nodes.filter((n) => n.type === "router").map((n) => n.id));
+  const fromRouter = new Map<string, RouteRequest[]>();
+  for (const [r, e] of reqs.map((r, i) => [r, edgeOfReq[i]!] as const)) if (routerIds.has(e.source)) fromRouter.set(e.source, [...(fromRouter.get(e.source) ?? []), r]);
+  for (const list of fromRouter.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.dst.x + a.dst.w / 2 - (b.dst.x + b.dst.w / 2) || (a.id < b.id ? -1 : 1));
+    const step = Math.min(ROUTER_EXIT_STEP, (2 * (TAP_ICON_HALF - ROUTER_EXIT_INSET)) / (list.length - 1));
+    list.forEach((r, k) => {
+      const dx = (k - (list.length - 1) / 2) * step;
+      const bottom = r.src.y + r.src.h;
+      // On the ring's lower arc (the ring is the icon box, flush with the node's bottom centre).
+      r.exit = { x: r.src.x + r.src.w / 2 + dx, y: bottom - TAP_ICON_HALF + Math.sqrt(Math.max(0, TAP_ICON_HALF ** 2 - dx * dx)) };
+    });
   }
   const routes = routeOrthogonal(bands, reqs);
   const at = (id: string) => {

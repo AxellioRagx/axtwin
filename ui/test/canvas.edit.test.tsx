@@ -12,11 +12,11 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { CastRoster, DeploySummary } from "../src/api/types";
-import { segmentAt, connectionToAttach } from "../src/features/edit-canvas/Canvas";
-import { paletteItems, standingDeploy } from "../src/features/edit-canvas/CanvasPage";
+import { segmentAt } from "../src/features/edit-canvas/Canvas";
+import { standingDeploy } from "../src/features/edit-canvas/CanvasPage";
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { classify } from "./helpers/fakeApi";
-import { CAST_ROSTER, DEPLOY, PERSONAS, TFC, ann, clickPane, commit, document, enabled, host, hosts, item, openPalette, panel, seeded, segment, segments, settle, tab, teText, twinYaml } from "./helpers/canvasFixtures";
+import { CAST_ROSTER, DEPLOY, TFC, ann, check, checkStatus, commit, document, addDevice, addSegment, card, chooseAndAdd, enabled, host, hosts, openPalette, panel, seeded, segment, segments, settle, tab, teText, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -32,19 +32,17 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("clean-marker").textContent).toBe("saved");
     expect(segments()).toEqual(["net-dmz", "net-lan"]);
 
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan", "segment-3"]));
     expect(segment("segment-3").dataset["cidr"]).toBe("10.1.2.0/24"); // the next free /24 under the twin's prefix
     expect(screen.getByTestId("dirty-marker").textContent).toContain("unsaved changes");
 
-    // Arm a node group from the palette, then click the new segment: click-to-place, one rule.
-    fireEvent.click(item("group", "corp-auth/web01"));
-    expect(screen.getByTestId("palette-hint").textContent).toContain("armed: web01");
+    // Select the new segment, click the Server card: it lands there; its popover names it web01.
     fireEvent.click(segment("segment-3"));
+    addDevice("server", { prefix: "web01" });
     await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
-    expect(screen.getByTestId("palette-hint").textContent).not.toContain("armed");
     expect(host("web01-1").dataset["address"]).toBe("10.1.2.10");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
 
     fireEvent.click(await enabled("Save"));
     await screen.findByTestId("clean-marker");
@@ -52,7 +50,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(write.id).toBe("corp-auth");
     const te = readTe((write.body as { files: Record<string, string> }).files["te.yaml"]!);
     expect(te.segments.map((s) => s.name)).toEqual(["net-lan", "net-dmz", "segment-3"]);
-    expect(te.nodes.find((n) => n.name === "web01-1")).toMatchObject({ role: "web-tier", image: "ubuntu-server-22@v5", nets: [{ segment: "segment-3", ip: "10.1.2.10" }] });
+    expect(te.nodes.find((n) => n.name === "web01-1")).toMatchObject({ role: "web-tier", image: "debian-12-cloud@v1", nets: [{ segment: "segment-3", ip: "10.1.2.10" }] });
     // The lines the operator never touched are byte-identical.
     const original = teText("corp-auth").split("\n");
     const saved = (write.body as { files: Record<string, string> }).files["te.yaml"]!.split("\n");
@@ -69,7 +67,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(p).getByRole("button", { name: "Duplicate" }));
     await waitFor(() => expect(hosts()).toEqual(["web01", "ws01", "ws01-1"]));
     expect(host("ws01-1").dataset["address"]).toBe("10.1.1.10");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
     // Again: the next free address, not the same one.
     fireEvent.click(host("ws01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Duplicate onto segment"), { target: { value: "net-dmz" } });
@@ -78,7 +76,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(host("ws01-2").dataset["address"]).toBe("10.1.1.11");
   });
 
-  it("R3-6: the other twins' items load when the palette first opens, not with the page", async () => {
+  it("R3-6: opening the Add panel reads no other twin (\"From other twins\" is gone, and its lazy load with it)", async () => {
     const { api, state } = seeded();
     const reads: string[] = [];
     const list = api.listTwinConfigs.bind(api);
@@ -90,7 +88,8 @@ describe("the design canvas, phase 2 (C3)", () => {
     await settle();
     expect(reads).toEqual(["corp-auth"]); // this twin's own document only
     openPalette();
-    await waitFor(() => expect(reads).toEqual(["corp-auth", "list", "corp-live"]));
+    await settle();
+    expect(reads).toEqual(["corp-auth"]);
     expect(state.writes.filter((w) => w.op !== "validate")).toEqual([]);
   });
 
@@ -98,7 +97,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "corp-auth-2" } });
     fireEvent.click(await enabled("Save as"));
@@ -125,48 +124,50 @@ describe("the design canvas, phase 2 (C3)", () => {
     // From a deployed twin's working copy.
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
     await settle();
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "corp-live-copy" } });
     fireEvent.click(await enabled("Save as"));
     await waitFor(() => expect(state.documents["corp-live-copy"]).toBeTruthy());
     expect(readTe(state.documents["corp-live-copy"]!.files["te.yaml"]!).segments.length).toBe(3);
-    // The baseline, the deploy and its working copy are untouched by a Save-As.
+    // The baseline, the deploy and its working copy are untouched by a Save-As (the edits were never pushed).
     expect(readTe(state.documents["corp-live"]!.files["te.yaml"]!).segments.length).toBe(2);
-    expect((await api.getDeployConfig("dep-1")).dirty).toBe(true);
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
   });
 
-  it("C3.4: an invalid edit is blocked with the validator's reason, and the API's refusal of a working copy reverts the edit", async () => {
+  it("C3.4: an invalid edit lands (nothing validates while editing); Check reports it with its rule, pinned on the segment; a 422 on Save shows as findings, the edit kept", async () => {
     const { api, state } = seeded();
     const r = renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(segment("net-dmz"));
     const p = await panel().findByTestId("segment-panel");
     commit(within(p).getByLabelText("CIDR"), "10.1.1.5/24");
-    const blocked = await screen.findByTestId("blocked-reason");
-    expect(blocked.textContent).toContain("CV-012");
-    expect(blocked.textContent).toContain("'10.1.1.5/24' is not an IPv4 network address");
-    expect(segment("net-dmz").dataset["cidr"]).toBe("10.1.1.0/24");
-    expect(screen.getByTestId("clean-marker")).toBeTruthy();
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
-    // A node attached to a segment that is not there: the panel's attach list only offers real segments,
-    // so the check is the removal of a segment with a pinned address elsewhere -- still valid; and a bad address.
-    fireEvent.click(host("web01"));
-    const np = await panel().findByTestId("node-panel");
-    commit(within(np).getByLabelText("Address on net-dmz"), "10.9.9.9");
-    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("not a host address inside net-dmz");
+    await waitFor(() => expect(segment("net-dmz").dataset["cidr"]).toBe("10.1.1.5/24"));
+    expect(screen.queryByTestId("blocked-reason")).toBeNull();
+    expect(screen.getByTestId("dirty-marker")).toBeTruthy();
+    await check("invalid");
+    tab("Checks");
+    const f = screen.getAllByTestId("finding").find((x) => x.dataset["rule"] === "CV-012")!;
+    expect(f.textContent).toContain("'10.1.1.5/24' is not an IPv4 network address");
+    expect(f.dataset["target"]).toBe("segment:net-dmz");
+    expect(within(segment("net-dmz")).getByTestId("finding-badge").dataset["severity"]).toBe("error");
+    expect((screen.getByTestId("save") as HTMLButtonElement).disabled).toBe(true);
     r.unmount();
 
-    // The server's own refusal (A2.3): the PUT is refused, the edit reverted, the reason shown verbatim.
+    // The server re-validates on the write: its 422 becomes the Check's findings; the edit stays on screen.
     const refused = seeded();
-    renderAt(refused.api, "/twins/corp-live/canvas");
+    renderAt(refused.api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    refused.state.refuse.config = new (await import("../src/api/client")).ApiError({ kind: "unprocessable", status: 422, message: "twin-config 'corp-live' fails validation (1 error(s)): IMG-010 image 'win11-finance@v4' has no manifest", url: "" });
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
-    await screen.findByText(/IMG-010 image 'win11-finance@v4' has no manifest/);
-    await waitFor(() => expect(screen.getByTestId("clean-marker")).toBeTruthy());
+    await check("valid");
+    refused.state.refuse.twinConfigWrite = new (await import("../src/api/client")).ApiError({ kind: "unprocessable", status: 422, message: "twin-config 'corp-auth' fails validation (1 error(s))", detail: { code: "invalid", findings: [{ rule_id: "IMG-010", severity: "error", message: "node 'ws01': image 'win11-finance@v4' has no manifest", location: "layers.infra.nodes[3]" }] }, url: "" });
+    fireEvent.click(screen.getByTestId("save"));
+    await waitFor(() => expect(checkStatus()).toBe("invalid"));
+    tab("Checks");
+    expect(screen.getAllByTestId("finding").find((x) => x.dataset["rule"] === "IMG-010")!.dataset["target"]).toBe("node:ws01");
+    expect(screen.getByTestId("dirty-marker")).toBeTruthy();
     expect(state.writes.filter((w) => w.op === "put-deploy-config").length).toBe(0);
   });
 
@@ -178,13 +179,12 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("clean-marker").textContent).toBe("working copy equals the baseline");
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
-    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("unapplied changes"));
-    const put = state.writes.find((w) => w.op === "put-deploy-config")!;
-    expect(put.id).toBe("dep-1");
-    // The baseline is untouched: the catalog read is the original.
+    await waitFor(() => expect(screen.getByTestId("dirty-marker").textContent).toContain("local edits (not pushed)"));
+    await settle();
+    // The edit stays in this browser: no PUT of the working copy, the baseline untouched.
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
     expect((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]).toBe(teText("corp-live"));
-    expect(readTe((await api.getDeployConfig("dep-1")).document.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
-    // Persist: the baseline becomes the working copy and the copy is clean.
+    // Persist (on a passing Check): pushes the working copy, then the baseline becomes it and the copy is clean.
     fireEvent.click(await enabled("Persist"));
     await screen.findByText("working copy equals the baseline");
     expect(readTe((await api.getTwinConfig("corp-live")).document!.files["te.yaml"]!).nodes.find((n) => n.name === "ws01")!.role).toBe("finance-ws");
@@ -196,10 +196,17 @@ describe("the design canvas, phase 2 (C3)", () => {
     const a = renderAt(api, "/twins/corp-live/canvas");
     const canvasA = a.container;
     await within(canvasA).findAllByTestId("canvas-host");
-    fireEvent.click(within(canvasA).getByTestId("rail-add"));
-    fireEvent.click(within(canvasA).getAllByTestId("palette-item").find((i) => i.dataset["kind"] === "segment")!);
+    fireEvent.contextMenu(canvasA.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 200 });
+    fireEvent.click(within(within(canvasA).getByTestId("context-menu")).getByRole("button", { name: "Add a segment" }));
     await waitFor(() => expect(within(canvasA).getByTestId("dirty-marker")).toBeTruthy());
     await settle();
+    // Local only until pushed: Apply (on a passing Check) pushes it; a topology change is then not applied.
+    expect((await api.getDeployConfig("dep-1")).dirty).toBe(false);
+    fireEvent.click(within(canvasA).getByTestId("check-run"));
+    const applyA = within(canvasA).getByRole("button", { name: "Apply" });
+    await waitFor(() => expect(applyA.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(applyA);
+    await within(canvasA).findByText(/pushed to the working copy, not applied: a pending change needs a re-plan/);
     expect((await api.getDeployConfig("dep-1")).dirty).toBe(true);
 
     // The second console reads the same working copy from the API.
@@ -222,7 +229,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
@@ -247,21 +254,23 @@ describe("the design canvas, phase 2 (C3)", () => {
     await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     fireEvent.change(within(await panel().findByTestId("node-panel")).getByLabelText("Persona"), { target: { value: "generic-endpoint" } });
+    await settle();
+    expect(state.writes.some((w) => w.op === "put-deploy-config")).toBe(false);
+    // Apply (on a passing Check) pushes the edit to the working copy, then applies it.
+    fireEvent.click(await enabled("Apply"));
+    await screen.findByText(/applied via tfc/);
+    expect(state.writes.map((w) => w.op).filter((op) => op === "put-deploy-config" || op === "apply-deploy-config")).toEqual(["put-deploy-config", "apply-deploy-config"]);
+    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual({ tfc: "done" });
     tab("Checks");
-    await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
     expect(change.dataset["kind"]).toBe("traffic");
     expect(change.textContent).toContain("live");
     expect(change.textContent).toContain("tfc/default.yaml");
-    const apply = screen.getByRole("button", { name: "Apply" });
-    await waitFor(() => expect(apply.hasAttribute("disabled")).toBe(false));
-    fireEvent.click(apply);
-    await screen.findByText(/applied via tfc/);
-    expect(state.writes.some((w) => w.op === "apply-deploy-config" && w.id === "dep-1")).toBe(true);
-    expect((await api.getDeployConfig("dep-1")).applied?.tiers).toEqual({ tfc: "done" });
     // A role change with the image unchanged is live as well, naming the role.
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
+    fireEvent.click(await enabled("Apply"));
+    await waitFor(() => expect(state.writes.filter((w) => w.op === "apply-deploy-config").length).toBe(2));
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(2));
     expect(screen.getAllByTestId("pending-change").find((c) => c.textContent!.includes("te.yaml"))!.textContent).toContain("ws01 → finance-ws");
@@ -271,7 +280,10 @@ describe("the design canvas, phase 2 (C3)", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-live/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
+    // Apply pushes the edit; the API classifies it as topology, so it is pushed and not applied.
+    fireEvent.click(await enabled("Apply"));
+    await screen.findByText(/pushed to the working copy, not applied/);
     tab("Checks");
     await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
     const change = screen.getByTestId("pending-change");
@@ -298,9 +310,7 @@ describe("the design canvas, phase 2 (C3)", () => {
 
     fireEvent.click(host("ws01"));
     commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "domain-controller");
-    tab("Checks");
-    await waitFor(() => expect(screen.getAllByTestId("pending-change").length).toBe(1));
-    tab("Selection");
+    await waitFor(() => expect(screen.getByTestId("dirty-marker")).toBeTruthy());
     const promote = await panel().findByTestId("promote-role");
     expect(promote.textContent).toBe("Promote to assertion: ws01 is a domain-controller");
     fireEvent.click(promote);
@@ -368,46 +378,24 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(within(sp).getByTestId("merge-segments"));
     await waitFor(() => expect(segments()).toEqual(["net-lan"]));
     expect(hosts()).toEqual(["web01", "ws01"]);
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
   });
 
-  it("the palette places N copies named {name}-{n}, each on the next free address; a persona item binds the selected group", async () => {
-    const { api } = seeded();
+  it("a card dropped with a count writes one group with that count; a role picked in its popover binds its persona", async () => {
+    const { api, state } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    openPalette();
-    fireEvent.change(screen.getByLabelText("Copies"), { target: { value: "3" } });
-    // Arm the image, click the segment: three copies land there. A selected segment is not a target by itself.
+    // A card's click lands on the selected segment.
     fireEvent.click(segment("net-dmz"));
     await panel().findByTestId("segment-panel");
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    expect(hosts()).toEqual(["web01", "ws01"]);
-    expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
-    fireEvent.click(segment("net-dmz"));
-    await waitFor(() => expect(hosts()).toEqual(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3", "web01", "ws01"]));
-    expect(["debian-12-cloud-1", "debian-12-cloud-2", "debian-12-cloud-3"].map((n) => host(n).dataset["address"])).toEqual(["10.1.1.10", "10.1.1.11", "10.1.1.12"]);
-    // A second click on the armed item disarms it, as does Esc (which also clears the selection).
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    expect(screen.queryByText(/armed:/)).toBeNull();
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByText(/armed:/)).toBeNull());
-    await waitFor(() => expect(panel().queryByTestId("segment-panel")).toBeNull());
-    // A persona needs a selected group. (The category starts folded; Esc closed the popover.)
-    openPalette();
-    fireEvent.click(screen.getByRole("button", { name: /Personas/ }));
-    fireEvent.click(item("persona", "generic-endpoint"));
-    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("select a node group first");
-    fireEvent.click(host("web01"));
-    await panel().findByTestId("node-panel");
-    fireEvent.click(item("persona", "generic-endpoint"));
-    await waitFor(() => expect((within(panel().getByTestId("node-panel")).getByLabelText("Persona") as HTMLSelectElement).value).toBe("generic-endpoint"));
-    // The palette is searchable and categorised.
-    fireEvent.change(screen.getByLabelText("Search the palette"), { target: { value: "ubuntu" } });
-    // This twin's group first, then the other catalog twin's, then the image once.
-    expect(screen.getAllByTestId("palette-item").map((i) => i.dataset["id"])).toEqual(["corp-auth/web01", "ubuntu-server-22@v5", "corp-live/web01"]);
+    addDevice("workstation", { os: "Linux", role: "generic-endpoint", count: 3, prefix: "lab" });
+    await waitFor(() => expect(hosts()).toContain("lab-1"));
+    await check("valid");
+    fireEvent.click(await enabled("Save"));
+    await screen.findByTestId("clean-marker");
+    const files = (state.writes.find((w) => w.op === "put-twin-config")!.body as { files: Record<string, string> }).files;
+    expect(readTe(files["te.yaml"]!).nodes.find((n) => n.name === "lab-1")).toMatchObject({ count: 3, role: "generic-endpoint", image: "debian-12-cloud@v1", nets: [{ segment: "net-dmz", ip: null }] });
+    expect(files["tfc/default.yaml"]).toContain("- node: lab-1\n      persona: generic-endpoint");
   });
 
   it("attach allocates a segment-appropriate address: a second leg from the panel, a detach from the context menu, the sticky attach mode", async () => {
@@ -437,10 +425,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(tools().getByRole("button", { name: "Attach: click a host" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(tools().getByRole("button", { name: "Attach" })).toBeTruthy();
-    // A handle drag from a host to a segment bus is the same gesture.
-    expect(connectionToAttach({ source: "host:ws01", target: "vsw:net-dmz" })).toEqual({ node: "ws01", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "router:gw", target: "vsw:net-dmz" })).toEqual({ node: "gw", segment: "net-dmz" });
-    expect(connectionToAttach({ source: "vsw:net-dmz", target: "host:ws01" })).toBeNull();
+    // A connect drag from a host to a segment's switch is the same attach (`canvas.connect.test.tsx`).
   });
 
   it("view mode while the deploy is running: locked except annotations, which go to the side-car", async () => {
@@ -451,7 +436,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(screen.getByTestId("canvas").dataset["locked"]).toBe("true");
     expect(screen.getByTestId("canvas").dataset["mode"]).toBe("view");
     openPalette();
-    expect(screen.getByText(/view mode: the palette is read-only/)).toBeTruthy();
+    expect(screen.getByText(/view mode: the Add panel is read-only/)).toBeTruthy();
     fireEvent.click(host("ws01"));
     const p = await panel().findByTestId("node-panel");
     expect((within(p).getByLabelText("Role") as HTMLInputElement).disabled).toBe(true);
@@ -481,41 +466,83 @@ describe("the design canvas, phase 2 (C3)", () => {
 });
 
 describe("the document validate gate and the side-car annotations", () => {
-  it("every mutation is validated through POST /api/validate {document}: an error finding disables Save and is shown with its rule and place; a clean answer enables it", async () => {
+  it("validation is on demand: no validate request fires on edits; the badge reads unchecked, valid, changed since check; Save opens only on a passing Check of unchanged files", async () => {
     const { api, state } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    expect(checkStatus()).toBe("unchecked");
+    expect(screen.getByTestId("check-badge").textContent).toBe("unchecked");
+    // Edits: nothing is validated or written while editing.
+    addSegment();
+    await waitFor(() => expect(segments().length).toBe(3));
+    fireEvent.click(host("ws01"));
+    commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "finance-ws");
+    await settle();
+    expect(state.writes.filter((w) => w.op === "validate")).toEqual([]);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
+    // Check: one request on exactly the files on screen; valid; Save opens.
+    fireEvent.click(screen.getByTestId("check-run"));
+    await waitFor(() => expect(screen.getByTestId("check-badge").textContent).toBe("valid"));
     expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(false);
     tab("Checks");
-    expect(screen.getByTestId("validation-api").textContent).toBe("API: pass · 0 errors, 0 warnings");
-    // An image the manifests do not know passes the canvas's own check and fails the API's.
+    expect(screen.getByTestId("validation-api").textContent).toBe("pass · 0 errors, 0 warnings");
+    expect(screen.getByRole("tab", { name: /^Checks/ }).textContent).toContain("valid");
+    // One more edit: the check no longer covers the files, Save closes until the next Check.
+    tab("Selection");
+    fireEvent.click(host("ws01"));
+    commit(within(await panel().findByTestId("node-panel")).getByLabelText("Role"), "kiosk");
+    await waitFor(() => expect(screen.getByTestId("check-badge").textContent).toBe("changed since check"));
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(1);
+    // Ctrl+Enter (no field focused) checks again.
+    (window.document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(checkStatus()).toBe("valid"));
+    expect(state.writes.filter((w) => w.op === "validate").length).toBe(2);
+    // Undo back to the checked text... is not the checked text any more: changed again.
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    await waitFor(() => expect(checkStatus()).toBe("changed"));
+  });
+
+  it("a failing Check (an image the manifests do not know) closes Save and Save as; only Save as draft stays open, and the draft does not touch the twin", async () => {
+    const { api, state } = seeded();
+    renderAt(api, "/twins/corp-auth/canvas");
+    await screen.findAllByTestId("canvas-host");
     fireEvent.click(host("web01"));
     const p = await panel().findByTestId("node-panel");
     fireEvent.change(within(p).getByLabelText("Image"), { target: { value: "ubuntu-server-99@v1" } });
     fireEvent.blur(within(p).getByLabelText("Image"));
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("invalid"));
+    await check("invalid");
+    expect(screen.getByTestId("check-badge").textContent).toBe("invalid (1)");
     tab("Checks");
     const finding = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "IMG-010")!;
     expect(finding.textContent).toContain("image 'ubuntu-server-99@v1' has no manifest");
     expect(finding.textContent).toContain("twin_config.nodes[web01].image");
-    expect(screen.getByTestId("validation-api").textContent).toBe("API: fail · 1 error, 0 warnings");
-    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("save").hasAttribute("disabled")).toBe(true);
     fireEvent.change(screen.getByLabelText("Save as id"), { target: { value: "x" } });
     expect(screen.getByRole("button", { name: "Save as" }).hasAttribute("disabled")).toBe(true);
-    const validated = state.writes.filter((w) => w.op === "validate");
-    expect((validated.at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]).toContain("ubuntu-server-99@v1");
-    // Another known image: the next answer is clean and the exits open (the document still differs from the saved one).
-    tab("Selection");
-    commit(within(panel().getByTestId("node-panel")).getByLabelText("Image"), "debian-12-cloud@v1");
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
-    fireEvent.click(await enabled("Save"));
-    await screen.findByTestId("clean-marker");
-    // The API's answer is tied to the files it judged: until the next answer lands the state is "validating", never a stale "valid".
-    fireEvent.click(item("segment", "segment"));
-    expect(screen.getByTestId("validation-state").textContent).toBe("validating");
-    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    expect(screen.getByTestId("save-as-draft").hasAttribute("disabled")).toBe(false);
+    // Save as draft: the suggested id, checked against the catalog, then the draft call -- never the twin's own id.
+    fireEvent.click(screen.getByTestId("save-as-draft"));
+    const dlg = await screen.findByTestId("draft-dialog");
+    expect((within(dlg).getByLabelText("Id") as HTMLInputElement).value).toBe("corp-auth-draft");
+    fireEvent.change(within(dlg).getByLabelText("Id"), { target: { value: "corp-live" } });
+    expect((await within(dlg).findByTestId("saveas-problem")).textContent).toContain("already");
+    fireEvent.change(within(dlg).getByLabelText("Id"), { target: { value: "corp-auth-draft" } });
+    await waitFor(() => expect((within(dlg).getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(dlg).getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(state.drafts["corp-auth-draft"]).toBeTruthy());
+    const created = state.writes.find((w) => w.op === "create-draft")!;
+    expect(created.id).toBe("corp-auth-draft");
+    expect(created.body).toMatchObject({ origin: "corp-auth", last_check: { disposition: "FAIL", errors: 1 } });
+    expect(readTe(state.drafts["corp-auth-draft"]!.document.files["te.yaml"]!).id).toBe("corp-auth-draft");
+    // The original twin is never touched.
+    expect(state.writes.some((w) => (w.op === "put-twin-config" || w.op === "create-twin-config") && w.id === "corp-auth")).toBe(false);
+    expect(state.documents["corp-auth"]!.files["te.yaml"]).toBe(teText("corp-auth"));
+    // The page is the draft now: labelled, no Deploy.
+    await screen.findByTestId("draft-label");
+    expect(screen.queryByTestId("deploy-open")).toBeNull();
   });
 
   it("layout changes stay on the canvas until Save layout; Discard puts them back; a document Save carries them", async () => {
@@ -551,7 +578,7 @@ describe("the document validate gate and the side-car annotations", () => {
     // A document Save writes a dirty layout alongside, with the saved etag as the precondition.
     fireEvent.click(ann("line"));
     await screen.findByTestId("layout-dirty");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     fireEvent.click(await enabled("Save"));
     await waitFor(() => expect(screen.getByTestId("exit-note").textContent).toContain("saved, layout too"));
     expect(layoutWrites().length).toBe(2);
@@ -667,16 +694,6 @@ describe("pure pieces of the edit canvas", () => {
     expect(standingDeploy([d({ scenario_id: "other" })], "corp-live")).toBeNull();
   });
 
-  it("lists the palette from the API: a segment, this twin's groups first, every image once, the personas", () => {
-    const own = { id: "a", description: null, cluster: null, params: [], segments: [], nodes: [{ name: "ws", kind: "host", image: "img-1", count: "${N:5}", role: "r" }], document: null, warnings: [] };
-    const other = { ...own, id: "b", nodes: [{ name: "db", kind: "host", image: "img-1", count: 2, role: null }] };
-    const items = paletteItems([other, own], PERSONAS, "a");
-    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(["segment:segment", "router:router", "group:a/ws", "group:b/db", "image:img-1", "persona:corp-workstation", "persona:generic-endpoint"]);
-    expect(items[2]).toMatchObject({ label: "ws", count: 5, role: "r" });
-    expect(items[1]).toMatchObject({ kind: "router", id: "router", label: "Router" });
-    expect(items[3]).toMatchObject({ label: "db (b)", count: 2 });
-  });
-
   it("the fake control plane classifies by the tier file touched, as the API does", () => {
     const base = document("x").files;
     expect(classify(base, { ...base, "tfc/default.yaml": TFC + "    - node: web01\n      persona: generic-endpoint\n" }, "te.yaml")).toMatchObject([{ path: "tfc/default.yaml", kind: "traffic", via: ["tfc"] }]);
@@ -777,28 +794,26 @@ describe("the basics: Delete, double-click to zoom, the pane menu", () => {
 });
 
 describe("a router joins segments: it places without one", () => {
-  it("the palette's Router lands on the pane with no leg, is invalid until a leg is attached, and a selected segment becomes its first leg", async () => {
+  it("the Router card lands on the pane with no leg, is invalid until a leg is attached, and dropped on a segment that is its first leg", async () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
     expect(routers()).toEqual(["gw"]);
-    // Armed, then an empty spot: the router lands there with no leg.
-    const r = item("router", "router");
-    expect(r.title).toContain("attach it to each segment it joins");
-    fireEvent.click(r);
-    expect(screen.getByTestId("palette-hint").textContent).toContain("or an empty spot for no leg yet");
-    clickPane();
-    await waitFor(() => expect(routers()).toEqual(["gw", "router"]));
+    // Nothing selected: the click lands at the view's centre, an empty spot; the router has no leg.
+    expect(card("router").title).toContain("joins segments");
+    fireEvent.click(card("router"));
+    chooseAndAdd();
+    await waitFor(() => expect(routers()).toEqual(["gw", "router-1"]));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();
     // Unattached is a WARNING (an error would have blocked the placement): the document stays saveable, the Checks tab says what is missing.
-    await waitFor(() => expect(screen.getByTestId("validation-state").textContent).toBe("valid"));
+    await check("valid");
     tab("Checks");
     const cv024 = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-024")!;
-    expect(cv024.textContent).toContain("router 'router' joins no segment yet");
+    expect(cv024.textContent).toContain("router 'router-1' joins no segment yet");
     expect(cv024.dataset["severity"] ?? "warning").toBe("warning");
     // Its legs are attachments: from the node panel, then it is valid.
-    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router")!);
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
     const p = await panel().findByTestId("node-panel");
     expect((within(p).getByLabelText("Kind") as HTMLSelectElement).value).toBe("router");
     fireEvent.change(within(p).getByLabelText("Attach to segment"), { target: { value: "net-lan" } });
@@ -806,30 +821,28 @@ describe("a router joins segments: it places without one", () => {
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-lan"]));
     // A router's leg is NOT pinned to the next free host address: the engine puts a lone router leg at the gateway (network+1).
     expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-lan") as HTMLInputElement).value).toBe("");
+    await check("valid");
     tab("Checks");
-    await waitFor(() => expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false));
-    // Armed, then a segment: that segment is the router's first leg.
-    fireEvent.click(item("router", "router"));
+    expect(screen.queryAllByTestId("finding").some((f) => f.dataset["rule"] === "CV-024")).toBe(false);
+    // A selected segment: the router's first leg.
     fireEvent.click(segment("net-dmz"));
-    await waitFor(() => expect(routers()).toEqual(["gw", "router", "router-1"]));
-    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
+    addDevice("router");
+    await waitFor(() => expect(routers()).toEqual(["gw", "router-1", "router-2"]));
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-2")!);
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-dmz"]));
     expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-dmz") as HTMLInputElement).value).toBe("");
   });
 
-  it("a group copied from a router stays a router; an armed host image gets no 'Place here' on the pane", async () => {
+  it("a host dropped on the empty pane gets a new segment of its own; the pane menu offers no 'Place here'", async () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    const routers = () => screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort();
-    fireEvent.click(item("group", "corp-auth/gw"));
-    clickPane();
-    await waitFor(() => expect(routers()).toEqual(["gw", "gw-1"]));
-    expect(screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"])).not.toContain("gw-1");
-    fireEvent.click(item("image", "debian-12-cloud@v1"));
-    expect(screen.getByText(/armed: debian-12-cloud@v1/)).toBeTruthy();
+    addDevice("server", { prefix: "solo" });
+    await waitFor(() => expect(hosts()).toContain("solo-1"));
+    expect(segments()).toEqual(["net-dmz", "net-lan", "web-tier-lan"]); // named for its first host's role
     fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 700 });
     const menu = await screen.findByTestId("context-menu");
     expect(within(menu).queryByRole("button", { name: /^Place / })).toBeNull();
   });
 });
+

@@ -536,3 +536,54 @@ def test_default_agents_passes_through_when_set():
         cfg["twin_config"]["default_agents"] = value
         ir, _ = expand_twin_config_raw(cfg)
         assert ir["scenario"]["default_agents"] is value
+
+
+# ---------------------------------------------------------------------------
+# Conduits implemented by a chain of routers (tier-test: users-a -> dist-a ->
+# core -> srv); every failing conduit reported, each with its own subject.
+# ---------------------------------------------------------------------------
+def _chain_config(conduits):
+    seg = lambda n, i: {"name": n, "cidr": f"10.9.{i}.0/24"}  # noqa: E731
+    host = lambda n, s: {"name": n, "image": "img@v1", "requires": ["linux"], "net": s}  # noqa: E731
+    router = lambda n, segs: {"name": n, "kind": "router", "image": "img@v1", "requires": ["linux"], "nets": [{"segment": s} for s in segs]}  # noqa: E731
+    return {"twin_config": {
+        "id": "chain",
+        "segments": [seg("users-a", 1), seg("t-a", 2), seg("srv", 3), seg("t-edge", 4), seg("inet", 5), seg("island", 6), seg("island-2", 7)],
+        "nodes": [
+            router("dist-a", ["t-a", "users-a"]), router("core", ["t-edge", "t-a", "srv"]), router("edge", ["inet", "t-edge"]),
+            router("isle", ["island", "island-2"]),
+            host("cli", "users-a"), host("web", "srv"), host("ext", "inet"), host("lone", "island"), host("lone2", "island-2"),
+        ],
+        "conduits": conduits,
+    }}
+
+
+def test_a_conduit_implemented_by_a_chain_of_routers_passes():
+    expand_twin_config_raw(_chain_config([{"from": "users-a", "to": "srv"}, {"from": "users-a", "to": "inet"}]))
+
+
+def test_an_unreachable_conduit_fails_and_names_the_reachable_set():
+    with pytest.raises(TwinConfigShapeError) as ei:
+        expand_twin_config_raw(_chain_config([{"from": "users-a", "to": "island"}]))
+    e = ei.value
+    assert e.rule_id == "TC-CONDUIT" and e.subject == {"kind": "conduit", "from_": "users-a", "to": "island"}
+    assert "BOTH segments" in str(e)
+    assert "['inet', 'srv', 't-a', 't-edge', 'users-a']" in str(e)
+
+
+def test_every_failing_conduit_is_reported():
+    with pytest.raises(TwinConfigShapeError) as ei:
+        expand_twin_config_raw(_chain_config([
+            {"from": "users-a", "to": "island"}, {"from": "users-a", "to": "srv"}, {"from": "inet", "to": "island-2"},
+        ]))
+    issues = ei.value.issues
+    assert [(i["subject"]["from_"], i["subject"]["to"]) for i in issues] == [("users-a", "island"), ("inet", "island-2")]
+    assert all(i["rule_id"] == "TC-CONDUIT" for i in issues)
+    assert "1 more failing conduit" in str(ei.value)
+
+
+def test_a_host_on_both_segments_still_implements_a_conduit():
+    """The original one-node rule stays: any node with legs on both."""
+    cfg = _chain_config([{"from": "srv", "to": "island"}])
+    cfg["twin_config"]["nodes"].append({"name": "dual", "image": "img@v1", "requires": ["linux"], "nets": [{"segment": "srv"}, {"segment": "island"}]})
+    expand_twin_config_raw(cfg)

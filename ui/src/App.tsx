@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 
 import { ApiContext } from "./api/context";
 import type { Api } from "./api/discovery";
@@ -12,10 +12,9 @@ import { ImprintsPage } from "./areas/imprints/ImprintsPage";
 import { TwinPage } from "./areas/twins/TwinPage";
 import { TwinsPage } from "./areas/twins/TwinsPage";
 import { TargetsPage } from "./areas/targets/TargetsPage";
-import { DesignsPage } from "./areas/canvas/DesignsPage";
-import { NewDesignPage } from "./areas/canvas/NewDesignPage";
 import { AppFrame } from "./areas/shell/AppFrame";
 import { CanvasPage } from "./features/edit-canvas/CanvasPage";
+import { CloneTwin } from "./features/edit-canvas/CloneTwin";
 
 /** The routes. The router itself is supplied by the caller (`BrowserRouter` in
  *  `main.tsx`, `MemoryRouter` in tests). */
@@ -24,7 +23,7 @@ export function App({ api }: { api: Api }) {
     <ApiContext.Provider value={api}>
       <Routes>
         <Route element={<AppFrame />}>
-          <Route index element={<Navigate to="/discovery" replace />} />
+          <Route index element={<NewCanvas />} />
           <Route path="/discovery" element={<SourcesPage />} />
           <Route path="/discovery/sources/new" element={<SourceEditor />} />
           <Route path="/discovery/sources/:id" element={<SourcePage />} />
@@ -37,12 +36,25 @@ export function App({ api }: { api: Api }) {
           <Route path="/twins/:id" element={<TwinPage />} />
           <Route path="/twins/:id/canvas" element={<CanvasPage />} />
           <Route path="/targets" element={<TargetsPage />} />
-          <Route path="/canvas" element={<DesignsPage />} />
-          <Route path="/canvas/new" element={<NewDesignPage />} />
+          <Route path="/canvas" element={<Navigate to="/" replace />} />
+          <Route path="/canvas/new" element={<NewCanvas />} />
+          <Route path="/canvas/drafts/:id" element={<CanvasPage key="draft" draft />} />
           <Route path="/canvas/:id" element={<CanvasPage />} />
-          <Route path="*" element={<Navigate to="/discovery" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
     </ApiContext.Provider>
   );
+}
+
+/** `/` (home, XTwin's link) and `/canvas/new`: an untitled design on the canvas. Keyed by the location, so following "New design"
+ *  while already on an untitled one (after the unsaved-work guard let it go) starts a fresh one, and
+ *  a Save-As's move to `/canvas/<id>` mounts the named canvas afresh. */
+function NewCanvas() {
+  const { key } = useLocation();
+  // `?from=<id>`: Open's Clone -- the twin becomes the untitled design, then this route without it.
+  const [params] = useSearchParams();
+  const from = params.get("from");
+  if (from) return <CloneTwin key={key} from={from} />;
+  return <CanvasPage key={key} untitled />;
 }

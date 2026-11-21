@@ -62,8 +62,13 @@ export type SiteData = {
 export type Served = { router: string; hue: string };
 /** A segment. On the device tree it is drawn as its IMPLIED switch (`implied: true`, §7.1 rule 2):
  *  a segment no real switch carries; a carried segment has no node of its own. */
+/** Where a free-layout node's name and sub line stand around its icon (`free.ts` `labelSides`):
+ *  above (the default), or beside / below it when an edge would cross the name. */
+export type LabelSide = "above" | "right" | "left" | "below";
+
 export type SegmentData = {
   kind: "segment";
+  labelSide?: LabelSide;
   /** Drawn as an implied switch (`vsw:<name>`): presentation only, never written to the config. */
   implied?: boolean;
   name: string;
@@ -123,6 +128,7 @@ export type RungsData = { kind: "rungs"; role: string; roleLabel: string; count:
 export type Crossing = { edges: number; bytes: number; flows: number; inferred: boolean };
 export type RouterData = {
   kind: "router";
+  labelSide?: LabelSide;
   name: string;
   source?: Source | null;
   confidence?: number | null;
@@ -140,6 +146,7 @@ export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; 
  *  (`docs/design/topology-layers.md` §2.2, §7.2). */
 export type DeviceData = {
   kind: "device";
+  labelSide?: LabelSide;
   name: string;
   deviceKind: "switch" | "router";
   role: string | null;
@@ -165,14 +172,21 @@ export type TapData = { kind: "tap"; id: string; target: string; scope: string; 
  *  Drawn only when the cast evidence has non-local peers or the config
  *  defines an uplink on a router; the gateway is folded into that router
  *  (`RouterData.uplink` / `crossing`), there is no WAN node. */
-export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: string; title: string };
+/** `segments`: the "Not carried" box's segments, which a click on it selects. */
+/** The "Not carried" box's words for one segment it holds: its title tooltip, and the Selection
+ *  panel's when the box is clicked. */
+export function uncarriedLine(segment: string): string {
+  return `${segment} isn't on any router: nothing outside it can reach it`;
+}
+export type ChromeData = { kind: "internet" | "uncarried"; label: string; sub: string; title: string; segments?: string[] };
 export type UnplacedData = { kind: "unplaced"; count: number };
 /** An annotation (Phase 2): a positioned SVG snippet, presentation only. */
 export type AnnotationData = { kind: "annotation"; ann: Annotation };
 export type CanvasData = SiteData | SegmentData | HostData | RungsData | RouterData | OverflowData | ChromeData | UnplacedData | AnnotationData | DeviceData | TapData | HostFoldData;
 export type CanvasNode = Node<CanvasData, string>;
 
-export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string };
+/** `conduits`: the declared conduits an asserted arc carries, by segment names (the design view draws and selects them). */
+export type ArcData = { kind: "arc"; key: string; arcKind: "observed" | "asserted"; bytes: number; flows: number; pairs: number; label: string; conduits?: Array<{ a: string; b: string }> };
 /** A router's leg onto a bus (rule 2): a vertical drop in the router's hue.
  *  `folded`: the leg goes to a group's `+N more` lane for `folded` hidden
  *  segments at once (one edge, not one per hidden segment); it names no

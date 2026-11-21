@@ -60,12 +60,22 @@ through the same path Save-As / Persist / the working-copy PUT use (the twin
 config expanded and validated with the real manifests, every tier file parsed
 by its playout's loader, the twin-local personas loaded), answering the same
 findings shape; pure, nothing written; `document` is exclusive with the id
-fields. **Built 2026-10-30** (`service.validate_document`, tests
+fields. A document problem found while expanding / cross-checking (an unjoined
+conduit `TC-CONDUIT` -- implemented when one node has a leg on both segments
+or a chain of `kind: router` nodes joins them, every failing conduit its own
+finding (2026-11-20) --, an unknown segment on a node's net `TC-NODE-SEGMENT`,
+duplicate node ids `TC-NODE-DUP`, a bad `links[]` entry `TC-LINK`, any other
+expansion refusal `EXPAND-000`) is the ANSWER -- `200`, disposition `FAIL`, an
+`error` finding -- not a failed request. A finding carries an optional
+`subject` `{kind: segment|node|conduit|link|tap, name, from, to, index}` (null
+keys unused: node/segment use `name`, conduit `from`/`to`, link/tap `index`);
+null for `EXPAND-000`. A wrong identity or a bad path stays `400`. **Built 2026-10-30** (`service.validate_document`, tests
 `engine/tests/test_api_edit_model.py`). The layout document (`axr-layout/1`)
 gained an optional `annotations` list for the canvas's text and shapes
 (`console_files._canonical_annotations`, svg refused by name when it carries
 script, an event handler, a foreignObject or an href; tests
-`engine/tests/test_api_layout_annotations.py`).
+`engine/tests/test_api_layout_annotations.py`). It also takes an optional
+top-level `mode` (`"tree"` | `"free"`, the canvas's layout; absent = no choice saved, anything else `400`).
 
 The new seams, each a thin layer over working engine code, in critical-path
 order:
@@ -256,6 +266,96 @@ the config holds them, null where it has none (R5-1, 2026-11-08).
   copy equals the baseline and `dirty` is false.
 - Both validate before writing; a read after a write returns the written
   document byte-for-byte equivalent.
+- A document that fails validation (an expansion problem too) is refused `422`
+  with `detail.findings` (same finding shape, `subject` included) and cannot
+  be written here; it can be kept as
+  a draft instead (see A3d).
+
+**A3d — drafts.** A place for a twin-config document that FAILS validation,
+so an in-progress edit is not lost. A separate resource, not a flag on
+twin-configs: the A3 validation gate is untouched and a draft is outside every
+catalog and deploy path by construction. Built 2026-11-20 (`api/drafts.py`;
+tests `engine/tests/test_api_drafts.py`).
+- `GET /api/drafts` (sorted by id) and `GET /api/drafts/{id}` (the `document`
+  only on a read that sends the bearer token, as for A3; 404 when absent).
+- `POST /api/drafts` (201) `{id, files, origin?, last_check?}` and
+  `PUT /api/drafts/{id}` (overwrites the files, keeps `created_at` and, unless
+  given, `origin`; `last_check` is set from the body, null clears it) and
+  `DELETE /api/drafts/{id}` (204). Writes need the token. **No validation**:
+  only the id, the document's own `twin_config.id`, the file paths and `origin`
+  (a safe id, need not exist) are checked, each a 400. `POST` is 409 when a
+  draft or a twin already has the id; `POST /api/twin-configs` is 409 on a
+  draft's id, so ids are unique across both.
+- Storage: `<drafts_dir>/<id>/` holds the document files plus `.draft.json`
+  (`axr-draft/1`: `id`, `origin`, `created_at`, `updated_at`, `last_check`
+  `{disposition, errors, warnings, checked_at}`), which is not part of the
+  document. `drafts_dir` is `AXRANGE_DRAFTS_DIR` / `axrange serve --drafts-dir`;
+  unset, `drafts/` beside the twin write root. It may not be a twin search dir
+  (503 naming the setting).
+- **Never deployable.** `POST /api/deploys`, `POST /api/twins/{id}/plan` and
+  `.../deploy` refuse a draft id (not a twin) with 409 `detail.code: draft`.
+- **Promote** = A3 `PUT /api/twin-configs/{origin}` (or `POST` for a new twin),
+  validated there; the console then deletes the draft.
+- A3d.1 A document with an unknown image is a 422 on A3 and a 201 draft that
+  reads back byte-for-byte. A3d.2 A draft is in neither `GET /api/twins` nor
+  `GET /api/twin-configs`, and every deploy route refuses it with `draft`.
+
+**A3e — the canvas Add panel's catalog reads** (`docs/design/canvas-add-panel.md`
+§4.2, §4.3; D1, D2). **Built 2026-11-20.**
+- `GET /api/personas` rows carry three display fields read from the persona
+  file's optional `category`, `label`, `blurb` keys: `category` with the §4.2
+  fallback applied (`traffic` for an id starting `loadgen-` / `xseg-`, else
+  `other`; the vocabulary is `identity`, `business`, `network`, `endpoint`,
+  `ot`, `traffic`, `other`), `label` (the id when the file names none) and
+  `blurb` (`""` when none). A file without them loads as before
+  (`personas/schema.py` `Persona.effective_category`).
+- `GET /api/image-profiles` (open read, read-only: no write route) serves
+  `catalog/image-profiles.yaml` (the file beside the twin write root):
+  `{profiles: [{name, image}], warnings}`, sorted by name; a profile with no
+  image is `image: null` with a warning; a missing file is an empty list with
+  a warning (`AXRANGE_IMAGE_PROFILES` names another file, for a twin catalog
+  that lives elsewhere); a malformed one is a 500 naming the file
+  (`api/image_profiles.py`; tests `engine/tests/test_add_panel_catalog.py`).
+
+**A3f — canvas templates, read side** (`docs/design/canvas-add-panel.md` §5,
+D3). **Built 2026-11-20** (phase 2).
+- `GET /api/templates` (open read): `{templates: [TemplateDTO], warnings}`,
+  built-in first, then by label. A template is
+  `<catalog>/templates/<id>/template.yaml` (beside the twin write root): `id`,
+  `builtin`, `label`, `description`, `icon`, `params` (`{name, label, type:
+  int|percent|name|cidr, default, min, max}`), `ports` (`{name, device}`),
+  `fragment` (twin-config vocabulary -- `segments`, `nodes` with an optional
+  `profile:` resolved to an image, `links`, `conduits` -- plus `assignments`
+  in tfc vocabulary) and `layout`, all served AS WRITTEN (settings not
+  applied). A file that does not parse or has the wrong shape is left out
+  with a warning naming it.
+- `AXRANGE_TEMPLATES_DIR` moves the templates folder (unset: `templates/`
+  beside the twin write root).
+- `GET /api/templates/{id}`: one template; 404 for an unknown or unsafe id
+  (the catalog-id guard), 500 naming the file for a broken one.
+- Expansion (`api/templates.py` `expand`, mirrored by the canvas's
+  `add/template.ts`): `{expr}` -- a setting, or arithmetic over settings with
+  `round floor ceil min max` -- replaced in every string; a lone `{expr}`
+  keeps a number; a node counted 0 is dropped with the links and assignments
+  naming it. `template_document` wraps an expansion in a minimal twin for the
+  twin-config validator. Tests `engine/tests/test_templates.py` (every
+  built-in, at its defaults, passes the validator).
+
+**A3g — canvas templates, write side** (`docs/design/canvas-add-panel.md`
+§5.3, D3). **Built 2026-11-20** (phase 3).
+- `POST /api/templates {template}` (201), `PUT /api/templates/{id} {template}`,
+  `DELETE /api/templates/{id}` (204): write-token gated like twin-configs; the
+  id is the catalog-id guard's (400 otherwise); a taken id on POST is 409,
+  never overwritten (the folder is claimed with `os.mkdir`); a body id other
+  than the path's is 400.
+- Built-ins are read-only: PUT / DELETE on one is 403 `detail.code: builtin`;
+  a body with `builtin: true` is 400.
+- Validated on save: the fragment expanded with its default settings (images
+  from `image-profiles.yaml`) and wrapped in a minimal twin goes through the
+  twin-config validator; a FAIL is 422 `detail: {code: invalid, findings}`
+  and nothing is written. Tests `engine/tests/test_templates.py`.
+- There is no author field and no sharing model: "My templates" is the ids
+  this browser saved; the rest of the saved ones are "From the team".
 
 **A4 — targets management.**
 - `POST|PUT|DELETE /api/targets[/{name}]` — create / update / remove a target

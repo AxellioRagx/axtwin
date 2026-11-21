@@ -1414,3 +1414,70 @@ def test_the_exit_in_flight_is_reported_and_a_cancel_stops_it_between_ops(env):
     # Nothing in flight: a cancel is 409, not a silent no-op.
     r = c.post(f"/api/deploys/{did}/config/cancel", headers=AUTH)
     assert r.status_code == 409 and r.json()["detail"]["code"] == "nothing-in-flight"
+
+
+# ---------------------------------------------------------------------------
+# Structured findings with a `subject` for expansion-time document problems
+# ---------------------------------------------------------------------------
+def _conduit_doc(c) -> dict[str, str]:
+    """The fixture twin plus a second segment and a conduit between two
+    segments that share no node."""
+    files = dict(_doc(c))
+    files["te.yaml"] = files["te.yaml"].replace(
+        "  nodes:\n",
+        "    - name: dmz\n      cidr: 10.20.1.0/24\n      zone_type: simple\n\n"
+        "  conduits:\n    - { from: corp, to: dmz }\n\n  nodes:\n", 1,
+    )
+    return files
+
+
+def test_validate_answers_an_unjoined_conduit_as_a_finding_with_a_subject(env):
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    r = _validate(c, _conduit_doc(c))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["disposition"] == "FAIL" and body["errors"] >= 1
+    f = next(f for f in body["findings"] if f["rule_id"] == "TC-CONDUIT")
+    assert f["severity"] == "error" and "BOTH segments" in f["message"]
+    assert f["subject"] == {
+        "kind": "conduit", "name": None, "from": "corp", "to": "dmz", "index": None,
+    }
+
+
+def test_validate_answers_every_failing_conduit_as_its_own_finding(env):
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    files = dict(_doc(c))
+    files["te.yaml"] = files["te.yaml"].replace(
+        "  nodes:\n",
+        "    - name: dmz\n      cidr: 10.20.1.0/24\n      zone_type: simple\n"
+        "    - name: lab\n      cidr: 10.20.2.0/24\n      zone_type: simple\n\n"
+        "  conduits:\n    - { from: corp, to: dmz }\n    - { from: corp, to: lab }\n\n  nodes:\n", 1,
+    )
+    body = _validate(c, files).json()
+    conduits = [f for f in body["findings"] if f["rule_id"] == "TC-CONDUIT"]
+    assert [(f["subject"]["from"], f["subject"]["to"]) for f in conduits] == [("corp", "dmz"), ("corp", "lab")]
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 422 and len([f for f in r.json()["detail"]["findings"] if f["rule_id"] == "TC-CONDUIT"]) == 2
+
+
+def test_writers_still_refuse_an_unjoined_conduit_with_422_and_findings(env):
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    files = _conduit_doc(c)
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 422, r.text
+    f = r.json()["detail"]["findings"][0]
+    assert f["rule_id"] == "TC-CONDUIT" and f["subject"]["from"] == "corp"
+    nf = {rel: t.replace("edit-twin", "new-twin") for rel, t in files.items()}
+    r = c.post("/api/twin-configs", json={"id": "new-twin", "files": nf}, headers=AUTH)
+    assert r.status_code == 422, r.text
+    assert not (catalog / "new-twin").exists()
+
+
+def test_validate_identity_mismatch_stays_a_400(env):
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    files = {rel: t.replace("edit-twin", "other") for rel, t in _doc(c).items()}
+    assert _validate(c, files).status_code == 400

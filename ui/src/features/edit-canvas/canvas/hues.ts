@@ -23,3 +23,9 @@ export const HUE_GREY = "#8a8f98";
 export function hueOf(index: number): string {
   return ROUTER_HUES[index] ?? HUE_GREY;
 }
+
+/** The one colour every transit wears (a segment only routers are on: its wire and its pill's
+ *  border), in the tree and the free layout alike (2026-11-20): neutral, so a transit never reads as
+ *  belonging to one of its two routers (every transit had worn its parent router's hue -- the first
+ *  router's red on a fresh design). Reads on the light and the dark theme; no router hue is near it. */
+export const TRANSIT_HUE = "#6f7d8f";

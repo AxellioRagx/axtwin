@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { DeploySummary } from "../src/api/types";
 import { nextFreeSlash24 } from "../src/features/edit-canvas/edit/allocate";
-import { DEPLOY, commit, enabled, host, item, panel, seeded, segment, segments } from "./helpers/canvasFixtures";
+import { DEPLOY, commit, enabled, host, addSegment, panel, seeded, segment, segments } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 afterEach(() => {
@@ -72,7 +72,7 @@ describe("rename, Save-As, the allocator, the card", () => {
     const { api } = seeded();
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
-    fireEvent.click(item("segment", "segment"));
+    addSegment();
     await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan", "segment-3"]));
     expect(segment("segment-3").dataset["cidr"]).toBe("10.1.2.0/24");
   });

@@ -40,11 +40,19 @@ logger = logging.getLogger(__name__)
 class ApiError(Exception):
     """A service-layer failure with an HTTP-ish status hint."""
 
-    def __init__(self, status: int, message: str, *, detail: Any = None) -> None:
+    def __init__(self, status: int, message: str, *, detail: Any = None,
+                 finding: Optional["dtos.FindingDTO"] = None,
+                 findings: Optional[list["dtos.FindingDTO"]] = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
         self.detail = detail
+        # Set when the refusal is a DOCUMENT problem (a twin-config that does
+        # not expand): `POST /api/validate` answers it as these findings
+        # (`finding` is the first; several when the expander found several,
+        # e.g. every failing conduit).
+        self.findings = findings if findings is not None else ([finding] if finding is not None else [])
+        self.finding = finding if finding is not None else (self.findings[0] if self.findings else None)
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +740,9 @@ def _resolve_config_scenario_path(
             warnings=warnings,
         )
     except TwinConfigError as e:
-        raise ApiError(400, f"config {config_id!r}: {e}")
+        found = _expand_findings(config_id, e)
+        raise ApiError(400, f"config {config_id!r}: {e}",
+                       finding=found[0], findings=found)
 
     if settings.images_root:
         images_root = Path(settings.images_root)
@@ -741,6 +751,37 @@ def _resolve_config_scenario_path(
     else:
         images_root = Path.cwd()
     return sp, images_root, source_dir
+
+
+def _expand_findings(config_id: str, e: Exception) -> list[dtos.FindingDTO]:
+    """Every finding an expansion refusal carries: one per `issues` entry
+    when the error found several (each failing conduit), else the one."""
+    issues = getattr(e, "issues", None) or []
+    if not issues:
+        return [_expand_finding(config_id, e)]
+
+    class _One(Exception):
+        def __init__(self, i: dict) -> None:
+            super().__init__(i["message"])
+            self.rule_id = i.get("rule_id")
+            self.subject = i.get("subject")
+
+    return [_expand_finding(config_id, _One(i)) for i in issues]
+
+
+def _expand_finding(config_id: str, e: Exception) -> dtos.FindingDTO:
+    """An expansion refusal as a finding: the error's own structured
+    `rule_id` / `subject` when it carries them (`TwinConfigShapeError`), else
+    the generic `EXPAND-000` with no subject."""
+    subj = getattr(e, "subject", None)
+    location = None
+    if subj and subj.get("kind") == "conduit":
+        location = f"twin_config.conduits[{subj.get('from_')}->{subj.get('to')}]"
+    return dtos.FindingDTO(
+        rule_id=getattr(e, "rule_id", None) or "EXPAND-000", severity="error",
+        message=f"config {config_id!r}: {e}", location=location,
+        subject=dtos.FindingSubjectDTO(**subj) if subj else None,
+    )
 
 
 def _resolve_imprint_scenario_path(
@@ -2088,6 +2129,10 @@ def create_deploy(settings: ApiSettings, req: dtos.CreateDeployRequest, *,
     if req.update and req.fresh:
         raise ApiError(400, "'update' and 'fresh' are mutually exclusive")
 
+    from axrange.api.drafts import refuse_if_draft
+
+    refuse_if_draft(settings, req.config if has_config else None)
+    refuse_if_draft(settings, req.imprint if has_imprint else None)
     config_warnings: list[str] = []
     if has_scenario:
         plan, cfg, ctx, ir, raw, sp, manifests = _build_plan_and_ctx(
@@ -4715,6 +4760,9 @@ def imprint_plan(settings: ApiSettings, imprint_id: str, *,
     # at its `[]` default.
     # `target` (`docs/design/targets-and-lab.md` §2.2, the deploy dialog's
     # Target select): plan against that target and attach its preflight.
+    from axrange.api.drafts import refuse_if_draft
+
+    refuse_if_draft(settings, imprint_id)
     if target:
         settings = _settings_for_named_target(settings, target)
     config_warnings: list[str] = []
@@ -4773,8 +4821,10 @@ def imprint_deploy(settings: ApiSettings, imprint_id: str, req: dtos.ImprintDepl
     AFTER the te deploy completes, in the CLI's order (tap, then tfc), each
     from the twin's own default (`run_follow_on`); recorded per te deploy
     and shown on its row's `follow_on`."""
+    from axrange.api.drafts import refuse_if_draft
     from axrange.api.follow_on import FOLLOW_ON_TIERS
 
+    refuse_if_draft(settings, imprint_id)
     unknown = sorted(set(req.follow_on) - set(FOLLOW_ON_TIERS))
     if unknown:
         raise ApiError(400, f"follow_on names {unknown}; the tiers that follow te are tap, tfc")
@@ -5107,7 +5157,7 @@ def _layout_dto(doc: Any) -> dtos.LayoutDocDTO:
     return dtos.LayoutDocDTO(
         imprint_id=doc.imprint_id, path=str(doc.path), exists=doc.exists,
         etag=doc.etag, schema=doc.schema, imprint=doc.imprint, pins=doc.pins,
-        plane=doc.plane,
+        plane=doc.plane, mode=getattr(doc, "mode", None),
         annotations=[dtos.LayoutAnnotationDTO(**a) for a in getattr(doc, "annotations", [])],
     )
 
@@ -6460,6 +6510,7 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
         out.append(dtos.PersonaDTO(
             id=p.id, os_family=p.os_family, drive=p.drive, source=source,
             requires=list(p.requires), summary=_persona_summary(p),
+            category=p.effective_category(), label=p.label or p.id, blurb=p.blurb,
             emits=[
                 dtos.PersonaEmitDTO(
                     proto=e.proto, ports=list(e.ports), peer_role=e.peer_role,
@@ -6731,14 +6782,30 @@ def _validate_twin_document(
             settings, twin_configs_dir=str(td),
             images_root=str(_effective_images_root(settings)),
         )
-        result = validate(scratch, config=twin_id, target=target)
+        try:
+            result = validate(scratch, config=twin_id, target=target)
+        except ApiError as e:
+            if e.finding is None:
+                raise
+            if raise_on_fail:
+                raise ApiError(
+                    422, e.message,
+                    detail={"code": "invalid",
+                            "findings": [f.model_dump(by_alias=True) for f in e.findings]},
+                ) from e
+            # A document problem found while expanding: the ANSWER, not a failure.
+            return dtos.ValidateResultDTO(
+                disposition="FAIL", exit_code=1, passes_run=[], errors=len(e.findings),
+                warnings=0, findings=list(e.findings),
+            )
         if result.disposition == "FAIL" and raise_on_fail:
             raise ApiError(
                 422, f"twin-config {twin_id!r} fails validation "
                 f"({result.errors} error(s))",
                 detail={
                     "code": "invalid",
-                    "findings": [f.model_dump() for f in result.findings if f.severity == "error"],
+                    "findings": [f.model_dump(by_alias=True)
+                                 for f in result.findings if f.severity == "error"],
                 },
             )
         try:
@@ -6885,9 +6952,13 @@ def twin_config_create(
     from axrange.twinconfig import TwinConfigNotFoundError
     from axrange.twinconfig.registry import resolve_twin_config_path
 
+    from axrange.api import drafts
+
     twin_id = (req.id or "").strip()
     if not twin_id or not _is_safe_catalog_ref(twin_id):
         raise ApiError(400, f"'id' {req.id!r} is not a usable twin-config id")
+    if drafts.exists(settings, twin_id):
+        raise ApiError(409, f"{twin_id!r} is an existing draft; ids are unique across twins and drafts")
     files = _normalized_files(req.files)
     try:
         resolve_twin_config_path(twin_id, catalog_dir=settings.twin_configs_dir or None, warnings=[])

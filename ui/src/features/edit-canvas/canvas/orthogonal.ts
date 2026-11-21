@@ -8,9 +8,14 @@
  * boxes of one rank overlap, so no edge crosses a box's interior; the geometry
  * test (`canvas.orthogonal.test.ts`) checks it over the computed layout.
  *
- * Within one gutter each source gets its own lane (a small y offset), so two
- * parents' horizontals never share a line; the edges of one parent share its
- * lane and read as one branch. Pure -- no React, no DOM.
+ * Within one gutter each lane gets its own y (a small offset), so two lanes'
+ * horizontals never share a line. The tree keys a lane by SEGMENT (`seg:<name>`)
+ * for every edge of one segment -- a router's legs each get a line of their own,
+ * a switch's hosts on one segment share one -- and by source otherwise. A
+ * request may leave its source at an `exit` point on the bottom edge (a
+ * router's legs spread across it) instead of the bottom centre; the lanes of one
+ * source nest (the farthest-going on top), so a spread fan never crosses itself.
+ * Pure -- no React, no DOM.
  */
 
 export interface Point {
@@ -40,14 +45,16 @@ export interface RouteRequest {
   dstRank: number;
   /** For each rank strictly between the two, the x of the column the edge descends through. */
   via: number[];
-  /** Edges with one lane key share a lane in every gutter (one parent's branch). */
+  /** Edges with one lane key share a lane in every gutter (one segment, or one parent's branch). */
   lane: string;
+  /** Where the edge leaves its source (on or inside its bottom edge); the bottom centre when absent. */
+  exit?: Point;
 }
 
 /** How far a lane keeps from the bands either side of its gutter (clear of a tap chip at a box's edge). */
 export const GUTTER_MARGIN = 14;
 /** The most two lanes of one gutter are apart. */
-export const LANE_STEP = 8;
+export const LANE_STEP = 12;
 
 const centreX = (b: Box) => b.x + b.w / 2;
 
@@ -66,18 +73,37 @@ function simplify(pts: Point[]): Point[] {
 
 /** Route every request; a request the tree cannot route (its target above its source) is absent. */
 export function routeOrthogonal(bands: readonly Band[], reqs: readonly RouteRequest[]): Map<string, Point[]> {
-  // Which lanes run horizontally in each gutter, so each gets its own y.
-  const lanesIn = new Map<number, Map<string, number>>();
-  const useLane = (gutter: number, lane: string, x: number) => {
+  // Which lanes run horizontally in each gutter, so each gets its own y: per lane its parent's x
+  // (lanes keep their parents' left-to-right order) and its widest run (where it enters, where it leaves).
+  type Use = { key: number; from: number; to: number };
+  const lanesIn = new Map<number, Map<string, Use>>();
+  const useLane = (gutter: number, lane: string, key: number, from: number, to: number) => {
     let m = lanesIn.get(gutter);
     if (!m) lanesIn.set(gutter, (m = new Map()));
-    m.set(lane, Math.min(m.get(lane) ?? Infinity, x));
+    const cur = m.get(lane);
+    if (!cur) m.set(lane, { key, from, to });
+    else {
+      cur.key = Math.min(cur.key, key);
+      if (Math.abs(to - from) > Math.abs(cur.to - cur.from)) Object.assign(cur, { from, to });
+    }
   };
   const usable = reqs.filter((r) => r.dstRank >= r.srcRank && bands[r.srcRank] && bands[r.dstRank]);
+  const exitX = (r: RouteRequest) => r.exit?.x ?? centreX(r.src);
   for (const r of usable) {
-    const last = r.dstRank === r.srcRank ? r.srcRank : r.dstRank - 1;
-    for (let g = r.srcRank; g <= last; g++) useLane(g, r.lane, centreX(r.src));
+    if (r.dstRank === r.srcRank) {
+      useLane(r.srcRank, r.lane, centreX(r.src), exitX(r), centreX(r.dst));
+      continue;
+    }
+    let x = exitX(r);
+    for (let g = r.srcRank; g < r.dstRank; g++) {
+      const next = g + 1 < r.dstRank ? (r.via[g - r.srcRank] ?? x) : centreX(r.dst);
+      useLane(g, r.lane, centreX(r.src), x, next);
+      x = next;
+    }
   }
+  // Within one parent: the lanes running left first, the farthest on top; then the ones running
+  // right, the farthest on top -- nested, so no run crosses another's drop.
+  const nest = (u: Use) => (u.to < u.from ? [0, u.to] : u.to === u.from ? [1, 0] : [2, -u.to]);
   const laneY = new Map<string, number>();
   for (const [g, lanes] of lanesIn) {
     const above = bands[g]!;
@@ -85,16 +111,20 @@ export function routeOrthogonal(bands: readonly Band[], reqs: readonly RouteRequ
     const top = above.bottom + GUTTER_MARGIN;
     const bottom = (below ? below.top : above.bottom + 2 * GUTTER_MARGIN + LANE_STEP * lanes.size) - GUTTER_MARGIN;
     const mid = (top + bottom) / 2;
-    const order = [...lanes.entries()].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+    const order = [...lanes.entries()].sort((a, b) => {
+      if (a[1].key !== b[1].key) return a[1].key - b[1].key;
+      const [na, nb] = [nest(a[1]), nest(b[1])];
+      return na[0]! - nb[0]! || na[1]! - nb[1]! || (a[0] < b[0] ? -1 : 1);
+    });
     const n = order.length;
     const step = n > 1 ? Math.min(LANE_STEP, Math.max(0, bottom - top) / (n - 1)) : 0;
     order.forEach(([lane], k) => laneY.set(`${g}|${lane}`, mid + (k - (n - 1) / 2) * step));
   }
   const out = new Map<string, Point[]>();
   for (const r of usable) {
-    const sx = centreX(r.src);
+    const sx = exitX(r);
     const tx = centreX(r.dst);
-    const pts: Point[] = [{ x: sx, y: r.src.y + r.src.h }];
+    const pts: Point[] = [{ x: sx, y: r.exit?.y ?? r.src.y + r.src.h }];
     if (r.dstRank === r.srcRank) {
       // A sibling in the same rank: under both, along the gutter below, up into the target's bottom.
       const y = laneY.get(`${r.srcRank}|${r.lane}`)!;
@@ -180,4 +210,13 @@ export function midOf(pts: readonly Point[]): Point {
     left -= len;
   }
   return pts[pts.length - 1] ?? { x: 0, y: 0 };
+}
+
+/** Where a label sits on the drop into the target: halfway down the route's last segment when it is
+ *  vertical (the edge's own line, never a horizontal another edge shares), else the route's middle. */
+export function dropPoint(pts: readonly Point[]): Point {
+  const a = pts[pts.length - 2];
+  const b = pts[pts.length - 1];
+  if (a && b && Math.abs(a.x - b.x) < 0.01 && Math.abs(a.y - b.y) > 0.01) return { x: b.x, y: (a.y + b.y) / 2 };
+  return midOf(pts);
 }

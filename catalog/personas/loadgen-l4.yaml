@@ -13,6 +13,9 @@
 # volume tier, because a single Python sender thread is the per-instance cap.
 persona:
   id: loadgen-l4
+  category: traffic
+  label: "Load generator (l4)"
+  blurb: "A capacity test, not a role: drives a fixed offered load for tap and sensor sizing."
   os_family: linux
   drive: scripted
   emits:

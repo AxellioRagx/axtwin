@@ -23,6 +23,7 @@ def serve(
     api_token: str | None = None,
     spa_dir: str | None = None,
     twin_configs_dir: str | None = None,
+    drafts_dir: str | None = None,
     imprints_dir: str | None = None,
     targets_file: str | None = None,
     extra_dbs: list[str] | None = None,
@@ -51,6 +52,8 @@ def serve(
         # so an operator can point `axrange serve` at a non-default catalog the
         # same way they already can for scenarios.
         settings.twin_configs_dir = twin_configs_dir
+    if drafts_dir is not None:
+        settings.drafts_dir = drafts_dir  # unset -> ApiSettings' default (env, else beside the catalog)
     if imprints_dir is not None:
         # docs/WORK_ORDER_console_canvas.md S1.8 -- threaded EXACTLY as
         # `twin_configs_dir` above: unset -> ApiSettings' own default

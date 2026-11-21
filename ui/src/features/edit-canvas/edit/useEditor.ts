@@ -1,17 +1,17 @@
 /**
  * The editor's state in React: the working files, the command stack and
- * the models read from them. `apply` runs a pure mutation, blocks it when
- * the canvas's own validator finds an error (the reason is returned, the
- * document untouched), stamps what it created or changed `source: authored`
- * (`provenance.ts`), and otherwise records it so Ctrl+Z restores the
- * pre-edit text byte-for-byte.
+ * the models read from them. `apply` runs a pure mutation -- refused only
+ * when the command cannot express the request (it throws: a node that no
+ * longer exists), never because the result is incomplete or invalid
+ * (validation is the on-demand Check, `check.ts`) -- stamps what it created
+ * or changed `source: authored` (`provenance.ts`), and records it so Ctrl+Z
+ * restores the pre-edit text byte-for-byte.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 
 import { EMPTY_STACK, record, redo as redoCmd, sameFiles, undo as undoCmd, type Files, type Stack } from "./commands";
 import { readDoc, type DocModel, type WorkingDoc } from "./document";
 import { stampAuthored } from "./provenance";
-import { firstReason } from "./validate";
 
 export interface ApplyOptions {
   /** false: the edit writes text that is not the canvas's (a discard back to the baseline), so nothing is stamped authored. */
@@ -41,7 +41,7 @@ export interface Editor {
   /** Undo until the working files equal `files` (a refused sync reverts to what the server holds), or the stack is empty. */
   undoUntil(files: Files): void;
   /** Adopt a document from the server (a load, a reset, a sync from another console). */
-  load(doc: { id: string; teFile: string; files: Files }, options?: { keepStack?: boolean }): void;
+  load(doc: { id: string; teFile: string; files: Files }, options?: { keepStack?: boolean; saved?: Files }): void;
   /** The files were written: they are now the saved text. */
   markSaved(files?: Files): void;
   /** The command stack as it stands (persisted per working copy by the page). */
@@ -72,9 +72,6 @@ export function useEditor(): Editor {
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
       }
-      const nextModel = readDoc({ ...curDoc, files: next });
-      const reason = firstReason(nextModel.findings);
-      if (reason) return reason;
       const stack = record(cur.stack, label, cur.files, next);
       if (stack === cur.stack) return null;
       const s = { ...cur, files: next, stack };
@@ -116,7 +113,9 @@ export function useEditor(): Editor {
 
   const load = useCallback<Editor["load"]>((d, options) => {
     setIdent({ id: d.id, teFile: d.teFile });
-    const s = { files: { ...d.files }, saved: { ...d.files }, stack: options?.keepStack ? stateRef.current.stack : EMPTY_STACK };
+    // `saved`: the text the files are measured against when it is not theirs (an untitled design
+    // restored from this browser is unsaved against its blank start).
+    const s = { files: { ...d.files }, saved: { ...(options?.saved ?? d.files) }, stack: options?.keepStack ? stateRef.current.stack : EMPTY_STACK };
     stateRef.current = s;
     setState(s);
   }, []);

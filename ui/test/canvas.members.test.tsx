@@ -147,7 +147,7 @@ describe("merge", () => {
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach } from "vitest";
 
-import { commit, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
+import { check, commit, seeded, settle, twinYaml } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
 function withTwin(id: string, files: Record<string, string>) {
@@ -158,7 +158,8 @@ function withTwin(id: string, files: Record<string, string>) {
     twinConfigs: [...base.state.twinConfigs, { id, description: null, cluster: null, parameterized: false, param_names: [], error: null }],
   });
 }
-const lastFiles = (state: ReturnType<typeof seeded>["state"]) => (state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
+/** The files on screen: a Check sends exactly them (nothing validates on its own any more). */
+const lastFiles = async (state: ReturnType<typeof seeded>["state"]) => (await check(), state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files;
 const hostIcon = (name: string) => screen.getAllByTestId("canvas-host").find((h) => h.dataset["nodeId"] === name)!;
 
 afterEach(() => {
@@ -224,7 +225,7 @@ describe("members on the canvas and in the inspector", () => {
     expect((within(mp).getByLabelText("Member persona") as HTMLSelectElement).value).toBe("backup-server");
     fireEvent.click(within(mp).getByTestId("detach-member"));
     await settle();
-    const te = readTe(lastFiles(state)["te.yaml"]!);
+    const te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.nodes.map((n) => [n.name, n.count])).toEqual([["ws", 3], ["ops", 2], ["srv", 1], ["access-sw", 1], ["ws-2", 1]]);
     expect(te.nodes.find((n) => n.name === "ws-2")!.members.map((m) => [m.index, m.role])).toEqual([[1, "jump-host"]]);
     // The detached group is selected: its node panel opens, and the canvas shows it.
@@ -242,11 +243,11 @@ describe("members on the canvas and in the inspector", () => {
     fireEvent.dragOver(hostIcon("ops"), { dataTransfer });
     fireEvent.drop(hostIcon("ops"), { dataTransfer });
     await settle();
-    const te = readTe(lastFiles(state)["te.yaml"]!);
+    const te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.nodes.find((n) => n.name === "ws")!.count).toBe(3);
     expect(te.nodes.find((n) => n.name === "ops")!.count).toBe(3);
     expect(te.nodes.find((n) => n.name === "ops")!.members.map((m) => [m.index, m.role])).toEqual([[3, "kiosk"]]);
-    expect(readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.map((a) => [a.target, a.persona]).sort()).toEqual([["ops", "generic-endpoint"], ["ops03", "kiosk-browser"], ["ws", "corp-workstation"], ["ws02", "backup-server"]]);
+    expect(readTfc((await lastFiles(state))["tfc/default.yaml"]!).assignments.map((a) => [a.target, a.persona]).sort()).toEqual([["ops", "generic-endpoint"], ["ops03", "kiosk-browser"], ["ws", "corp-workstation"], ["ws02", "backup-server"]]);
   });
   it("multi-select rows: Shift-click picks a range, the bulk row sets the role and the persona of every picked member as one undo step", async () => {
     const { api, state } = withTwin("mem", { "te.yaml": TE, "tfc/default.yaml": TFC });
@@ -262,19 +263,19 @@ describe("members on the canvas and in the inspector", () => {
     fireEvent.change(within(bulk).getByLabelText("Role for picked members"), { target: { value: "lab-host" } });
     fireEvent.click(within(bulk).getByTestId("bulk-role"));
     await settle();
-    expect(nodeOf(lastFiles(state), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[1, "lab-host"], [2, "lab-host"], [3, "lab-host"], [4, "kiosk"]]);
+    expect(nodeOf((await lastFiles(state)), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[1, "lab-host"], [2, "lab-host"], [3, "lab-host"], [4, "kiosk"]]);
     fireEvent.change(within(bulk).getByLabelText("Persona for picked members"), { target: { value: "generic-endpoint" } });
     fireEvent.click(within(bulk).getByTestId("bulk-persona"));
     await settle();
-    const bound = readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.filter((a) => /^ws0[123]$/.test(a.target)).map((a) => [a.target, a.persona]).sort();
+    const bound = readTfc((await lastFiles(state))["tfc/default.yaml"]!).assignments.filter((a) => /^ws0[123]$/.test(a.target)).map((a) => [a.target, a.persona]).sort();
     expect(bound).toEqual([["ws01", "generic-endpoint"], ["ws02", "generic-endpoint"], ["ws03", "generic-endpoint"]]);
     // One Undo takes the three persona bindings back together, a second the three roles.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await settle();
-    expect(readTfc(lastFiles(state)["tfc/default.yaml"]!).assignments.find((a) => a.target === "ws02")!.persona).toBe("backup-server");
+    expect(readTfc((await lastFiles(state))["tfc/default.yaml"]!).assignments.find((a) => a.target === "ws02")!.persona).toBe("backup-server");
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     await settle();
-    expect(nodeOf(lastFiles(state), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[2, "jump-host"], [4, "kiosk"]]);
+    expect(nodeOf((await lastFiles(state)), "ws").members.map((m) => [m.index, m.role]).sort()).toEqual([[2, "jump-host"], [4, "kiosk"]]);
     // The header box picks every member.
     fireEvent.click(within(np).getByLabelText("Pick every member"));
     expect(within(np).getAllByTestId("member-row").filter((r) => r.dataset["picked"]).length).toBe(4);
@@ -292,7 +293,7 @@ describe("members on the canvas and in the inspector", () => {
     expect((within(np).getByTestId("split") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(within(np).getByTestId("split"));
     await settle();
-    let te = readTe(lastFiles(state)["te.yaml"]!);
+    let te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.nodes.map((n) => [n.name, n.count])).toEqual([["ws", 2], ["ops", 2], ["srv", 1], ["access-sw", 1], ["plain", 2]]);
     expect(te.nodes.find((n) => n.name === "ws")!.members.map((m) => [m.index, m.role])).toEqual([[1, "jump-host"], [2, "kiosk"]]);
     // Merge ws (×2, two overrides) into ops.
@@ -301,7 +302,7 @@ describe("members on the canvas and in the inspector", () => {
     fireEvent.change(merge, { target: { value: "ops" } });
     fireEvent.click(within(np).getByTestId("merge"));
     await settle();
-    te = readTe(lastFiles(state)["te.yaml"]!);
+    te = readTe((await lastFiles(state))["te.yaml"]!);
     expect(te.nodes.map((n) => [n.name, n.count])).toEqual([["ops", 4], ["srv", 1], ["access-sw", 1], ["plain", 2]]);
     expect(te.nodes.find((n) => n.name === "ops")!.members.map((m) => [m.index, m.role])).toEqual([[3, "jump-host"], [4, "kiosk"]]);
     await waitFor(() => expect(screen.getByTestId("node-panel").textContent).toContain("ops"));

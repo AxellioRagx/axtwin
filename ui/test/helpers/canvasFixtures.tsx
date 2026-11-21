@@ -56,8 +56,9 @@ export function document(id: string): TwinConfigDocument {
 }
 
 export const PERSONAS: Persona[] = [
-  { id: "corp-workstation", os_family: "windows", drive: "browser", source: "catalog", requires: [], summary: "office worker", emits: [] },
-  { id: "generic-endpoint", os_family: "linux", drive: "shell", source: "catalog", requires: [], summary: "chatter", emits: [] },
+  { id: "corp-workstation", os_family: "windows", drive: "browser", source: "catalog", requires: [], summary: "office worker", emits: [], category: "endpoint", label: "Office user", blurb: "" },
+  { id: "generic-endpoint", os_family: "linux", drive: "shell", source: "catalog", requires: [], summary: "chatter", emits: [], category: "endpoint", label: "Generic endpoint", blurb: "" },
+  { id: "web-tier", os_family: "linux", drive: "real-service", source: "catalog", requires: [], summary: "web", emits: [], category: "business", label: "Web / app server", blurb: "" },
 ];
 
 export const DEPLOY: DeploySummary = { deploy_id: "dep-1", scenario_id: "corp-live", status: "completed", started_at: 1700000000, updated_at: 1700000100, tier: "te", target: "dev45" };
@@ -133,10 +134,44 @@ export const tab = (name: string) => {
 export const openPalette = () => {
   if (!screen.queryByTestId("popover-palette")) fireEvent.click(screen.getByTestId("rail-add"));
 };
-export const item = (kind: string, id: string) => {
-  openPalette();
-  return screen.getAllByTestId("palette-item").find((i) => i.dataset["kind"] === kind && i.dataset["id"] === id)!;
+/** The pane menu's "Add a segment" (the Add panel has no Segment card: a switch, a router's drag to
+ *  the pane or this menu makes one). */
+export const addSegment = () => {
+  fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 200 });
+  fireEvent.click(within(screen.getByTestId("context-menu")).getByRole("button", { name: "Add a segment" }));
 };
+/** A device card of the Add panel (`router`, `switch`, `server`, `workstation`, `ot`), the panel opened when closed. */
+export const card = (id: string) => {
+  openPalette();
+  return screen.getAllByTestId("add-card").find((i) => i.dataset["id"] === id)!;
+};
+/** A tool of the Add panel (`internet`, `tap`). */
+export const addTool = (id: string) => {
+  openPalette();
+  return screen.getAllByTestId("add-tool").find((i) => i.dataset["id"] === id)!;
+};
+/** The open drop popover. */
+export const dropPopover = () => within(screen.getByTestId("drop-popover"));
+export interface DropChoices {
+  os?: string;
+  role?: string;
+  count?: number;
+  prefix?: string;
+}
+/** In the open drop popover: pick the OS, role, count and prefix given, then Add. */
+export function chooseAndAdd(opts: DropChoices = {}) {
+  const p = dropPopover();
+  if (opts.os) fireEvent.click(within(p.getByTestId("drop-os")).getByRole("button", { name: opts.os }));
+  if (opts.role) fireEvent.click(p.getAllByTestId("drop-role").find((r) => r.dataset["role"] === opts.role)!);
+  if (opts.count !== undefined) fireEvent.change(p.getByLabelText("Count"), { target: { value: String(opts.count) } });
+  if (opts.prefix !== undefined) fireEvent.change(p.getByLabelText("Name prefix"), { target: { value: opts.prefix } });
+  fireEvent.click(p.getByTestId("drop-add"));
+}
+/** Click a card (onto the selected segment, else the view's centre) and Add it with `opts`. */
+export function addDevice(cardId: string, opts: DropChoices = {}) {
+  fireEvent.click(card(cardId));
+  chooseAndAdd(opts);
+}
 /** A button of the rail's Annotate popover, opened when closed. */
 export const ann = (name: string) => {
   if (!screen.queryByTestId("popover-annotate")) fireEvent.click(screen.getByTestId("rail-annotate"));
@@ -154,7 +189,19 @@ export const commit = (input: HTMLElement, value: string) => {
   fireEvent.keyDown(input, { key: "Enter" });
 };
 export const settle = () => act(() => new Promise((r) => setTimeout(r, 350)));
+/** The bar's Check (on demand): run it and wait for its answer; `expect` asserts the badge's status after. */
+export async function check(want?: "valid" | "invalid" | "unchecked" | "changed") {
+  fireEvent.click(screen.getByTestId("check-run"));
+  await waitFor(() => expect(screen.getByTestId("check-badge").dataset["status"]).not.toBe("checking"));
+  if (want) await waitFor(() => expect(screen.getByTestId("check-badge").dataset["status"]).toBe(want));
+}
+/** The Check badge's status (`unchecked`, `valid`, `invalid`, `changed`, `checking`). */
+export const checkStatus = () => screen.getByTestId("check-badge").dataset["status"];
+/** A button once it is enabled. The exits that overwrite a twin wait on a passing Check of the files
+ *  on screen, so -- as an operator does -- Check runs first when the files are not the ones last checked. */
 export const enabled = async (name: string) => {
+  const badge = screen.queryByTestId("check-badge");
+  if (badge && badge.dataset["status"] !== "valid" && badge.dataset["status"] !== "checking") await check();
   await waitFor(() => expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(false));
   return screen.getByRole("button", { name });
 };

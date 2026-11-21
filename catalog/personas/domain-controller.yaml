@@ -1,6 +1,9 @@
 # docs/DESIGN_BRIEF_twin_model.md §5.2 — the most characteristic corp signature.
 persona:
   id: domain-controller
+  category: identity
+  label: "Domain controller"
+  blurb: "Active Directory (AD) domain controller: answers DNS, Kerberos and LDAP for every workstation, around the clock."
   os_family: windows
   drive: real-service
   emits:

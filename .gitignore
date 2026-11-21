@@ -10,3 +10,6 @@ config/adapter.conf
 # Operator-local observability config (Grafana admin password, host targets);
 # fill in from o2/observability.conf.example.
 o2/observability.conf
+
+# Drafts (api/Spec.md A3d): work-in-progress twin documents kept by the API, not catalog content.
+catalog/drafts/

@@ -371,7 +371,7 @@ _REFUSED_PIN_PREFIXES = ("address:", "hostname:", "mac:")
 # means LEGACY (written before the stamp existed) -- absent is not empty.
 _PLANE_MAX_LEN = 64
 _PLANE_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
-_LAYOUT_KEYS = ("schema", "imprint", "pins", "plane", "annotations")
+_LAYOUT_KEYS = ("schema", "imprint", "pins", "plane", "mode", "annotations")
 
 # The OPTIONAL `annotations` list (the canvas's free text and shapes, each a
 # positioned SVG snippet: `ui/src/features/edit-canvas/SPEC.md`). Still
@@ -1504,6 +1504,8 @@ class LayoutDoc:
     #: The layout plane the pins were authored against, or `None` for a LEGACY
     #: file that carries none. Opaque here (see `_PLANE_RE`).
     plane: Optional[str] = None
+    #: The canvas layout mode, `"tree"` | `"free"`, or `None` = no choice saved.
+    mode: Optional[str] = None
     #: The canvas's annotations (`_ANNOTATION_KEYS`), canonical; `[]` when the
     #: file carries none.
     annotations: list[dict[str, Any]] = field(default_factory=list)
@@ -1525,7 +1527,7 @@ def read_layout(bundle_dir: Path, imprint_id: str) -> LayoutDoc:
     return LayoutDoc(
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], pins=doc["pins"],
-        plane=doc.get("plane"), annotations=list(doc.get("annotations") or []),
+        plane=doc.get("plane"), mode=doc.get("mode"), annotations=list(doc.get("annotations") or []),
     )
 
 
@@ -1548,7 +1550,7 @@ def write_layout(
     return LayoutDoc(
         imprint_id=imprint_id, path=path, exists=True, etag=compute_etag(text),
         schema=doc["schema"], imprint=doc["imprint"], pins=doc["pins"],
-        plane=doc.get("plane"), annotations=list(doc.get("annotations") or []),
+        plane=doc.get("plane"), mode=doc.get("mode"), annotations=list(doc.get("annotations") or []),
     )
 
 
@@ -1609,6 +1611,15 @@ def validate_layout(raw: Any, imprint_id: str, *, where: str) -> dict[str, Any]:
     plane = body.get("plane")
     if plane is not None:
         doc["plane"] = _canonical_plane(plane, where=where)
+    # `mode` is absent-stays-absent too: only "tree" | "free" is accepted.
+    mode = body.get("mode")
+    if mode is not None:
+        if mode not in ("tree", "free"):
+            raise ConsoleFileShapeError(
+                f"{where}: `mode` must be \"tree\" or \"free\", got {mode!r} "
+                "-- OMIT the key to mean 'no choice saved'"
+            )
+        doc["mode"] = mode
     # Same absent-stays-absent rule for the annotations, and an EMPTY list
     # is the same statement as no key ("no annotations" is one state): a GET
     # answers `[]` for a legacy file, and PUTting that answer back verbatim

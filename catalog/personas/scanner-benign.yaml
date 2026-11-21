@@ -12,6 +12,9 @@
 # `volume: high` cycles 24 probes over the 6 ports, per host.
 persona:
   id: scanner-benign
+  category: network
+  label: "Vulnerability scanner"
+  blurb: "An authorized scan: very many short flows to workstations and servers every 15 minutes."
   os_family: linux
   drive: scripted
   emits:

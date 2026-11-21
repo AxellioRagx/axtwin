@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse
 from axrange.api import auth as _auth
 from axrange.api import console_files as _console_files  # noqa: F401 -- see below
 from axrange.api import discovery as _discovery
-from axrange.api import dtos, service
+from axrange.api import drafts, dtos, service
 from axrange.api.service import ApiError
 from axrange.api.settings import ApiSettings
 
@@ -361,6 +361,45 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         config_id: str, req: dtos.TwinConfigWriteRequest,
     ) -> dtos.TwinConfigDetailDTO:
         return service.twin_config_write(settings, config_id, req)
+
+    # ---- drafts (`api/Spec.md` A3d): documents that FAIL validation, kept
+    # outside the twin catalog; never deployable. No validation gate here. ----
+    @app.get("/api/drafts", response_model=dtos.DraftListDTO)
+    @_ro
+    def drafts_list() -> dtos.DraftListDTO:
+        return drafts.list_drafts(settings)
+
+    @app.get("/api/drafts/{draft_id}", response_model=dtos.DraftDetailDTO)
+    @_ro
+    def draft_detail(draft_id: str, request: Request) -> dtos.DraftDetailDTO:
+        return drafts.draft_detail(
+            settings, draft_id, include_document=_is_authorized(policy, request),
+        )
+
+    @app.post(
+        "/api/drafts",
+        response_model=dtos.DraftDetailDTO,
+        status_code=201,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_create(req: dtos.DraftWriteRequest) -> dtos.DraftDetailDTO:
+        return drafts.draft_create(settings, req)
+
+    @app.put(
+        "/api/drafts/{draft_id}",
+        response_model=dtos.DraftDetailDTO,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_write(draft_id: str, req: dtos.DraftWriteRequest) -> dtos.DraftDetailDTO:
+        return drafts.draft_write(settings, draft_id, req)
+
+    @app.delete(
+        "/api/drafts/{draft_id}", status_code=204, response_class=Response,
+        dependencies=[Depends(write_token)],
+    )
+    def draft_delete(draft_id: str) -> Response:
+        drafts.draft_delete(settings, draft_id)
+        return Response(status_code=204)
 
     # ---- twins (`docs/design/imprint-twin-split.md`): the catalog of
     # deployable twin definitions -- cast from an imprint, or authored. These
@@ -1369,6 +1408,48 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
         ),
     ) -> dtos.PersonaListDTO:
         return service.list_personas(settings, twin=twin)
+
+    @app.get("/api/image-profiles", response_model=dtos.ImageProfileListDTO)
+    @_ro
+    def image_profiles() -> dtos.ImageProfileListDTO:
+        from axrange.api import image_profiles as _ip
+
+        return _ip.list_image_profiles(settings)
+
+    # ---- templates (docs/design/canvas-add-panel.md §5): built-in (read-only)
+    # and saved slices of a twin, under <catalog>/templates/<id>/template.yaml ----
+    @app.get("/api/templates", response_model=dtos.TemplateListDTO)
+    @_ro
+    def templates_list() -> dtos.TemplateListDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.list_templates(settings)
+
+    @app.get("/api/templates/{template_id}", response_model=dtos.TemplateDTO)
+    @_ro
+    def template_detail(template_id: str) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.template_detail(settings, template_id)
+
+    @app.post("/api/templates", response_model=dtos.TemplateDTO, status_code=201, dependencies=[Depends(write_token)])
+    def template_create(req: dtos.TemplateWriteRequest) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.create_template(settings, req.template)
+
+    @app.put("/api/templates/{template_id}", response_model=dtos.TemplateDTO, dependencies=[Depends(write_token)])
+    def template_write(template_id: str, req: dtos.TemplateWriteRequest) -> dtos.TemplateDTO:
+        from axrange.api import templates as _tpl
+
+        return _tpl.write_template(settings, template_id, req.template)
+
+    @app.delete("/api/templates/{template_id}", status_code=204, response_class=Response, dependencies=[Depends(write_token)])
+    def template_delete(template_id: str) -> Response:
+        from axrange.api import templates as _tpl
+
+        _tpl.delete_template(settings, template_id)
+        return Response(status_code=204)
 
     @app.post(
         "/api/deploys/{deploy_id}/hosts/{host_id}/personas/plan",
