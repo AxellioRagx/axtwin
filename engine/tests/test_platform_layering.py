@@ -81,7 +81,8 @@ _LIBVIRT_TO_PROXMOX: dict[str, dict[str, tuple[str, ...]]] = {
     "adapter.py": {
         "egress_render": ("EGRESS_INSTALLER", "EGRESS_OK_MARKER", "EgressRenderError", "normalize_egress",
                           "render_install"),
-        "fabric_render": ("render_routing",),
+        # render_vrrp: the VyOS high-availability vrrp sets (design D5, 2026-11-21), guest-side like render_routing
+        "fabric_render": ("render_routing", "render_vrrp"),
         "rest": ("ROUTER_NAT_SCRIPT", "WINDOWS_OSREADY_MARKER", "_render_userdata", "_render_windows_userdata"),
         "ssh": ("SshBackend", "_tc_mirror_cmd", "apply_vyos_sets", "gretap_add_cmd", "gretap_heal_cmd",
                 "gretap_offload_cmd", "gretap_qdisc_cmd", "gretap_show_cmd", "gretap_up_cmd", "mirror_path_mtu_cmd",

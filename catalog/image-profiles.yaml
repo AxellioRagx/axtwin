@@ -9,6 +9,15 @@
 # hand-written one does. Served read-only by `GET /api/image-profiles`. A
 # profile left without an image (`image: null`) makes the canvas say "no
 # image for this profile" and write none.
+#
+# Per platform (D6, 2026-11-21): a profile may add
+# `platforms: { <platform>: <image> }` beside its default `image`;
+# `GET /api/image-profiles?target=<name>` answers the image for that target's
+# platform (absent: the default target). The two VyOS profiles name their
+# Proxmox image explicitly: dev45 binds vyos@2026.06 to template 9353 (VyOS
+# 2026.06.10 rolling; dev45 has no 1.5 template). The catalog has no
+# libvirt-bound routing image, so on libvirt the A7 Check warning names the
+# gap.
 profiles:
   # The Linux image almost every catalog host runs (390 nodes, including the
   # proxy, monitoring, DNS and OT roles). ubuntu-server-22@v5 (28) is the
@@ -22,10 +31,18 @@ profiles:
   windows-server: { image: windows-server-2022@v1 }
   # The only Windows client image in the catalog (every Windows workstation).
   windows-client: { image: win11-finance@v4 }
-  # What 17 of the catalog's 19 routers run (vyos@1.5 is datacenter's
+  # What 17 of the catalog's 19 routers run (vyos@2026.06 is datacenter's
   # fabric only). Stays the default for a dropped router.
   router:         { image: debian-12-cloud@v1 }
   # The OSPF-capable router image (datacenter's fabric routers): the planner
   # passes a transit's `ospf_area` to the VyOS leg config, so the canvas's
   # "run OSPF on these links" offers to switch the wired routers to this.
-  router-ospf:    { image: vyos@1.5 }
+  router-ospf:    { image: vyos@2026.06, platforms: { proxmox: vyos@2026.06 } }
+  # An L3 switch (the Add panel's "L3 switch" card: core or aggregation that
+  # switches a LAN and routes between its VLANs). It is written as
+  # `kind: router` with `role: l3-switch` -- the ROLE, not the kind, marks
+  # it, so the planner, the validator (FAB-080: fabric routers are VyOS) and
+  # the VyOS leg / OSPF rendering (adapter_proxmox/fabric_render.py) treat it
+  # as the router it is. VyOS because it is the catalog's one image that
+  # routes, runs OSPF and carries many legs (datacenter's fabric routers).
+  l3-switch:      { image: vyos@2026.06, platforms: { proxmox: vyos@2026.06 } }

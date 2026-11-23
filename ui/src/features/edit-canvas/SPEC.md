@@ -37,7 +37,7 @@ page's list, `areas/twins/TwinList.tsx`, as a picker).
 |---|---|
 | authored twin graph | `GET /api/scenarios/{id}/topology` (`TopologyDTO`: nodes typed `host\|router\|switch\|network`, edges host→network with `ip`) |
 | cast twin graph with observed evidence | `GET /api/twins/{id}/topology` (`TopologyExportDTO`: weighted `src/dst/proto/bytes/flows/evidence_class` edges, census) |
-| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles` (card + OS → image); spec: `docs/design/canvas-add-panel.md` |
+| Add panel | `GET /api/personas` (roles: `category`, `label`, `blurb`), `GET /api/image-profiles?target=` (card + OS → image, resolved for the twin's target platform -- D6: its `cluster:`, else its deployed target, else the default; the Add panel's "images for <target> · <platform>" line and picker write `cluster:`); spec: `docs/design/canvas-add-panel.md` |
 | positions | the layout document (`axr-layout`), extended with `host:<name>` pins beside the existing `site:` and `segment:` pins |
 
 | Writes | Route |
@@ -144,32 +144,102 @@ its implied switch standing where it was dropped. **Allocation ranges
 (`10.254.0.0/16`), skipping any LAN in play; a LAN never takes an address
 there. Every LAN-making path (palette drop, router -> empty pane, *Add a
 segment*, a host on a router, a template with `subnet: auto`) takes its site
-prefix from the LANs only (`lanSitePrefix`: every CIDR inside the pool is left
-out), and with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
-`10.200.1.0/24`, …; a template falls back to its own placeholders first);
+prefix from the LANs only (`lanSitePrefix`: every CIDR inside the transit pool
+or the internet's, `INTERNET_POOL` `10.250.0.0/16`, is left out -- B7, 2026-11-21:
+a template rack had landed on `10.250.1.0/24` beside the internet's `/24`), and
+with no LAN yet uses `DEFAULT_LAN_PREFIX` `10.200` (`10.200.0.0/24`,
+`10.200.1.0/24`, …; a template too since B7 -- one LAN pool for both paths;
+it had fallen back to its own placeholders); `nextFreeSlash24` fences the
+internet pool off as it does the transit pool, except for the Internet tool's own prefix;
 `nextFreeSlash24` never returns a `/24` overlapping the pool, and a copied
 transit (a template's, a duplicate's) takes the next free `/30` instead. **router / host -> segment**
-attaches; **switch <-> router / switch** links (`attachDevices`), unchanged.
-**Bulk wiring:** 2+ routers selected, the menu's *Connect N routers as…*:
+attaches; **router (or L3 switch) <-> switch** (2026-11-21, `subtree.ts` `gatewayOnSwitch`, either
+direction, also the Attach tool and a template's port) makes the router the GATEWAY of every segment
+the switch carries: a leg on each, pinned at the lowest free of `.1`..`.9` (`allocate.ts`
+`gatewayAddress`: the first router `.1`, the second `.2`), wired by one single-segment link per
+segment (a trunk whose native is that segment, as Insert switch writes), one undo step; links already
+between the pair are replaced, so wiring an old bare trunk again repairs it, and a pair already wired
+so is refused. It had been one bare trunk with no leg: the router was not the LAN's gateway (the
+inspector showed the segment under "add a leg on…") and the engine refuses such a link to a VM
+(NSW-050, a segment the router has no leg on; NSW-060, a VM trunk carries one segment). **switch <->
+switch / host** links (`attachDevices`), unchanged.
+**An image the target cannot deploy (2026-11-21, A7):** a Check (`POST /api/validate` with a
+document and no `?target=`) also runs the target preflight's image half for the twin's `cluster:`
+target (`twin.yaml`), else the default target, and reports an image with no binding for that
+target's platform as a WARNING (`TARGET-IMAGE`, "image vyos@2026.06 has no binding for platform libvirt
+on target kvm1: the deploy preflight refuses it"); no target configured, nothing is said. Per-platform
+profiles are design D6 (proposed).
+**Two gateways on one LAN (2026-11-21, `catalog.ts` `twoGatewayLans`):** a segment outside the
+transit pool with legs of two or more routers and a host on it (round 3 item 5c: never the internet
+segment -- by name, `egress` or the internet pool -- nor its sink's, nor a LAN with no host yet; server
+and user LANs only) is a design hint, on the
+health line, at the top of the segment's panel and as a note when the second gateway is wired:
+"rack1-srv has two gateways (agg-1, agg-2) and no shared VIP — servers will use only one".
+**The LAN's gateway (2026-11-21):** the engine gives a segment a gateway only from an explicit
+`gateway:` or ONE unpinned router leg (two router legs and no `gateway:` is read as a transit: none),
+so A5 writes the segment's `gateway:` -- the first router's address -- when it adds a router there
+(`vrrp.ts` `joinGateway`); a router deleted or detached hands it on (`leaveGateways`).
+**Shared gateway (VRRP, design D5, decided and built 2026-11-21, `edit/vrrp.ts`):** the segment
+panel of a LAN with two or more router legs offers "Share one gateway (VRRP) at <gateway> between
+agg-1, agg-2": a `vrrp: { vip, members }` block, the VIP the address hosts route through today, a
+member pinned at it re-pinned at the next free of `.2`..`.9`, the `gateway:` line gone (the VIP is
+the gateway), and -- ticked by default when a member is not on VyOS -- those members switched to the
+`l3-switch` profile's image, one undo step; the two-gateway hint goes. Shared, the panel shows the
+VIP (editable; no node's address), the members (the first is master by default priority) and Stop
+sharing (the first member's address becomes the `gateway:`). A router wired to a VRRP LAN joins its
+members; a member deleted leaves (a group of one goes); Duplicate copies the group onto the copy at
+the same host offset (`10.200.1.1`). The engine: NET-150, `configure-router` `vrrp`.
+**Delete takes what hangs on it (2026-11-21, `document.ts` `removeNode` / `removalPlan`):**
+removing a node removes every `links[]` entry naming it (or one of its instances) and its traffic
+binding; removing a switch also removes the segments it alone carried, each with the legs on it and
+its carrying on every link (a link left carrying nothing goes; `removeSegment` does the same for any
+segment). A segment with hosts still on it is kept by default -- it draws as an implied switch again
+-- and the node panel's "keep <segment> (N hosts on it)" unticked removes it too; the panel says what
+goes ("removes 2 links and segment rack1-srv with it"). A link naming a node or a segment the twin
+does not have is a design hint ("1 dangling link") with a one-click remove (`removeDanglingLinks`).
+**Bulk wiring:** 2+ routers selected, the menu's *Wire N routers… (mesh, chain, ring, hub)*
+(2026-11-21, B6: first in the menu of any device of the multi-selection, and in the pane's menu;
+it had been *Connect N routers as…*, which a user building a three-tier DC did not find):
 chain, ring, full mesh, hub & spoke (the first selected is the hub), one
-undo step for the batch. The dialog lists each pair as "new: a--b" (the real,
+undo step for the batch. **N routers dropped (B6):** a Router or L3 switch card with count N makes N
+named nodes and leaves them selected (two or more); when routers were selected before the drop, the dialog opens
+on **across** -- each of the selected to each of the new (`wirePairs` `across`, none within a set).
+A Switch card's count makes N switches, each on a LAN of its own. The dialog lists each pair as "new: a--b" (the real,
 sorted transit name) or "already linked: <its transit>"; a pair already linked
 keeps its transit, and when every pair is linked it says "all pairs already
 linked" and Connect applies only the OSPF / image choices (nothing ticked:
 refused, nothing to change). *Run OSPF on these links* sets `ospf_area` on
 every transit of the selection's pairs, new or already drawn, in the same undo
-step -- which the planner passes to the
-VyOS leg config, but OSPF comes up only with a VyOS router, a node
-`routing:` block and a `fabric:` region with `igp: ospf`. Ticked, the dialog
+step. Ticked, the dialog
 lists each selected router not on the `router-ospf` image profile
-(`catalog/image-profiles.yaml`, `vyos@1.5`; the default `router` profile stays
-what a dropped router gets) and offers "switch these routers to vyos@1.5",
-checked by default, in the same undo step; the `routing:` block and the
-`fabric:` region are not written, and the dialog says so in one line. The created segment, its CIDR and the leg addresses edit in the
+(`catalog/image-profiles.yaml`, `vyos@2026.06`; the default `router` profile stays
+what a dropped router gets) and offers "switch these routers to vyos@2026.06",
+checked by default, in the same undo step. The created segment, its CIDR and the leg addresses edit in the
 inspector as any; a transit's inspector (two routers and nothing else on it,
 or one with `ospf_area` already) has an **OSPF area** field: a whole number
-writes `ospf_area`, empty removes it (off), so one link is set without the
-dialog.
+writes `ospf_area` (and turns OSPF on for its routers, below), empty removes it (off),
+so one link is set without the dialog. The field's hint says whether it is off or which area runs.
+
+**OSPF writes (round 3, 2026-11-21, `edit/ospf.ts`).** `ospf_area` alone does not bring OSPF up:
+the planner emits `configure-routing` only for a router whose `routing.region` is a
+`fabric.regions[]` entry with `igp: ospf` (IR_SCHEMA §3.4). So the ticked wiring dialog and the
+transit's OSPF area field also write, in the same undo step: one region `{ id: dc, igp: ospf }`
+when the twin has no OSPF region (an existing `ospf`/`both` region is reused); on each router
+without one, `routing: { region, role, loopback }` -- role `spine` for a `core*` name, `leaf` for
+`agg*` (the prefixes the L3 switch's core / aggregation tier seeds; the tier itself is not written),
+else `area`; the loopback the next free `/32` of `LOOPBACK_POOL` (`10.255.0.0/24`, outside the
+transit, LAN and internet pools and the lab's `10.255.251.0/24` transport; a LAN /24 never lands in
+it); no `ospf.router_id` (the renderer derives it from the loopback). A router whose `routing:`
+names a non-OSPF region is left as it is and named. Each router's other legs (its LANs, its
+internet leg) take `ospf_area` too: the renderer runs OSPF only on an interface whose network has
+an area, and `routing.redistribute` is not rendered, so this is how a rack /24 and the internet
+sink's segment reach the other routers. No default route is originated: every VyOS router egresses
+through its own eth0 WAN with masquerade (`configure-router`). **Follow-up** (`ospfFollow`, run on
+every edit in `useEditor.apply`): a leg NEW in an edit on a router that runs OSPF (a peer link such as
+`agg-1--agg-2`, a switch it becomes the gateway of, a Duplicate with the same uplinks) takes the
+router's area when its segment has none; a router whose loopback another already holds (a copy)
+gets the next free one. A segment whose area the user cleared is not re-set (only new legs are
+followed). The router inspector shows its `routing:` line.
 
 **Free layout (2026-11-20, `canvas/free.ts`).** An untitled design or a draft
 opens in the **free** layout (every catalog twin, authored or cast, and every
@@ -205,7 +275,12 @@ its own line at the midpoint; one that would cover a node's name or another
 pill is nudged along its line (up to ±30% of its length), then off it, never
 onto a name; nor where another edge's line runs under it (2026-11-21), when any
 spot near its own line is clear of the others (three routers stacked a few px
-apart, as the first free placement can stack them, leave none). Every transit, in the free layout and the tree, wears the one
+apart, as the first free placement can stack them, leave none). Zoomed out (compact detail) a transit's pill hides unless the transit is hovered or selected
+(2026-11-21, B9: in a core/aggregation mesh the pills sat across one another's lines). A click on
+the empty canvas always clears a multi-selection (B9): no leg under the pointer takes the click
+then, and React Flow echoing the old set back in the same frame is ignored. The router's "N legs"
+counts its `nets` -- its addressed legs, which A5 makes the LANs it is the gateway of.
+Every transit, in the free layout and the tree, wears the one
 neutral transit colour (`canvas/hues.ts` `TRANSIT_HUE`), not a router's hue.
 **Placement of dropped nodes (2026-11-20, round 2, `add/placeDrop.ts`):** in
 the free layout everything a drop or a template makes gets a pin near the drop
@@ -219,7 +294,16 @@ that row. Nothing a drop creates is left without a position (they had landed
 at the canvas's top-left corner). A drop on the pane or a template never lands
 on a box already there (2026-11-21, `clearOf`): when any new pin overlaps an
 existing box (24px apart), the whole group moves, shape kept, to the nearest
-clear spot. The tree keeps its own placement. The layout bar's
+clear spot. **At the pointer (2026-11-21, B5):** a card's device, a template's root and the
+Internet tool's switch are centred on the drop point (a device's top-left had been; the Internet
+tool had no position at all and stood at the centre); a template or the Internet tool moves off a
+box only within `NEAR_RINGS` rings of it, else it lands at the pointer over it (a crowded canvas had
+sent a rack to the bottom edge). **A dragged device carries what hangs from it (2026-11-21, B4, `free.ts` `dragFollowers`):** in the
+free layout a switch dragged moves the hosts it hangs (their first leg on a segment it carries) by the
+same offset, and a router the implied switches of the segments it alone serves (no real switch, no
+other router) with their hosts; all of them are pinned where they land. **Alt**-drag moves the device
+alone; a follower that is itself selected moves with the selection as React Flow moves it.
+The tree keeps its own placement. The layout bar's
 *Layout: tree | free* switches it, saved in the side-car (`mode`); Re-layout
 in free mode tidies with the hierarchical (dagre) pass and stays free.
 
@@ -254,7 +338,7 @@ canvas — the first two are what neither incumbent documents.
 
 | Area | Items | Tag |
 |---|---|---|
-| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; five device cards; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover (its role list scrolled to the preselected role) writes the drop and every choice as one undo step. A card's drop is named `{prefix}-{n}`, the first free n from 1 (`router-1`, `router-2`; 2026-11-20 round 2: the first had been plain `router`); a segment a drop makes is named for its first host's role, else the card (`file-server-lan`, `switch-lan`), `-2`, `-3` when taken. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; by default it takes the segments the selected routers and switches carry and their host groups when no unselected router or switch joins them -- a checked option, "Include the segments and hosts under the selected devices (N segments, M host groups)", unchecked the bare selection -- and only links and legs leaving that set become ports; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
+| Palette & placement | **The Add panel** (2026-11-20, replacing the palette): the spec is `docs/design/canvas-add-panel.md` (§3 panel, §4 devices and the drop popover, §6 tools). Search; six device cards (Router / firewall, **L3 switch** -- 2026-11-21: `kind: router`, `role: l3-switch` on the `l3-switch` image profile, `vyos@2026.06`; recognised on the canvas by the role; its own icon and an `L3` badge, its inspector headed "L3 switch <name>"; its popover's Tier, core or aggregation, seeds the prefix only -- Switch, Server, Workstation, OT device); a count on Router or L3 switch makes N separate named nodes (`core-1`, `core-2`), never one fanned-out group; Tools (Internet, Sensor / tap; no Attacker until an attack-framework registry exists); recent and favourites (this browser); the design-health line. A card is dragged, clicked (the selected segment, else the view's centre) or picked from the double-click quick-add; its popover (its role list scrolled to the preselected role) writes the drop and every choice as one undo step. **Names (round 3 item 5, 2026-11-21):** one device takes the bare prefix (`rack1-tor`, `core`; a taken one continues at `-2`), a count N names `{prefix}-1` .. `{prefix}-N` (`core-1`, `core-2`); a host group of count N is one node under the bare prefix (its instances `rack1-web01`..). A switch dropped on the pane stands on a LAN named after it -- its prefix without the last token, `-lan` (`rack1-tor` -> `rack1-lan`, `sw` -> `sw-lan`; `add/drop.ts` `lanStemOf`) -- so Duplicate's shared-prefix renumbering gives `rack2-lan`, `rack3-lan` as it gives `rack2-tor`; a host dropped on the pane names its segment for its role, else the card (`file-server-lan`), `-2`, `-3` when taken; a template's own segment names are unchanged. **Core uplink (5d):** the L3 switch's popover, tier core, has "uplink to internet" (on by default when the design has an `internet` segment): each core gets a leg on it pinned as a gateway (`.1`, `.2`, ... -- two unpinned router legs would share the planner's `.1`), the internet and its sink (the `linux-server` image) made when absent. Templates (§5.2, phase 2): a card with a preview and device counts; its settings form at the drop point; the fragment expanded (`add/template.ts`) and copied in by the duplicate-subtree engine (`edit/subtree.ts` `copyInto`, which Duplicate subtree also runs on), one undo step, its open ports selected. Save as template (§5.3, phase 3): a selection's menu → the dialog (`add/saveTemplate.ts` proposes the settings, clean names and ports and strips provenance, observed addresses and taps; by default it takes the segments the selected routers and switches carry and their host groups when no unselected router or switch joins them -- a checked option, "Include the segments and hosts under the selected devices (N segments, M host groups)", unchecked the bare selection -- and only links and legs leaving that set become ports; `add/SaveTemplateDialog.tsx`) → `POST /api/templates`; it lists under My templates at once. `add/` (`catalog.ts`, `drop.ts`, `template.ts`, `saveTemplate.ts`, `AddPanel.tsx`, `DropPopover.tsx`, `Templates.tsx`, `QuickAdd.tsx`) | app over RF `onDrop` |
 | | snap-to-grid with Alt bypass, grid toggle, align selection H/V, helper lines while dragging | RF, align/helpers app |
 | | layout menu: preset (the lifted tiered engine), hierarchical, force, radial | app |
 | Attaching (the twin's "linking") | drag a host onto a segment or from a host's connect ring to a segment's switch; sticky attach mode with Esc; address auto-allocated and shown as an editable end label; second leg on a router or multi-homed host | app pointer drag + state machine |
@@ -358,9 +442,18 @@ criteria of its own beyond them.
     says "copy of <id>", and the first Save suggests `<id>-copy`. The source
     twin is never written.
   - Unsaved guard: a non-blank untitled design, an undeployed design or a draft
-    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close or an in-app link (XTwin, Open,
-    the top menu) leaves it; letting an untitled design go drops its browser copy.
-    The browser's Back is not guarded (no data router).
+    with unsaved changes, or a deployed twin's edits not yet pushed, asks before a reload/close (the
+    browser's own question), an in-app link (XTwin, Open's rows, the top menu) or the browser's Back
+    leaves it. **Round 3 item 4 (2026-11-21):** the question is the page's own dialog, not a yes/no:
+    *Save as draft…* (the draft dialog; once the draft is written the page goes where the link
+    pointed -- Back stays on the draft), *Discard* (an untitled design drops its browser copy; a
+    deployed twin's unpushed edits say "Leave (edits stay in this browser)"), *Cancel*. Back is caught
+    by a sentinel history entry pushed while there is unsaved work (`areas/shell/leaveGuard.ts`; a
+    plain router cannot cancel a popstate, so the sentinel absorbs it). An untitled design with work
+    is kept under `axr-canvas-undo:twin:__untitled__` (files and stack). **Open's rows settle:** a click
+    on a picker row that appeared or moved less than `ROW_SETTLE_MS` (300 ms) ago is dropped at the
+    window's capture phase (`TwinList`), so a list loading under the pointer opens nothing
+    (`canvas.leave.test.tsx`).
     **Clean rule (2026-11-20, round 2):** an untitled design is clean when its document is at its
     blank start (a clone never is) and it has no live layout pin and no annotation. A pin whose node
     no longer exists (removed, or undone away) is dormant on a design kept in this browser: kept, so a
@@ -419,7 +512,8 @@ criteria of its own beyond them.
   dropped on a transits-only design (and router -> pane, a host on a router, every built-in
   template) gets a LAN outside `10.254.0.0/16`, a design with LANs keeps its prefix; the wiring
   dialog on an all-linked triangle lists "already linked: <transit>" per pair, creates nothing and
-  sets `ospf_area` on the 3 transits in one undo step; a transit's OSPF area field writes and
+  sets `ospf_area` on the 3 transits in one undo step, with the `fabric:` region, a `routing:` block on
+  each router and `ospf_area` on their other legs (`canvas.ospf.test.ts`); a transit's OSPF area field writes and
   clears `ospf_area`; the "Not carried" box sits just above its segment wherever it is dragged
   (beside the first of several) and, clicked, lists its segments in the Selection panel; in the
   free 3-router triangle no edge crosses a name label; Ctrl+Enter on the document right after the
@@ -457,9 +551,15 @@ is one uniform tree, router → switch (real | implied) → hosts (Rendering rul
 - on an **implied switch**: the host joins that segment (a peer of its hosts);
 - on a **real switch** of one segment: that segment; of several: the native
   VLAN of its uplink trunk (one to a router first), else its most-populated
-  segment (`switchSegment`); the host's inspector then offers the **VLAN
+  segment (`switchSegment`), and the drop popover asks which (a Segment
+  picker, that one preselected; 2026-11-21); the host's inspector then offers the **VLAN
   picker** (`hostSwitch`, a `moveTo` re-addressed in the chosen segment);
-  a switch that carries nothing refuses, with the reason;
+  a switch that carries nothing refuses, with the reason. **Which node a drop is on
+  (2026-11-21, B2):** the node the browser has under the pointer, else the geometry -- of the
+  boxes under the point the one whose centre is nearest (a router's box reaching over a switch
+  beside it had taken drops aimed at the switch); a card CLICKED while a switch, host or router is
+  selected lands on it as a drop would (it had gone to the view's centre: "on a new segment under
+  agg-1"); a host dropped on joins that host's segment;
 - on a **router**: a new segment, the next free /24 in the router's site
   (`newSegmentOnRouter`, `edit/allocate.ts`), `zone_type: vlan`, the router's
   leg on it and the host on it -- one command, one undo step; it draws under
@@ -730,7 +830,12 @@ page, not a card in one:
   stays until dismissed.
 - **Positions.** The view fits ONCE, when the first nodes are measured (or
   the session's viewport is restored), never on an edit; F / Zoom to fit is
-  the explicit way. In the design view a site's or segment's computed
+  the explicit way, and it frames EVERY node the layout holds -- absolute positions and declared
+  sizes, hidden ones left out (`placement.ts` `allNodesBounds`; round 3 item 3b: React Flow's own
+  fitView counts only measured nodes). **Hosts added to a selected switch (round 3 item 3a):** a card
+  clicked with a switch, segment or host selected stands in the row under that switch, centred on
+  it, like a template's layout (`placeDropped` with no drop point), and falls back to the view's
+  centre when the switch has no known spot -- it had landed at the origin, off screen. In the design view a site's or segment's computed
   position settles for the session (`CanvasPage` `settled`): a mutation
   packs only what has no position yet, so adding a node never shuffles its
   neighbours. A box without a pin never lands under a pinned one: it takes
@@ -1046,7 +1151,18 @@ one its `confidence`.
    re-allocates there (`duplicateSubtree`'s `prefix`); Enter parks in place,
    Esc cancels; a marquee that takes a switch and only devices below it is
    that switch's subtree (`marqueeSubtree`). Not built: the copy's pills follow
-   the tree's placement, not the pinned root.
+   the tree's placement, not the pinned root. **The next rack (2026-11-21, B3):**
+   a root named `<stem><n>…` (`rack1-tor`) renumbers every copied name that
+   starts with `<stem><n>` to the first free number (`rack2-tor`, `rack2-web`,
+   `rack2-srv`, then `rack3`; `nextNumberedRename`), other names keep `-2`; the
+   copy's devices, implied switches AND hosts keep their places relative to its
+   root (`copyPositions`), its root at the drop point or, with none (Enter, the
+   panel), just right of the original (`besideSubtree`), clear of every box;
+   **same uplinks as the original** (the carried copy's **U**, the panel's
+   duplicate choice) wires the copy to every device the original hangs from
+   (`uplinksOf`: the routers and switches an up link joins to its root, the
+   routers with a leg on its segments) -- a router as the copy's LAN gateway
+   (A5's `gatewayOnSwitch`), a switch by a trunk -- in the same undo step.
 
 Acceptance (Vitest, `ui/test/canvas.tree.test.tsx`; the inspector and the
 taps in `ui/test/canvas.inspector.test.tsx`: the tap plan reader and

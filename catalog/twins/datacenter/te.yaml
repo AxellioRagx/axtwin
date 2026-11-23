@@ -104,7 +104,7 @@ twin_config:
     - name: fab-r1
       role: fab-r1
       kind: router
-      image: vyos@1.5
+      image: vyos@2026.06
       requires: [linux]
       resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
       net: fab-link
@@ -118,7 +118,7 @@ twin_config:
     - name: fab-r2
       role: fab-r2
       kind: router
-      image: vyos@1.5
+      image: vyos@2026.06
       requires: [linux]
       resources: { cpu: 1, ram: 1Gi, disk: 10Gi }
       net: fab-link

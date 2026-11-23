@@ -100,6 +100,10 @@ export const INFRA_DEVICE_ROLES: ReadonlySet<string> = new Set([
  */
 export const SWITCH_ROLES: ReadonlySet<string> = new Set(["l2-switch", "l3-switch", "router", "firewall"]);
 
+/** The role that marks a router as an L3 switch (core / aggregation; the Add panel's "L3 switch"
+ *  card writes `kind: router`, `role: l3-switch`, 2026-11-21): the role, not the kind, marks it. */
+export const L3_SWITCH_ROLE = "l3-switch";
+
 /** The short badge a switch-class host wears on its icon (`L2`, `L3`, `FW`, `RTR`). */
 export function switchBadge(role: string): string {
   return SWITCH_BADGE[role] ?? roleBadgeLabel(role);

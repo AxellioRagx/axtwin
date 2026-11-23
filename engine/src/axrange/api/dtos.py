@@ -2403,15 +2403,22 @@ class TemplateListDTO(BaseModel):
 
 class ImageProfileDTO(BaseModel):
     """One image profile (docs/design/canvas-add-panel.md §4.3): the image a
-    dropped device gets; `image: null` when the profile names none."""
+    dropped device gets; `image: null` when the profile names none. `image`
+    is resolved for the answer's platform (D6); `platforms` is the profile's
+    per-platform map as written."""
 
     name: str
     image: Optional[str] = None
+    platforms: dict[str, str] = {}
 
 
 class ImageProfileListDTO(BaseModel):
     profiles: list[ImageProfileDTO]
     warnings: list[str] = []
+    # The target the images were resolved for and its platform (D6); null
+    # when no target is configured (the profiles' default images).
+    target: Optional[str] = None
+    platform: Optional[str] = None
 
 
 class PersonaListDTO(BaseModel):

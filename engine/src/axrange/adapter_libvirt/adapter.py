@@ -712,6 +712,8 @@ class LibvirtAdapter:
         guest = self._uuid(inp)
         if inp.get("router_os") == "vyos":
             return self._configure_vyos_router(op, inp, ctx)
+        if inp.get("vrrp"):
+            raise AdapterError(f"configure-router: {guest} is a vrrp member but not VyOS; VRRP is rendered on VyOS only", error_class="vrrp-unsupported-os")
         ga = self._guest(ctx)
         ga.wait_ready(guest, timeout_s=op.timeout_s or 300)
         res = ga.exec(guest, ["/bin/bash", "-c", ROUTER_NAT_SCRIPT], timeout_s=op.timeout_s or 300)
@@ -805,6 +807,9 @@ class LibvirtAdapter:
         for r in inp.get("static_routes") or []:
             if r.get("to") and r.get("via"):
                 sets.append(f"set protocols static route {r['to']} next-hop {r['via']}")
+        from axrange.adapter_proxmox.fabric_render import render_vrrp  # pure VyOS render
+
+        sets += render_vrrp(inp.get("vrrp"))
         apply_vyos_sets(self._vyos_ssh_cfg(), wan_ip, ssh_user, sets,
                         op_label=f"configure-router(vyos): {guest}", timeout_s=op.timeout_s or 180)
         wan_gw = ""

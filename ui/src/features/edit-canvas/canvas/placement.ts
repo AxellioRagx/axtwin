@@ -140,6 +140,8 @@ export type RouterData = {
   crossing: Crossing | null;
   /** Rule 2: the router's one hue (`canvas/hues.ts`), on its ring, its legs and its buses' dots. */
   hue: string;
+  /** An L3 switch (`role: l3-switch` on a router, A4): its own icon and an `L3` badge. */
+  l3?: boolean;
 };
 export type OverflowData = { kind: "overflow"; siteKey: string; hidden: number; total: number; expanded: boolean; /** A site fold's own words (`10.20 · 6 segments`); absent on a `+N more` fold. */ label?: string; /** The hosts behind the fold. */ hosts?: number };
 /** A switch (or a router drawn as a device in the tree): the device tree's own node
@@ -290,6 +292,28 @@ export function pinKeyOf(node: Pick<CanvasNode, "data">): string | null {
 }
 
 /** A node's absolute top-left from its (relative) position and its parents'. */
+/** The box around EVERY node the canvas holds (round 3 item 3b): absolute positions, each node's
+ *  declared size (else its measured one, else a point), hidden nodes left out. React Flow's own
+ *  fitView counts only measured nodes, so hosts just placed could fall outside "Zoom to fit". */
+export function allNodesBounds(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "hidden" | "width" | "height"> & { measured?: { width?: number; height?: number } }>): { x: number; y: number; width: number; height: number } | null {
+  let l = Infinity;
+  let t = Infinity;
+  let r = -Infinity;
+  let b = -Infinity;
+  for (const n of nodes) {
+    if (n.hidden) continue;
+    const p = absolutePosition(nodes, n.id);
+    if (!p) continue;
+    const w = n.width ?? n.measured?.width ?? 0;
+    const h = n.height ?? n.measured?.height ?? 0;
+    l = Math.min(l, p.x);
+    t = Math.min(t, p.y);
+    r = Math.max(r, p.x + w);
+    b = Math.max(b, p.y + h);
+  }
+  return Number.isFinite(l) ? { x: l, y: t, width: r - l, height: b - t } : null;
+}
+
 export function absolutePosition(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId">>, id: string): Point | null {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   let n = byId.get(id);

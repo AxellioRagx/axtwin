@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { EMPTY_STACK, record, redo as redoCmd, sameFiles, undo as undoCmd, type Files, type Stack } from "./commands";
 import { readDoc, type DocModel, type WorkingDoc } from "./document";
+import { ospfFollow } from "./ospf";
 import { stampAuthored } from "./provenance";
 
 export interface ApplyOptions {
@@ -69,6 +70,12 @@ export function useEditor(): Editor {
         // What the canvas creates or changes is authored (topology-layers §3.1): stamped here, once.
         const out = fn(curDoc, readDoc(curDoc));
         next = options?.stamp === false ? out : stampAuthored(cur.files, out, ident.teFile);
+        // A leg new on a router that runs OSPF takes its area; a copied loopback is renumbered (round 3).
+        const te = next[ident.teFile];
+        if (options?.stamp !== false && te !== undefined && te !== cur.files[ident.teFile]) {
+          const followed = ospfFollow(cur.files[ident.teFile], te);
+          if (followed !== te) next = { ...next, [ident.teFile]: followed };
+        }
       } catch (e) {
         return e instanceof Error ? e.message : String(e);
       }

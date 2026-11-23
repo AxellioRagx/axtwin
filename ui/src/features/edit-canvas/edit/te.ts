@@ -49,8 +49,29 @@ export interface TeSegment {
   egress: boolean;
   /** `ospf_area:` (the fabric slice's OSPF area for router legs on this segment), or null. */
   ospfArea: number | null;
+  /** `gateway:` as written (the hosts' default gateway), or null (the expander picks one). */
+  gateway: string | null;
+  /** `vrrp:` (design D5, 2026-11-21): a VIP the members float, the segment's gateway; or null. */
+  vrrp: TeVrrp | null;
   source: TeSource | null;
   confidence: number | null;
+}
+
+/** A segment's first-hop redundancy (`vrrp:`, design D5): VIP, members, and the optional vrid / priorities. */
+export interface TeVrrp {
+  vip: string;
+  members: string[];
+  vrid: number | null;
+  priority: Record<string, number> | null;
+}
+
+function vrrpOf(raw: YNode | null): TeVrrp | null {
+  if (!raw) return null;
+  const p = toPlain(raw) as Record<string, unknown> | null;
+  if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+  const members = Array.isArray(p["members"]) ? (p["members"] as unknown[]).map(String) : [];
+  const prio = p["priority"] && typeof p["priority"] === "object" ? Object.fromEntries(Object.entries(p["priority"] as Record<string, unknown>).map(([k, v]) => [k, Number(v)])) : null;
+  return { vip: String(p["vip"] ?? ""), members, vrid: typeof p["vrid"] === "number" ? p["vrid"] : p["vrid"] != null ? Number(p["vrid"]) : null, priority: prio };
 }
 
 /** A `members[]` entry: one instance's role override (topology-layers §5). */
@@ -90,8 +111,24 @@ export interface TeNode {
   members: TeMember[];
   source: TeSource | null;
   confidence: number | null;
+  /** `routing:` (the fabric slice's per-router intent, IR_SCHEMA §3.4): region, role, loopback as
+   *  written, or null. Only these three are modelled; anything else in the block is kept as it is. */
+  routing: TeRouting | null;
   /** Keys this reader does not model but the node carries (install, provides, joins, ...). */
   otherKeys: string[];
+}
+
+/** A router's `routing:` block, the three keys the canvas writes (round 3, 2026-11-21). */
+export interface TeRouting {
+  region: string | null;
+  role: string | null;
+  loopback: string | null;
+}
+
+/** A `fabric.regions[]` entry (IR_SCHEMA §3.4): its id and IGP (`ospf | isis | both | none`). */
+export interface TeFabricRegion {
+  id: string;
+  igp: string | null;
 }
 
 /** A `conduits[]` entry: a declared inter-segment path (`twinconfig/schema.py` `TwinConfigConduit`). The
@@ -114,6 +151,8 @@ export interface TeModel {
   nodes: TeNode[];
   links: TeLink[];
   conduits: TeConduit[];
+  /** `fabric.regions[]` (IR_SCHEMA §3.4), empty when the twin declares no fabric. */
+  fabricRegions: TeFabricRegion[];
   /** What the reader could not make sense of; the engine's validator says more. */
   problems: string[];
 }
@@ -137,8 +176,13 @@ export function nodeOfEnd(te: Pick<TeModel, "nodes">, device: string): { node: T
   return null;
 }
 
-const NODE_KEY_ORDER = ["name", "role", "kind", "stp", "image", "requires", "resources", "count", "net", "nets", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
-const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources", "members", "source", "confidence", "vantage"]);
+const NODE_KEY_ORDER = ["name", "role", "kind", "stp", "image", "requires", "resources", "count", "net", "nets", "routing", "members", "source", "confidence", "vantage", "when", "install", "provides", "joins", "persona", "observation"];
+const KNOWN_NODE_KEYS = new Set(["name", "role", "kind", "image", "count", "net", "nets", "requires", "resources", "routing", "members", "source", "confidence", "vantage"]);
+
+function routingOf(raw: YNode | null): TeRouting | null {
+  if (!raw || raw.kind !== "map") return null;
+  return { region: scalarText(get(raw, "region")), role: scalarText(get(raw, "role")), loopback: scalarText(get(raw, "loopback")) };
+}
 const SOURCES = new Set(["discovered", "asserted", "authored", "unconfirmed"]);
 
 function sourceOf(raw: YNode | null): TeSource | null {
@@ -154,7 +198,7 @@ function numberOf(raw: YNode | null): number | null {
 }
 
 export function emptyTe(problem?: string): TeModel {
-  return { id: null, description: null, params: {}, segments: [], nodes: [], links: [], conduits: [], problems: problem ? [problem] : [] };
+  return { id: null, description: null, params: {}, segments: [], nodes: [], links: [], conduits: [], fabricRegions: [], problems: problem ? [problem] : [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +257,7 @@ export function readTe(text: string): TeModel {
         problems.push(`segment at line ${it.line + 1} has no name or cidr`);
         continue;
       }
-      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", ospfArea: numberOf(get(it.value, "ospf_area")), source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
+      segments.push({ name, cidr, zoneType: scalarText(get(it.value, "zone_type")), isolated: scalarText(get(it.value, "isolated")) === "true", egress: scalarText(get(it.value, "egress")) === "true", ospfArea: numberOf(get(it.value, "ospf_area")), gateway: scalarText(get(it.value, "gateway")) || null, vrrp: vrrpOf(get(it.value, "vrrp")), source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")) });
     }
   }
   const nodes: TeNode[] = [];
@@ -255,6 +299,7 @@ export function readTe(text: string): TeModel {
         members,
         source: sourceOf(get(it.value, "source")),
         confidence: numberOf(get(it.value, "confidence")),
+        routing: routingOf(get(it.value, "routing")),
         otherKeys: it.value.entries.map((e) => e.key).filter((k) => !KNOWN_NODE_KEYS.has(k)),
       });
     }
@@ -304,7 +349,15 @@ export function readTe(text: string): TeModel {
       conduits.push({ from, to, source: sourceOf(get(it.value, "source")), confidence: numberOf(get(it.value, "confidence")), vantage: scalarText(get(it.value, "vantage")), index });
     });
   }
-  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, links, conduits, problems };
+  const fabricRegions: TeFabricRegion[] = [];
+  const regs = get(tc, "fabric", "regions");
+  if (regs && regs.kind === "seq") {
+    for (const it of regs.items) {
+      const id = scalarText(get(it.value, "id"));
+      if (id) fabricRegions.push({ id, igp: scalarText(get(it.value, "igp")) });
+    }
+  }
+  return { id: scalarText(get(tc, "id")), description: scalarText(get(tc, "description")), params, segments, nodes, links, conduits, fabricRegions, problems };
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +451,7 @@ export function addSegment(text: string, seg: { name: string; cidr: string; zone
   return t.out();
 }
 
-export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type" | "ospf_area", value: string | number | null): string {
+export function setSegmentField(text: string, name: string, key: "name" | "cidr" | "zone_type" | "ospf_area" | "gateway", value: string | number | null): string {
   const t = new TeText(text);
   const it = t.segment(name);
   const m = it.value as YMap;
@@ -413,6 +466,22 @@ export function setSegmentField(text: string, name: string, key: "name" | "cidr"
   } else if (value !== null) {
     insertLines(t.lines, contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}${key}: ${encodeScalar(value)}`]);
   }
+  return t.out();
+}
+
+/** Set (or with `null` remove) a segment's `vrrp:` block (design D5), written as one flow map. */
+export function setSegmentVrrp(text: string, name: string, vrrp: TeVrrp | null): string {
+  const t = new TeText(text);
+  const it = t.segment(name);
+  const m = it.value as YMap;
+  const raw = vrrp === null ? null : `{ vip: ${encodeScalar(vrrp.vip)}, members: [${vrrp.members.map((x) => encodeScalar(x)).join(", ")}]${vrrp.vrid !== null ? `, vrid: ${vrrp.vrid}` : ""}${vrrp.priority && Object.keys(vrrp.priority).length ? `, priority: { ${Object.entries(vrrp.priority).map(([k, v]) => `${encodeScalar(k)}: ${v}`).join(", ")} }` : ""} }`;
+  if (m.flow) {
+    rewriteFlowMap(t.lines, m, "vrrp", raw);
+    return t.out();
+  }
+  const e = entry(m, "vrrp");
+  if (e) removeSpan(t.lines, e.start, e.end, m.indent);
+  if (raw !== null) insertLines(t.lines, e ? e.start : contentEnd(t.lines, it.end), [`${" ".repeat(m.indent)}vrrp: ${raw}`]);
   return t.out();
 }
 
@@ -497,6 +566,38 @@ export function removeNode(text: string, name: string): string {
   return t.out();
 }
 
+/** The `links[]` indices whose either end names node group `name` or one of its instances (`web01`). */
+export function linksNaming(te: Pick<TeModel, "nodes" | "links">, name: string): number[] {
+  return te.links.filter((l) => [l.a.device, l.b.device].some((d) => d === name || nodeOfEnd(te, d)?.node.name === name)).map((l) => l.index);
+}
+
+/** Remove a node group AND every `links[]` entry naming it (B1, 2026-11-21: a deleted switch had left
+ *  its links on the routers, which the engine refuses -- CV-040). `removeNode` alone stays the raw splice
+ *  a caller re-adding the same name uses (`fabric.ts`, `members.ts`). */
+export function removeNodeAndLinks(text: string, name: string): string {
+  for (const i of linksNaming(readTe(text), name).sort((x, y) => y - x)) text = removeLink(text, i);
+  return removeNode(text, name);
+}
+
+/** Drop segment `name` from every link that carries it (its native or a VLAN); a link left carrying
+ *  nothing goes (B1: a removed segment had stayed on the links, CV-044). */
+export function unlinkSegment(text: string, name: string): string {
+  const te = readTe(text);
+  for (const l of [...te.links].sort((x, y) => y.index - x.index)) {
+    if (l.native !== name && !l.vlans.includes(name)) continue;
+    const vlans = l.vlans.filter((v) => v !== name);
+    const native = l.native === name ? null : l.native;
+    if (!vlans.length && !native) {
+      text = removeLink(text, l.index);
+      continue;
+    }
+    if (l.native === name) text = setLinkField(text, l.index, "native", null);
+    if (l.vlans.includes(name)) text = setLinkField(text, l.index, "vlans", vlans.length ? vlans : native ? [native] : []);
+    if (l.mode === "access" && !vlans.length && native) text = setLinkField(text, l.index, "vlans", [native]);
+  }
+  return text;
+}
+
 /** Set (or with `null`, remove) a scalar field of a node group, keeping the
  *  node's other lines; a new key lands at its conventional place. */
 export function setNodeField(text: string, name: string, key: "name" | "role" | "image" | "count" | "kind" | "stp", value: string | number | null): string {
@@ -505,6 +606,12 @@ export function setNodeField(text: string, name: string, key: "name" | "role" | 
   const m = it.value as YMap;
   const e = entry(m, key);
   const raw = value === null ? null : typeof value === "number" ? String(value) : key === "count" && /^\$\{.*\}$/.test(value) ? JSON.stringify(value) : encodeScalar(value);
+  // A node written as one flow line is rewritten in place (2026-11-21: the line splices below cut it
+  // apart, as `setNodeNets` once did -- an image switch on `- { name: agg-2, ... }` broke the node).
+  if (m.flow && m.flowLine !== undefined) {
+    rewriteFlowMap(t.lines, m, key, raw);
+    return t.out();
+  }
   if (e) {
     if (raw === null) removeSpan(t.lines, e.start, e.end, m.indent);
     else if (e.valueCol === -1) {
@@ -530,6 +637,64 @@ function insertionLine(t: TeText, it: YItem, key: string): number {
     if (ei > idx) return e.start;
   }
   return contentEnd(t.lines, it.end);
+}
+
+/** Set (or with `null`, remove) a router's `routing:` block (IR_SCHEMA §3.4), written as one flow
+ *  map of the keys given; a key left null is not written. Replaces the whole block. */
+export function setNodeRouting(text: string, name: string, routing: TeRouting | null): string {
+  const t = new TeText(text);
+  const it = t.node(name);
+  const m = it.value as YMap;
+  const pairs = routing ? (["region", "role", "loopback"] as const).filter((k) => routing[k]).map((k) => `${k}: ${encodeScalar(routing[k]!)}`) : [];
+  const raw = pairs.length ? `{ ${pairs.join(", ")} }` : null;
+  if (m.flow && m.flowLine !== undefined) {
+    rewriteFlowMap(t.lines, m, "routing", raw);
+    return t.out();
+  }
+  const e = entry(m, "routing");
+  if (e) removeSpan(t.lines, e.start, e.end, m.indent);
+  if (raw === null) return t.out();
+  if (e) {
+    insertLines(t.lines, e.start, [`${" ".repeat(m.indent)}routing: ${raw}`]);
+    return t.out();
+  }
+  const t2 = new TeText(t.out());
+  const it2 = t2.node(name);
+  insertLines(t2.lines, insertionLine(t2, it2, "routing"), [`${" ".repeat((it2.value as YMap).indent)}routing: ${raw}`]);
+  return t2.out();
+}
+
+/** Add a `fabric.regions[]` entry (IR_SCHEMA §3.4), writing `fabric:` / `regions:` when absent. A
+ *  region of that id already there is refused; a `fabric:` the canvas cannot place an item in (a flow
+ *  `regions: [...]`, a gated `fabric_when:`) is refused with the way. */
+export function addFabricRegion(text: string, region: TeFabricRegion): string {
+  const t = new TeText(text);
+  const tc = t.tc;
+  const pad = (n: number) => " ".repeat(n);
+  const item = `- { id: ${encodeScalar(region.id)}${region.igp ? `, igp: ${encodeScalar(region.igp)}` : ""} }`;
+  const fab = entry(tc, "fabric");
+  if (!fab || (fab.value.kind === "scalar" && fab.value.value === null)) {
+    const lines = [`${pad(tc.indent)}fabric:`, `${pad(tc.indent + 2)}regions:`, `${pad(tc.indent + 4)}${item}`];
+    if (fab) {
+      removeSpan(t.lines, fab.start, fab.end, tc.indent);
+      insertLines(t.lines, fab.start, lines);
+    } else insertLines(t.lines, contentEnd(t.lines, tc.end), lines);
+    return t.out();
+  }
+  if (entry(tc, "fabric_when")) throw new Error("the twin's fabric: is gated by fabric_when; add the OSPF region in YAML");
+  if (fab.value.kind !== "map" || fab.value.flow) throw new Error("fabric: is not a block mapping the canvas can add a region to; edit it in YAML");
+  const fm = fab.value;
+  const regs = entry(fm, "regions");
+  if (!regs) {
+    insertLines(t.lines, contentEnd(t.lines, fab.end), [`${pad(fm.indent)}regions:`, `${pad(fm.indent + 2)}${item}`]);
+    return t.out();
+  }
+  if (regs.value.kind !== "seq" || regs.value.flow) throw new Error("fabric.regions is not a block list the canvas can add to; edit it in YAML");
+  const seq = regs.value;
+  if (seq.items.some((i) => scalarText(get(i.value, "id")) === region.id)) throw new Error(`a fabric region '${region.id}' already exists`);
+  const last = seq.items[seq.items.length - 1];
+  insertLines(t.lines, last ? contentEnd(t.lines, last.end) : regs.line + 1, [`${pad(last ? seq.indent : fm.indent + 2)}${item}`]);
+  return t.out();
 }
 
 /** Replace a node group's attachments: `net: X` for one unpinned leg, a
@@ -609,7 +774,9 @@ export function copyNames(base: string, count: number, taken: ReadonlySet<string
   const out: string[] = [];
   let n = 1;
   while (out.length < count) {
-    const candidate = count === 1 && !numbered && !taken.has(base) ? base : `${base}-${n}`;
+    // One node takes the bare name; numbered or not, the -N suffix is for N > 1 (round 3 item 5b). A
+    // numbered single whose bare name is taken continues at -2 (`core`, then `core-2`).
+    const candidate = count === 1 && !taken.has(base) ? base : count === 1 && numbered && n === 1 ? `${base}-2` : `${base}-${n}`;
     n++;
     if (!taken.has(candidate) && !out.includes(candidate)) out.push(candidate);
     if (n > count + taken.size + 1000) break;

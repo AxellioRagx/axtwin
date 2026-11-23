@@ -4,12 +4,14 @@
  * progress that ticks the tiers off, the return to the undeployed state without a reload, and
  * the API's reason verbatim on a refusal. jsdom over the fake API.
  */
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../src/api/client";
-import type { DeploySummary } from "../src/api/types";
-import { currentTier, destroyWord, standingTiers, type DestroyRun } from "../src/areas/shell/destroy";
+import type { Api } from "../src/api/discovery";
+import type { DeployList, DeploySummary, DestroyProgress, DestroyResult } from "../src/api/types";
+import { currentTier, destroyWord, standingTiers, useDestroy, type DestroyRun } from "../src/areas/shell/destroy";
 import { DEPLOY, host, panel, seeded, enabled } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
@@ -212,5 +214,158 @@ describe("the canvas bar", () => {
     await waitFor(() => expect(dialog().queryByTestId("destroy-dirty")).toBeNull());
     expect(state.writes.some((w) => w.op === "put-twin-config" || w.op === "twin-config-write")).toBe(true);
     expect(state.writes.some((w) => w.op === "destroy")).toBe(false);
+  });
+});
+
+describe("useDestroy ends the run (2026-11-21: the dialog sat on 'Destroying…' after the destroy finished)", () => {
+  const RESULT: DestroyResult = { deploy_id: "dep-1", destroyed: true, removed: 3, errors: 0, actions: [], cascade_errors: [], tiers: [{ tier: "te", deploy_id: "dep-1", destroyed: true, removed: 3, errors: 0 }] };
+  const IDLE: DestroyProgress = { deploy_id: "dep-1", running: false, step: null, done: 0, total: 0, elapsed_s: null };
+  /** A fake of the three calls the hook makes; `rows` is what `listDeploys` answers now. */
+  function fake(destroy: () => Promise<DestroyResult>, rows: { now: DeploySummary[] }, progress: () => DestroyProgress = () => IDLE) {
+    return {
+      destroyDeploy: vi.fn(destroy),
+      listDeploys: vi.fn(async (): Promise<DeployList> => ({ deploys: rows.now, warnings: [] })),
+      getDestroyProgress: vi.fn(async () => progress()),
+    } as unknown as Api;
+  }
+  function Harness({ api, onDone, tiers = ["te"] }: { api: Api; onDone: (r: DestroyResult) => void; tiers?: string[] }) {
+    const { run, start } = useDestroy(api, onDone);
+    return (
+      <div>
+        <button type="button" onClick={() => start("dep-1", tiers)}>go</button>
+        <span data-testid="phase">{run?.phase ?? "idle"}</span>
+        <span data-testid="down">{run?.down.join(",") ?? ""}</span>
+        <span data-testid="error">{run?.error ? String(run.error) : ""}</span>
+      </div>
+    );
+  }
+  const phase = () => screen.getByTestId("phase").textContent;
+
+  it("(a) under StrictMode, a resolved destroyDeploy moves the phase to done and calls onDone once", async () => {
+    const onDone = vi.fn();
+    const api = fake(async () => RESULT, { now: [DEPLOY] });
+    render(<StrictMode><Harness api={api} onDone={onDone} /></StrictMode>);
+    fireEvent.click(screen.getByText("go"));
+    await waitFor(() => expect(phase()).toBe("done"));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(RESULT);
+  });
+
+  it("(b) destroyDeploy never resolving: a deploy list that omits the deploy and an idle sweep end the run, once; a late answer changes nothing", async () => {
+    const onDone = vi.fn();
+    let answer: (r: DestroyResult) => void = () => undefined;
+    const rows = { now: [DEPLOY, TFC] };
+    const api = fake(() => new Promise<DestroyResult>((r) => (answer = r)), rows);
+    render(<StrictMode><Harness api={api} onDone={onDone} tiers={["te", "tfc"]} /></StrictMode>);
+    fireEvent.click(screen.getByText("go"));
+    // Still standing: the poll keeps it running.
+    await waitFor(() => expect(vi.mocked(api.listDeploys)).toHaveBeenCalled(), { timeout: 3000 });
+    expect(phase()).toBe("running");
+    // The API drops the destroyed deploy (and its child) from the list.
+    rows.now = [];
+    await waitFor(() => expect(phase()).toBe("done"), { timeout: 4000 });
+    expect(screen.getByTestId("down").textContent).toBe("te,tfc");
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0]![0]).toMatchObject({ deploy_id: "dep-1", destroyed: true });
+    await act(async () => answer(RESULT));
+    await new Promise((r) => setTimeout(r, 1700));
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(phase()).toBe("done");
+  });
+
+  it("the run waits for the sweep: the deploy gone from the list while the sweep still runs is not done yet", async () => {
+    const onDone = vi.fn();
+    let sweeping = true;
+    const api = fake(() => new Promise<DestroyResult>(() => undefined), { now: [] }, () => (sweeping ? { ...IDLE, running: true, step: "network" } : IDLE));
+    render(<StrictMode><Harness api={api} onDone={onDone} /></StrictMode>);
+    fireEvent.click(screen.getByText("go"));
+    await waitFor(() => expect(vi.mocked(api.getDestroyProgress)).toHaveBeenCalled(), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(phase()).toBe("running");
+    sweeping = false;
+    await waitFor(() => expect(phase()).toBe("done"), { timeout: 4000 });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lost DELETE answer (no answer, a gateway timeout) leaves the poll to decide: the deploy gone, the run is done", async () => {
+    const onDone = vi.fn();
+    const rows = { now: [DEPLOY] };
+    const api = fake(async () => {
+      throw new ApiError({ kind: "network", status: 0, message: "no answer from /api/deploys/dep-1", url: "/api/deploys/dep-1" });
+    }, rows);
+    render(<StrictMode><Harness api={api} onDone={onDone} /></StrictMode>);
+    fireEvent.click(screen.getByText("go"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(phase()).toBe("running");
+    rows.now = [];
+    await waitFor(() => expect(phase()).toBe("done"), { timeout: 4000 });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("a lost DELETE answer with nothing coming down (te standing, sweep idle) fails with that error, never hangs", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const onDone = vi.fn();
+      const api = fake(async () => {
+        throw new ApiError({ kind: "http", status: 504, message: "gateway timeout", url: "/api/deploys/dep-1" });
+      }, { now: [DEPLOY] });
+      render(<StrictMode><Harness api={api} onDone={onDone} /></StrictMode>);
+      fireEvent.click(screen.getByText("go"));
+      for (let i = 0; i < 6; i++) await act(async () => void (await vi.advanceTimersByTimeAsync(1500)));
+      await waitFor(() => expect(phase()).toBe("failed"));
+      expect(screen.getByTestId("error").textContent).toContain("gateway timeout");
+      expect(onDone).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("the three places close and refresh when the poll sees the destroy finished (StrictMode, the DELETE answer never comes)", () => {
+  /** The API as it is now: a destroyed deploy (and its children) leave the list; the DELETE never answers. */
+  const finishWithoutAnswer = (state: { deploys: DeploySummary[]; destroyHold?: Promise<void> }) => {
+    state.destroyHold = new Promise<void>(() => undefined);
+    return () => (state.deploys = state.deploys.filter((d) => d.deploy_id !== "dep-1" && !d.scenario_id.endsWith("-dep-1")));
+  };
+
+  it("the Twins list: the dialog closes and the row offers Deploy again", async () => {
+    const { api, state } = seeded({ deploys: [DEPLOY, TFC, TAP] });
+    const finish = finishWithoutAnswer(state);
+    renderAt(api, "/twins", { strict: true });
+    await screen.findAllByTestId("twin-row");
+    fireEvent.click(within(rowOf("corp-live")).getByTestId("destroy-open"));
+    fireEvent.click(dialog().getByTestId("destroy-confirm"));
+    await waitFor(() => expect(dialog().getByTestId("destroy-progress")).toBeTruthy());
+    finish();
+    await waitFor(() => expect(screen.queryByTestId("destroy-dialog")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(within(rowOf("corp-live")).getByRole("link", { name: "Deploy" })).toBeTruthy());
+  });
+
+  it("the twin page: the dialog closes and the page reads undeployed", async () => {
+    const { api, state } = seeded();
+    const finish = finishWithoutAnswer(state);
+    renderAt(api, "/twins/corp-live", { strict: true });
+    await screen.findByTestId("twin-summary");
+    fireEvent.click(within(screen.getByTestId("deploy-panel")).getByTestId("destroy-open"));
+    fireEvent.click(dialog().getByTestId("destroy-confirm"));
+    await waitFor(() => expect(dialog().getByTestId("destroy-progress")).toBeTruthy());
+    finish();
+    await waitFor(() => expect(screen.queryByTestId("destroy-dialog")).toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Plan the deploy/ })).toBeTruthy());
+    expect(screen.getByTestId("deploy-state").textContent).toMatch(/^none/);
+  });
+
+  it("the canvas bar: the dialog closes and the canvas is the undeployed edit mode", async () => {
+    const { api, state } = seeded({ deploys: [DEPLOY] });
+    const finish = finishWithoutAnswer(state);
+    renderAt(api, "/twins/corp-live/canvas", { strict: true });
+    await screen.findAllByTestId("canvas-host");
+    fireEvent.click(within(screen.getByTestId("exits")).getByTestId("destroy-open"));
+    fireEvent.click(dialog().getByTestId("destroy-confirm"));
+    await waitFor(() => expect(dialog().getByTestId("destroy-progress")).toBeTruthy());
+    finish();
+    await waitFor(() => expect(screen.queryByTestId("destroy-dialog")).toBeNull(), { timeout: 4000 });
+    expect((await screen.findByTestId("exit-note")).textContent).toContain("destroyed dep-1");
+    await waitFor(() => expect(screen.getByTestId("mode").textContent).toBe("edit · undeployed"));
   });
 });

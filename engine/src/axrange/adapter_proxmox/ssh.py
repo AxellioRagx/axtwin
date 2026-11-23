@@ -323,6 +323,65 @@ _VYOS_ERROR_MARKERS = (
 )
 
 
+VYOS_DISCARDED_MARKER = "AXR-VYOS-DISCARDED"
+VYOS_COMMIT_FAILED_MARKER = "AXR-VYOS-COMMIT-FAILED"
+
+
+def vyos_apply_script(sets: list[str]) -> str:
+    """The vbash script-template script `apply_vyos_sets` pipes to the router.
+
+    Live behaviour on vyos@2026.06 (dev45 2026-11-21) this is built around:
+    `set` exits 0 even on "Set failed", so neither `||` nor `set -e` sees a
+    rejected line; and `set` inside `$(...)` silently runs bash's builtin `set`
+    (the vyatta alias does not expand there). So each `set` appends its output to
+    a log file, the log is grepped before `commit`, and any error marker
+    discards the session instead of committing the lines that were accepted.
+    "already exists" is NOT an error (exit 0, nothing to change): a re-run over
+    an applied config stays a no-op.
+    """
+    pattern = "|".join(_VYOS_ERROR_MARKERS)
+    return (
+        "source /opt/vyatta/etc/functions/script-template\n"
+        "configure\n"
+        "AXR_LOG=$(mktemp)\n"
+        + "".join(f'{line} >>"$AXR_LOG" 2>&1\n' for line in sets)
+        + 'cat "$AXR_LOG"\n'
+        f'if grep -qiE \'{pattern}\' "$AXR_LOG"; then\n'
+        f"  discard\n  echo {VYOS_DISCARDED_MARKER}\n"
+        "else\n"
+        '  commit >>"$AXR_LOG.commit" 2>&1\n'
+        '  cat "$AXR_LOG.commit"\n'
+        f'  if grep -qiE \'{pattern}\' "$AXR_LOG.commit"; then discard; echo {VYOS_COMMIT_FAILED_MARKER}; '
+        "else save; fi\n"
+        "fi\n"
+        'rm -f "$AXR_LOG" "$AXR_LOG.commit"\n'
+        "exit\n"
+    )
+
+
+def _vyos_outcome(out: str) -> str:
+    if VYOS_DISCARDED_MARKER in out:
+        return " (discarded, nothing committed)"
+    if VYOS_COMMIT_FAILED_MARKER in out:
+        return " (commit failed, not saved)"
+    return ""
+
+
+def _vyos_error_excerpt(out: str, limit: int = 600) -> str:
+    """The lines that carry a VyOS error (plus the path line above each), not the
+    head of the output: on a re-run the head is a page of benign "already exists"
+    lines that buried the real error (dev45 three-tier-dc-manual, 2026-11-21)."""
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    keep: list[str] = []
+    for i, ln in enumerate(lines):
+        if any(m in ln.lower() for m in _VYOS_ERROR_MARKERS):
+            if i and lines[i - 1] not in keep and "configuration path" in lines[i - 1].lower():
+                keep.append(lines[i - 1])
+            if ln not in keep:
+                keep.append(ln)
+    return (" | ".join(keep) or out)[:limit]
+
+
 def apply_vyos_sets(
     cfg: AdapterConfig,
     wan_ip: str,
@@ -345,17 +404,18 @@ def apply_vyos_sets(
     benign no-op from a real failure, and a marker scan alone would mistake an
     auth/connect failure for success (LES-005).
 
+    All-or-nothing (dev45 2026-11-21): the sets are staged and checked BEFORE
+    `commit`; one rejected line discards the whole session, so a failed attempt
+    leaves the router exactly as it was and the retry starts clean
+    (`vyos_apply_script`). A failed `commit` is not `save`d (VyOS may already
+    have applied part of it; the retry's "already exists" lines absorb that).
+
     Returns the combined stdout+stderr on success. Raises AdapterError with
     `op_label` as context: `error_class="router-ssh-failed"` for an SSH
     transport failure, `error_class="router-config-failed"` for a VyOS apply
     error.
     """
-    script = (
-        "source /opt/vyatta/etc/functions/script-template\n"
-        "configure\n"
-        + "\n".join(sets)
-        + "\ncommit\nsave\nexit\n"
-    )
+    script = vyos_apply_script(sets)
     rc, out = run_ssh_guest(
         cfg, wan_ip, ssh_user, "vbash -s", stdin_text=script, timeout_s=timeout_s,
     )
@@ -368,7 +428,8 @@ def apply_vyos_sets(
     low = out.lower()
     if any(m in low for m in _VYOS_ERROR_MARKERS):
         raise AdapterError(
-            f"{op_label}: ip={wan_ip} apply failed: {out[:400]}",
+            f"{op_label}: ip={wan_ip} apply failed{_vyos_outcome(out)}: "
+            f"{_vyos_error_excerpt(out)}",
             error_class="router-config-failed",
         )
     return out

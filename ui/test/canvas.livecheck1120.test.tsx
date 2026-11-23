@@ -163,7 +163,7 @@ describe("2. the router wiring dialog shows the links already drawn and runs OSP
     fireEvent.click(router("router2-1"), { shiftKey: true });
     fireEvent.click(router("router3-1"), { shiftKey: true });
     fireEvent.contextMenu(router("router3-1"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 3 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 3 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     fireEvent.click(dlg.getByLabelText("ring"));
     expect(dlg.getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(TRANSITS.map((t) => `already linked: ${t}`));
@@ -214,12 +214,13 @@ describe("2. the router wiring dialog shows the links already drawn and runs OSP
     fireEvent.change(field(), { target: { value: "1" } });
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(readTe(doc.files["te.yaml"]!).segments.find((s) => s.name === "router1-1--router2-1")!.ospfArea).toBe(1);
+    // Round 3: an area on a transit turns OSPF on for its routers.
+    expect(readTe(doc.files["te.yaml"]!).nodes.filter((n) => n.routing?.region === "dc").map((n) => n.name)).toEqual(["router1-1", "router2-1"]);
     view.rerender(<SidePanel {...props()} />);
     expect(field().value).toBe("1");
     fireEvent.change(field(), { target: { value: "" } });
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(readTe(doc.files["te.yaml"]!).segments.find((s) => s.name === "router1-1--router2-1")!.ospfArea).toBeNull();
-    expect(doc.files["te.yaml"]).not.toContain("ospf_area");
   });
 });
 

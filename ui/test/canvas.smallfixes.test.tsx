@@ -37,7 +37,7 @@ function quickAdd(search: string, x: number, y: number, id?: string) {
 const pane = async () => waitFor(() => expect(window.document.querySelector(".react-flow__pane")).not.toBeNull());
 
 describe("names", () => {
-  it("new routers are router-1, router-2, router-3 (the first is not plain 'router')", async () => {
+  it("new routers: one alone takes the bare prefix, the next continue at -2, -3 (round 3 item 5b)", async () => {
     const { api } = seeded();
     identityView();
     renderAt(api, "/canvas/new");
@@ -46,7 +46,7 @@ describe("names", () => {
       quickAdd("router", x, 200, "router");
       fireEvent.click(await screen.findByTestId("drop-add"));
     }
-    await waitFor(() => expect(screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort()).toEqual(["router-1", "router-2", "router-3"]));
+    await waitFor(() => expect(screen.getAllByTestId("canvas-router").map((r) => r.dataset["nodeId"]).sort()).toEqual(["router", "router-2", "router-3"]));
   });
 
   it("a segment a drop makes is named for its first host's role, de-duplicated: file-server-lan, file-server-lan-2", async () => {
@@ -59,7 +59,7 @@ describe("names", () => {
       fireEvent.click(await screen.findByTestId("drop-add"));
     }
     await waitFor(() => expect(screen.getAllByTestId("canvas-segment").map((s) => s.dataset["name"]).sort()).toEqual(["file-server-lan", "file-server-lan-2"]));
-    expect(screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"]).sort()).toEqual(["file-server-1", "file-server-2"]);
+    expect(screen.getAllByTestId("canvas-host").map((h) => h.dataset["nodeId"]).sort()).toEqual(["file-server", "file-server-2"]);
   });
 });
 

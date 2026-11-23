@@ -29,6 +29,7 @@ import {
   readDoc,
   removeLink,
   removeNode,
+  removalPlan,
   removeSegment,
   removeTap,
   renameNode,
@@ -51,11 +52,15 @@ import type { Files } from "./edit/commands";
 import type { TeModel } from "./edit/te";
 import { effectiveAssignment } from "./edit/tfc";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
-import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf } from "./edit/subtree";
+import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf, uplinksOf } from "./edit/subtree";
 import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
+import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
+import { inTransitPool as isTransitCidr } from "./edit/allocate";
+import { effectiveGateway, routersOn, setVip, shareGateway, stopSharing, vrrpImageGaps } from "./edit/vrrp";
+import { enableOspf, runsOspf } from "./edit/ospf";
 import { uncarriedLine } from "./canvas/placement";
 
 export type Selection =
@@ -110,6 +115,10 @@ export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes
 }
 
 export interface SidePanelProps {
+  /** The image VRRP members need (the `l3-switch` profile's, VyOS), offered when a member runs another (D5). */
+  vrrpImage?: string | null;
+  /** Duplicate a subtree through the page (positions beside the original, B3); absent, the panel applies it itself. */
+  onDuplicate?(root: string, attachTo: string | null, opts: { sameUplinks?: boolean }): void;
   twinId: string;
   model: DocModel;
   /** The baseline's model, for what a promote would assert; null when unknown. */
@@ -696,9 +705,15 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
   const ro = p.locked;
   const devices = p.model.te.nodes.filter((n) => (n.kind === "switch" || n.kind === "router") && !t.devices.includes(n.name));
   const count = subtreeCount(p.model, t);
-  const dup = (attachTo: string | null) => {
+  const ups = uplinksOf(p.model, p.root);
+  const SAME = "\u0000same";
+  const dup = (choice: string | null) => {
+    const attachTo = choice === SAME ? null : choice;
+    const sameUplinks = choice === SAME;
+    // The page's own path places the copy beside the original, its hosts with it (B3).
+    if (p.onDuplicate) return p.onDuplicate(p.root, attachTo, { sameUplinks });
     const r = { root: "" };
-    if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });
+    if (p.apply(`duplicate ${p.root}'s subtree${attachTo ? ` onto ${attachTo}` : sameUplinks ? " with the same uplinks" : ""}`, (d, m) => { const out = duplicateSubtree(d, m, p.root, attachTo, { sameUplinks }); r.root = out.root; return out.files; }) === null) p.onSelect?.({ kind: "subtree", root: r.root });
   };
   return (
     <section className="cv-side-section" data-testid="subtree-panel">
@@ -717,10 +732,11 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
         <dd className="mono">{t.uplink ? `${t.uplink.a.device}#${t.uplink.a.port} — ${t.uplink.b.device}#${t.uplink.b.port}` : "none (parked)"}</dd>
       </dl>
       <h4>Duplicate <span className="muted">· topology</span></h4>
-      <p className="muted hint">names follow -2, -3…; every copied segment takes the next free /24 in its prefix and its hosts addresses in it; roles, personas, counts and member overrides copy; taps never do</p>
+      <p className="muted hint">names follow -2, -3… (a numbered prefix, rack1, takes the next free number: rack2); every copied segment takes the next free /24 in its prefix and its hosts addresses in it; roles, personas, counts and member overrides copy; taps never do</p>
       <div className="row cv-inline">
         <select aria-label="Duplicate subtree onto device" value={target} disabled={ro} onChange={(e) => setTarget(e.target.value)}>
           <option value="">parked (attach later)</option>
+          {ups.length ? <option value={SAME}>same uplinks as the original ({ups.join(", ")})</option> : null}
           {devices.map((d) => (
             <option key={d.name} value={d.name}>{d.name}</option>
           ))}
@@ -730,7 +746,7 @@ function SubtreePanel(p: SidePanelProps & { root: string }) {
         </button>
       </div>
       <h4>Actions</h4>
-      <button type="button" className="danger" disabled={ro} data-testid="remove-subtree" title="remove the devices, hosts, links and segments of this subtree" onClick={() => { if (p.apply(`remove ${p.root}'s subtree`, (d, m) => { let files = d.files; let model = m; for (const h of [...t.hosts, ...t.devices]) { files = removeNode({ ...d, files }, model, h); model = readDoc({ ...d, files }); } for (const s of t.segments) { files = removeSegment({ ...d, files }, model, s); model = readDoc({ ...d, files }); } return files; }) === null) p.onSelect?.({ kind: "none" }); }}>
+      <button type="button" className="danger" disabled={ro} data-testid="remove-subtree" title="remove the devices, hosts, links and segments of this subtree" onClick={() => { if (p.apply(`remove ${p.root}'s subtree`, (d, m) => { let files = d.files; let model = m; for (const h of [...t.hosts, ...t.devices]) { files = removeNode({ ...d, files }, model, h, { keepSegments: false }); model = readDoc({ ...d, files }); } for (const s of t.segments) { if (!model.te.segments.some((x) => x.name === s)) continue; files = removeSegment({ ...d, files }, model, s); model = readDoc({ ...d, files }); } return files; }) === null) p.onSelect?.({ kind: "none" }); }}>
         Remove subtree
       </button>
     </section>
@@ -810,6 +826,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
   const [legTarget, setLegTarget] = useState("");
+  const [keepHosted, setKeepHosted] = useState(true);
   const [mergeTarget, setMergeTarget] = useState("");
   if (!n) return <p className="muted">node {p.name} is not in the document</p>;
   const mergeInto = mergeTargets(p.model, n.name);
@@ -819,11 +836,20 @@ function NodePanel(p: SidePanelProps & { name: string }) {
   const baseRole = p.baseline?.te.nodes.find((x) => x.name === n.name)?.role;
   const roleChanged = p.baseline !== null && baseRole !== undefined && baseRole !== n.role && n.role;
   const otherSegments = p.model.te.segments.filter((s) => !n.nets.some((l) => l.segment === s.name));
-  const isSwitch = n.kind === "switch" || (n.role !== null && SWITCH_ROLES.has(n.role));
+  // A router is never "switch class", whatever its role (`firewall`, `l3-switch`): its help is a router's (B8, 2026-11-21).
+  const isSwitch = n.kind === "switch" || (n.kind !== "router" && n.role !== null && SWITCH_ROLES.has(n.role));
   const observed = isSwitch && p.observedSegments ? p.observedSegments(n.name).filter((seg) => p.model.te.segments.some((s) => s.name === seg)) : [];
   const links = p.model.te.links.filter((l) => l.a.device === n.name || l.b.device === n.name);
   const tapsHere = (p.model.tap?.bindings ?? []).filter((b) => b.scope === "port" && b.targets.includes(n.name));
-  const title = n.kind === "router" ? "Router" : n.kind === "switch" ? "Switch" : "Node group";
+  const title = isL3Switch(n) ? "L3 switch" : n.kind === "router" ? "Router" : n.kind === "switch" ? "Switch" : "Node group";
+  const kindHint =
+    n.kind === "router"
+      ? isL3Switch(n)
+        ? "an L3 switch is a router with role l3-switch (VyOS): its legs are the LANs it is the gateway of and its transits"
+        : "a router joins segments: each leg is an addressed interface on one segment"
+      : n.kind === "switch"
+        ? "a switch is a device wired by links; without an image it deploys as nothing but its segments' vnets"
+        : "a host sits on its segments; a router joins them, a switch carries them";
   return (
     <section className="cv-side-section" data-testid="node-panel" data-tier-blocks="identity,traffic,taps,members,provenance">
       <h3>
@@ -833,7 +859,7 @@ function NodePanel(p: SidePanelProps & { name: string }) {
       <Field label="Name">
         <Text ariaLabel="Node name" value={n.name} disabled={ro} mono onCommit={(v) => { if (p.apply(`rename ${n.name} → ${v}`, (d, m) => renameNode(d, m, n.name, v)) === null) p.onRenamed?.("node", n.name, v); }} />
       </Field>
-      <Field label="Kind" hint="a switch is a device wired by links; without an image it deploys as nothing but its segments' vnets">
+      <Field label="Kind" hint={kindHint}>
         <select aria-label="Kind" value={n.kind} disabled={ro} onChange={(e) => p.apply(`kind of ${n.name}`, (d) => setNodeField(d, n.name, "kind", e.target.value === "host" ? null : e.target.value))}>
           <option value="host">host</option>
           <option value="router">router</option>
@@ -856,6 +882,12 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           ))}
         </datalist>
       </Field>
+      {n.kind === "router" && n.routing ? (
+        <p className="muted hint mono" data-testid="node-routing">
+          routing: region {n.routing.region ?? "?"}, role {n.routing.role ?? "?"}, loopback {n.routing.loopback ?? "?"}
+          {runsOspf(p.model.te, n) ? " (OSPF)" : ""}
+        </p>
+      ) : null}
       <Field label="Count" hint="instances fanned out at deploy; a number or a ${PARAM:default}">
         <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(v.trim()) ? Number(v.trim()) : v.trim() || null))} />
       </Field>
@@ -1046,9 +1078,33 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </button>
         </div>
       ) : null}
-      <button type="button" className="danger" disabled={ro} onClick={() => p.apply(`remove ${n.name}`, (d, m) => removeNode(d, m, n.name))}>
-        Remove node group
-      </button>
+      {(() => {
+        // B1: what goes with it -- its links and, for a switch, the segments it alone carried; a segment
+        // with hosts still on it is kept unless this is unticked.
+        const plan = removalPlan(p.model, n.name);
+        const hosted = Object.keys(plan.hosted);
+        const gone = plan.segments.filter((seg) => !plan.hosted[seg] || !keepHosted);
+        return (
+          <>
+            {plan.links.length || plan.segments.length ? (
+              <p className="muted hint" data-testid="remove-plan">
+                removes {plan.links.length ? `${plan.links.length} link${plan.links.length === 1 ? "" : "s"}` : ""}
+                {plan.links.length && gone.length ? " and " : ""}
+                {gone.length ? `segment${gone.length === 1 ? "" : "s"} ${gone.join(", ")}` : ""} with it
+              </p>
+            ) : null}
+            {hosted.length ? (
+              <label className="cv-check" data-testid="keep-segment">
+                <input type="checkbox" checked={keepHosted} disabled={ro} onChange={(e) => setKeepHosted(e.target.checked)} />
+                keep {hosted.map((seg) => `${seg} (${plan.hosted[seg]} host${plan.hosted[seg] === 1 ? "" : "s"} on it)`).join(", ")}
+              </label>
+            ) : null}
+            <button type="button" className="danger" disabled={ro} data-testid="remove-node" onClick={() => p.apply(`remove ${n.name}`, (d, m) => removeNode(d, m, n.name, { keepSegments: hosted.length ? keepHosted : undefined }))}>
+              Remove {n.kind === "switch" ? "switch" : n.kind === "router" ? (isL3Switch(n) ? "L3 switch" : "router") : "node group"}
+            </button>
+          </>
+        );
+      })()}
     </section>
   );
 }
@@ -1072,10 +1128,61 @@ function NodesPanel(p: SidePanelProps & { names: string[] }) {
           Duplicate
         </button>
       </div>
-      <button type="button" className="danger" disabled={p.locked} onClick={() => p.apply(`remove ${p.names.length} groups`, (d, m) => p.names.reduce((files, name) => removeNode({ ...d, files }, m, name), d.files))}>
+      <button type="button" className="danger" disabled={p.locked} onClick={() => p.apply(`remove ${p.names.length} groups`, (d) => p.names.reduce((files, name) => (readDoc({ ...d, files }).te.nodes.some((x) => x.name === name) ? removeNode({ ...d, files }, readDoc({ ...d, files }), name) : files), d.files))}>
         Remove all
       </button>
     </section>
+  );
+}
+
+/** First-hop redundancy on a LAN (design D5): a segment with two or more router legs offers "Share one
+ *  gateway (VRRP)"; one that shares shows its VIP (editable), its members, and Stop sharing. */
+function SharedGateway(p: SidePanelProps & { segment: string }) {
+  const [switchImage, setSwitchImage] = useState(true);
+  const s = p.model.te.segments.find((x) => x.name === p.segment);
+  if (!s) return null;
+  const ro = p.locked;
+  const routers = routersOn(p.model.te, s.name);
+  if (s.vrrp) {
+    const gaps = vrrpImageGaps(p.model.te, s.vrrp.members);
+    return (
+      <div className="cv-vrrp" data-testid="vrrp">
+        <h4>Shared gateway (VRRP) <span className="muted">· topology</span></h4>
+        <Field label="VIP" hint="the hosts' gateway, floated between the members; no node's own address">
+          <Text ariaLabel="VIP" value={s.vrrp.vip} disabled={ro} mono onCommit={(v) => { if (v.trim()) p.apply(`VIP of ${s.name}`, (d, m) => setVip(d, m, s.name, v.trim())); }} />
+        </Field>
+        <p className="muted" data-testid="vrrp-members">
+          members: <span className="mono">{s.vrrp.members.map((m) => `${m}${s.vrrp!.priority?.[m] ? ` (${s.vrrp!.priority[m]})` : ""}`).join(", ")}</span>
+          {s.vrrp.members[0] ? ` — ${s.vrrp.members[0]} is master unless a priority says otherwise` : ""}
+        </p>
+        {gaps.length ? <p className="error" data-testid="vrrp-gaps">{gaps.map((g) => `${g.router} runs ${g.image}`).join("; ")}: VRRP is rendered on VyOS only</p> : null}
+        <button type="button" disabled={ro} data-testid="vrrp-stop" onClick={() => p.apply(`stop sharing ${s.name}'s gateway`, (d, m) => stopSharing(d, m, s.name))}>
+          Stop sharing
+        </button>
+      </div>
+    );
+  }
+  if (routers.length < 2 || isTransitCidr(s.cidr)) return null;
+  const gaps = vrrpImageGaps(p.model.te, routers);
+  const vip = effectiveGateway(p.model.te, s.name) ?? s.gateway ?? p.model.te.nodes.find((n) => n.name === routers[0])?.nets.find((l) => l.segment === s.name)?.ip ?? null;
+  return (
+    <div className="cv-vrrp" data-testid="vrrp-offer">
+      <button
+        type="button"
+        disabled={ro}
+        data-testid="vrrp-share"
+        title="a vrrp: block on this segment: the VIP becomes the hosts' gateway, VyOS high-availability vrrp on each router leg"
+        onClick={() => p.apply(`share ${s.name}'s gateway (VRRP)`, (d, m) => shareGateway(d, m, s.name, { image: switchImage && p.vrrpImage ? p.vrrpImage : null }))}
+      >
+        Share one gateway (VRRP){vip ? ` at ${vip}` : ""} between {routers.join(", ")}
+      </button>
+      {gaps.length && p.vrrpImage ? (
+        <label className="cv-check" data-testid="vrrp-switch-image">
+          <input type="checkbox" checked={switchImage} disabled={ro} onChange={(e) => setSwitchImage(e.target.checked)} />
+          switch {gaps.map((g) => `${g.router} (${g.image})`).join(", ")} to {p.vrrpImage}: VRRP needs VyOS
+        </label>
+      ) : null}
+    </div>
   );
 }
 
@@ -1094,6 +1201,11 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
       <h3>
         Segment <span className="mono">{s.name}</span>
       </h3>
+      {(() => {
+        const g = twoGatewayLans(p.model.te).find((x) => x.segment === s.name);
+        return g ? <p className="muted hint cv-warn" data-testid="two-gateways">{twoGatewayText(g)}</p> : null;
+      })()}
+      <SharedGateway {...p} segment={s.name} />
       {carrier ? (
         <p className="muted hint" data-testid="segment-carrier">
           carried by switch{" "}
@@ -1135,7 +1247,7 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
         </select>
       </Field>
       {isTransit ? (
-        <Field label="OSPF area" hint="ospf_area on this transit's router legs; empty = off">
+        <Field label="OSPF area" hint={s.ospfArea === null ? "off: ospf_area on this segment's router legs; setting it turns OSPF on for its routers" : `area ${s.ospfArea}: OSPF runs on this segment's router legs${on.some((n) => n.kind === "router" && runsOspf(p.model.te, n)) ? "" : " (no router here has a routing: block in an OSPF region yet)"}`}>
           <Text
             ariaLabel="OSPF area"
             value={s.ospfArea === null ? "" : String(s.ospfArea)}
@@ -1146,7 +1258,11 @@ function SegmentPanel(p: SidePanelProps & { name: string }) {
               p.apply(`ospf area of ${s.name}`, (d) => {
                 const t = v.trim();
                 if (t && !/^\d+$/.test(t)) throw new Error(`an OSPF area is a whole number (0, 1, …), got '${t}'`);
-                return setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+                const files = setSegmentField(d, s.name, "ospf_area", t ? Number(t) : null);
+                // Round 3: an area on a transit turns OSPF on for its routers (region, routing:, their other legs).
+                const routers = on.filter((n) => n.kind === "router").map((n) => n.name);
+                if (!t || !routers.length) return files;
+                return { ...files, [d.teFile]: enableOspf(files[d.teFile]!, routers, Number(t)).text };
               })
             }
           />

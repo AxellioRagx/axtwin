@@ -555,3 +555,7 @@ g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
 .cv-st-table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .cv-st-table td { padding: 2px 4px; vertical-align: middle; }
 .cv-st-table input[type="text"] { width: 100%; }
+
+/* B9 (2026-11-21): zoomed out (compact), a transit's /30 pill hides -- in a mesh they sat across
+   one another's lines; hover or select the transit to read it. */
+.canvas-shell.compact .cv-seglink:not(.selected):not(:hover) .react-flow__edge-textwrapper { display: none; }

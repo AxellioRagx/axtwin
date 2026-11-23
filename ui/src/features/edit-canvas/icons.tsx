@@ -53,6 +53,15 @@ export const Icon = {
       <path d="M4.5 6.5l2-1.5v3zM11.5 9.5l-2 1.5v-3zM5 9.5h4.5M6.5 6.5h4.5" />
     </Svg>
   ),
+  /** An L3 switch (A4, 2026-11-21): a router's circle (edges clip at it as at a router's) holding a
+   *  switch's port box, with the routed path up and down through it. */
+  l3switch: () => (
+    <Svg>
+      <circle cx="8" cy="8" r="6.5" />
+      <rect x="4" y="6.3" width="8" height="3.4" rx="0.8" />
+      <path d="M8 2.6v2.4M6.9 3.7L8 2.6l1.1 1.1M8 11v2.4M6.9 12.3L8 13.4l1.1-1.1" />
+    </Svg>
+  ),
   cloud: () => (
     <Svg>
       <path d="M4 12.5a3 3 0 0 1 0-6 4 4 0 0 1 7.7-1.2A3.2 3.2 0 0 1 12 12.5z" />

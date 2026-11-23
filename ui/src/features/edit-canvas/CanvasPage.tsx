@@ -52,7 +52,7 @@ import { DeployFlow } from "../../areas/shell/DeployFlow";
 import { NO_SEGMENT_REASON, UNTITLED_ID, blankDesignFiles } from "../../areas/canvas/newDesign";
 import { conduitOf, checkBadge, checkPasses, checkStatus, findingPins, findingTarget, localFindings, mergeFindings, refusalAsCheck, targetKey, type CheckRecord } from "./edit/check";
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
-import { useLeaveGuard } from "../../areas/shell/leaveGuard";
+import { useLeaveGuard, type LeaveVia } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
 import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
@@ -66,13 +66,14 @@ import { FREE_FAN, freeLayout } from "./canvas/free";
 import { castInput } from "./canvas/cast";
 import { absolutePosition, pinKeyOf } from "./canvas/placement";
 import { CANVAS_PLANE } from "./canvas/plane";
-import { lanSitePrefix, nextFreeLan } from "./edit/allocate";
+import { lanSitePrefix, LOOPBACK_POOL, nextFreeLan } from "./edit/allocate";
 import { clearLegacyAnnotations, fromLayoutList, readLegacyAnnotations, toLayout } from "./edit/annotations";
 import { sameFiles, type Files, type Stack } from "./edit/commands";
 import { insertSwitch } from "./edit/switches";
-import type { PlaceVia } from "./Canvas";
+import type { PlaceChoices, PlaceVia } from "./Canvas";
+import { type EnableOspfResult } from "./edit/ospf";
 import { applyIntent, ospfImageGaps, OSPF_PROFILE, wirePlan, wirePlanText, wireRouters, type WireShape } from "./edit/connect";
-import { addConduit, addSegment, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
+import { addConduit, addSegment, danglingLinks, removeDanglingLinks, attach, detach, documentGraph, legacyLayout, moveTo, readDoc, rehome, removeNode, removeSegment, renamedFiles, retargetTap, saveAsFiles, setTwinCluster, type DocModel, type WorkingDoc, moveTap } from "./edit/document";
 import { applyFabricPlan } from "./edit/fabric";
 import { observedSegments } from "./canvas/evidence";
 import type { PaletteItem } from "./edit/EditContext";
@@ -82,12 +83,17 @@ import { LAYOUT_SCHEMA, layoutWrite, pinsOf, useLayoutDraft, type LayoutMode } f
 import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
-import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, writeRefs } from "./add/catalog";
-import { applyDeviceDrop, applyInternetDrop, applyTapDrop, type DropTarget } from "./add/drop";
+import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
+import { applyDeviceDrop, applyInternetDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
-import { placeDropped } from "./add/placeDrop";
+import { DEVICE_H, DEVICE_W } from "./layout/geometry";
+import { BUS_ICON } from "./canvas/bus";
+
+/** The top-left that centres a `w`×`h` box on `at` (B5: a drop lands AT the pointer). */
+const centred = (at: { x: number; y: number }, w: number, h: number) => ({ x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) });
+import { besideSubtree, clearOf, NEAR_RINGS, placeDropped } from "./add/placeDrop";
 import { TemplatePopover, TemplatesSection } from "./add/Templates";
 import { buildTemplate, carriedBindings, proposeTemplate, readMyTemplates, rememberMyTemplate, type Proposal } from "./add/saveTemplate";
 import { SaveTemplateDialog } from "./add/SaveTemplateDialog";
@@ -390,10 +396,6 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     (signal) => api.listPersonas(signal).then((p) => ({ personas: p.personas, note: null }), (e: unknown) => ({ personas: [], note: `personas not listed: ${errorText(e)}` })),
     [id],
   );
-  const profileLoad = useLoad<{ profiles: ImageProfile[]; note: string | null }>(
-    (signal) => api.listImageProfiles(signal).then((p) => ({ profiles: p.profiles, note: null }), (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}` })),
-    [],
-  );
   // Templates (§5): built-in and saved, one read; `templatesVersion` re-reads after a save (phase 3).
   const [templatesVersion, setTemplatesVersion] = useState(0);
   const templateLoad = useLoad<{ templates: Template[]; note: string | null }>(
@@ -401,11 +403,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
     [templatesVersion],
   );
   const personas = personaLoad.data?.personas ?? [];
-  const imageProfiles = profileLoad.data?.profiles ?? [];
-  // The image OSPF needs (the `router-ospf` profile), or null when the profiles name none.
-  const ospfImage = imageFor(imageProfiles, OSPF_PROFILE);
   const templates = useMemo(() => templateLoad.data?.templates ?? [], [templateLoad.data]);
-  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   const layout = useLoad<LayoutDoc>((signal) => (untitled ? Promise.resolve(readUntitledLayout()) : isDraft ? Promise.resolve(readUntitledLayout(draftScope(id), id)) : api.getLayout(id, signal)), [id, untitled, isDraft]);
   // The targets (docs/design/targets-and-lab.md §2.3): the deployed twin's target, else the default one, feeds the
   // tap inspector's Sensors (its lab's sensors, with adapter.conf's EXTERNAL_SENSORS for one release), the Lab
@@ -439,6 +437,22 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Moves and annotation changes stay on the canvas; the side-car is written
   // only by "Save layout" (or alongside a document Save / Persist).
   const editor = useEditor();
+  // D6 (2026-11-21): the image a dropped device gets is the profile's image for the platform of the
+  // target the twin deploys to -- its `cluster:`, else the target it is deployed on, else the default
+  // one (the engine's answer says which). Changing it in the Add panel writes `cluster:`.
+  const imageTarget = editor.model?.manifest?.cluster ?? data?.deploy?.target ?? null;
+  const profileLoad = useLoad<{ profiles: ImageProfile[]; note: string | null; target: string | null; platform: string | null }>(
+    (signal) =>
+      api.listImageProfiles(imageTarget, signal).then(
+        (p) => ({ profiles: p.profiles, note: null, target: p.target ?? null, platform: p.platform ?? null }),
+        (e: unknown) => ({ profiles: [], note: `image profiles not listed: ${errorText(e)}`, target: null, platform: null }),
+      ),
+    [imageTarget],
+  );
+  const imageProfiles = profileLoad.data?.profiles ?? [];
+  // The image OSPF needs (the `router-ospf` profile), or null when the profiles name none.
+  const ospfImage = imageFor(imageProfiles, OSPF_PROFILE);
+  const paletteNote = [personaLoad.data?.note, profileLoad.data?.note, templateLoad.data?.note].filter(Boolean).join("; ") || null;
   // A pin whose node no longer exists (removed, or undone away) is dormant on a design kept in this
   // browser (the untitled one, a draft): kept for a redo, but neither an unsaved change nor
   // "something on the canvas" (2026-11-20: undone back to empty, the canvas still asked to leave).
@@ -505,9 +519,13 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   // Save as draft (always available) and the draft's Replace <origin> confirm.
   const [draftOpen, setDraftOpen] = useState(false);
+  // Round 3 item 4: the leave guard's question, and where to go once a "Save as draft" from it lands.
+  const [leaveAsk, setLeaveAsk] = useState<{ via: LeaveVia; proceed: () => void } | null>(null);
+  const pendingLeave = useRef<LeaveVia | null>(null);
   const [replaceOpen, setReplaceOpen] = useState(false);
   // B3: the bulk-wiring dialog (2+ routers, a shape, OSPF on the new transits or not).
-  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number; switchImage: boolean } | null>(null);
+  /** The bulk wiring dialog; `split`: the first `split` routers are one set, the rest the other (`across`, B6). */
+  const [wireDialog, setWireDialog] = useState<{ routers: string[]; shape: WireShape; ospf: boolean; area: number; switchImage: boolean; split?: number } | null>(null);
 
   const destroyer = useDestroy(api, (r) => {
     setDestroyOpen(false);
@@ -875,12 +893,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // the §7.1 drop rules (a segment, a switch's segment, a router's new segment, the empty pane), then
   // its popover opens there; the commit writes the drop and every popover choice as ONE command.
   const onPlace = useCallback(
-    (item: PaletteItem, segment: string | null, _count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }) => {
+    (item: PaletteItem, segment: string | null, _count: number, at: { x: number; y: number } | null, via?: PlaceVia | PlaceChoices, screen?: { x: number; y: number }) => {
       if (via && "blocked" in via) {
         setBlocked(via.blocked);
         return;
       }
-      const target: DropTarget = segment ? { segment } : via && "router" in via ? { router: via.router } : { pane: true };
+      const target: DropTarget = segment ? (via && "choices" in via ? { segment, choices: via.choices, via: via.via } : { segment }) : via && "router" in via ? { router: via.router } : { pane: true };
       const where = screen ?? { x: 80, y: 80 };
       if (item.kind === "template") {
         const template = templates.find((t) => t.id === item.id);
@@ -893,7 +911,17 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       }
       if (item.kind === "tool" && item.tool === "internet") {
         const router = "router" in target ? target.router : null;
-        if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files) === null) rememberAdd(item);
+        let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
+        if (edit(router ? `internet uplink for ${router}` : "add internet", (d, m) => { const f = applyInternetDrop(d, m, target, imageFor(imageProfiles, "linux-server")).files; span = { before: m.te, after: readDoc({ ...d, files: f }).te }; return f; }) === null) {
+          rememberAdd(item);
+          // The internet's switch and sink stand where it was dropped (B5: it had always gone to the centre).
+          const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
+          if (layoutModeRef.current === "free" && made && at) {
+            const inet = made.after.segments.find((sg) => sg.name === INTERNET_SEGMENT && !made.before.segments.some((b) => b.name === sg.name));
+            const fixed = inet ? { [`segment:${inet.cidr}`]: { x: Math.round(at.x - DEVICE_W / 2), y: Math.round(at.y - DEVICE_H / 2) } } : {};
+            onPinMany(placeDropped(made.before, made.after, at, fixed, { ...settled.current, ...pinsRef.current }, { clear: true, maxRing: NEAR_RINGS }));
+          }
+        }
         return;
       }
       if (item.kind === "tool" && item.tool === "tap" && !("segment" in target)) {
@@ -914,7 +942,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       let drop: TemplateDrop | null = null;
       let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
       const reason = edit(`add template ${p.template.label}`, (d, m) => {
-        drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at);
+        // The template's root is centred on the pointer, as a card's device lands (B5).
+        drop = applyTemplateDrop(d, m, p.template, values, imageProfiles, p.at ? { x: p.at.x - DEVICE_W / 2, y: p.at.y - DEVICE_H / 2 } : null);
         span = { before: m.te, after: readDoc({ ...d, files: drop.files }).te };
         return drop.files;
       });
@@ -924,7 +953,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       // The free layout: every node of the fragment near the drop point, the hosts included (the
       // template's layout names only some of them), so nothing it made is left at the origin.
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
-      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }, { clear: true }) : done.positions;
+      const positions = layoutModeRef.current === "free" && made && p.at ? placeDropped(made.before, made.after, p.at, done.positions, { ...settled.current, ...pinsRef.current }, { clear: true, maxRing: NEAR_RINGS }) : done.positions;
       if (Object.keys(positions).length) onPinMany(positions);
       if (done.ports.length) setHighlight((h) => ({ names: done.ports, n: (h?.n ?? 0) + 1 }));
     },
@@ -951,19 +980,46 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         return r.files;
       });
       if (reason) return;
+      // B6 (2026-11-21): N routers / L3 switches dropped stand selected (right-click -> Wire…); with
+      // routers already selected, the wiring dialog opens to wire the new set to that one.
+      if ((s.card === "router" || s.card === "l3switch") && placed.length) {
+        const before = selection.kind === "node" ? selection.names.filter((n) => model?.te.nodes.find((x) => x.name === n)?.kind === "router") : [];
+        if (placed.length >= 2) setSelection({ kind: "node", names: placed });
+        if (before.length) setWireDialog({ routers: [...before, ...placed], shape: "across", ospf: false, area: 0, switchImage: true, split: before.length });
+      }
       const rolePersona = s.role ? personas.find((x) => x.id === s.role) : undefined;
       rememberAdd({ ...p.item, card: s.card, role: s.role, os: s.os, label: rolePersona ? personaLabel(rolePersona) : s.role ?? p.item.label });
       // A device dropped on the pane stands where it landed; a host on a segment hangs off it.
       const first = placed[0];
-      const fixed: Record<string, { x: number; y: number }> = p.at && first && !("segment" in s.target) ? { [`host:${first}`]: { x: Math.round(p.at.x), y: Math.round(p.at.y) } } : {};
+      // Centred on the pointer (B5, 2026-11-21), as a template and the Internet tool land.
+      const fixed: Record<string, { x: number; y: number }> = p.at && first && !("segment" in s.target) ? { [`host:${first}`]: centred(p.at, s.card === "router" || s.card === "l3switch" || s.card === "switch" ? DEVICE_W : BUS_ICON, s.card === "router" || s.card === "l3switch" || s.card === "switch" ? DEVICE_H : BUS_ICON) } : {};
       // The free layout: everything the drop made -- its new segment's implied switch, the peers --
       // stands near the drop point too (2026-11-20: they landed at the canvas's top-left corner).
       const made = span as { before: DocModel["te"]; after: DocModel["te"] } | null;
       // A drop on the pane never lands on a box already there: the group moves clear (2026-11-21).
-      if (layoutModeRef.current === "free" && made && p.at) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
+      // Hosts onto a segment or a switch stand in the row under it even with no drop point (round 3 item 3a).
+      if (layoutModeRef.current === "free" && made && (p.at || "segment" in s.target)) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
-    [pendingDrop, edit, onPin, onPinMany, personas],
+    [pendingDrop, edit, onPin, onPinMany, personas, selection, model],
+  );
+
+  // Duplicate subtree (§6.2, B3): the copy keeps the original's shape -- its root at the drop point, or
+  // beside the original when there is none (Enter, a device, the panel) -- its devices, implied switches
+  // and hosts around it (they had landed far from their switch), clear of every box already there.
+  const onDuplicate = useCallback(
+    (root: string, attachTo: string | null, drop: { at?: { x: number; y: number } | null; prefix?: string | null; sameUplinks?: boolean }) => {
+      let r: { result: DuplicateResult; model: DocModel; after: DocModel["te"] } | null = null;
+      const prefix = drop.prefix ?? null;
+      const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : drop.sameUplinks ? " with the same uplinks" : ""}${prefix ? ` under ${prefix}` : ""}`;
+      if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix, sameUplinks: Boolean(drop.sameUplinks) }); r = { result: out, model: m, after: readDoc({ ...d, files: out.files }).te }; return out.files; }) !== null || !r) return;
+      const done: { result: DuplicateResult; model: DocModel; after: DocModel["te"] } = r;
+      const known = { ...settled.current, ...pinsRef.current };
+      const at = drop.at ?? besideSubtree(done.model, root, known);
+      if (at) onPinMany(clearOf(copyPositions(done.model, root, done.result, known, at), known, done.after));
+      setSelection({ kind: "subtree", root: done.result.root });
+    },
+    [edit, onPinMany],
   );
 
   // ---- exits ----
@@ -1106,7 +1162,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         clearUntitled();
       }
       setDraftOpen(false);
-      navigate(`/canvas/drafts/${encodeURIComponent(newId)}`);
+      // Saved from the leave question: go where the operator was going (a link); Back stays on the draft.
+      const via = pendingLeave.current;
+      pendingLeave.current = null;
+      navigate(via?.kind === "link" ? via.href : `/canvas/drafts/${encodeURIComponent(newId)}`);
       return `saved as draft ${newId}${draftOrigin ? `; ${draftOrigin} is not changed` : ""}`;
     });
   // On a draft: Save draft rewrites it (no gate, nothing else touched).
@@ -1486,8 +1545,14 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           setBlocked(intent.reason);
           return;
         }
-        const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : `link ${intent.a} — ${intent.b}`;
-        if (edit(label, (d, m) => applyIntent(d, m, intent)) !== null) return;
+        const label = intent.kind === "transit" ? `connect ${intent.a} — ${intent.b} (transit ${intent.cidr})` : intent.kind === "lan" ? `new segment ${intent.name} on ${intent.router}` : intent.kind === "attach" ? `attach ${intent.node} to ${intent.segment}` : intent.kind === "gateway" ? `${intent.router} gateway on ${intent.switch}` : `link ${intent.a} — ${intent.b}`;
+        let after: DocModel["te"] | null = null;
+        if (edit(label, (d, m) => { const f = applyIntent(d, m, intent); after = readDoc({ ...d, files: f }).te; return f; }) !== null) return;
+        // A6: the second gateway on a LAN says so at once (the hint stays on the health line and the segment).
+        if (intent.kind === "gateway" && after) {
+          const two = twoGatewayLans(after).filter((g) => intent.segments.includes(g.segment) && g.routers.includes(intent.router));
+          if (two.length) setExitNote(two.map(twoGatewayText).join("; "));
+        }
         // A new LAN stands where it was dropped: its implied switch's pin.
         if (intent.kind === "lan" && at) onPin(`segment:${intent.cidr}`, at);
         if (intent.kind === "transit" || intent.kind === "lan") setSelection({ kind: "segment", names: [intent.name] });
@@ -1496,18 +1561,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       onMoveTap: (index, segment) => void edit(`move tap ${index} to ${segment}`, (d, m) => moveTap(d, m, index, segment)),
       onRetargetTap: (index, sel) => void edit(`move tap ${index} to ${sel.scope} ${sel.scope === "boundary" ? sel.target.join(" ↔ ") : sel.scope === "port" ? `${sel.target} (${sel.segment})` : sel.target}`, (d, m) => retargetTap(d, m, index, sel)),
       onMoveMember: (from, index, into) => void edit(`move ${from}${String(index).padStart(2, "0")} to ${into}`, (d, m) => moveMember(d, m, from, index, into)),
-      onDuplicateSubtree: (root, drop) => {
-        let r: { result: DuplicateResult; model: DocModel } | null = null;
-        const attachTo = drop?.attachTo ?? null;
-        const prefix = drop?.prefix ?? null;
-        const label = `duplicate ${root}'s subtree${attachTo ? ` onto ${attachTo}` : ""}${prefix ? ` under ${prefix}` : ""}`;
-        if (edit(label, (d, m) => { const out = duplicateSubtree(d, m, root, attachTo, { prefix }); r = { result: out, model: m }; return out.files; }) !== null || !r) return;
-        const done: { result: DuplicateResult; model: DocModel } = r;
-        // Dropped on empty canvas: the parked copy stands where it was dropped, its root at the
-        // drop point and its devices and implied switches in the original's shape around it (side-car positions).
-        if (!attachTo && drop?.at) onPinMany(copyPositions(done.model, root, done.result, { ...settled.current, ...pinsRef.current }, drop.at));
-        setSelection({ kind: "subtree", root: done.result.root });
-      },
+      onDuplicateSubtree: (root, drop) => onDuplicate(root, drop?.attachTo ?? null, drop ?? {}),
       onLink: (from, to) => void edit(`link ${from} — ${to}`, (d, m) => attachDevices(d, m, from, to)),
       annotations,
       onAnnotations: setAnnotations,
@@ -1519,7 +1573,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         setSaveTpl({ proposal, bare, stripped: carriedBindings(model, proposal.set.hosts, personas).stripped, bareStripped: bare ? carriedBindings(model, bare.set.hosts, personas).stripped : [], busy: false, error: null });
       },
     };
-  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas]);
+  }, [model, built, locked, selection, onPlace, edit, onAddSegment, annotations, setAnnotations, onPin, highlight, personas, onDuplicate]);
 
   const mode = !designAvailable ? "read-only" : locked ? "view" : "edit";
   const overBudget = Boolean(built && placement && placement.overBudget);
@@ -1545,14 +1599,29 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   useLeaveGuard(
     untitledWork || (!untitled && !deployed && editor.dirty) || unsynced,
     untitled ? "This untitled design is kept only in this browser and is not saved to the catalog. Leave and discard it?" : unsynced ? "The working copy has edits not pushed to the twin (Apply or Persist push them); they stay in this browser. Leave anyway?" : "The design has unsaved changes. Leave without saving them?",
-    untitled
-      ? () => {
-          leaving.current = true;
-          leavingLayout.current = true;
-          clearUntitled();
-        }
-      : undefined,
+    undefined,
+    // Round 3 item 4: Save as draft / Discard / Cancel, not a yes/no (an untitled design was lost to one).
+    (via, proceed) => setLeaveAsk({ via, proceed }),
   );
+  const discardAndLeave = () => {
+    const ask = leaveAsk;
+    setLeaveAsk(null);
+    if (!ask) return;
+    if (untitled) {
+      leaving.current = true;
+      leavingLayout.current = true;
+      clearUntitled();
+    }
+    ask.proceed();
+  };
+  const draftAndLeave = () => {
+    const ask = leaveAsk;
+    setLeaveAsk(null);
+    if (!ask) return;
+    pendingLeave.current = ask.via;
+    setExitError(null);
+    setDraftOpen(true);
+  };
 
   // The layout group floats on the canvas, not in the twin bar (SPEC.md "Shell and chrome"): the bar holds the document's exits only.
   const layoutBar = layout.data ? (
@@ -1850,8 +1919,39 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           busy={busy === "save-draft"}
           error={exitError ? exitErrorText(exitError) : null}
           onSave={(newId) => void saveAsDraft(newId)}
-          onClose={() => setDraftOpen(false)}
+          onClose={() => {
+            pendingLeave.current = null;
+            setDraftOpen(false);
+          }}
         />
+      ) : null}
+      {leaveAsk ? (
+        <div className="modal-backdrop" data-testid="leave-backdrop">
+          <div className="modal panel" role="alertdialog" aria-modal="true" aria-label="Unsaved changes" data-testid="leave-dialog">
+            <h2 style={{ marginTop: 0 }}>Unsaved changes</h2>
+            <p>
+              {untitled
+                ? "This untitled design is kept only in this browser and is not saved to the catalog."
+                : unsynced
+                  ? "The working copy has edits not pushed to the twin (Apply or Persist push them)."
+                  : "The design has unsaved changes."}{" "}
+              {leaveAsk.via.kind === "back" ? "Going back leaves it." : "Opening another design leaves it."}
+            </p>
+            <div className="row-actions">
+              {whoami.can_write ? (
+                <button type="button" className="primary" onClick={draftAndLeave} data-testid="leave-draft" autoFocus>
+                  Save as draft…
+                </button>
+              ) : null}
+              <button type="button" className="danger" onClick={discardAndLeave} data-testid="leave-discard">
+                {unsynced && !untitled ? "Leave (edits stay in this browser)" : "Discard"}
+              </button>
+              <button type="button" onClick={() => setLeaveAsk(null)} data-testid="leave-cancel" autoFocus={!whoami.can_write}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {saveTpl && model ? (
         <SaveTemplateDialog
@@ -1894,28 +1994,30 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               let made: string[] = [];
               let skipped: string[] = [];
               let ospfSet: string[] = [];
+              let fab: EnableOspfResult | null = null;
               const switchTo = w.ospf && w.switchImage && ospfImage && model ? { to: ospfImage, routers: ospfImageGaps(model.te, w.routers, ospfImage).map((g) => g.router) } : null;
-              const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape}`, (d, m) => {
-                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null });
+              const reason = edit(`connect ${w.routers.length} routers as ${w.shape === "hub" ? "hub & spoke" : w.shape === "mesh" ? "full mesh" : w.shape === "across" ? "one set to the other" : w.shape}`, (d, m) => {
+                const r = wireRouters(d, m, w.routers, w.shape, { ospfArea: w.ospf ? w.area : null, image: switchTo?.routers.length ? switchTo : null, split: w.split ?? 0 });
                 made = r.made;
                 skipped = r.skipped;
                 ospfSet = r.ospf;
+                fab = r.fabric;
                 return r.files;
               });
               if (reason) return;
               setWireDialog(null);
               const onOld = ospfSet.filter((t) => !made.includes(t));
-              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf && made.length ? ` (ospf_area ${w.area})` : ""}${onOld.length ? `; ospf_area ${w.area} set on ${onOld.join(", ")}` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}`);
+              setExitNote(`${made.length} transit${made.length === 1 ? "" : "s"} made${w.ospf && made.length ? ` (ospf_area ${w.area})` : ""}${onOld.length ? `; ospf_area ${w.area} set on ${onOld.join(", ")}` : ""}${switchTo?.routers.length ? `; ${switchTo.routers.join(", ")} switched to ${switchTo.to}` : ""}${skipped.length ? `; already linked, left as they are: ${skipped.join(", ")}` : ""}${ospfNote(fab)}`);
             }}
           >
             <h2 style={{ marginTop: 0 }}>Connect {wireDialog.routers.length} routers</h2>
             <p className="muted">Each pair gets a transit segment (a /30 from 10.254.0.0/16) with a leg for both routers; a pair already linked keeps its transit (OSPF, when ticked, is set on it too). One undo step.</p>
             <fieldset className="field">
               <legend>As</legend>
-              {(["chain", "ring", "mesh", "hub"] as const).map((sh) => (
+              {(wireDialog.split ? (["across", "mesh", "chain", "ring", "hub"] as const) : (["chain", "ring", "mesh", "hub"] as const)).map((sh) => (
                 <label key={sh} className="cv-check">
                   <input type="radio" name="wire-shape" value={sh} checked={wireDialog.shape === sh} onChange={() => setWireDialog({ ...wireDialog, shape: sh })} />
-                  {sh === "mesh" ? "full mesh" : sh === "hub" ? `hub & spoke (hub: ${wireDialog.routers[0]})` : sh}
+                  {sh === "across" ? `each of ${wireDialog.routers.slice(0, wireDialog.split).join(", ")} to each of ${wireDialog.routers.slice(wireDialog.split).join(", ")}` : sh === "mesh" ? "full mesh" : sh === "hub" ? `hub & spoke (hub: ${wireDialog.routers[0]})` : sh}
                 </label>
               ))}
             </fieldset>
@@ -1924,7 +2026,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               run OSPF on these links (<span className="mono">ospf_area</span> on each transit, new or already drawn)
             </label>
             {wireDialog.ospf ? <OspfImageCheck te={model?.te ?? null} routers={wireDialog.routers} ospfImage={ospfImage} on={wireDialog.switchImage} onChange={(on) => setWireDialog({ ...wireDialog, switchImage: on })} /> : null}
-            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Not written here: each router&apos;s <span className="mono">routing:</span> block (region, role, loopback) and a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span>; without them OSPF does not come up.</p> : null}
+            {wireDialog.ospf ? <p className="muted hint" data-testid="ospf-note">Also written: a <span className="mono">fabric:</span> region with <span className="mono">igp: ospf</span> (an existing one is reused), each router&apos;s <span className="mono">routing:</span> block (region; role spine for core-*, leaf for agg-*, else area; a loopback /32 from {LOOPBACK_POOL}), and <span className="mono">ospf_area</span> on each router&apos;s LANs and internet leg so they are advertised.</p> : null}
             {wireDialog.ospf ? (
               <div className="field">
                 <label htmlFor="wire-area">Area</label>
@@ -1932,7 +2034,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               </div>
             ) : null}
             {(() => {
-              const plan = model ? wirePlan(model.te, wireDialog.routers, wireDialog.shape) : [];
+              const plan = model ? wirePlan(model.te, wireDialog.routers, wireDialog.shape, wireDialog.split ?? 0) : [];
               return (
                 <div data-testid="wire-plan">
                   {plan.length && plan.every((r) => r.kind === "linked") ? <p className="muted" data-testid="wire-all-linked">all pairs already linked{wireDialog.ospf ? ": Connect sets OSPF (and the image) only" : ""}</p> : null}
@@ -2025,6 +2127,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
           <Fallback id={id} kind={built.kind} graph={built.graph} reason={placement.overBudget} />
         ) : (
           <Canvas
+            freeLayout={layoutMode === "free" && Boolean(model)}
             graph={built.graph}
             exportData={built.exportData}
             placement={placement}
@@ -2046,7 +2149,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
             {...(editProps ? { edit: editProps } : {})}
             {...(editProps && data && model
               ? {
-                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} disabled={Boolean(locked)} note={paletteNote} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
+                  palette: <AddPanel personas={personas} templateList={templates} health={healthHints(model.te, personas)} fixes={danglingLinks(model.te).length ? [{ label: `Remove ${danglingLinks(model.te).length === 1 ? "it" : "them"}`, run: () => void edit("remove dangling links", (d, m) => removeDanglingLinks(d, m)) }] : []} disabled={Boolean(locked)} note={paletteNote} images={{ target: profileLoad.data?.target ?? null, platform: profileLoad.data?.platform ?? null, cluster: model.manifest?.cluster ?? null, targets: (targetsLoad.data ?? []).map((t) => t.name ?? t.node), ...(model.manifest ? { onTarget: (c: string | null) => void edit(c ? `target ${c}` : "default target", (d) => setTwinCluster(d, c)) } : {}) }} templates={<TemplatesSection templates={templates} mine={readMyTemplates()} disabled={Boolean(locked)} />} />,
                   quickAdd: (pick: (item: PaletteItem) => void, close: () => void) => <QuickAdd personas={personas} templates={templates} onPick={pick} onClose={close} />,
                   ...(pendingTemplate
                     ? {
@@ -2116,6 +2219,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                         onProvenance={pit !== null ? onProvenance : undefined}
                         provenanceBlock={provenanceBlock}
                         onSelect={setSelection}
+                        onDuplicate={(root, attachTo, opts) => onDuplicate(root, attachTo, opts)}
+                        vrrpImage={imageFor(imageProfiles, "l3-switch")}
                         sensors={declaredSensors}
                         sensorTarget={sensorTargetName}
                         onConvertFabric={onConvertFabric}
@@ -2194,6 +2299,17 @@ function MatrixTable({ matrix }: { matrix: ReturnType<typeof matrix0> }) {
       </tbody>
     </table>
   );
+}
+
+/** The wiring's exit note for what OSPF wrote beyond the transits (round 3). */
+function ospfNote(f: EnableOspfResult | null): string {
+  if (!f) return "";
+  const parts: string[] = [];
+  if (f.regionAdded) parts.push(`fabric region ${f.region} (igp: ospf)`);
+  if (f.routed.length) parts.push(`routing: on ${f.routed.join(", ")}`);
+  if (f.advertised.length) parts.push(`ospf_area on ${f.advertised.join(", ")}`);
+  if (f.skipped.length) parts.push(`left as they are (routing: in a non-OSPF region): ${f.skipped.join(", ")}`);
+  return parts.length ? `; ${parts.join("; ")}` : "";
 }
 
 /** The wiring dialog's OSPF image check (2026-11-20, round 2): each selected router not on the

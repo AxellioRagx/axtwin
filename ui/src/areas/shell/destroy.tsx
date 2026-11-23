@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { ApiError } from "../../api/client";
 import { useApi } from "../../api/context";
 import type { Api } from "../../api/discovery";
 import type { DeploySummary, DestroyProgress, DestroyResult } from "../../api/types";
@@ -16,6 +17,8 @@ import { ErrorLine } from "./parts";
 export const DESTROY_CHILD_TIERS = ["tfc", "tap"] as const;
 /** How often the deploy rows are read while a destroy runs, to tick the tiers off. */
 const DESTROY_POLL_MS = 1500;
+/** After a lost DELETE answer, how many idle polls with the te still standing mean it never ran. */
+const LOST_STALLS = 4;
 
 /** The tiers standing on a te deploy, te first: what a destroy brings down. */
 export function standingTiers(rows: readonly DeploySummary[], teDeployId: string): string[] {
@@ -75,71 +78,122 @@ function leftStanding(r: DestroyResult): string | null {
   return lines.length ? lines.join("\n") : null;
 }
 
+/** What a destroy the poll saw finish reports when the DELETE's own answer never came (a proxy
+ *  timeout on a long sweep): every tier down, nothing counted. */
+function polledResult(deployId: string, tiers: readonly string[]): DestroyResult {
+  return { deploy_id: deployId, destroyed: true, removed: 0, errors: 0, actions: [], cascade_errors: [], tiers: tiers.map((tier) => ({ tier, deploy_id: null, destroyed: true, removed: 0, errors: 0 })) };
+}
+
 /** Run one destroy: the DELETE, a timer and a poll of the deploy rows that ticks tiers off as
- *  they come down. `onDone` runs once, on success. */
+ *  they come down. The run ends on the DELETE's answer, or (2026-11-21) on the poll seeing every
+ *  tier gone and the API's sweep idle, whichever comes first; `onDone` runs once, on success. */
 export function useDestroy(api: Api, onDone: (r: DestroyResult) => void) {
   const [run, setRun] = useState<DestroyRun | null>(null);
   const done = useRef(onDone);
   done.current = onDone;
+  // Mounted. Set again in the effect body: StrictMode mounts, unmounts and mounts again in dev, and
+  // a cleanup-only effect left this false for good, so every DELETE answer was thrown away
+  // (2026-11-21: the dialog sat on "Destroying…" after the destroy had finished).
   const live = useRef(true);
-  useEffect(() => () => void (live.current = false), []);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  // The run that has ended (by the DELETE or by the poll): a later answer for it changes nothing.
+  const token = useRef(0);
+  const ended = useRef(0);
+  /** The tiers the current run brings down (fixed for the run). */
+  const runTiers = useRef<string[]>([]);
+  /** The DELETE's answer was lost (no answer, or a gateway timeout): the poll decides, and this is
+   *  the error shown if it sees nothing coming down; `stalls` counts its idle, nothing-down reads. */
+  const lost = useRef<{ error: unknown; stalls: number } | null>(null);
+  const end = useCallback((t: number, next: (prev: DestroyRun) => DestroyRun, result: DestroyResult | null) => {
+    if (!live.current || ended.current === t || token.current !== t) return;
+    ended.current = t;
+    setRun((prev) => (prev ? next(prev) : prev));
+    if (result) done.current(result);
+  }, []);
 
   const running = run?.phase === "running";
   const deployId = run?.deployId ?? null;
   useEffect(() => {
     if (!running || !deployId) return;
+    const t = token.current;
     const started = Date.now() - (run?.elapsed ?? 0) * 1000;
     const tick = setInterval(() => setRun((r) => (r && r.phase === "running" ? { ...r, elapsed: (Date.now() - started) / 1000 } : r)), 1000);
     const poll = setInterval(() => {
-      api.listDeploys().then(
-        (l) => {
-          const standing = standingTiers(l.deploys, deployId);
-          const teDown = l.deploys.some((d) => d.deploy_id === deployId && d.status === "destroyed");
-          setRun((r) => {
-            if (!r || r.phase !== "running") return r;
-            const down = r.tiers.filter((t) => (t === "te" ? teDown : !standing.includes(t)));
-            return down.length === r.down.length ? r : { ...r, down };
-          });
-        },
-        () => undefined,
-      );
       // The te sweep's own progress (a server without the route, or a destroy another process
-      // runs, answers nothing useful: the word stays the bare tier).
-      api.getDestroyProgress(deployId).then(
+      // runs, answers nothing useful: the word stays the bare tier, and the sweep counts as idle).
+      const progress = api.getDestroyProgress(deployId).then(
         (p) => {
           const sweep = p.running && p.step && p.step !== "cascade" ? { step: p.step, done: p.done, total: p.total } : null;
           setRun((r) => (!r || r.phase !== "running" || (r.sweep?.step === sweep?.step && r.sweep?.done === sweep?.done && r.sweep?.total === sweep?.total) ? r : { ...r, sweep }));
+          return !p.running;
         },
-        () => undefined,
+        () => true,
       );
+      const rows = api.listDeploys().then(
+        (l) => l.deploys,
+        () => null,
+      );
+      void Promise.all([rows, progress]).then(([deploys, idle]) => {
+        if (!deploys || !live.current || token.current !== t) return;
+        const standing = standingTiers(deploys, deployId);
+        // The API drops a destroyed deploy from the list (or, older, keeps it as `destroyed`): no live row is down.
+        const teDown = !deploys.some((d) => d.deploy_id === deployId && d.status !== "destroyed");
+        const isDown = (x: string) => (x === "te" ? teDown : !standing.includes(x));
+        setRun((r) => {
+          if (!r || r.phase !== "running") return r;
+          const down = r.tiers.filter(isDown);
+          return down.length === r.down.length ? r : { ...r, down };
+        });
+        // Every tier gone and nothing sweeping: the destroy is over, whether or not its DELETE answers.
+        const tiers = runTiers.current;
+        if (idle && tiers.length && tiers.every(isDown)) end(t, (prev) => ({ ...prev, down: prev.tiers, phase: "done", sweep: null }), polledResult(deployId, tiers));
+        else if (lost.current && idle && !teDown && ++lost.current.stalls >= LOST_STALLS) {
+          const error = lost.current.error;
+          end(t, (prev) => ({ ...prev, phase: "failed", error }), null);
+        }
+      });
     }, DESTROY_POLL_MS);
     return () => {
       clearInterval(tick);
       clearInterval(poll);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, deployId, api]);
+  }, [running, deployId, api, end]);
 
   const start = useCallback(
     (id: string, tiers: string[]) => {
+      const t = ++token.current;
+      runTiers.current = tiers;
+      lost.current = null;
       setRun({ deployId: id, tiers, down: [], elapsed: 0, phase: "running", error: null, result: null });
       api.destroyDeploy(id).then(
         (r) => {
-          if (!live.current) return;
           const problem = leftStanding(r);
-          const down = (r.tiers ?? []).filter((t) => t.destroyed).map((t) => t.tier);
-          setRun((prev) => (prev ? { ...prev, down: problem ? prev.tiers.filter((t) => down.includes(t)) : prev.tiers, phase: problem ? "failed" : "done", error: problem ? new Error(problem) : null, result: r } : prev));
-          if (!problem) done.current(r);
+          const down = (r.tiers ?? []).filter((x) => x.destroyed).map((x) => x.tier);
+          end(t, (prev) => ({ ...prev, down: problem ? prev.tiers.filter((x) => down.includes(x)) : prev.tiers, phase: problem ? "failed" : "done", error: problem ? new Error(problem) : null, result: r }), problem ? null : r);
         },
         (e: unknown) => {
-          if (!live.current) return;
-          setRun((prev) => (prev ? { ...prev, phase: "failed", error: e } : prev));
+          // The answer lost on the way (a proxy timing out a long sweep): the destroy may well be
+          // running or done, so the poll decides instead of a failure shown over a finished destroy.
+          if (e instanceof ApiError && (e.kind === "network" || e.status === 504) && token.current === t) {
+            lost.current = { error: e, stalls: 0 };
+            return;
+          }
+          end(t, (prev) => ({ ...prev, phase: "failed", error: e }), null);
         },
       );
     },
-    [api],
+    [api, end],
   );
-  const clear = useCallback(() => setRun(null), []);
+  const clear = useCallback(() => {
+    token.current++;
+    setRun(null);
+  }, []);
   return { run, start, clear };
 }
 

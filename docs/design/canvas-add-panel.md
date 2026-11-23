@@ -70,11 +70,13 @@ case is covered by templates, §5, and by Open → Clone).
 
 ## 4. Devices
 
-Five cards, each with an icon and one line of explanation:
+Six cards, each with an icon and one line of explanation (the L3 switch
+added 2026-11-21):
 
 | Card | Writes | Options |
 |---|---|---|
-| **Router / firewall** | `kind: router` | Type: router or firewall. Placement: edge (internet uplink) or internal. Legs come from drawing links. |
+| **Router / firewall** | `kind: router` | Type: router or firewall. Placement: edge (internet uplink) or internal. Count N: N separate routers. Legs come from drawing links. |
+| **L3 switch** | `kind: router`, `role: l3-switch`, the `l3-switch` image profile (`vyos@2026.06`) | Tier: core or aggregation (seeds the prefix `core` / `agg` only). Count N: N separate nodes. Advanced shows the image. Wired to a switch, it becomes that LAN's gateway (an addressed leg). |
 | **Switch** | `kind: switch` | Plain, or managed (VLANs). |
 | **Server** | `kind: host` + a server role | OS: Linux or Windows Server. Role (§4.1). |
 | **Workstation** | `kind: host` + an endpoint profile | OS: Linux or Windows. Profile: office user, developer, executive, power user, VoIP softphone, IoT, … |
@@ -140,7 +142,8 @@ profiles:
   windows-server:   { image: windows-server-2022@v1 }
   windows-client:   { image: win11-finance@v4 }       # example
   router:           { image: <the router image the catalog's routers use> }
-  router-ospf:      { image: vyos@1.5 }   # the OSPF-capable router image
+  router-ospf:      { image: vyos@2026.06 }   # the OSPF-capable router image
+  l3-switch:        { image: vyos@2026.06, platforms: { libvirt: <image> } }  # D6: per platform
 ```
 
 - The profile is chosen from card + OS (Server + Windows → `windows-server`).
@@ -148,12 +151,19 @@ profiles:
   image OSPF needs (the planner passes `ospf_area` to the VyOS leg config):
   when the wiring dialog's "run OSPF on these links" is ticked, it lists each
   selected router not on that image ("router-1 runs debian-12-cloud@v1; OSPF
-  needs vyos@1.5 (as datacenter's fabric)") and offers "switch these routers
-  to vyos@1.5", checked by default, in the same undo step. The routers'
+  needs vyos@2026.06 (as datacenter's fabric)") and offers "switch these routers
+  to vyos@2026.06", checked by default, in the same undo step. The routers'
   `routing:` blocks and the `fabric:` region with `igp: ospf` are not written;
   the dialog says so in one line.
-- A later phase may key profiles per target platform. The canvas never
-  shows an image unless the user opens Advanced.
+- Per target platform (D6, 2026-11-21): a profile may add `platforms:
+  {<platform>: <image>}` beside its default `image`. `GET
+  /api/image-profiles?target=<name>` answers each profile's image for that
+  target's platform (absent: the default target; an unknown name is a 404)
+  and says which (`target`, `platform`). The canvas asks for the twin's
+  `cluster:` (else the target it is deployed on, else the default) and the
+  Add panel shows "images for <target> · <platform>" with a picker that
+  writes `cluster:` into `twin.yaml` (one undo step; the default removes
+  it). The canvas never shows an image unless the user opens Advanced.
 - It is served by a new read-only `GET /api/image-profiles`. Unknown
   images (not in the target's image manifest) show a warning on Check, as
   today.
@@ -279,6 +289,79 @@ Storage and API:
 - **D3:** new `catalog/templates/` and the templates API (§5.3).
 - **D4:** remove Images and "From other twins" from the panel; traffic
   generators hidden under Advanced.
+- **D5 (decided 2026-11-21 by the user: option (a); built the same day):
+  first-hop redundancy on a LAN with two gateways.** Today a rack LAN wired to agg-1 and agg-2 gets two
+  addressed router legs (`.1`, `.2`) and the canvas only hints "two gateways
+  and no shared VIP — servers will use only one"; nothing fails over. Two ways
+  to express a VRRP pair: **(a)** a `vrrp:` block on a segment
+  (`vrrp: { vip: 10.200.0.1, members: [agg-1, agg-2], priority: {agg-1: 200} }`),
+  validated (every member a router with a leg on the segment, on a VyOS image;
+  the VIP inside the segment and pinned by no leg; the hosts' default gateway
+  becomes the VIP) and rendered by `configure-router` as VyOS
+  `high-availability vrrp group` on each member's leg -- a locked
+  `IR_SCHEMA.md` (segment field) and `OP_CATALOG.md` (configure-router input)
+  change, plus the planner's first-leg gateway rule reading the VIP; on the
+  canvas, the segment panel gets "Shared gateway (VRRP)" (VIP defaulting to
+  `.1`, members re-pinned to `.2`, `.3`) and the hint goes. **(b)** corp-twin's
+  pattern: the pair are `kind: host` Debian VMs with `role: l3-switch` running
+  keepalived through an install script (`catalog/twins/corp-twin/scripts/
+  serve-vrrp-l3.sh`, one sync group, VIPs not owned by any leg) -- no contract
+  change, which is why corp-twin chose it, but the members stop being routers:
+  no VyOS, no planner OSPF on their transits, no FAB-080 fabric, and a script
+  per twin. **Recommendation: (a).** The canvas's L3 switch is a VyOS
+  `kind: router` precisely so the planner renders its legs and OSPF; (b) would
+  make a redundant pair the one place it is not, and the three-tier template
+  (Part C) would ship a script. (a) is one schema field and one op input,
+  expressible on every VyOS pair the canvas can draw. **Built:** twin-config
+  `segments[].vrrp: {vip, members, vrid?, priority?}` (the VIP reserved, the
+  segment's gateway; a `gateway:` that differs is refused, TC-VRRP); IR
+  `networks[].vrrp` (`IR_SCHEMA.md` §3.4); NET-150 (`VALIDATOR.md`);
+  `configure-router`'s optional `vrrp` input (`OP_CATALOG.md`), rendered as
+  `high-availability vrrp group axr<vrid>` on both VyOS paths (Proxmox,
+  libvirt), refused on a Debian member at plan time; the canvas's segment
+  panel "Share one gateway (VRRP)" / VIP / Stop sharing, members kept through
+  a router's delete, and Duplicate's "same uplinks" copies the group onto the
+  next rack. Not yet live-verified on dev45.
+- **D6 (decided 2026-11-21, Authority: user -- option (a); built): per-platform image
+  profiles.** Today a profile names one image (`l3-switch: { image:
+  vyos@2026.06 }`) whatever the target; a Check now warns when the image has no
+  binding for the platform of the twin's target (its `cluster:`, else the
+  default target -- the preflight's own `TARGET-IMAGE`, as a warning; A7),
+  and the deploy preflight refuses it. Proposal: **(a)** key a profile by
+  platform, keeping `image` as the default --
+  `l3-switch: { image: vyos@2026.06, platforms: { libvirt: <image> } }` --
+  served by `GET /api/image-profiles?target=<name>` resolved for that
+  target's platform (absent: the default target), with `platform` in the
+  answer; the canvas learns the target from the twin's `cluster:` in
+  `twin.yaml` (an untitled design: the default target, shown beside the
+  Add panel's health line, changeable there and written as `cluster:` on
+  Save). A drop then writes the image for that platform; nothing else
+  changes. No twin-config or IR change: a profile stays canvas-side
+  vocabulary. **(b)** write a platform-neutral reference in the twin
+  (`image: profile:l3-switch`) resolved at plan time per target -- a twin
+  that moves between platforms needs no edit, but it is a locked
+  `IR_SCHEMA.md` / planner change and every reader of `image:` learns a new
+  form. **Recommendation: (a).** It answers the question where it arises
+  (the drop), keeps every written image concrete and checkable, and the A7
+  warning covers a twin later pointed at another platform. Built as (a):
+  `api/image_profiles.py` resolves per platform, the Add panel's images
+  line and its target picker (§4.3). The two VyOS profiles name their
+  Proxmox image (`vyos@2026.06`, round 3); no libvirt routing image is in
+  the catalog.
+- **D7 (not needed, 2026-11-21).** The planner gives one NIC per leg
+  (`nets[i]` -> `eth{i+1}`, `eth0` the WAN), and A5's links plug the leg's
+  own NIC, adding none. A 2-aggregation / 8-rack design needs per
+  aggregation VM: 1 WAN + 8 rack LANs + 2 core transits + 1 peer transit =
+  12 NICs, against Proxmox's 32 per VM (`net0`..`net31`). A VLAN-aware
+  bridge inside VyOS is not proposed.
+- **D10 (not needed, round 3, 2026-11-21).** A twin-config already carries
+  a top-level `fabric:` and a per-node `routing:` through to the IR
+  (`twinconfig/schema.py` passthroughs, `expand.py`), so the canvas writes
+  them as OSPF's region and router blocks (`ui/.../SPEC.md` "OSPF writes").
+- **D11 (not needed, round 3, 2026-11-21).** Core needs no default route
+  originated into OSPF: every VyOS router egresses through its own eth0 WAN
+  with masquerade (`configure-router`), and the internet sink's segment is
+  advertised by `ospf_area` on core's internet leg.
 
 ## 9. Phases
 
@@ -294,7 +377,7 @@ Storage and API:
 ## 10. Acceptance
 
 - **Automated (phase 1):**
-  - the panel shows exactly five device cards, Tools, Recent, and no
+  - the panel shows exactly six device cards, Tools, Recent, and no
     Images or "From other twins";
   - search "file" → Server with role file-server preselected;
   - Windows filters roles to `os_family: windows`;

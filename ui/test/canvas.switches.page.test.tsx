@@ -87,10 +87,10 @@ describe("placement infers the segment", () => {
     expect(t).toEqual({ router: "gw" });
     const r = applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { router: string }, image: "debian-12-cloud@v1" });
     const te = readTe(r.files["te.yaml"]!);
-    // Named for the card (no role): `server-lan`; the group `srv-1`.
+    // Named for the card (no role): `server-lan`; the group `srv`.
     expect(te.segments.find((s) => s.name === "server-lan")?.cidr).toBe("10.70.21.0/24");
     expect(te.nodes.find((n) => n.name === "gw")!.nets.map((l) => l.segment)).toContain("server-lan");
-    expect(te.nodes.find((n) => n.name === "srv-1")).toMatchObject({ image: "debian-12-cloud@v1", nets: [{ segment: "server-lan", ip: "10.70.21.10" }] });
+    expect(te.nodes.find((n) => n.name === "srv")).toMatchObject({ image: "debian-12-cloud@v1", nets: [{ segment: "server-lan", ip: "10.70.21.10" }] });
   });
   it("a host dropped on a real switch lands on its segment; a switch of several offers the VLAN picker", async () => {
     const te = `twin_config:
@@ -109,8 +109,8 @@ describe("placement infers the segment", () => {
     const doc = { id: "multi", teFile: "te.yaml", files: { "te.yaml": te } };
     const model = readDoc(doc);
     const t = placeOnDevice(model.te, "core");
-    expect(t).toEqual({ segment: "users" });
-    const placed = readTe(applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { segment: string }, image: "debian-12-cloud@v1" }).files["te.yaml"]!).nodes.find((n) => n.name === "srv-1")!;
+    expect(t).toEqual({ segment: "users", choices: ["users", "voice"], via: "core" });
+    const placed = readTe(applyDeviceDrop(doc, model, { card: "server", os: "linux", role: null, persona: null, count: 1, prefix: "srv", target: t as { segment: string }, image: "debian-12-cloud@v1" }).files["te.yaml"]!).nodes.find((n) => n.name === "srv")!;
     expect(placed.nets.map((l) => l.segment)).toEqual(["users"]);
     // The picker moves pc to the other VLAN, re-addressed there.
     const { api, state } = withTwin("multi", te);

@@ -12,6 +12,9 @@ export interface Manifest {
   te: string | null;
   tfc: string | null;
   tap: string | null;
+  /** `twin.cluster`: the target this twin deploys to (null: the default target). D6: the target a
+   *  dropped device's image is chosen for. */
+  cluster: string | null;
 }
 
 export function readManifest(text: string): Manifest {
@@ -22,6 +25,7 @@ export function readManifest(text: string): Manifest {
     te: scalarText(get(tw, "tiers", "te", "default")),
     tfc: scalarText(get(tw, "tiers", "tfc", "default")),
     tap: scalarText(get(tw, "tiers", "tap", "default")),
+    cluster: scalarText(get(tw, "cluster")),
   };
 }
 
@@ -33,12 +37,23 @@ export function setManifestDescription(text: string, description: string): strin
   return setManifestScalar(text, "description", description);
 }
 
-function setManifestScalar(text: string, key: "id" | "description", value: string): string {
+/** Set (or, with null, remove) `twin.cluster` -- the target the twin deploys to and its dropped
+ *  devices' images are chosen for (D6). */
+export function setManifestCluster(text: string, cluster: string | null): string {
+  return setManifestScalar(text, "cluster", cluster);
+}
+
+function setManifestScalar(text: string, key: "id" | "description" | "cluster", value: string | null): string {
   const doc = parseYaml(text);
   const lines = [...doc.lines];
   const tw = get(doc.root, "twin");
   if (!tw || tw.kind !== "map") return text;
   const e = entry(tw, key);
+  if (value === null) {
+    if (!e) return text;
+    removeSpan(lines, e.start, e.end, tw.indent);
+    return joinLines(lines, doc.trailingNewline);
+  }
   if (e) replaceValueOnLine(lines, e, encodeScalar(value));
   else insertLines(lines, tw.start, [`${" ".repeat(tw.indent)}${key}: ${encodeScalar(value)}`]);
   return joinLines(lines, doc.trailingNewline);

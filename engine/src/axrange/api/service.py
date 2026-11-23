@@ -6747,9 +6747,41 @@ def _normalized_files(files: Any) -> dict[str, str]:
         raise ApiError(400, str(e)) from e
 
 
+def _with_target_image_warnings(
+    scratch: ApiSettings, twin_id: str, result: dtos.ValidateResultDTO,
+) -> dtos.ValidateResultDTO:
+    """A7 (2026-11-21): a Check with no target still says when an image has no
+    binding for the platform the twin will deploy to -- the twin's `cluster:`
+    target, else the default one -- through the preflight's own image check
+    (`TARGET-IMAGE`), as a WARNING: the deploy preflight refuses it, Check only
+    says so (an L3 switch's vyos@2026.06 on a platform whose manifest lacks it).
+    No target configured, or none that resolves: the answer is unchanged."""
+    from axrange.api.preflight import Sources, config_sources, fold_into, run_preflight
+    from axrange.twinconfig.manifest import load_twin_manifest
+
+    try:
+        src = config_sources(scratch, twin_id)
+        if src.te_path is None:
+            return result
+        cluster = None
+        try:
+            cluster = load_twin_manifest(src.te_path.parent).manifest.cluster
+        except Exception:  # noqa: BLE001 -- a bundle without twin.yaml targets the default
+            cluster = None
+        pf = run_preflight(scratch, cluster, Sources(te_path=src.te_path, te_label=src.te_label),
+                           _load_manifests(Path(scratch.images_root)))
+    except Exception:  # noqa: BLE001 -- no target (or an unreadable one): nothing to say
+        return result
+    pf.findings = [
+        f.model_copy(update={"severity": "warning", "message": f"{f.message} on target {pf.target}: the deploy preflight refuses it"})
+        for f in pf.findings
+    ]
+    return fold_into(result, pf)
+
+
 def _validate_twin_document(
     settings: ApiSettings, twin_id: str, files: dict[str, str], *,
-    raise_on_fail: bool = True, target: Optional[str] = None,
+    raise_on_fail: bool = True, target: Optional[str] = None, image_warnings: bool = False,
 ) -> dtos.ValidateResultDTO:
     """The document, validated through the SAME path as `POST /api/validate`
     (`validate(config=...)`: expand, then `validate_full` with the real
@@ -6808,6 +6840,8 @@ def _validate_twin_document(
                                  for f in result.findings if f.severity == "error"],
                 },
             )
+        if image_warnings and target is None:
+            result = _with_target_image_warnings(scratch, twin_id, result)
         try:
             tier_warnings = _check_tier_files(td / twin_id, files)
         except ApiError as e:
@@ -6851,7 +6885,7 @@ def validate_document(
         raise ApiError(400, f"document 'id' {req.id!r} is not a usable twin-config id")
     files = _normalized_files(req.files)
     return _validate_twin_document(
-        settings, twin_id, files, raise_on_fail=False, target=target,
+        settings, twin_id, files, raise_on_fail=False, target=target, image_warnings=True,
     )
 
 

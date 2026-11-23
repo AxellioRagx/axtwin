@@ -1,5 +1,5 @@
 /**
- * The Add panel's vocabulary (`docs/design/canvas-add-panel.md` §3, §4): the five device cards, the
+ * The Add panel's vocabulary (`docs/design/canvas-add-panel.md` §3, §4): the six device cards, the
  * role/profile groups read from the persona library (category, label, blurb -- D1, with the §4.2
  * fallback), the image a card + OS resolves to (D2), the one search over cards, roles and tools,
  * the "needs" hint (a role's `requires` with no holder on the canvas), the design-health line, and
@@ -7,10 +7,13 @@
  * list: every role is read from `GET /api/personas`. Pure -- no React (storage reads guarded).
  */
 import type { ImageProfile, Persona, Template } from "../../../api/types";
+import { inInternetPool, inTransitPool } from "../edit/allocate";
+import { danglingLinks } from "../edit/document";
 import { carriedBy, parkedDevices } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
+import { L3_SWITCH_ROLE } from "../model/roles";
 
-export type CardId = "router" | "switch" | "server" | "workstation" | "ot";
+export type CardId = "router" | "l3switch" | "switch" | "server" | "workstation" | "ot";
 export type Os = "linux" | "windows";
 export type ToolId = "internet" | "tap";
 
@@ -19,7 +22,7 @@ export interface DeviceCard {
   label: string;
   /** The one line of explanation the card shows. */
   line: string;
-  /** The OS choices, or null when the card has none (router, switch, OT). */
+  /** The OS choices, or null when the card has none (router, L3 switch, switch, OT). */
   oses: Os[] | null;
   /** The persona categories its role picker lists (traffic generators only under Advanced). */
   categories: string[];
@@ -29,6 +32,9 @@ export interface DeviceCard {
 
 export const DEVICE_CARDS: readonly DeviceCard[] = [
   { id: "router", label: "Router / firewall", line: "joins segments; an edge one uplinks to the internet", oses: null, categories: [], prefix: "router" },
+  // An L3 switch is written as `kind: router`, `role: l3-switch` on the `l3-switch` image profile
+  // (VyOS): the role, not the kind, marks it, so the planner and validator treat it as a router.
+  { id: "l3switch", label: "L3 switch", line: "switches a LAN and routes between VLANs; core or aggregation", oses: null, categories: [], prefix: "l3sw" },
   { id: "switch", label: "Switch", line: "a LAN: hosts dropped on it join its segment", oses: null, categories: [], prefix: "sw" },
   { id: "server", label: "Server", line: "a Linux or Windows server with a role: file, mail, web, DC…", oses: ["linux", "windows"], categories: ["identity", "business", "network", "other"], prefix: "server" },
   { id: "workstation", label: "Workstation", line: "user machines with a profile: office, developer, executive…", oses: ["windows", "linux"], categories: ["endpoint"], prefix: "ws" },
@@ -138,8 +144,18 @@ export function defaultRole(card: CardId, os: Os | null, personas: readonly Pers
 export function profileFor(card: CardId, os: Os | null): string | null {
   if (card === "switch") return null;
   if (card === "router") return "router";
+  if (card === "l3switch") return L3_SWITCH_PROFILE;
   if (card === "ot") return "linux-server";
   return `${os ?? "linux"}-${card === "server" ? "server" : "client"}`;
+}
+
+/** The image profile (and the node `role:`) an L3 switch carries; the canvas recognises one by the role. */
+export const L3_SWITCH_PROFILE = "l3-switch";
+export { L3_SWITCH_ROLE };
+
+/** Whether a node is an L3 switch: a router whose role says so (A2, 2026-11-21). */
+export function isL3Switch(n: { kind: string; role: string | null } | null | undefined): boolean {
+  return Boolean(n && n.kind === "router" && n.role === L3_SWITCH_ROLE);
 }
 
 export function imageFor(profiles: readonly ImageProfile[], profile: string | null): string | null {
@@ -157,6 +173,7 @@ export type AddHit =
 
 const CARD_WORDS: Record<CardId, string[]> = {
   router: ["router", "firewall", "gateway", "edge", "fw", "nat"],
+  l3switch: ["l3", "layer", "3", "core", "aggregation", "agg", "multilayer", "distribution", "svi"],
   switch: ["switch", "lan", "vlan", "segment"],
   server: ["server"],
   workstation: ["workstation", "desktop", "laptop", "client", "pc", "user", "endpoint"],
@@ -260,6 +277,32 @@ export function peerOffer(role: string, personas: readonly Persona[]): PeerOffer
   return { role, card, os: card === "ot" ? null : osOf(p), persona: p.id, count, label: `Add ${count} ${noun}` };
 }
 
+/** The LANs with two or more gateways (A6, 2026-11-21): a segment outside the transit pool with a leg
+ *  of two or more routers (an L3 switch is one) and a host or a switch on it. With no shared VIP (first-hop
+ *  redundancy is not modelled: design D5), the servers route through one of them only. */
+export function twoGatewayLans(te: Pick<TeModel, "nodes" | "links" | "segments">): Array<{ segment: string; routers: string[] }> {
+  const out: Array<{ segment: string; routers: string[] }> = [];
+  for (const s of te.segments) {
+    if (inTransitPool(s.cidr) || s.vrrp) continue; // a VRRP group is the shared VIP (D5)
+    // Server and user LANs only (round 3 item 5c): never the internet (two cores uplinked to it) or a sink's segment.
+    if (s.name === "internet" || s.egress || inInternetPool(s.cidr)) continue;
+    const routers = te.nodes.filter((n) => n.kind === "router" && n.nets.some((l) => l.segment === s.name)).map((n) => n.name);
+    if (routers.length < 2) continue;
+    // ...and only one with a host on it (a switch with nothing behind it yet is no LAN to warn about).
+    const hosts = te.nodes.filter((n) => n.kind === "host" && n.nets.some((l) => l.segment === s.name));
+    if (!hosts.length || hosts.every((n) => n.role === "internet-sink")) continue;
+    out.push({ segment: s.name, routers });
+  }
+  return out;
+}
+
+/** The two-gateway hint's words: "rack1-srv has two gateways (agg-1, agg-2) and no shared VIP -- servers will use only one". */
+export function twoGatewayText(g: { segment: string; routers: string[] }): string {
+  const n = g.routers.length;
+  const word = n === 2 ? "two" : n === 3 ? "three" : String(n);
+  return `${g.segment} has ${word} gateways (${g.routers.join(", ")}) and no shared VIP — servers will use only one`;
+}
+
 /** The design-health line: hints only, never a Check ("2 roles missing peers · 1 segment with no router"). */
 export function healthHints(te: TeModel, personas: readonly Persona[]): string[] {
   const out: string[] = [];
@@ -279,6 +322,11 @@ export function healthHints(te: TeModel, personas: readonly Persona[]): string[]
   }
   const bare = te.segments.filter((s) => !routed.has(s.name)).length;
   if (bare) out.push(`${bare} segment${bare === 1 ? "" : "s"} with no router`);
+  // A6: a LAN with two gateways and no shared VIP.
+  for (const g of twoGatewayLans(te)) out.push(twoGatewayText(g));
+  // B1: a link naming a node or a segment the twin no longer has (the hint's fix removes them).
+  const dangling = danglingLinks(te).length;
+  if (dangling) out.push(`${dangling} dangling link${dangling === 1 ? "" : "s"}`);
   return out;
 }
 

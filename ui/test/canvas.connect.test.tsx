@@ -215,7 +215,7 @@ describe("on the page", () => {
     fireEvent.click(router("r2"), { shiftKey: true });
     fireEvent.click(router("r3"), { shiftKey: true });
     fireEvent.contextMenu(router("r3"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 3 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 3 routers…/));
     const dlg = await screen.findByTestId("wire-dialog");
     fireEvent.click(within(dlg).getByLabelText("ring"));
     expect(within(dlg).getAllByTestId("wire-plan-row").map((r) => r.textContent)).toEqual(["new: r1--r2", "new: r2--r3", "new: r1--r3"]);
@@ -293,30 +293,31 @@ describe("on the page", () => {
 
   it("OSPF needs a VyOS router: ticked, the dialog names each router not on the router-ospf image and switches them (checked by default) in the same undo step; what it cannot write is said in one line", async () => {
     const base = withTriangle();
-    base.state.imageProfiles = [...base.state.imageProfiles.filter((p) => p.name !== "router-ospf"), { name: "router-ospf", image: "vyos@1.5" }];
+    base.state.imageProfiles = [...base.state.imageProfiles.filter((p) => p.name !== "router-ospf"), { name: "router-ospf", image: "vyos@2026.06" }];
     const { api, state } = base;
     renderAt(api, "/twins/tri/canvas");
     await waitFor(() => expect(screen.getAllByTestId("canvas-router").length).toBe(3));
     fireEvent.click(router("r1"));
     fireEvent.click(router("r2"), { shiftKey: true });
     fireEvent.contextMenu(router("r2"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 2 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 2 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     expect(dlg.queryByTestId("ospf-image")).toBeNull();
     fireEvent.click(dlg.getByLabelText(/run OSPF on these links/));
     expect(dlg.getAllByTestId("ospf-image-gap").map((x) => x.textContent)).toEqual([
-      "r1 runs ubuntu-server-22@v5; OSPF needs vyos@1.5 (as datacenter's fabric)",
-      "r2 runs ubuntu-server-22@v5; OSPF needs vyos@1.5 (as datacenter's fabric)",
+      "r1 runs ubuntu-server-22@v5; OSPF needs vyos@2026.06 (as datacenter's fabric)",
+      "r2 runs ubuntu-server-22@v5; OSPF needs vyos@2026.06 (as datacenter's fabric)",
     ]);
-    const sw = dlg.getByLabelText("switch these routers to vyos@1.5") as HTMLInputElement;
+    const sw = dlg.getByLabelText("switch these routers to vyos@2026.06") as HTMLInputElement;
     expect(sw.checked).toBe(true);
-    expect(dlg.getByTestId("ospf-note").textContent).toBe("Not written here: each router's routing: block (region, role, loopback) and a fabric: region with igp: ospf; without them OSPF does not come up.");
+    expect(dlg.getByTestId("ospf-note").textContent).toBe("Also written: a fabric: region with igp: ospf (an existing one is reused), each router's routing: block (region; role spine for core-*, leaf for agg-*, else area; a loopback /32 from 10.255.0.0/24), and ospf_area on each router's LANs and internet leg so they are advertised.");
     fireEvent.click(dlg.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(screen.queryByTestId("wire-dialog")).toBeNull());
-    expect(screen.getByTestId("exit-note").textContent).toContain("r1, r2 switched to vyos@1.5");
+    expect(screen.getByTestId("exit-note").textContent).toContain("r1, r2 switched to vyos@2026.06");
+    expect(screen.getByTestId("exit-note").textContent).toContain("fabric region dc (igp: ospf); routing: on r1, r2");
     await check();
     const te = readTe((state.writes.filter((w) => w.op === "validate").at(-1)!.body as { files: Record<string, string> }).files["te.yaml"]!);
-    expect(te.nodes.filter((n) => n.kind === "router").map((n) => `${n.name}:${n.image}`)).toEqual(["r1:vyos@1.5", "r2:vyos@1.5", "r3:ubuntu-server-22@v5"]);
+    expect(te.nodes.filter((n) => n.kind === "router").map((n) => `${n.name}:${n.image}`)).toEqual(["r1:vyos@2026.06", "r2:vyos@2026.06", "r3:ubuntu-server-22@v5"]);
     expect(te.segments.find((s) => s.name === "r1--r2")!.ospfArea).toBe(0);
     // One undo takes the transit and the image switch back together.
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
@@ -331,7 +332,7 @@ describe("on the page", () => {
     fireEvent.click(router("r1"));
     fireEvent.click(router("r3"), { shiftKey: true });
     fireEvent.contextMenu(router("r3"));
-    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Connect 2 routers as/));
+    fireEvent.click(within(await screen.findByTestId("context-menu")).getByText(/Wire 2 routers…/));
     const dlg = within(await screen.findByTestId("wire-dialog"));
     fireEvent.click(dlg.getByLabelText(/run OSPF on these links/));
     expect(dlg.getByTestId("ospf-image").textContent).toContain("No router-ospf image profile");

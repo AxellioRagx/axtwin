@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { readTe } from "../src/features/edit-canvas/edit/te";
 import { UNTITLED_SCOPE } from "../src/features/edit-canvas/CanvasPage";
+import { ROW_SETTLE_MS } from "../src/areas/twins/TwinList";
 import { check, addSegment, seeded, segments, settle, tab } from "./helpers/canvasFixtures";
 import { renderAt } from "./helpers/render";
 
@@ -151,15 +152,16 @@ describe("the unsaved-work guard", () => {
     renderAt(api, "/canvas/new");
     await screen.findByTestId("rail-add");
     await addFirstSegment();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("link", { name: "Twins" }));
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0]![0]).toMatch(/untitled design/);
+    const leave = await screen.findByTestId("leave-dialog");
+    expect(leave.textContent).toMatch(/untitled design is kept only in this browser/);
+    fireEvent.click(within(leave).getByTestId("leave-cancel"));
+    expect(screen.queryByTestId("leave-dialog")).toBeNull();
     expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
     expect(segments()).toEqual(["segment-1"]);
-    // Agreed: the page goes, and the untitled copy with it -- the next New is blank.
-    confirm.mockReturnValue(true);
+    // Discard: the page goes, and the untitled copy with it -- the next New is blank.
     fireEvent.click(screen.getByRole("link", { name: "Twins" }));
+    fireEvent.click(within(await screen.findByTestId("leave-dialog")).getByTestId("leave-discard"));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Untitled" })).toBeNull());
     expect(localStorage.getItem(`axr-canvas-undo:${UNTITLED_SCOPE}`)).toBeNull();
   });
@@ -168,9 +170,8 @@ describe("the unsaved-work guard", () => {
     const { api } = seeded();
     renderAt(api, "/canvas/new");
     await screen.findByTestId("rail-add");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("link", { name: "Twins" }));
-    expect(confirm).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("leave-dialog")).toBeNull();
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Untitled" })).toBeNull());
   });
 
@@ -179,8 +180,8 @@ describe("the unsaved-work guard", () => {
     renderAt(api, "/");
     await screen.findByTestId("rail-add");
     await addFirstSegment();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("link", { name: "XTwin: a new design on the canvas" }));
+    fireEvent.click(within(await screen.findByTestId("leave-dialog")).getByTestId("leave-discard"));
     await waitFor(() => expect(screen.queryAllByTestId("canvas-segment")).toHaveLength(0));
     expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
     expect(screen.getByTestId("clean-marker").textContent).toBe("not saved yet");
@@ -188,6 +189,8 @@ describe("the unsaved-work guard", () => {
 });
 
 const openDialog = () => screen.findByRole("dialog", { name: "Open a twin" });
+/** Open's rows take a click only once they have been where they are for ROW_SETTLE_MS (round 3 item 4). */
+const rowsSettle = () => new Promise((r) => setTimeout(r, ROW_SETTLE_MS + 30));
 
 describe("Open", () => {
   it("is the Twins list as a picker: origin and deploy per row, searchable, a pick opens the canvas", async () => {
@@ -209,6 +212,7 @@ describe("Open", () => {
     expect(rows[2]!.textContent).toContain("cast from corp capture");
     fireEvent.change(within(dialog).getByLabelText("Search twins"), { target: { value: "live" } });
     await waitFor(() => expect(within(dialog).getAllByTestId("open-row")).toHaveLength(1));
+    await rowsSettle();
     fireEvent.click(within(dialog).getByRole("link", { name: "corp-live" }));
     await screen.findByRole("heading", { name: "corp-live" });
     expect(screen.queryByRole("dialog", { name: "Open a twin" })).toBeNull();
@@ -221,6 +225,7 @@ describe("Open", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
     const dialog = await openDialog();
     const rows = await within(dialog).findAllByTestId("open-row");
+    await rowsSettle();
     fireEvent.click(rows[2]!.querySelectorAll("td")[3]!);
     await screen.findByRole("heading", { name: "corp-cast" });
   });
@@ -231,14 +236,16 @@ describe("Open", () => {
     await screen.findAllByTestId("canvas-host");
     addSegment();
     await waitFor(() => expect(segments().length).toBe(3));
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
     const dialog = await openDialog();
-    fireEvent.click(await within(dialog).findByRole("link", { name: "corp-cast" }));
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0]![0]).toMatch(/unsaved changes/);
+    const link = await within(dialog).findByRole("link", { name: "corp-cast" });
+    await rowsSettle();
+    fireEvent.click(link);
+    const leave = await screen.findByTestId("leave-dialog");
+    expect(leave.textContent).toMatch(/unsaved changes/);
+    fireEvent.click(within(leave).getByTestId("leave-cancel"));
     fireEvent.click(within(dialog).getAllByTestId("open-row")[2]!.querySelectorAll("td")[3]!);
-    expect(confirm).toHaveBeenCalledTimes(2);
+    fireEvent.click(within(await screen.findByTestId("leave-dialog")).getByTestId("leave-cancel"));
     expect(screen.getByRole("heading", { name: "corp-auth" })).toBeTruthy();
   });
 });
@@ -252,6 +259,7 @@ describe("Clone (Open's action)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open…" }));
     const dialog = await openDialog();
     await within(dialog).findAllByTestId("open-row");
+    await rowsSettle();
     fireEvent.click(within(dialog).getByRole("link", { name: "Clone corp-auth" }));
 
     // The untitled canvas, drawing corp-auth's design; unsaved from the start, nothing written.
@@ -293,9 +301,8 @@ describe("Clone (Open's action)", () => {
     renderAt(api, "/canvas/new");
     await waitFor(() => expect(segments()).toEqual(["net-dmz", "net-lan"]));
     expect(screen.getByTestId("state-pill").textContent).toContain("copy of corp-auth");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     fireEvent.click(screen.getByRole("link", { name: "Twins" }));
-    expect(confirm).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(await screen.findByTestId("leave-dialog")).getByTestId("leave-cancel"));
     expect(screen.getByRole("heading", { name: "Untitled" })).toBeTruthy();
   });
 

@@ -46,13 +46,18 @@ export function isNetworkAddress(cidr: string): boolean {
 export function nextFreeSlash24(prefix: string, inPlay: readonly string[], options: { after?: boolean } = {}): string | null {
   const base = /^\d{1,3}\.\d{1,3}$/.test(prefix) ? ipv4ToInt(`${prefix}.0.0`) : null;
   if (base === null) return null;
-  // Never a /24 inside the transit pool (2026-11-21): the pool is fenced off as if it were in play.
+  // Never a /24 inside the transit pool (2026-11-21), nor -- unless asked for it, as the Internet tool
+  // does -- inside the internet's (B7): the pools are fenced off as if they were in play.
   const pool = ipv4Range(TRANSIT_POOL);
+  const inet = ipv4Range(INTERNET_POOL);
+  const loop = ipv4Range(LOOPBACK_POOL);
   const ranges = inPlay.map(ipv4Range).filter((r): r is Range => r !== null);
   if (pool) ranges.push(pool);
+  if (loop) ranges.push(loop);
+  if (inet && !(base >= inet.start && base <= inet.end)) ranges.push(inet);
   let from = 0;
   if (options.after) {
-    const under = ranges.filter((r) => r !== pool && r.start >= base && r.start < base + 65536);
+    const under = ranges.filter((r) => r !== pool && r !== inet && r !== loop && r.start >= base && r.start < base + 65536);
     if (under.length) from = Math.min(255, Math.floor((Math.max(...under.map((r) => r.end)) - base) / 256) + 1);
     if (from >= 256) from = 0;
   }
@@ -72,6 +77,17 @@ export const TRANSIT_POOL = "10.254.0.0/16";
  *  `10.200` -> `10.200.0.0/24`, `10.200.1.0/24`, ... -- outside `TRANSIT_POOL`. */
 export const DEFAULT_LAN_PREFIX = "10.200";
 
+/** Where the Internet tool's segment and sink live (`add/drop.ts` `ensureInternet`): never a LAN's
+ *  range (B7, 2026-11-21: a template rack had landed on 10.250.1.0/24, beside the internet's /24). */
+export const INTERNET_POOL = "10.250.0.0/16";
+
+/** Whether a CIDR overlaps `INTERNET_POOL`. */
+export function inInternetPool(cidr: string): boolean {
+  const r = ipv4Range(cidr);
+  const p = ipv4Range(INTERNET_POOL);
+  return !!r && !!p && r.start <= p.end && p.start <= r.end;
+}
+
 /** Whether a CIDR overlaps `TRANSIT_POOL` (a router-to-router transit, never a LAN). */
 export function inTransitPool(cidr: string): boolean {
   const r = ipv4Range(cidr);
@@ -83,7 +99,7 @@ export function inTransitPool(cidr: string): boolean {
  *  prefers first), skipping every CIDR inside `TRANSIT_POOL`; `null` when there is no LAN. */
 export function lanSitePrefix(cidrs: readonly (string | null | undefined)[]): string | null {
   for (const c of cidrs) {
-    if (!c || inTransitPool(c)) continue;
+    if (!c || inTransitPool(c) || inInternetPool(c)) continue;
     const r = ipv4Range(c);
     if (r) return `${Math.floor(r.start / 16777216) % 256}.${Math.floor(r.start / 65536) % 256}`;
   }
@@ -105,6 +121,25 @@ export function nextFreeTransit(inPlay: readonly string[], pool: string = TRANSI
   for (let start = p.start; start + 3 <= p.end; start += 4) {
     const end = start + 3;
     if (!ranges.some((r) => start <= r.end && r.start <= end)) return `${intToIpv4(start)}/30`;
+  }
+  return null;
+}
+
+/** Where an OSPF router's `routing.loopback` takes its `/32` (round 3, 2026-11-21): outside the
+ *  transit, LAN and internet pools, and clear of the lab's `10.255.251.0/24` transport (the
+ *  sensors' `transport_ip`s). The renderer derives the OSPF router-id from it. */
+export const LOOPBACK_POOL = "10.255.0.0/24";
+
+/** The next free loopback `/32` in `pool` (default `LOOPBACK_POOL`) from `.1` upward, skipping every
+ *  address in `taken` (bare or `/32`), or `null` when the pool is full. */
+export function nextFreeLoopback(taken: Iterable<string>, pool: string = LOOPBACK_POOL): string | null {
+  const p = ipv4Range(pool);
+  if (!p) return null;
+  const used = new Set<string>();
+  for (const t of taken) used.add(t.split("/")[0]!.trim());
+  for (let at = p.start + 1; at < p.end; at++) {
+    const ip = intToIpv4(at);
+    if (!used.has(ip)) return `${ip}/32`;
   }
   return null;
 }
@@ -165,4 +200,39 @@ export function addressInSegment(ip: string, cidr: string): boolean {
   const v = ipv4ToInt(ip);
   if (!r || v === null) return false;
   return v > r.start && v < r.end;
+}
+
+/** Where a router's leg on a LAN is pinned when it becomes that LAN's gateway (A5, 2026-11-21): the
+ *  lowest of `.1` .. `.9` (below the hosts' `.10`) that nothing pins, so the first router takes `.1`
+ *  and the second `.2`. An unpinned router leg already there holds `.1` (the planner gives a lone
+ *  router leg the gateway address). `null` when none is free: the leg is left to the planner. */
+export function gatewayAddress(model: Pick<TeModel, "segments" | "nodes">, segment: string): string | null {
+  const seg = model.segments.find((s) => s.name === segment);
+  const r = seg ? ipv4Range(seg.cidr) : null;
+  if (!r || r.end - r.start < 4) return null;
+  const taken = new Set<string>();
+  // A VRRP VIP is no leg's address (D5), and an authored gateway belongs to the router it names.
+  if (seg?.vrrp?.vip) taken.add(seg.vrrp.vip);
+  for (const n of model.nodes)
+    for (const leg of n.nets) {
+      if (leg.segment !== segment) continue;
+      if (leg.ip && isIpv4(leg.ip)) taken.add(leg.ip);
+      else if (!leg.ip && n.kind === "router") taken.add(intToIpv4(r.start + 1));
+    }
+  for (let i = 1; i < HOST_NUMBERING_START && r.start + i < r.end; i++) {
+    const ip = intToIpv4(r.start + i);
+    if (!taken.has(ip)) return ip;
+  }
+  return null;
+}
+
+/** The same host offset in another network (`10.200.0.1` of `10.200.0.0/24` -> `10.200.1.1` of
+ *  `10.200.1.0/24`): a copied segment's VIP or gateway (B3, D5). Null when it does not fit. */
+export function shiftAddress(ip: string, from: string, to: string): string | null {
+  const a = ipv4ToInt(ip);
+  const f = ipv4Range(from);
+  const t = ipv4Range(to);
+  if (a === null || !f || !t) return null;
+  const off = a - f.start;
+  return off > 0 && t.start + off < t.end ? intToIpv4(t.start + off) : null;
 }

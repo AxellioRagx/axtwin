@@ -40,8 +40,8 @@ describe("the design canvas, phase 2 (C3)", () => {
     // Select the new segment, click the Server card: it lands there; its popover names it web01.
     fireEvent.click(segment("segment-3"));
     addDevice("server", { prefix: "web01" });
-    await waitFor(() => expect(hosts()).toEqual(["web01", "web01-1", "ws01"]));
-    expect(host("web01-1").dataset["address"]).toBe("10.1.2.10");
+    await waitFor(() => expect(hosts()).toEqual(["web01", "web01-2", "ws01"]));
+    expect(host("web01-2").dataset["address"]).toBe("10.1.2.10");
     await check("valid");
 
     fireEvent.click(await enabled("Save"));
@@ -50,7 +50,7 @@ describe("the design canvas, phase 2 (C3)", () => {
     expect(write.id).toBe("corp-auth");
     const te = readTe((write.body as { files: Record<string, string> }).files["te.yaml"]!);
     expect(te.segments.map((s) => s.name)).toEqual(["net-lan", "net-dmz", "segment-3"]);
-    expect(te.nodes.find((n) => n.name === "web01-1")).toMatchObject({ role: "web-tier", image: "debian-12-cloud@v1", nets: [{ segment: "segment-3", ip: "10.1.2.10" }] });
+    expect(te.nodes.find((n) => n.name === "web01-2")).toMatchObject({ role: "web-tier", image: "debian-12-cloud@v1", nets: [{ segment: "segment-3", ip: "10.1.2.10" }] });
     // The lines the operator never touched are byte-identical.
     const original = teText("corp-auth").split("\n");
     const saved = (write.body as { files: Record<string, string> }).files["te.yaml"]!.split("\n");
@@ -389,13 +389,13 @@ describe("the design canvas, phase 2 (C3)", () => {
     fireEvent.click(segment("net-dmz"));
     await panel().findByTestId("segment-panel");
     addDevice("workstation", { os: "Linux", role: "generic-endpoint", count: 3, prefix: "lab" });
-    await waitFor(() => expect(hosts()).toContain("lab-1"));
+    await waitFor(() => expect(hosts()).toContain("lab"));
     await check("valid");
     fireEvent.click(await enabled("Save"));
     await screen.findByTestId("clean-marker");
     const files = (state.writes.find((w) => w.op === "put-twin-config")!.body as { files: Record<string, string> }).files;
-    expect(readTe(files["te.yaml"]!).nodes.find((n) => n.name === "lab-1")).toMatchObject({ count: 3, role: "generic-endpoint", image: "debian-12-cloud@v1", nets: [{ segment: "net-dmz", ip: null }] });
-    expect(files["tfc/default.yaml"]).toContain("- node: lab-1\n      persona: generic-endpoint");
+    expect(readTe(files["te.yaml"]!).nodes.find((n) => n.name === "lab")).toMatchObject({ count: 3, role: "generic-endpoint", image: "debian-12-cloud@v1", nets: [{ segment: "net-dmz", ip: null }] });
+    expect(files["tfc/default.yaml"]).toContain("- node: lab\n      persona: generic-endpoint");
   });
 
   it("attach allocates a segment-appropriate address: a second leg from the panel, a detach from the context menu, the sticky attach mode", async () => {
@@ -804,16 +804,16 @@ describe("a router joins segments: it places without one", () => {
     expect(card("router").title).toContain("joins segments");
     fireEvent.click(card("router"));
     chooseAndAdd();
-    await waitFor(() => expect(routers()).toEqual(["gw", "router-1"]));
+    await waitFor(() => expect(routers()).toEqual(["gw", "router"]));
     expect(screen.queryByTestId("blocked-reason")).toBeNull();
     // Unattached is a WARNING (an error would have blocked the placement): the document stays saveable, the Checks tab says what is missing.
     await check("valid");
     tab("Checks");
     const cv024 = screen.getAllByTestId("finding").find((f) => f.dataset["rule"] === "CV-024")!;
-    expect(cv024.textContent).toContain("router 'router-1' joins no segment yet");
+    expect(cv024.textContent).toContain("router 'router' joins no segment yet");
     expect(cv024.dataset["severity"] ?? "warning").toBe("warning");
     // Its legs are attachments: from the node panel, then it is valid.
-    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-1")!);
+    fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router")!);
     const p = await panel().findByTestId("node-panel");
     expect((within(p).getByLabelText("Kind") as HTMLSelectElement).value).toBe("router");
     fireEvent.change(within(p).getByLabelText("Attach to segment"), { target: { value: "net-lan" } });
@@ -827,7 +827,7 @@ describe("a router joins segments: it places without one", () => {
     // A selected segment: the router's first leg.
     fireEvent.click(segment("net-dmz"));
     addDevice("router");
-    await waitFor(() => expect(routers()).toEqual(["gw", "router-1", "router-2"]));
+    await waitFor(() => expect(routers()).toEqual(["gw", "router", "router-2"]));
     fireEvent.click(screen.getAllByTestId("canvas-router").find((x) => x.dataset["nodeId"] === "router-2")!);
     await waitFor(() => expect(within(panel().getByTestId("node-panel")).getAllByTestId("attachment").map((a) => a.dataset["segment"])).toEqual(["net-dmz"]));
     expect((within(panel().getByTestId("node-panel")).getByLabelText("Address on net-dmz") as HTMLInputElement).value).toBe("");
@@ -838,7 +838,7 @@ describe("a router joins segments: it places without one", () => {
     renderAt(api, "/twins/corp-auth/canvas");
     await screen.findAllByTestId("canvas-host");
     addDevice("server", { prefix: "solo" });
-    await waitFor(() => expect(hosts()).toContain("solo-1"));
+    await waitFor(() => expect(hosts()).toContain("solo"));
     expect(segments()).toEqual(["net-dmz", "net-lan", "web-tier-lan"]); // named for its first host's role
     fireEvent.contextMenu(window.document.querySelector(".react-flow__pane")!, { clientX: 300, clientY: 700 });
     const menu = await screen.findByTestId("context-menu");

@@ -595,8 +595,12 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     async listPersonas() {
       return { twin: null, personas: state.personas, warnings: [] };
     },
-    async listImageProfiles() {
-      return { profiles: state.imageProfiles, warnings: [] };
+    async listImageProfiles(target: string | null) {
+      // D6: resolved for the named target's platform (else the default target's), as the engine does.
+      const t = (target ? state.targets.find((x) => (x.name ?? x.node) === target) : null) ?? state.targets.find((x) => x.default) ?? state.targets[0] ?? null;
+      const platform = t?.platform ?? null;
+      const profiles = state.imageProfiles.map((p) => ({ ...p, image: (platform && p.platforms?.[platform]) || p.image }));
+      return { profiles, warnings: [], target: t ? (t.name ?? t.node) : null, platform };
     },
     async listTemplates() {
       return { templates: state.templates, warnings: [] };

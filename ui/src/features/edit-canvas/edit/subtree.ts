@@ -13,11 +13,12 @@
  * trunk carrying what the deeper one carries) or a device and a host (an
  * access link on the host's first segment), with free ports at both ends.
  */
-import { allocateHostAddresses, inTransitPool, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
+import { allocateHostAddresses, gatewayAddress, inTransitPool, shiftAddress, ipv4Range, nextFreeSlash24, nextFreeTransit, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
 import { readDoc, setPersona, type DocModel, type WorkingDoc } from "./document";
 import { instanceId } from "./members";
-import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, setMemberRole, type TeLink, type TeModel, type TeNode } from "./te";
+import { joinGateway } from "./vrrp";
+import { addConduit as teAddConduit, addLink, addNode, addSegment, nodeOfEnd, removeLink, setMemberRole, setNodeNets, setSegmentField, setSegmentVrrp, type TeLink, type TeModel, type TeNet, type TeNode } from "./te";
 
 export interface Subtree {
   root: string;
@@ -211,7 +212,53 @@ export function copyPositions(model: DocModel, root: string, result: Pick<Duplic
     const ncidr = nn ? result.cidrs[nn] : undefined;
     if (p && ncidr) out[`segment:${ncidr}`] = shift(p);
   }
+  // The hosts keep their place relative to the root too (B3, 2026-11-21: they had landed far from their switch).
+  for (const h of t.hosts) {
+    const p = positions[`host:${h}`];
+    const nn = result.names[h];
+    if (p && nn && h !== root) out[`host:${nn}`] = shift(p);
+  }
   return out;
+}
+
+/** The next rack's names (B3, 2026-11-21): when the subtree's root is named `<stem><n>...` (`rack1-tor`),
+ *  every copied name that starts with `<stem><n>` takes `<stem><k>`, k the first number past n that no
+ *  node or segment of the target starts with (`rack2`, then `rack3`); any other name (or a clash) takes
+ *  `-2`, `-3`. Null when the root carries no such number (the caller keeps `-2`). */
+export function nextNumberedRename(target: Pick<TeModel, "nodes" | "segments">, root: string): ((name: string, taken: ReadonlySet<string>) => string) | null {
+  const m = /^([A-Za-z][A-Za-z_]*?)(\d+)(?=[-_.]|$)/.exec(root);
+  if (!m) return null;
+  const stem = m[1]!;
+  const n = Number(m[2]);
+  const head = `${stem}${m[2]}`;
+  const all = [...target.nodes.map((x) => x.name), ...target.segments.map((x) => x.name)];
+  const used = (k: number) => all.some((x) => x === `${stem}${k}` || new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${k}[-_.]`).test(x));
+  let k = n + 1;
+  while (used(k)) k++;
+  return (name, taken) => {
+    if (name === head || name.startsWith(`${head}-`) || name.startsWith(`${head}_`) || name.startsWith(`${head}.`)) {
+      const nn = `${stem}${k}${name.slice(head.length)}`;
+      if (!taken.has(nn)) return nn;
+    }
+    return copyName(name, taken);
+  };
+}
+
+/** The devices the original subtree hangs from (B3): the routers and switches outside it that an `up`
+ *  link joins to its root, and the routers with a leg on one of its segments (a gateway). In document order. */
+export function uplinksOf(model: DocModel, root: string): string[] {
+  const te = model.te;
+  const t = subtreeOf(model, root);
+  const inside = new Set([...t.devices, ...t.hosts]);
+  const out = new Set<string>();
+  for (const l of te.links) {
+    if (l.state !== "up") continue;
+    const other = l.a.device === root ? l.b.device : l.b.device === root ? l.a.device : null;
+    const n = other ? te.nodes.find((x) => x.name === other) : undefined;
+    if (n && isDevice(n) && !inside.has(n.name)) out.add(n.name);
+  }
+  for (const n of te.nodes) if (n.kind === "router" && !inside.has(n.name) && n.nets.some((l) => t.segments.includes(l.segment))) out.add(n.name);
+  return te.nodes.filter((n) => out.has(n.name)).map((n) => n.name);
 }
 
 /** `{name}-2`, `{name}-3`, … the first not taken (§6.2: the copy is the second of its name). */
@@ -229,6 +276,9 @@ export interface DuplicateOptions {
   /** Re-allocate every copied segment under this two-octet prefix (`10.180`): the copy was dropped
    *  under another site (§6.3). Absent: each copy stays in its original's prefix. */
   prefix?: string | null;
+  /** "Same uplinks as the original" (B3): the copy is wired to every device the original hangs from
+   *  (`uplinksOf`) -- a router as that LAN's gateway (`gatewayOnSwitch`, A5), a switch by a trunk. */
+  sameUplinks?: boolean;
 }
 
 /** The two-octet prefixes the subtree's segments sit in. */
@@ -318,7 +368,22 @@ export function copyInto(doc: WorkingDoc, target: DocModel, source: DocModel, se
 
   let text = doc.files[doc.teFile];
   if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
-  for (const s of set.segments) text = addSegment(text, { name: names[s]!, cidr: cidrs[names[s]!]!, zoneType: te.segments.find((x) => x.name === s)!.zoneType });
+  for (const s of set.segments) {
+    const src = te.segments.find((x) => x.name === s)!;
+    const ncidr = cidrs[names[s]!]!;
+    text = addSegment(text, { name: names[s]!, cidr: ncidr, zoneType: src.zoneType });
+    // A VRRP group and a written gateway follow the copy, at the same host offset (D5): the members
+    // keep their names -- copied ones take the copy's -- and "same uplinks" gives them their legs.
+    if (src.gateway && !src.vrrp) {
+      const gw = shiftAddress(src.gateway, src.cidr, ncidr);
+      if (gw) text = setSegmentField(text, names[s]!, "gateway", gw);
+    }
+    if (src.vrrp) {
+      const vip = shiftAddress(src.vrrp.vip, src.cidr, ncidr);
+      const rn = (m: string) => names[m] ?? m;
+      if (vip) text = setSegmentVrrp(text, names[s]!, { vip, members: src.vrrp.members.map(rn), vrid: null, priority: src.vrrp.priority ? Object.fromEntries(Object.entries(src.vrrp.priority).map(([k, v]) => [rn(k), v])) : null });
+    }
+  }
   const takenIps = new Map<string, Set<string>>();
   const allocate = (segment: string, count: number): string[] => {
     const cidr = cidrs[segment] ?? target.te.segments.find((x) => x.name === segment)?.cidr;
@@ -378,7 +443,8 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
   const upCarried = attachTo === null && tree.uplink ? [...(tree.uplink.native ? [tree.uplink.native] : []), ...tree.uplink.vlans].filter((s, i, xs) => tree.segments.includes(s) && xs.indexOf(s) === i) : [];
   // The bindings copy only when the bundle has a traffic profile to copy them into (as before).
   const source = model.tfcPath && doc.files[model.tfcPath] !== undefined ? model : { ...model, tfc: null };
-  const copied = copyInto(doc, model, source, tree, { prefix: options.prefix ?? null, extraLegs: (name) => (name === root ? upCarried : []) });
+  const rename = nextNumberedRename(model.te, root);
+  const copied = copyInto(doc, model, source, tree, { prefix: options.prefix ?? null, extraLegs: (name) => (name === root ? upCarried : []), ...(rename ? { rename } : {}) });
   const { names, cidrs } = copied;
   const seg = (s: string) => names[s] ?? s;
   let text = copied.files[doc.teFile]!;
@@ -393,20 +459,91 @@ export function duplicateSubtree(doc: WorkingDoc, model: DocModel, root: string,
     const rootPort = up ? (up.a.device === root ? up.a.port : up.b.port) : freePort(readDocTe(text, doc), newRoot);
     text = addLink(text, { a: { device: attachTo, port: freePort(readDocTe(text, doc), attachTo) }, b: { device: newRoot, port: rootPort }, mode: "trunk", native, vlans: vlans.length || native ? vlans : carried });
   }
-  return { files: { ...copied.files, [doc.teFile]: text }, names, root: newRoot, cidrs };
+  let files: Files = { ...copied.files, [doc.teFile]: text };
+  if (attachTo === null && options.sameUplinks) {
+    const newRootNode = readDocTe(text, doc).nodes.find((n) => n.name === newRoot);
+    for (const up of uplinksOf(model, root)) {
+      const cur: WorkingDoc = { ...doc, files };
+      const m = readDoc(cur);
+      const u = m.te.nodes.find((n) => n.name === up);
+      if (!u) continue;
+      files = u.kind === "router" && newRootNode?.kind === "switch" ? gatewayOnSwitch(cur, m, up, newRoot) : attachDevices(cur, m, up, newRoot);
+    }
+  }
+  return { files, names, root: newRoot, cidrs };
 }
 
 function readDocTe(text: string, doc: WorkingDoc): TeModel {
   return readDoc({ ...doc, files: { ...doc.files, [doc.teFile]: text } }).te;
 }
 
-/** One `links[]` entry between a device and a device or a host (§6.4). */
+/** What wiring router `router` to switch `sw` does (A5, 2026-11-21): the segments the switch carries,
+ *  those the router still needs a leg on, and the links between the two already there. */
+export function gatewayPlan(te: TeModel, router: string, sw: string): { carried: string[]; legs: string[]; links: TeLink[] } {
+  const r = te.nodes.find((n) => n.name === router);
+  const carried = carriedBy(te, sw).filter((s) => te.segments.some((x) => x.name === s));
+  const legs = carried.filter((s) => !r?.nets.some((l) => l.segment === s));
+  const links = te.links.filter((l) => (l.a.device === router && l.b.device === sw) || (l.b.device === router && l.a.device === sw));
+  return { carried, legs, links };
+}
+
+/** Whether the pair's links are already the gateway's wiring: one single-segment link per carried segment. */
+export function wiredAsGateway(plan: ReturnType<typeof gatewayPlan>): boolean {
+  const single = (l: TeLink) => (l.mode === "access" ? l.vlans : l.native && l.vlans.every((v) => v === l.native) ? [l.native] : []);
+  const got = plan.links.flatMap(single);
+  return plan.links.length === plan.carried.length && plan.carried.every((s) => got.includes(s));
+}
+
+/**
+ * Router (or L3 switch) -> switch (A5, 2026-11-21): the router becomes the GATEWAY of every segment
+ * the switch carries -- a leg on each, pinned at the lowest free of `.1`..`.9` (`gatewayAddress`: the
+ * first router `.1`, the second `.2`) -- wired by one single-segment link per segment (a trunk whose
+ * native is that segment, as `insertSwitch` writes; the engine plugs it into the leg's NIC). It had
+ * been one bare trunk carrying the switch's segments with no leg on any: the router was not the LAN's
+ * gateway, and the engine refuses such a link to a VM (NSW-050: it carries a segment the router has
+ * no leg on; NSW-060: a VM trunk carries one segment). Links already between the pair are replaced,
+ * so wiring an old bare trunk again repairs it. One edit (the caller's one undo step).
+ */
+export function gatewayOnSwitch(doc: WorkingDoc, model: DocModel, router: string, sw: string): Files {
+  const te = model.te;
+  const r = te.nodes.find((n) => n.name === router);
+  const s = te.nodes.find((n) => n.name === sw);
+  if (r?.kind !== "router") throw new Error(`'${router}' is not a router`);
+  if (s?.kind !== "switch") throw new Error(`'${sw}' is not a switch`);
+  const plan = gatewayPlan(te, router, sw);
+  if (!plan.carried.length) throw new Error(`'${sw}' carries no segment yet; drop a host on it or give it a segment first`);
+  if (!plan.legs.length && wiredAsGateway(plan)) throw new Error(`'${router}' is already the gateway on ${plan.carried.join(", ")} through '${sw}'`);
+  let text = doc.files[doc.teFile];
+  if (text === undefined) throw new Error(`the document has no '${doc.teFile}' to edit`);
+  // The pair's old links go first (last index first), so their ports are free again.
+  for (const l of [...plan.links].sort((x, y) => y.index - x.index)) text = removeLink(text, l.index);
+  let cur = readDocTe(text, doc);
+  const nets: TeNet[] = [...r.nets];
+  for (const seg of plan.legs) {
+    nets.push({ segment: seg, ip: gatewayAddress({ segments: cur.segments, nodes: cur.nodes.map((n) => (n.name === router ? { ...n, nets } : n)) }, seg) });
+  }
+  if (plan.legs.length) text = setNodeNets(text, router, nets);
+  // The LAN keeps a gateway with a second router on it (the engine gives two router legs and no
+  // `gateway:` none) or, with a VRRP group, takes the router in (D5).
+  for (const seg of plan.legs) text = joinGateway(text, router, seg);
+  cur = readDocTe(text, doc);
+  for (const seg of plan.carried) {
+    text = addLink(text, { a: { device: router, port: freePort(cur, router) }, b: { device: sw, port: freePort(cur, sw) }, mode: "trunk", native: seg, vlans: [seg] });
+    cur = readDocTe(text, doc);
+  }
+  return { ...doc.files, [doc.teFile]: text };
+}
+
+/** One `links[]` entry between a device and a device or a host (§6.4); a router and a switch make
+ *  the router that switch's gateway instead (`gatewayOnSwitch`, A5). */
 export function attachDevices(doc: WorkingDoc, model: DocModel, from: string, to: string): Files {
   const te = model.te;
   if (from === to) throw new Error("a link joins two different devices");
   const a = te.nodes.find((n) => n.name === from);
   const b = te.nodes.find((n) => n.name === to);
   if (!a || !b) throw new Error(`no node group named '${a ? to : from}'`);
+  if (a.kind === "router" && b.kind === "switch") return gatewayOnSwitch(doc, model, a.name, b.name);
+  if (b.kind === "router" && a.kind === "switch") return gatewayOnSwitch(doc, model, b.name, a.name);
   // The device end goes first; a host-to-host pair has no device to link through.
   const [dev, other] = isDevice(a) ? [a, b] : isDevice(b) ? [b, a] : [null, null];
   if (!dev || !other) throw new Error(`neither '${from}' nor '${to}' is a switch or a router; a link needs a device at one end`);

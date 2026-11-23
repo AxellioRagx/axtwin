@@ -72,7 +72,7 @@ def _twin(root: Path, *, image2: str = "debian-12-cloud@v1", sensor: str = "XPre
 
 
 def _setup(tmp_path: Path, *, grafana_url: str | None = None, image2: str = "debian-12-cloud@v1",
-           sensor: str = "XPress-SW-A") -> TestClient:
+           sensor: str = "XPress-SW-A", image_profiles: str = "") -> TestClient:
     grafana_url = grafana_url or f"http://127.0.0.1:{_closed_port()}"
     px = tmp_path / "px.conf"
     px.write_text("PROXMOX_API_URL=https://10.0.0.1:8006/api2/json\nDEFAULT_NODE=dev45\n"
@@ -118,7 +118,7 @@ def _setup(tmp_path: Path, *, grafana_url: str | None = None, image2: str = "deb
     )
     app = create_app(ApiSettings(
         targets_file=str(tf), twin_configs_dir=str(twins), imprints_dir=str(twins),
-        images_root=str(FIXT_ROOT.resolve()),
+        images_root=str(FIXT_ROOT.resolve()), image_profiles=image_profiles,
     ))
     return TestClient(app)
 
@@ -349,3 +349,67 @@ def test_twin_deploy_on_a_clean_target_lands_in_its_store(tmp_path):
     r = c.post("/api/twins/lab-twin/deploy", params={"target": "kvm1"}, json={})
     assert r.status_code == 200, r.text
     assert started and started[0][0] == str((tmp_path / "kv.db").resolve())
+
+
+# ---- A7 (2026-11-21): a Check with no target still warns of an unbound image --------
+
+def _doc(tmp_path: Path, *, cluster: str | None) -> dict:
+    twin = tmp_path / "twins" / "lab-twin"
+    files = {str(p.relative_to(twin)): p.read_text() for p in twin.rglob("*.yaml")}
+    if cluster:
+        files["twin.yaml"] = files["twin.yaml"].replace("  containment: uncontained\n", f"  containment: uncontained\n  cluster: {cluster}\n")
+    return {"document": {"id": "lab-twin", "files": files}}
+
+
+def test_a_document_check_warns_of_an_image_the_twins_target_platform_lacks(tmp_path):
+    # vyos has a proxmox binding in the fixture catalog, no libvirt one: an L3 switch on kvm1.
+    c = _setup(tmp_path, image2="vyos@1.5")
+    j = c.post("/api/validate", json=_doc(tmp_path, cluster="kvm1")).json()
+    img = [f for f in j["findings"] if f["rule_id"] == "TARGET-IMAGE"]
+    assert [(f["severity"], f["message"]) for f in img] == [
+        ("warning", "image vyos@1.5 has no binding for platform libvirt on target kvm1: the deploy preflight refuses it"),
+    ]
+    # No cluster: the default target (dev45, proxmox) binds it -- nothing to say. Nor about sensors.
+    j2 = c.post("/api/validate", json=_doc(tmp_path, cluster=None)).json()
+    assert not [f for f in j2["findings"] if f["rule_id"].startswith("TARGET-")]
+
+
+# ---- D6 (2026-11-21): image profiles resolved for a target's platform ----------
+
+def _profiles(tmp_path: Path) -> TestClient:
+    f = tmp_path / "image-profiles.yaml"
+    f.write_text(
+        "profiles:\n"
+        "  l3-switch: { image: vyos@1.5, platforms: { libvirt: debian-12-cloud@v1 } }\n"
+        "  linux-server: { image: debian-12-cloud@v1 }\n"
+    )
+    return _setup(tmp_path, image_profiles=str(f))
+
+
+def test_image_profiles_resolve_for_the_named_targets_platform(tmp_path):
+    c = _profiles(tmp_path)
+    j = c.get("/api/image-profiles", params={"target": "kvm1"}).json()
+    assert (j["target"], j["platform"]) == ("kvm1", "libvirt")
+    by = {p["name"]: p for p in j["profiles"]}
+    assert by["l3-switch"]["image"] == "debian-12-cloud@v1"
+    assert by["l3-switch"]["platforms"] == {"libvirt": "debian-12-cloud@v1"}
+    # A profile with no entry for the platform keeps its default.
+    assert by["linux-server"]["image"] == "debian-12-cloud@v1"
+
+
+def test_image_profiles_default_to_the_default_target(tmp_path):
+    j = _profiles(tmp_path).get("/api/image-profiles").json()
+    assert (j["target"], j["platform"]) == ("dev45", "proxmox")
+    assert {p["name"]: p["image"] for p in j["profiles"]}["l3-switch"] == "vyos@1.5"
+
+
+def test_image_profiles_for_an_unknown_target_is_a_404(tmp_path):
+    r = _profiles(tmp_path).get("/api/image-profiles", params={"target": "nope"})
+    assert r.status_code == 404 and "nope" in r.text
+
+
+def test_a_malformed_platforms_map_is_a_500(tmp_path):
+    f = tmp_path / "bad.yaml"
+    f.write_text("profiles:\n  r: { image: vyos@1.5, platforms: [libvirt] }\n")
+    r = _setup(tmp_path, image_profiles=str(f)).get("/api/image-profiles")
+    assert r.status_code == 500 and "platforms" in r.text

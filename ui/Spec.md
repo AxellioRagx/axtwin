@@ -86,7 +86,12 @@ tap) and that the tap's sensor binding is released; on the canvas a dirty workin
 copy must be acknowledged with a checkbox ("unapplied changes will be
 discarded"), or persisted first. Progress reads as Apply's (`destroying… te ·
 12 s`), the tiers tick off as they come down, and the canvas returns to the
-undeployed edit mode without a reload. Delete… on a deployed twin says "destroy
+undeployed edit mode without a reload. The run ends on the DELETE's answer or,
+whichever comes first, on the 1.5 s poll seeing every tier gone (the API drops a
+destroyed deploy from `/api/deploys`; a missing row is down) with
+`destroy-progress` idle -- so a lost answer (no answer, a 504) still closes the
+dialog; with nothing coming down after a lost answer it fails with that error.
+The dialog closes and its page refreshes once, however the run ended. Delete… on a deployed twin says "destroy
 the deploy first" and offers Destroy… instead of surfacing the 409. Per-tier
 Stop / Restart for tfc and tap is **not** offered: `/api/tfc` and `/api/taps`
 have apply and destroy only (no stop or restart verb), so there is nothing for
@@ -271,7 +276,8 @@ Save is a Save-As through A3), Open… in the canvas bar, `/canvas/:id`
   target.
 - C4.3 (auto) A standing deploy is destroyed from the Twins list, the twin page or
   the canvas bar through one confirm; the row and the canvas read undeployed after,
-  Deploy offered again. *(`destroy.test.tsx`. Live on dev45 2026-11-08: canvas-test
+  Deploy offered again -- under StrictMode too, and when the DELETE never answers
+  and the deploy leaves the list (2026-11-21). *(`destroy.test.tsx`. Live on dev45 2026-11-08: canvas-test
   deployed from the Twins list (4 VMs, ~270 s), destroyed from the canvas bar in ~27 s
   (te only: the console's Deploy stands no tfc or tap, so the cascade is proven by
   `engine/tests/test_api.py`, not live); `/api/deploys` then lists no canvas-test row.)*

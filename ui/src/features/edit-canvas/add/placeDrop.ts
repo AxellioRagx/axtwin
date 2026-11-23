@@ -17,6 +17,8 @@
 import { DEVICE_H, DEVICE_W } from "../layout/geometry";
 import { BUS_ICON } from "../canvas/bus";
 import { HOST_GAP, TREE_NODE_SEP, TREE_RANK_SEP } from "../canvas/tree";
+import type { DocModel } from "../edit/document";
+import { subtreeOf } from "../edit/subtree";
 import type { TeModel } from "../edit/te";
 
 export interface Point {
@@ -43,7 +45,7 @@ const round = (p: Point): Point => ({ x: Math.round(p.x), y: Math.round(p.y) });
  * `fixed`: spots already decided (the dropped device at the drop point, a template's laid-out items).
  * `known`: where everything already on the canvas stands (the side-car's pins and the session's settled positions).
  */
-export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after: Pick<TeModel, "nodes" | "segments" | "links">, at: Point | null, fixed: Readonly<Record<string, Point>> = {}, known: Readonly<Record<string, Point>> = {}, options: { clear?: boolean } = {}): Record<string, Point> {
+export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after: Pick<TeModel, "nodes" | "segments" | "links">, at: Point | null, fixed: Readonly<Record<string, Point>> = {}, known: Readonly<Record<string, Point>> = {}, options: { clear?: boolean; maxRing?: number } = {}): Record<string, Point> {
   const oldNodes = new Set(before.nodes.map((n) => n.name));
   const oldSegs = new Set(before.segments.map((s) => s.name));
   const fresh = after.nodes.filter((n) => !oldNodes.has(n.name));
@@ -108,7 +110,7 @@ export function placeDropped(before: Pick<TeModel, "nodes" | "segments">, after:
     const x0 = onRow.length ? Math.max(...onRow.map((p) => p.x)) + BUS_ICON + HOST_GAP : anchor.x + DEVICE_W / 2 - width / 2;
     names.forEach((name, i) => (pos[`host:${name}`] = round({ x: x0 + i * (BUS_ICON + HOST_GAP), y: onRow.length ? onRow[0]!.y : rowY })));
   }
-  return options.clear ? clearOf(pos, known, after) : pos;
+  return options.clear ? clearOf(pos, known, after, options.maxRing) : pos;
 }
 
 type Box = { l: number; t: number; r: number; b: number };
@@ -123,6 +125,9 @@ export function pinBox(key: string, p: Point, hosts: ReadonlySet<string>): Box {
   return { l: p.x, t: p.y, r: p.x + DEVICE_W, b: p.y + DEVICE_H };
 }
 const CLEAR_GAP = 24;
+/** How far a template or the Internet tool may be moved off a box (B5, 2026-11-21): a few rings, then
+ *  it lands at the pointer even over something (a crowded canvas had sent a rack to the bottom edge). */
+export const NEAR_RINGS = 4;
 
 /**
  * A drop never lands on a box already on the canvas (2026-11-21: a card clicked with the view centred
@@ -130,7 +135,7 @@ const CLEAR_GAP = 24;
  * existing one, the whole group moves -- its shape kept -- to the nearest clear spot, searched ring by
  * ring around where it was asked for (right and down first). Pure.
  */
-export function clearOf(pos: Record<string, Point>, known: Readonly<Record<string, Point>>, after: Pick<TeModel, "nodes">): Record<string, Point> {
+export function clearOf(pos: Record<string, Point>, known: Readonly<Record<string, Point>>, after: Pick<TeModel, "nodes">, maxRing = 40): Record<string, Point> {
   const hosts = new Set(after.nodes.filter((n) => n.kind === "host").map((n) => n.name));
   const mine = Object.entries(pos).map(([k, p]) => pinBox(k, p, hosts));
   const others = Object.entries(known).filter(([k]) => !(k in pos)).map(([k, p]) => pinBox(k, p, hosts));
@@ -139,7 +144,7 @@ export function clearOf(pos: Record<string, Point>, known: Readonly<Record<strin
   if (!hit(0, 0)) return pos;
   const sx = DEVICE_W / 2;
   const sy = DEVICE_H / 2;
-  for (let ring = 1; ring <= 40; ring++) {
+  for (let ring = 1; ring <= maxRing; ring++) {
     const spots: Array<[number, number]> = [];
     for (let i = -ring; i <= ring; i++) spots.push([ring, i], [i, ring], [-ring, i], [i, -ring]);
     spots.sort((a, b) => Math.hypot(a[0] * sx, a[1] * sy) - Math.hypot(b[0] * sx, b[1] * sy));
@@ -150,4 +155,22 @@ export function clearOf(pos: Record<string, Point>, known: Readonly<Record<strin
     }
   }
   return pos;
+}
+
+/** Where a copy of `root`'s subtree stands when no drop point says (B3, 2026-11-21: Enter, the panel, a
+ *  copy wired to a device): its root just right of the original subtree's boxes, on the root's row.
+ *  Null when the original root has no position (the layout places the copy). */
+export function besideSubtree(model: DocModel, root: string, known: Readonly<Record<string, Point>>): Point | null {
+  const r = known[`host:${root}`];
+  if (!r) return null;
+  const t = subtreeOf(model, root);
+  const hosts = new Set(model.te.nodes.filter((n) => n.kind === "host").map((n) => n.name));
+  const cidr = (seg: string) => model.te.segments.find((x) => x.name === seg)?.cidr;
+  const keys = [...t.devices.map((d) => `host:${d}`), ...t.hosts.map((h) => `host:${h}`), ...t.segments.map((seg) => `segment:${cidr(seg) ?? ""}`)];
+  let right = r.x + DEVICE_W;
+  for (const k of keys) {
+    const p = known[k];
+    if (p) right = Math.max(right, pinBox(k, p, hosts).r);
+  }
+  return round({ x: right + CLEAR_GAP * 2, y: r.y });
 }

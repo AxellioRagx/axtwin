@@ -105,7 +105,8 @@ export interface Api {
   listTwinConfigs(signal?: AbortSignal): Promise<TwinConfigList>;
   listPersonas(signal?: AbortSignal): Promise<PersonaList>;
   /** The Add panel's image profiles (card + OS -> image), read-only. */
-  listImageProfiles(signal?: AbortSignal): Promise<ImageProfileList>;
+  /** D6: each profile's image resolved for `target`'s platform (null: the default target). */
+  listImageProfiles(target: string | null, signal?: AbortSignal): Promise<ImageProfileList>;
   /** The canvas templates (built-in and saved), `docs/design/canvas-add-panel.md` §5. */
   listTemplates(signal?: AbortSignal): Promise<TemplateList>;
   getTemplate(id: string, signal?: AbortSignal): Promise<Template>;
@@ -207,7 +208,7 @@ export function makeApi(request: Requester): Api {
     putLayout: (id, doc) => request("PUT", `/api/twins/${enc(id)}/layout`, { body: doc }),
     listTwinConfigs: (signal) => request("GET", "/api/twin-configs", { signal }),
     listPersonas: (signal) => request("GET", "/api/personas", { signal }),
-    listImageProfiles: (signal) => request("GET", "/api/image-profiles", { signal }),
+    listImageProfiles: (target, signal) => request("GET", target ? `/api/image-profiles?target=${encodeURIComponent(target)}` : "/api/image-profiles", { signal }),
     listTemplates: (signal) => request("GET", "/api/templates", { signal }),
     getTemplate: (id, signal) => request("GET", `/api/templates/${enc(id)}`, { signal }),
     createTemplate: (template) => request("POST", "/api/templates", { body: { template } }),

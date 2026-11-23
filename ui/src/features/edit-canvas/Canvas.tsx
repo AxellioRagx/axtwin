@@ -28,6 +28,7 @@ import {
   type Node,
   type NodeChange,
   type Viewport,
+  getViewportForBounds,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -36,8 +37,8 @@ import type { TopologyExport } from "../../api/types";
 import { FAN_CHOICES, FAN_DEFAULT, fanLabel, fanOut } from "./canvas/fan";
 import { decodePoints, nearestPolyline } from "./canvas/legs";
 import { EMPTY_FILTER, isEmptyFilter, matchTraffic, type TrafficFilter } from "./canvas/overlay";
-import { ID, absolutePosition, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
-import { iconOf } from "./canvas/free";
+import { ID, absolutePosition, allNodesBounds, arcKey, pinKeyOf, type CanvasNode, type Placement } from "./canvas/placement";
+import { dragFollowers, iconOf } from "./canvas/free";
 import { useAppColorMode } from "./canvas/theme";
 import { boundsOf, foldFitTargets, foldViewport } from "./canvas/fit";
 import { Inspector, Popover, Rail, StatusStrip, type InspectorTab, type RailButton } from "./chrome";
@@ -56,7 +57,7 @@ import { resolveSearch } from "./model/search";
 import { AddContext, PALETTE_MIME } from "./add/AddContext";
 import type { Selection } from "./SidePanel";
 import type { FindingPin } from "./edit/check";
-import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes } from "./edit/subtree";
+import { marqueeSubtree, subtreeCount, subtreeOrNull, subtreePrefixes, uplinksOf } from "./edit/subtree";
 import { DEVICE_H, DEVICE_W } from "./layout/geometry";
 import { twoOctetPrefix } from "./model/keys";
 import { crossingText, DetailContext, edgeTypes, FindingsContext, FoldFindingsContext, GlowContext, LABELS_MODES, LabelsContext, legParts, NO_GLOW, nodeTypes, OverlayContext, ProvFilterContext, type Glow, type LabelsMode } from "./nodes";
@@ -73,7 +74,7 @@ export interface CanvasEditProps {
    *  segment, else the view's centre) or picked from the double-click quick-add. `segment` when it
    *  landed on one; `via`: on a router (a new segment under it, §7.1) or somewhere it cannot go;
    *  `screen`: the drop point in the canvas shell's pixels (where the drop popover opens). */
-  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia, screen?: { x: number; y: number }): void;
+  onPlace(item: PaletteItem, segment: string | null, count: number, at: { x: number; y: number } | null, via?: PlaceVia | PlaceChoices, screen?: { x: number; y: number }): void;
   /** "Insert switch" on a segment's implied switch (§7.1): a real `kind: switch` carrying it. */
   onInsertSwitch?(segment: string): void;
   /** "Declare conduit to…" (a segment's menu, then a click on the other segment): a `conduits[]` entry. */
@@ -102,7 +103,7 @@ export interface CanvasEditProps {
   /** Copy the subtree under `root` (§6.2, §6.3): attached by a trunk to `attachTo`, else parked; a
    *  parked copy dropped on the canvas stands at `at` (its root's top-left); `prefix` re-allocates
    *  every copied segment under another site. The page selects the copy. */
-  onDuplicateSubtree?(root: string, drop?: { attachTo?: string | null; at?: { x: number; y: number } | null; prefix?: string | null }): void;
+  onDuplicateSubtree?(root: string, drop?: { attachTo?: string | null; at?: { x: number; y: number } | null; prefix?: string | null; sameUplinks?: boolean }): void;
   /** The attach tool between two devices or a device and a host, or a parked device dropped on another (§6.3, §6.4): one `links[]` entry. */
   onLink?(from: string, to: string): void;
   annotations: Annotation[];
@@ -134,6 +135,8 @@ export interface CanvasProps {
   provenanceOverlay?: boolean;
   initialViewport: Viewport | null;
   onViewport: (v: Viewport) => void;
+  /** The free layout is on (B4): dragging a switch or a router carries what hangs from it. */
+  freeLayout?: boolean;
   /** Lock-all's initial state (synced from the deploy state in edit mode). */
   locked?: boolean;
   /** What the inspector's Notes tab says about this twin. */
@@ -218,14 +221,19 @@ export function Canvas(props: CanvasProps) {
 /** The segment whose box holds `at` (absolute canvas coordinates), by name. Pure. */
 /** The device (a switch or a router) whose box contains `at`, by name. Pure. */
 export function deviceAt(nodes: ReadonlyArray<Pick<CanvasNode, "id" | "position" | "parentId" | "data" | "width" | "height" | "measured">>, at: { x: number; y: number }): string | null {
+  // Of the boxes under the point, the one whose centre is nearest (B2, 2026-11-21): a router's box
+  // that reaches over a switch beside it no longer takes a drop aimed at the switch.
+  let best: { name: string; d: number } | null = null;
   for (const n of nodes) {
     if (n.data.kind !== "device" && n.data.kind !== "router") continue;
     const abs = absolutePosition(nodes, n.id);
     const w = n.measured?.width ?? n.width ?? 0;
     const h = n.measured?.height ?? n.height ?? 0;
-    if (abs && at.x >= abs.x && at.x <= abs.x + w && at.y >= abs.y && at.y <= abs.y + h) return n.data.name;
+    if (!abs || at.x < abs.x || at.x > abs.x + w || at.y < abs.y || at.y > abs.y + h) continue;
+    const d = Math.hypot(at.x - (abs.x + w / 2), at.y - (abs.y + h / 2));
+    if (!best || d < best.d) best = { name: n.data.name, d };
   }
-  return null;
+  return best?.name ?? null;
 }
 
 /** The data of the edge a tap chip was dropped on (a device link, or a segment's link). */
@@ -271,23 +279,48 @@ function edgeUnder(e: { clientX?: number; clientY?: number } | null | undefined)
  *  2026-11-11): a real switch's segment (`switchSegment`: its one segment, else its uplink's native,
  *  else its busiest), a router's new segment, or a reason it cannot. Pure. */
 export type PlaceVia = { router: string } | { blocked: string };
-export function placeOnDevice(te: TeModel, device: string): { segment: string } | PlaceVia | null {
+/** A segment target; `choices` when it came from a switch carrying several (the popover asks which, B2). */
+export type PlaceOn = { segment: string; choices?: string[]; via?: string };
+/** The segments a switch dropped on carries, when more than one: the popover asks which (B2). */
+export type PlaceChoices = { choices: string[]; via: string | null };
+export function placeOnDevice(te: TeModel, device: string): PlaceOn | PlaceVia | null {
   const n = te.nodes.find((x) => x.name === device);
   if (n?.kind === "router") return { router: device };
   if (n?.kind === "switch") {
-    const seg = switchSegment(te, device).segment;
-    return seg ? { segment: seg } : { blocked: `${device} carries no segment yet: link it to a router or give it a port first` };
+    const { segment: seg, choices } = switchSegment(te, device);
+    if (!seg) return { blocked: `${device} carries no segment yet: link it to a router or give it a port first` };
+    return choices.length > 1 ? { segment: seg, choices, via: device } : { segment: seg, via: device };
   }
+  // A host: its own segment (a card dropped on it, or clicked while it is selected, joins it).
+  if (n && n.nets[0]) return { segment: n.nets[0].segment };
   return null;
 }
 
-/** Where a palette item dropped at `at` lands: an implied switch's segment, else a device's (above),
- *  else nowhere (`null`: the empty canvas). Pure. */
-export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: number; y: number }, te: TeModel): { segment: string } | PlaceVia | null {
+/** Where a palette item dropped at `at` lands: the node the pointer is over (`hit`: the DOM's answer,
+ *  B2), else an implied switch's segment, else a device's (above), else nowhere (`null`: the empty
+ *  canvas). Pure. */
+export function placeTarget(nodes: Parameters<typeof segmentAt>[0], at: { x: number; y: number }, te: TeModel, hit: string | null = null): PlaceOn | PlaceVia | null {
+  const under = hit ? nodes.find((n) => n.id === hit) : undefined;
+  if (under?.data.kind === "segment") return { segment: under.data.name };
+  if (under && (under.data.kind === "device" || under.data.kind === "router")) {
+    const t = placeOnDevice(te, under.data.name);
+    if (t) return t;
+  }
   const seg = segmentAt(nodes, at);
   if (seg) return { segment: seg };
   const dev = deviceAt(nodes, at);
   return dev ? placeOnDevice(te, dev) : null;
+}
+
+/** The React Flow node under a pointer event (its id), skipping the popovers and ghosts on top. jsdom
+ *  has no `elementsFromPoint`: null there (the geometry decides). */
+function nodeUnder(e: { clientX?: number; clientY?: number } | null | undefined): string | null {
+  if (!e || typeof e.clientX !== "number" || typeof e.clientY !== "number" || typeof document.elementsFromPoint !== "function") return null;
+  for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const id = el.closest(".react-flow__node")?.getAttribute("data-id");
+    if (id) return id;
+  }
+  return null;
 }
 
 /** Whether a declared conduit's arc is drawn in the design view (2026-11-20, decluttered): the rail's
@@ -388,7 +421,7 @@ function readOverlay(): boolean {
   }
 }
 
-function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null }: CanvasProps) {
+function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleSite, fan: fanProp, onFan, provFilter = null, provenanceOverlay = true, initialViewport, onViewport, locked: lockedAtStart = false, notes, layoutBar, edit, palette, overlay: dropOverlay, quickAdd, inspector, lab = null, findings = NO_FINDINGS, focus = null, freeLayout = false }: CanvasProps) {
   const colorMode = useAppColorMode();
   const rf = useReactFlow<CanvasNode>();
   const [nodes, setNodes, onNodesChangeBase] = useNodesState<CanvasNode>(placement.nodes);
@@ -558,8 +591,51 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     [onNodesChangeBase, edit],
   );
 
+  // B4 (2026-11-21): in the free layout a dragged switch carries its hosts, a router the implied
+  // switches it alone serves and their hosts, by the same offset; Alt drags the device alone.
+  const followers = useRef<{ id: string; from: { x: number; y: number }; ids: Map<string, { x: number; y: number }> } | null>(null);
+  const onNodeDragStart = useCallback(
+    (e: MouseEvent | TouchEvent | React.MouseEvent, node: CanvasNode) => {
+      followers.current = null;
+      if (!editing || !edit || !freeLayout || ("altKey" in e && e.altKey) || (node.data.kind !== "device" && node.data.kind !== "router")) return;
+      const all = rf.getNodes();
+      const ids = dragFollowers(edit.model.te, all, node.data.name).filter((id) => id !== node.id && !all.find((x) => x.id === id)?.selected);
+      if (!ids.length) return;
+      followers.current = { id: node.id, from: { ...node.position }, ids: new Map(ids.map((id) => [id, { ...all.find((x) => x.id === id)!.position }])) };
+    },
+    [editing, edit, freeLayout, rf],
+  );
+  const onNodeDrag = useCallback(
+    (_e: MouseEvent | TouchEvent | React.MouseEvent, node: CanvasNode) => {
+      const f = followers.current;
+      if (!f || f.id !== node.id) return;
+      const dx = node.position.x - f.from.x;
+      const dy = node.position.y - f.from.y;
+      setNodes((ns) => ns.map((n) => {
+        const p = f.ids.get(n.id);
+        return p ? { ...n, position: { x: p.x + dx, y: p.y + dy } } : n;
+      }));
+    },
+    [setNodes],
+  );
+
   const onNodeDragStop = useCallback(
     (_e: unknown, node: CanvasNode) => {
+      // B4: what the device carried lands with it, pinned where it was drawn.
+      const f = followers.current;
+      followers.current = null;
+      if (f && f.id === node.id) {
+        const dx = node.position.x - f.from.x;
+        const dy = node.position.y - f.from.y;
+        const all = rf.getNodes();
+        const pins: Record<string, { x: number; y: number }> = {};
+        for (const [id, p] of f.ids) {
+          const n = all.find((x) => x.id === id);
+          const k = n ? pinKeyOf(n) : null;
+          if (k && n && !n.parentId) pins[k] = { x: Math.round((p.x + dx) * 100) / 100, y: Math.round((p.y + dy) * 100) / 100 };
+        }
+        if (Object.keys(pins).length && (dx || dy)) onPinMany(pins);
+      }
       if (node.data.kind === "annotation" && edit) {
         const a = node.data.ann;
         edit.onAnnotations(edit.annotations.map((x) => (x.id === a.id ? { ...x, x: Math.round(node.position.x), y: Math.round(node.position.y) } : x)));
@@ -794,7 +870,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   // ---- §6.2 / §6.3: Ctrl+D (or the menu) carries a floating copy of the subtree under the cursor;
   // a press drops it -- onto a switch or router (a trunk), or on the canvas (parked where it lands,
   // re-allocated under the site it lands under); Enter parks it in place, Esc or the right button cancels.
-  const [carry, setCarry] = useState<{ root: string; label: string; devices: string[]; prefixes: string[]; x: number; y: number; target: ReturnType<typeof carryTarget> | null } | null>(null);
+  const [carry, setCarry] = useState<{ root: string; label: string; devices: string[]; prefixes: string[]; uplinks: string[]; same: boolean; x: number; y: number; target: ReturnType<typeof carryTarget> | null } | null>(null);
   const carryRef = useRef<typeof carry>(null);
   carryRef.current = carry;
   const pointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -804,7 +880,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const t = subtreeOrNull(edit.model, root);
       if (!t) return;
       const label = `copy of ${root} · ${subtreeCount(edit.model, t)}`;
-      setCarry({ root, label, devices: t.devices, prefixes: subtreePrefixes(edit.model, root), x: pointer.current.x, y: pointer.current.y, target: null });
+      setCarry({ root, label, devices: t.devices, prefixes: subtreePrefixes(edit.model, root), uplinks: uplinksOf(edit.model, root), same: false, x: pointer.current.x, y: pointer.current.y, target: null });
     },
     [edit],
   );
@@ -813,14 +889,15 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const c = carryRef.current;
       if (!c || !edit?.onDuplicateSubtree) return;
       setCarry(null);
+      const same = c.same && c.uplinks.length > 0;
       if (clientX === null || clientY === null) {
-        edit.onDuplicateSubtree(c.root);
+        edit.onDuplicateSubtree(c.root, same ? { sameUplinks: true } : undefined);
         return;
       }
       const at = rf.screenToFlowPosition({ x: clientX, y: clientY }, { snapToGrid: false });
       const t = carryTarget(rf.getNodes(), at, c.devices, c.prefixes);
       if ("attachTo" in t) edit.onDuplicateSubtree(c.root, { attachTo: t.attachTo });
-      else edit.onDuplicateSubtree(c.root, { at: { x: at.x - DEVICE_W / 2, y: at.y - DEVICE_H / 2 }, prefix: t.prefix });
+      else edit.onDuplicateSubtree(c.root, { at: { x: at.x - DEVICE_W / 2, y: at.y - DEVICE_H / 2 }, prefix: t.prefix, ...(same ? { sameUplinks: true } : {}) });
     },
     [edit, rf],
   );
@@ -837,6 +914,11 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       if (e.key === "Enter") {
         e.preventDefault();
         dropCarry(null, null);
+      }
+      // U: the copy takes the same uplinks as the original (B3), or is parked again.
+      if (e.key === "u" || e.key === "U") {
+        e.preventDefault();
+        setCarry((d) => (d && d.uplinks.length ? { ...d, same: !d.same } : d));
       }
     };
     window.addEventListener("pointermove", move);
@@ -1125,9 +1207,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
 
 
   // A marquee selects many at once; a single pick is the click handlers' above.
+  const paneCleared = useRef(false);
   const onSelectionChange = useCallback(
     ({ nodes: sel }: { nodes: Node[]; edges: Edge[] }) => {
-      if (!edit || sel.length < 2) return;
+      if (!edit || sel.length < 2 || paneCleared.current) return;
       // A subtree selection (§6.1) is many nodes by design: React Flow echoing it back (also
       // while the page re-places after a duplicate) is not a marquee. A pane click clears it first.
       if (selectionRef.current.kind === "subtree") return;
@@ -1155,10 +1238,10 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
   /** Where an Add-panel item lands at `at` (§7.1 drop rules): on the segment or switch under it, on a
    *  router (a new segment under it), else on the empty pane. One path for a drag, a click and the quick-add. */
   const dropItem = useCallback(
-    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }) => {
+    (item: PaletteItem, at: { x: number; y: number }, screen: { x: number; y: number }, hit: string | null = null) => {
       if (!edit || !editing) return;
-      const t = placeTarget(rf.getNodes(), at, edit.model.te);
-      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, undefined, screen);
+      const t = placeTarget(rf.getNodes(), at, edit.model.te, hit);
+      if (t && "segment" in t) edit.onPlace(item, t.segment, item.count ?? 1, at, t.choices ? { choices: t.choices, via: t.via ?? null } : undefined, screen);
       else edit.onPlace(item, null, item.count ?? 1, at, t ?? undefined, screen);
     },
     [edit, editing, rf],
@@ -1170,11 +1253,22 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       const box = shellRef.current?.getBoundingClientRect();
       const screen = { x: Math.round((box?.width ?? 800) / 2), y: Math.round((box?.height ?? 600) / 2) };
       const sel = selectionRef.current;
+      // The view's centre in flow coordinates: where a card clicked onto a selection falls back to when
+      // its switch has no known spot (round 3 item 3a: hosts had landed at the origin, off screen).
+      const centre = rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y });
       if (sel.kind === "segment" && sel.names[0]) {
-        edit.onPlace(item, sel.names[0], item.count ?? 1, null, undefined, screen);
+        edit.onPlace(item, sel.names[0], item.count ?? 1, centre, undefined, screen);
         return;
       }
-      dropItem(item, rf.screenToFlowPosition({ x: (box?.left ?? 0) + screen.x, y: (box?.top ?? 0) + screen.y }), screen);
+      // A selected switch (B2, 2026-11-21: it had dropped at the view's centre, "on a new segment under
+      // agg-1"), host or router is where the card lands, as a drop on it would.
+      const on = sel.kind === "node" && sel.names.length === 1 ? placeOnDevice(edit.model.te, sel.names[0]!) : null;
+      if (on && !(item.kind === "device" && (item.card === "router" || item.card === "l3switch" || item.card === "switch") && !("router" in on))) {
+        if ("segment" in on) edit.onPlace(item, on.segment, item.count ?? 1, centre, on.choices ? { choices: on.choices, via: on.via ?? null } : undefined, screen);
+        else edit.onPlace(item, null, item.count ?? 1, centre, on, screen);
+        return;
+      }
+      dropItem(item, centre, screen);
     },
     [edit, editing, rf, dropItem],
   );
@@ -1205,7 +1299,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         return;
       }
       const box = shellRef.current?.getBoundingClientRect();
-      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) });
+      dropItem(item, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }), { x: e.clientX - (box?.left ?? 0), y: e.clientY - (box?.top ?? 0) }, nodeUnder(e));
     },
     [edit, editing, rf, dropItem],
   );
@@ -1486,6 +1580,20 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     return parts;
   }, [placement]);
 
+  // Zoom to fit over EVERY node (round 3 item 3b): React Flow's fitView counts only measured nodes.
+  const fitAll = useCallback(
+    (duration?: number) => {
+      const b = allNodesBounds(rf.getNodes());
+      const box = shellRef.current?.getBoundingClientRect();
+      if (!b || !box || !box.width || !box.height) {
+        void rf.fitView({ duration, maxZoom: FIT_MAX_ZOOM });
+        return;
+      }
+      void rf.setViewport(getViewportForBounds(b, box.width, box.height, 0.1, FIT_MAX_ZOOM, 0.1), { duration });
+    },
+    [rf],
+  );
+
   // The rail's shortcuts: only when the keyboard is on the canvas, never in a field.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -1506,7 +1614,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
         case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
         case "c": if (edit && !locked) setTool("connect"); break;
-        case "f": void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }); break;
+        case "f": fitAll(300); break;
         case "+": case "=": void rf.zoomIn({ duration: 200 }); break;
         case "-": void rf.zoomOut({ duration: 200 }); break;
         case "l": if (!edit?.locked) setLockedAll((l) => !l); break;
@@ -1521,7 +1629,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     };
     window.addEventListener("keydown", down);
     return () => window.removeEventListener("keydown", down);
-  }, [rf, edit, locked, togglePopover, provenanceOverlay, startCarry]);
+  }, [rf, edit, locked, togglePopover, provenanceOverlay, startCarry, fitAll]);
 
   const centreOnListed = useCallback((id: string, kind: "host" | "router") => centreOn(kind === "router" ? ID.router(id) : ID.host(id)), [centreOn]);
 
@@ -1530,7 +1638,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     { name: "Pan", key: "H, or hold Space", icon: <Icon.pan />, pressed: tool === "pan" || spaceHeld, onClick: () => setTool("pan") },
     { name: "Zoom in", key: "+", icon: <Icon.zoomIn />, onClick: () => void rf.zoomIn({ duration: 200 }) },
     { name: "Zoom out", key: "-", icon: <Icon.zoomOut />, onClick: () => void rf.zoomOut({ duration: 200 }) },
-    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) },
+    { name: "Zoom to fit", key: "F", icon: <Icon.fit />, onClick: () => fitAll(300) },
     { name: lockedAll ? "Unlock all" : "Lock all", key: "L", icon: lockedAll ? <Icon.lock /> : <Icon.unlock />, pressed: lockedAll, disabled: Boolean(edit?.locked), onClick: () => setLockedAll((l) => !l) },
     { name: `Node detail: ${detailMode}`, key: "D", icon: detailMode === "auto" ? <Icon.detailAuto /> : detailMode === "full" ? <Icon.detailFull /> : <Icon.detailCompact />, pressed: detailMode !== "auto", onClick: () => setDetailMode(nextMode), testId: "rail-detail" },
     { name: `Labels: ${labels}`, key: "N", icon: Icon.labelsMode(labels), pressed: labels !== "selected", onClick: () => setLabels(nextLabels), testId: "rail-labels" },
@@ -1592,10 +1700,14 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
     const t = menu.target;
     const items: Array<{ label: string; run(): void; danger?: boolean }> = [];
     if (t.kind === "pane") {
-      items.push({ label: "Zoom to fit", run: () => void rf.fitView({ duration: 300, maxZoom: FIT_MAX_ZOOM }) });
+      items.push({ label: "Zoom to fit", run: () => fitAll(300) });
       items.push({ label: lockedAll ? "Unlock all" : "Lock all", run: () => setLockedAll((l) => !l) });
       items.push({ label: "Find a node…", run: () => setPopover("find") });
       if (edit && editing) {
+        // B6: a multi-selection's Wire… from the pane's menu too.
+        const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
+        const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
+        if (routersPicked.length >= 2 && edit.onWireRouters) items.unshift({ label: `Wire ${routersPicked.length} routers… (mesh, chain, ring, hub)`, run: () => edit.onWireRouters!(routersPicked) });
         if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
         items.push({ label: "Add a segment", run: () => edit.onAddSegment(segmentAt(rf.getNodes(), t.at) ?? undefined) });
         items.push({ label: "Annotate here (text)", run: () => addAnnotation("text", t.at) });
@@ -1609,7 +1721,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       // B3: two or more routers selected (this one among them) -- wire them as a chain, ring, mesh or hub.
       const picked = selectionRef.current.kind === "node" ? selectionRef.current.names : [];
       const routersPicked = picked.filter((n) => edit.model.te.nodes.find((x) => x.name === n)?.kind === "router");
-      if (group?.kind === "router" && routersPicked.length >= 2 && routersPicked.includes(t.name) && edit.onWireRouters) items.push({ label: `Connect ${routersPicked.length} routers as… (chain, ring, mesh, hub)`, run: () => edit.onWireRouters!(routersPicked) });
+      // B6 (2026-11-21): first in the menu, so it is found -- on any device of the multi-selection.
+      if (group && (group.kind === "router" || group.kind === "switch") && routersPicked.length >= 2 && picked.includes(t.name) && edit.onWireRouters) items.push({ label: `Wire ${routersPicked.length} routers… (mesh, chain, ring, hub)`, run: () => edit.onWireRouters!(routersPicked) });
       if (edit.onSaveTemplate && selectionSavable(selectionRef.current)) items.push({ label: "Save as template…", run: () => edit.onSaveTemplate!() });
       if (group && (group.kind === "switch" || group.kind === "router")) items.push({ label: "Select subtree", run: () => selectSubtree(t.name) });
       if (group && (group.kind === "switch" || group.kind === "router") && edit.onDuplicateSubtree) items.push({ label: "Duplicate subtree (Ctrl+D)", run: () => startCarry(t.name) });
@@ -1632,7 +1745,7 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
       items.push({ label: `Remove segment ${t.name}`, run: () => edit.onRemoveSegment(t.name), danger: true });
     }
     return items;
-  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry]);
+  }, [menu, edit, editing, attachArmed, attachFrom, lockedAll, rf, addAnnotation, startCarry, fitAll]);
 
   return (
     <FindingsContext.Provider value={findings}>
@@ -1702,6 +1815,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             maxZoom={2.5}
             snapToGrid={editing && snap && !alt}
             snapGrid={[GRID, GRID]}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
@@ -1716,7 +1831,16 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
             }}
             onPaneClick={(e) => {
               setMenu(null);
-              const leg = legParts(legAt(e.clientX, e.clientY) ?? "");
+              // A multi-selection is always cleared by a click on the canvas (B9, 2026-11-21): no leg
+              // under the pointer takes the click instead, and React Flow echoing the old set back
+              // in the same tick is ignored (`paneCleared`).
+              const cur = selectionRef.current;
+              const multi = cur.kind === "subtree" || ((cur.kind === "node" || cur.kind === "segment") && cur.names.length > 1);
+              const leg = multi ? null : legParts(legAt(e.clientX, e.clientY) ?? "");
+              if (multi) {
+                paneCleared.current = true;
+                requestAnimationFrame(() => (paneCleared.current = false));
+              }
               select(leg ? { kind: "leg" as const, node: leg.node, segment: leg.segment } : { kind: "none" }, []);
             }}
             onNodeContextMenu={onNodeContextMenu}
@@ -1836,8 +1960,8 @@ function CanvasInner({ graph, exportData, placement, onPin, onPinMany, onToggleS
           {carry ? (
             <div className="cv-carry-ghost" role="status" data-testid="carry-ghost" data-target={carry.target ? ("attachTo" in carry.target ? `device:${carry.target.attachTo}` : `park:${carry.target.prefix ?? ""}`) : undefined} style={{ left: carry.x + 14, top: carry.y + 14 }}>
               <strong>{carry.label}</strong>
-              <span>{carry.target && "attachTo" in carry.target ? `drop: trunk it from ${carry.target.attachTo}` : carry.target && carry.target.prefix ? `drop: park it here, re-allocated under ${carry.target.prefix}` : "drop: park it here (not attached) · or on a switch or router"}</span>
-              <span className="muted">Enter parks it in place · Esc cancels</span>
+              <span>{carry.target && "attachTo" in carry.target ? `drop: trunk it from ${carry.target.attachTo}` : `drop: ${carry.same && carry.uplinks.length ? `place it here with the same uplinks (${carry.uplinks.join(", ")})` : "park it here (not attached)"}${carry.target && carry.target.prefix ? `, re-allocated under ${carry.target.prefix}` : ""} · or on a switch or router`}</span>
+              <span className="muted" data-testid="carry-keys">{carry.uplinks.length ? `U: ${carry.same ? "parked instead" : `same uplinks as the original (${carry.uplinks.join(", ")})`} · ` : ""}Enter {carry.same && carry.uplinks.length ? "places" : "parks"} it in place · Esc cancels</span>
             </div>
           ) : null}
           {menu && menuItems.length ? (

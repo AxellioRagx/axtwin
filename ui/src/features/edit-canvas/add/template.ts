@@ -13,7 +13,7 @@ import { readDoc, type DocModel, type WorkingDoc } from "../edit/document";
 import { copyInto } from "../edit/subtree";
 import { addConduit, addLink, addNode, addSegment, type NewLink, type TeNet } from "../edit/te";
 import { emptyTfc, setAssignment } from "../edit/tfc";
-import { lanSitePrefix } from "../edit/allocate";
+import { DEFAULT_LAN_PREFIX, lanSitePrefix } from "../edit/allocate";
 
 export type Values = Record<string, number | string>;
 type Point = { x: number; y: number };
@@ -265,7 +265,9 @@ export function applyTemplateDrop(doc: WorkingDoc, model: DocModel, tpl: Templat
   const firstCidr = given_ && given_ !== "auto" ? given_ : null;
   // `auto`: the design's own site (its first LAN's two-octet prefix; a transit is not a site), else
   // the template's placeholders.
-  const site = lanSitePrefix(model.te.segments.map((s) => s.cidr));
+  // One LAN pool for a template and a hand drop (B7): the design's first LAN's site, else the default
+  // LAN prefix (10.200) -- never the internet's or the transits' range.
+  const site = lanSitePrefix(model.te.segments.map((s) => s.cidr)) ?? DEFAULT_LAN_PREFIX;
   const set = {
     devices: source.te.nodes.filter((n) => n.kind !== "host").map((n) => n.name),
     segments: source.te.segments.map((s) => s.name),

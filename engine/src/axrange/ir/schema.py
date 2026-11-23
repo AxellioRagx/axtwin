@@ -143,6 +143,19 @@ class Link(IRBase):
     vantage: Optional[str] = None
 
 
+class Vrrp(IRBase):
+    """`networks[].vrrp` (IR_SCHEMA §3.3, design D5, Authority: user,
+    2026-11-21): first-hop redundancy on this network. `vip` is the network's
+    gateway and no node's leg address; `members` are router node ids with a
+    leg here; `configure-router` renders VyOS `high-availability vrrp` on each
+    member's leg (NET-150 checks the shape)."""
+
+    vip: Optional[str] = None
+    vrid: Optional[int] = None
+    members: Optional[list[str]] = None
+    priority: Optional[dict[str, int]] = None
+
+
 class Network(IRBase):
     id: Optional[str] = None
     cidr: Optional[str] = None
@@ -164,6 +177,7 @@ class Network(IRBase):
                                      # net (int or dotted); router↔router ⇒ p2p adjacency.
     vni: Optional[int] = None  # fabric slice: EVPN L2VNI — leaves attached to this net
                                # become VTEPs bridging it; a shared vni ⇒ stretched L2.
+    vrrp: Optional[Vrrp] = None  # D5 first-hop redundancy: the VIP is the gateway (NET-150)
     source: Optional[str] = None  # IR_SCHEMA §3.6 provenance (schema 4); absent == authored
     confidence: Optional[float] = None
     vantage: Optional[str] = None

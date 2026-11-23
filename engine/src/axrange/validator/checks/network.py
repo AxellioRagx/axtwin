@@ -376,6 +376,73 @@ def check_net_140(ctx: ValidatorContext) -> list[Finding]:
     return findings
 
 
+def check_net_150(ctx: ValidatorContext) -> list[Finding]:
+    """A network's `vrrp:` group is well-formed (design D5, 2026-11-21): two
+    or more members, each a router node with a leg on the network on a VyOS
+    image (`configure-router` renders `high-availability vrrp` on VyOS only);
+    the VIP a host address of the network, no node's leg address, and the
+    network's gateway; the vrid 1..255; every priority names a member and is
+    1..254."""
+    findings: list[Finding] = []
+    if ctx.ir.layers is None:
+        return findings
+    infra = ctx.ir.layers.infra
+    nodes = {n.id: n for n in infra.nodes if n.id}
+
+    def legs(node) -> list[tuple[str, Optional[str]]]:
+        out = [(r.net, getattr(r, "ip", None)) for r in (node.nets or []) if getattr(r, "net", None)]
+        if not out and node.net:
+            out.append((node.net, None))
+        return out
+
+    for i, net in enumerate(infra.networks):
+        v = getattr(net, "vrrp", None)
+        if v is None:
+            continue
+        loc = f"layers.infra.networks[{i}].vrrp"
+        problems: list[str] = []
+        members = list(v.members or [])
+        if len(members) < 2:
+            problems.append(f"needs two or more members, has {len(members)}")
+        if len(set(members)) != len(members):
+            problems.append("names a member twice")
+        for m in members:
+            node = nodes.get(m)
+            if node is None:
+                problems.append(f"member '{m}' is not a node of the twin")
+                continue
+            if node_kind(node) != "router":
+                problems.append(f"member '{m}' is a {node_kind(node)}, not a router")
+                continue
+            if net.id not in [nid for nid, _ in legs(node)]:
+                problems.append(f"member '{m}' has no leg on it")
+            if not (node.image or "").lower().startswith("vyos"):
+                problems.append(f"member '{m}' runs '{node.image or '<no image>'}': VRRP is rendered on VyOS only")
+        cidr = _parse_network(net.cidr) if net.cidr else None
+        vip = _parse_address(v.vip) if v.vip else None
+        if vip is None:
+            problems.append(f"vip '{v.vip}' is not an IP address")
+        elif cidr is not None and (vip not in cidr or vip in (cidr.network_address, cidr.broadcast_address)):
+            problems.append(f"vip {vip} is not a host address of {net.cidr}")
+        elif vip is not None:
+            for n in infra.nodes:
+                for nid, ip in legs(n):
+                    if nid == net.id and ip and str(ip).split("/")[0] == str(vip):
+                        problems.append(f"vip {vip} is also '{n.id}'s leg address")
+            if net.gateway and str(net.gateway) != str(vip):
+                problems.append(f"gateway {net.gateway} is not the vip {vip}")
+        if v.vrid is None or not (1 <= int(v.vrid) <= 255):
+            problems.append(f"vrid {v.vrid} is outside 1..255")
+        for m, p in (v.priority or {}).items():
+            if m not in members:
+                problems.append(f"priority names '{m}', not a member")
+            elif not (1 <= int(p) <= 254):
+                problems.append(f"priority {p} of '{m}' is outside 1..254")
+        for detail in problems:
+            findings.append(make_finding("NET-150", detail=f"Network '{net.id}' vrrp: {detail}", location=loc))
+    return findings
+
+
 CHECKS: list[Check] = [
     check_net_010,
     check_net_020,
@@ -390,4 +457,5 @@ CHECKS: list[Check] = [
     check_net_120,
     check_net_130,
     check_net_140,
+    check_net_150,
 ]

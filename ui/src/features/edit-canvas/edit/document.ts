@@ -14,7 +14,7 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { MANIFEST, readManifest, setManifestCluster, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
   addConduit as teAddConduit,
@@ -30,7 +30,10 @@ import {
   setLinkField as teSetLinkField,
   setMemberRole as teSetMemberRole,
   type NewLink,
-  removeNode as teRemoveNode,
+  linksNaming,
+  nodeOfEnd,
+  removeNodeAndLinks,
+  unlinkSegment,
   removeSegment as teRemoveSegment,
   renameNode as teRenameNode,
   renameSegment as teRenameSegment,
@@ -45,7 +48,9 @@ import {
   type TeNode,
 } from "./te";
 import { emptyTfc, readTfc, removeAssignment, renameNodeBindings, setAssignment, type AssignmentPatch, type TfcModel } from "./tfc";
+import { carriedBy } from "./subtree";
 import { validateTe } from "./validate";
+import { leaveGateways } from "./vrrp";
 
 export interface WorkingDoc {
   id: string;
@@ -289,7 +294,7 @@ export function rehome(doc: WorkingDoc, model: DocModel, node: string, from: str
 export function detach(doc: WorkingDoc, model: DocModel, node: string, segment: string): Files {
   const n = model.te.nodes.find((x) => x.name === node);
   if (!n) throw new Error(`no node group named '${node}'`);
-  return withTe(doc, (t) => setNodeNets(t, node, n.nets.filter((l) => l.segment !== segment)));
+  return withTe(doc, (t) => setNodeNets(n.kind === "router" ? leaveGateways(t, node, [segment]) : t, node, n.nets.filter((l) => l.segment !== segment)));
 }
 
 export function setAttachmentAddress(doc: WorkingDoc, model: DocModel, node: string, segment: string, ip: string | null): Files {
@@ -309,10 +314,53 @@ export function renameNode(doc: WorkingDoc, model: DocModel, from: string, to: s
   return files;
 }
 
-export function removeNode(doc: WorkingDoc, model: DocModel, node: string): Files {
-  const files = withTe(doc, (t) => teRemoveNode(t, node));
+/** What removing node group `node` takes with it (B1, 2026-11-21): the links naming it, and -- for a
+ *  switch -- the segments it alone carried (no other switch carries them once it is gone), each with
+ *  the hosts still on it (`hosted`: a segment with hosts on it is kept unless the caller says not to). */
+export function removalPlan(model: DocModel, node: string): { links: number[]; segments: string[]; hosted: Record<string, number> } {
+  const te = model.te;
+  const n = te.nodes.find((x) => x.name === node);
+  const links = linksNaming(te, node);
+  if (n?.kind !== "switch") return { links, segments: [], hosted: {} };
+  const gone = new Set(links);
+  const rest: TeModel = { ...te, nodes: te.nodes.filter((x) => x.name !== node), links: te.links.filter((l) => !gone.has(l.index)) };
+  const segments = carriedBy(te, node).filter((seg) => te.segments.some((x) => x.name === seg) && !rest.nodes.some((x) => x.kind === "switch" && carriedBy(rest, x.name).includes(seg)));
+  const hosted: Record<string, number> = {};
+  for (const seg of segments) {
+    const k = te.nodes.filter((x) => x.kind !== "router" && x.kind !== "switch" && x.nets.some((l) => l.segment === seg)).reduce((a, x) => a + x.countValue, 0);
+    if (k) hosted[seg] = k;
+  }
+  return { links, segments, hosted };
+}
+
+/** Remove a node group with what hangs on it (B1, 2026-11-21): every `links[]` entry naming it, its
+ *  traffic binding, and -- for a switch -- the segments it alone carried (`removalPlan`), each with the
+ *  legs on it and the links carrying it. A segment with hosts still on it is KEPT (it draws as an
+ *  implied switch again) unless `keepSegments` is false; `true` keeps every one. One edit. */
+export function removeNode(doc: WorkingDoc, model: DocModel, node: string, options: { keepSegments?: boolean } = {}): Files {
+  const plan = removalPlan(model, node);
+  const drop = plan.segments.filter((seg) => (options.keepSegments === undefined ? !plan.hosted[seg] : !options.keepSegments));
+  const n = model.te.nodes.find((x) => x.name === node);
+  // A router leaving its LANs leaves their VRRP groups and hands on a gateway written at it (D5).
+  const leave = n?.kind === "router" ? (t: string) => leaveGateways(t, node, n.nets.map((l) => l.segment)) : (t: string) => t;
+  let cur: WorkingDoc = { ...doc, files: withTe(doc, (t) => removeNodeAndLinks(leave(t), node)) };
+  for (const seg of drop) cur = { ...cur, files: removeSegment(cur, readDoc(cur), seg) };
+  const files = { ...cur.files };
   if (model.tfcPath && files[model.tfcPath] !== undefined) files[model.tfcPath] = removeAssignment(files[model.tfcPath]!, "node", node);
   return files;
+}
+
+/** The links an end of which names no node of the twin, or that carry a segment the twin does not
+ *  have: left behind by a hand edit or an older delete (B1). The design hint's one click removes them. */
+export function danglingLinks(te: Pick<TeModel, "nodes" | "links" | "segments">): number[] {
+  const segs = new Set(te.segments.map((s) => s.name));
+  return te.links.filter((l) => !nodeOfEnd(te, l.a.device) || !nodeOfEnd(te, l.b.device) || [...(l.native ? [l.native] : []), ...l.vlans].some((v) => !segs.has(v))).map((l) => l.index);
+}
+
+export function removeDanglingLinks(doc: WorkingDoc, model: DocModel): Files {
+  const idx = danglingLinks(model.te);
+  if (!idx.length) throw new Error("no dangling link to remove");
+  return withTe(doc, (t) => idx.sort((a, b) => b - a).reduce((text, i) => teRemoveLink(text, i), t));
 }
 
 export function addSegment(doc: WorkingDoc, seg: { name: string; cidr: string; zoneType?: string | null }): Files {
@@ -336,6 +384,8 @@ export function removeSegment(doc: WorkingDoc, model: DocModel, name: string): F
   }
   // A conduit naming it goes with it (the engine refuses one whose segment is gone), last index first.
   for (const c of [...model.te.conduits].reverse()) if (c.from === name || c.to === name) text = teRemoveConduit(text, c.index);
+  // So does every link's carrying of it; a link left carrying nothing goes (B1, CV-044).
+  text = unlinkSegment(text, name);
   text = teRemoveSegment(text, name);
   return { ...doc.files, [doc.teFile]: text };
 }
@@ -533,4 +583,12 @@ export function renamedFiles<T extends string | undefined>(files: Record<string,
     out[MANIFEST] = (description ? setManifestDescription(withId, description) : withId) as T;
   }
   return out;
+}
+
+/** D6: the twin's `cluster:` -- the target it deploys to and its dropped devices' images are chosen
+ *  for (null: removed, the default target). A bundle with no manifest is refused. */
+export function setTwinCluster(doc: WorkingDoc, cluster: string | null): Files {
+  const m = doc.files[MANIFEST];
+  if (m === undefined) throw new Error(`the design has no ${MANIFEST} to name a target in`);
+  return { ...doc.files, [MANIFEST]: setManifestCluster(m, cluster) };
 }

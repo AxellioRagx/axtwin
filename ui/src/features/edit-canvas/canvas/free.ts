@@ -459,3 +459,43 @@ export function freeEdgeEnds(p: Placement): Map<string, { p: Point; q: Point; fl
   }
   return out;
 }
+
+/**
+ * What moves with a dragged device in the free layout (B4, 2026-11-21): a switch takes the hosts it
+ * hangs (their first leg on a segment it carries); a router takes the segments it alone serves that no
+ * real switch carries -- their implied switches -- and the hosts on them. The ids of the canvas nodes
+ * to move by the same offset (never the dragged node itself, never a pinned annotation). Alt-drag moves
+ * the device alone (the caller's choice). Pure.
+ */
+export function dragFollowers(
+  te: { nodes: ReadonlyArray<{ name: string; kind: string; nets: ReadonlyArray<{ segment: string }> }>; links: ReadonlyArray<{ a: { device: string }; b: { device: string }; native: string | null; vlans: readonly string[]; state: string }> },
+  nodes: ReadonlyArray<Pick<CanvasNode, "id" | "data">>,
+  device: string,
+): string[] {
+  const n = te.nodes.find((x) => x.name === device);
+  if (!n || (n.kind !== "switch" && n.kind !== "router")) return [];
+  const carriedBySwitch = (sw: string): string[] => {
+    const out = new Set<string>();
+    const s = te.nodes.find((x) => x.name === sw);
+    if (s?.kind === "switch") for (const l of s.nets) out.add(l.segment);
+    for (const l of te.links) if (l.state === "up" && (l.a.device === sw || l.b.device === sw)) for (const v of [...(l.native ? [l.native] : []), ...l.vlans]) out.add(v);
+    return [...out];
+  };
+  let segments: string[];
+  if (n.kind === "switch") segments = carriedBySwitch(device);
+  else {
+    const switched = new Set(te.nodes.filter((x) => x.kind === "switch").flatMap((x) => carriedBySwitch(x.name)));
+    const routersOn = (seg: string) => te.nodes.filter((x) => x.kind === "router" && x.nets.some((l) => l.segment === seg)).length;
+    segments = n.nets.map((l) => l.segment).filter((seg) => !switched.has(seg) && routersOn(seg) === 1);
+  }
+  const segs = new Set(segments);
+  const hosts = new Set(te.nodes.filter((x) => x.kind !== "router" && x.kind !== "switch" && x.nets[0] && segs.has(x.nets[0].segment)).map((x) => x.name));
+  const out: string[] = [];
+  for (const c of nodes) {
+    const d = c.data as { kind?: string; nodeId?: string; name?: string };
+    // A `×N` group may draw as its instances (`web01`): the group's name without the index.
+    if (d.kind === "host" && d.nodeId && (hosts.has(d.nodeId) || hosts.has(d.nodeId.replace(/\d{2}$/, "")))) out.push(c.id);
+    else if (n.kind === "router" && d.kind === "segment" && d.name && segs.has(d.name)) out.push(c.id);
+  }
+  return out;
+}
