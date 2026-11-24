@@ -301,11 +301,137 @@ Replaces the unverified list this section held before.
 - **T1:** persona `drive: trex-astf` and a traffic-app catalog
   (`catalog/traffic/apps/`), served through the existing persona and a new
   read-only apps endpoint.
+  **[SIGN-OFF] proposal (2026-11-24, not signed off):**
+
+  1. **A mix is a persona with `drive: trex-astf` and a `mix:` list.** The
+     drive already exists (the `trex-test` per-VM form: `knobs.side`). A
+     `trex-astf` persona carries exactly one of `mix:` (an app mix, this
+     design) or `knobs.side` (the per-VM form, kept for `trex-test` until T9).
+     `emits`, `requires`, `category`, `label`, `blurb` stay as they are; a mix
+     authors `emits` like any persona and the validator checks they cover its
+     apps. Schema diff (`engine/src/axrange/personas/schema.py`):
+
+     ```diff
+     +@dataclass(frozen=True)
+     +class MixEntry:
+     +    app: str          # a traffic-app id (catalog/traffic/apps/<id>/)
+     +    weight: float     # > 0; shares of the line's rate, normalised per mix
+     +
+      class Persona:
+          ...
+          blurb: str = ""
+     +    # 2026-11-24, T1: an app mix (drive: trex-astf). Empty for every other
+     +    # persona. Played by a generator for a tfc traffic line, never assigned
+     +    # to a VM.
+     +    mix: tuple[MixEntry, ...] = ()
+     ```
+
+     `load_persona` reads `mix: [{app, weight}]` (shape errors only, as today).
+     New validator rules, codes assigned in B2's numbering:
+     - a `trex-astf` persona has exactly one of `mix` / `knobs.side`;
+     - every `mix[].app` resolves to an installed app, and weights are > 0;
+     - every app's (proto, port) appears in the mix's `emits`;
+     - a mix persona in a tfc `assignments[]` entry is refused ("an app mix
+       plays on traffic lines, not on a VM").
+
+     A mix file, `catalog/personas/web-browse.yaml`:
+
+     ```yaml
+     persona:
+       id: web-browse
+       category: traffic
+       label: "Web browsing (emulated)"
+       blurb: "Emulated users fetch pages over HTTP and HTTPS."
+       os_family: linux          # the generator's OS
+       drive: trex-astf
+       emits:
+         - { proto: http, ports: [80],  peer_role: web-tier, transport: tcp }
+         - { proto: tls,  ports: [443], peer_role: web-tier, transport: tcp }
+       mix:
+         - { app: http-browse, weight: 7 }
+         - { app: tls-session, weight: 3 }
+     ```
+
+  2. **The three mixes and five apps** (B1). All of a line's apps go to the
+     line's one peer, so each mix is coherent per peer role:
+
+     | mix | apps (weight) | peer role |
+     |---|---|---|
+     | `web-browse` | `http-browse` 7, `tls-session` 3 | web-tier |
+     | `api-east-west` | `rest-api-call` 1 | web-tier / app |
+     | `sql-oltp` | `sql-query` 1 | db-tier |
+
+     `dns-lookup` ships as an app in no mix in this phase (listed by the apps
+     endpoint, used by a later mix such as internet services).
+
+  3. **Traffic-app catalog: `catalog/traffic/apps/<id>/app.yaml`,** plus any
+     file it names beside it (a capture). `axrange.paths` gains
+     `TRAFFIC_APPS_DIR` beside `PERSONAS_DIR`; a new registry
+     `axrange/personas/apps.py` lists whatever directories are installed (no
+     hard-coded table), loads lazily, and turns a bad file into a warning
+     (API) and a validator finding, not an import error. Schema:
+
+     ```yaml
+     app:
+       id: http-browse                 # = the directory name
+       label: "HTTP browse"
+       blurb: "GET a page, read the response, close."
+       proto: http                     # what a sensor should log it as (Zeek service)
+       transport: tcp                  # tcp | udp
+       port: 80                        # default server port; a line may override
+       real_server_ok: true            # the client end works against a real server (§6)
+       source:                         # exactly one of:
+         program:                      # the trex_astf driver's existing step language
+           - { send_text: "GET {path} HTTP/1.1\r\nHost: {server_name}\r\nUser-Agent: {user_agent}\r\nAccept: */*\r\nConnection: close\r\n\r\n" }
+           - { reply_text: "HTTP/1.1 200 OK\r\nServer: nginx\r\nContent-Type: text/html\r\nContent-Length: {resp_bytes}\r\n\r\n" }
+           - { reply: "3c68746d6c3e", size: "{resp_bytes}", fill: "3c703e" }
+         # pcap: capture.pcap          # a single-flow capture beside app.yaml, replayed as captured
+       tunables:                       # name -> {default, min, max} or {default, choices}
+         path:        { default: "/index.html" }
+         resp_bytes:  { default: 8192, min: 64, max: 1048576 }
+         think_ms:    { default: 0, min: 0, max: 60000 }
+       provenance: "Hand-written request/response, nginx-shaped."
+     ```
+
+     Steps: `send` / `reply` (hex, as the driver takes today), `recv: <n>`,
+     `size` / `fill`, plus two additions: `send_text` / `reply_text` (UTF-8
+     with `{name}` placeholders filled at plan time from tunables and the
+     peer: `server_name`, `user_agent`, ...) and `delay_ms` (think time).
+     This follows A4: replayed captures carry their original Host headers and
+     DNS answers, so four of the five apps are programs; `tls-session` is the
+     one replay (`source.pcap`, a TLS 1.3 session with SNI captured in A4).
+
+  4. **`GET /api/personas`** is unchanged for every persona. `PersonaDTO`
+     gains two additive fields, empty or false for non-mixes, so the UI needs
+     no change:
+
+     ```diff
+      class PersonaDTO(BaseModel):
+          ...
+          blurb: str = ""
+     +    mix: list[PersonaMixEntryDTO] = []   # [{app, weight, share, label, proto, port, transport, real_server_ok, installed}]
+     +    real_server_ok: bool = False         # a mix: every app is real_server_ok
+     ```
+
+     `share` is the normalised weight (`0.7` / `0.3`); `installed: false`
+     marks an app the mix names that is not on disk (also a warning).
+
+  5. **New read-only endpoints:** `GET /api/traffic-apps` returns
+     `{apps: [TrafficAppDTO], warnings}`, and `GET /api/traffic-apps/{id}`
+     returns one app. `TrafficAppDTO`: `id, label, blurb, proto, transport,
+     port, real_server_ok, source_kind (program | pcap), tunables,
+     provenance, used_by` (mix ids). No write endpoint.
+
+  Not proposed: a co-located `SPEC.md` for the apps registry (Claude.md asks
+  for one per plugin; this task's brief allows no new doc files, so its
+  contract lives here in §8). *Cost of no* (a separate drive name instead of
+  `mix:` on `trex-astf`): two drive kinds for one generator, until T9 retires
+  the per-VM form.
 - **T2:** tfc profile gains `emulated`, `lines` and `budget` (§8.1).
 - **T3:** the tfc tier may plan and deploy generator VMs.
 - **T4:** how a Real 0 group is declared (te `count: 0`, or tfc-only).
 - **T5:** a `generator` image (TRex baked in) and its profile.
-  **[SIGN-OFF] proposal (2026-11-24, not signed off):** no new image. The
+  **Signed off 2026-11-24 (the user: "approved as written").** No new image. The
   generator *is* the existing `trex-astf@v1` (dev45 template 102, built
   2026-11-16, A0); `generator` is a profile name pointing at it.
 
