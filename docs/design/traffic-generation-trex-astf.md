@@ -263,6 +263,74 @@ Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/traffic
   `GET /api/personas` adds `mix` and `real_server_ok`;
   `GET /api/traffic-apps[/{id}]` is read-only. Contract: the spec ("Config").
 - **T2:** tfc profile gains `emulated`, `lines` and `budget` (§8.1).
+  **[SIGN-OFF] proposal (2026-11-24, not signed off).** Fitted to the real
+  parser (`o2control/traffic.py: parse_traffic_profile`). Three optional
+  top-level keys beside `target`, `roles`, `assignments`, `replay`; nothing
+  existing changes. A profile with only the new keys is valid. The parser
+  ignores unknown top-level keys today, so inside the new blocks every
+  unknown key is refused (fail loud).
+
+  ```yaml
+  traffic-profile:
+    target: three-tier-dc-manual
+    assignments:                     # unchanged: the twin's real personas
+      - { role: web-tier, persona: web-tier }
+      - { role: db-tier,  persona: db-tier }
+    budget: { cps: 100, mbps: 60 }   # required when lines[] is present
+    emulated:
+      - { group: rack1-web, count: 20 }   # a te node group: role and segment from te
+      - { group: rack3-db,  count: 1 }
+      - { group: rack2-web, count: 5 }
+      - { group: internet-users, external: true, segment: internet,
+          role: internet-user, count: 200 }
+    lines:
+      - { from: rack1-web, to: rack3-db, mix: sql-oltp, rate_cps: 20, max_concurrent: 100 }
+      - { from: internet-users, to: rack2-web, mix: web-browse, rate_cps: 30 }
+  ```
+
+  | key | type | rule |
+  |---|---|---|
+  | `budget.cps` | number > 0 | ceiling on the sum of `lines[].rate_cps`, at validate and on every `update-traffic` |
+  | `budget.mbps` | number > 0 | ceiling on estimated Mbps (rate × app bytes) at validate; enforced live by the generator's controller (below) |
+  | `emulated[].group` | string | a te node group name (`nodes[].name`), or an external group's name; each at most once |
+  | `emulated[].count` | int ≥ 1 | instances added to the group, named `<group>-e01`… |
+  | `emulated[].external` | bool, default false | true: a tfc-only group, not in te |
+  | `emulated[].segment` | te segment name | required iff `external` |
+  | `emulated[].role` | string | required iff `external`; else the te group's role |
+  | `emulated[].start` | IPv4, optional | first address to try; default: the segment's lowest free address |
+  | `lines[].id` | string, optional | default `<from>--<to>--<mix>`; unique; the handle `update-traffic` takes |
+  | `lines[].from` / `to` | group name | must appear in `emulated[]` (this phase: both ends emulated) |
+  | `lines[].mix` | persona id | a `trex-astf` persona with `mix:` |
+  | `lines[].rate_cps` | number > 0 | new connections per second for the whole line, split over the mix by share |
+  | `lines[].max_concurrent` | int ≥ 1, optional | default `rate_cps × 10` |
+
+  - **Addresses** are allocated at plan time, deterministically: ascending
+    from `start` (or the lowest host address) in the group's segment,
+    skipping the gateway, every router leg, every te host address (pinned in
+    te or recorded in the deployed inventory) and addresses already handed
+    out. The policy is T6's proposal (in-segment, spike A2).
+  - **Groups → hosts:** the planner reads the twin config's `nodes[]`
+    (read-only; group name → instance ids, as `static_hosts_from_twin_config`
+    does) and the deployed inventory (ids → IPs). The te file is never
+    written.
+  - **Caps are enforced in the generator, not only at validate.** Rate:
+    each app's template `cps` is the line's rate times the app's share, and
+    TRex's scheduler holds it (A1, A6). Concurrency and Mbps: TRex ASTF has no
+    per-profile cap, so the in-VM controller reads each line's active flows
+    and the generator's tx rate every few seconds and lowers that line's
+    `mult` while it is over `max_concurrent` or the budget's Mbps, and
+    `update-traffic` refuses a rate whose sum exceeds `budget.cps`.
+  - **This phase refuses**, with a reason: a line whose `from` or `to` has no
+    emulated instances, any line to a real server, and a `from` group that is
+    all real.
+  - **Externals are tfc-only groups.** This decides T4 for external groups
+    only; an internal Real 0 group stays open under T4. Their pool is free
+    addresses of the named segment (A2), not a public-looking range; T7 stays
+    open.
+  - Not in T2: schedules, per-line port override, client-only lines.
+
+  *Cost of no* (lines on te instead): every traffic change becomes a te
+  redeploy, against the design's "te does not change".
 - **T3:** the tfc tier may plan and deploy generator VMs.
 - **T4:** how a Real 0 group is declared (te `count: 0`, or tfc-only).
 - **T5:** a `generator` image (TRex baked in) and its profile.
