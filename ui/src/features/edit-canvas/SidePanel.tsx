@@ -57,7 +57,7 @@ import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
-import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
+import { assignablePersonas, isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
 import { inTransitPool as isTransitCidr } from "./edit/allocate";
 import { effectiveGateway, routersOn, setVip, shareGateway, stopSharing, vrrpImageGaps } from "./edit/vrrp";
 import { enableOspf, runsOspf } from "./edit/ospf";
@@ -617,10 +617,10 @@ function Members(p: SidePanelProps & { name: string }) {
                 <td>
                   <select aria-label={`Persona of ${instance(i)}`} value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${instance(i)}`, (d, mo) => clearPersona(d, mo, "node", instance(i))); else p.apply(`persona of ${instance(i)}`, (d, mo) => setPersona(d, mo, "node", instance(i), { persona: v })); }}>
                     <option value="">{inherited ? `(${inherited.persona})` : "none"}</option>
-                    {p.personas.map((ps) => (
+                    {assignablePersonas(p.personas).map((ps) => (
                       <option key={ps.id} value={ps.id}>{ps.id}</option>
                     ))}
-                    {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+                    {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
                   </select>
                 </td>
               </tr>
@@ -641,7 +641,7 @@ function Members(p: SidePanelProps & { name: string }) {
           <div className="row cv-inline">
             <select aria-label="Persona for picked members" value={bulkPersona} disabled={ro} onChange={(e) => setBulkPersona(e.target.value)}>
               <option value="">unbind (inherit)</option>
-              {p.personas.map((ps) => (
+              {assignablePersonas(p.personas).map((ps) => (
                 <option key={ps.id} value={ps.id}>{ps.id}</option>
               ))}
             </select>
@@ -778,10 +778,10 @@ function MemberPanel(p: SidePanelProps & { node: string; index: number }) {
       <Field label={bound ? "Bound to this instance" : inherited ? `Inherited: ${inherited.persona}` : "Not bound"}>
         <select aria-label="Member persona" value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${id}`, (d, mo) => clearPersona(d, mo, "node", id)); else p.apply(`persona of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { persona: v })); }}>
           <option value="">{inherited && !bound ? `(group's: ${inherited.persona})` : "none"}</option>
-          {p.personas.map((ps) => (
+          {assignablePersonas(p.personas).map((ps) => (
             <option key={ps.id} value={ps.id}>{ps.id}</option>
           ))}
-          {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+          {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
         </select>
       </Field>
       {bound ? (
@@ -1001,12 +1001,12 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           }}
         >
           <option value="">{assignment && !bound ? `(role's: ${assignment.persona})` : "none"}</option>
-          {p.personas.map((ps) => (
+          {assignablePersonas(p.personas).map((ps) => (
             <option key={ps.id} value={ps.id}>
               {ps.id}
             </option>
           ))}
-          {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+          {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
         </select>
       </Field>
       {bound ? (

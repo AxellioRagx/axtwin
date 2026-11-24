@@ -422,7 +422,7 @@ its own test suite), not the IR engine's Pass 1–4 dispatch. That module reads 
 | `TGN-030` | error | Every emulated group, line end, external segment and line mix resolves (a te host group on one segment, an external group, an app mix) (2026-11-24) |
 | `TGN-040` | error | The planned connections/s and estimated Mbps fit the profile's `budget` (2026-11-24) |
 | `TGN-050` | error | Emulated addresses fit their segment (a `start` inside it, enough free addresses) and collide with no real address (2026-11-24) |
-| `TGN-060` | error | An app mix is not assigned to a VM in `assignments[]` (2026-11-24) |
+| `TGN-060` | error | An app mix (`drive: trex-astf` with `mix:`) is not bound to a role or node in `assignments[]`: those are real VMs with no emulated instances. Every tfc profile, lines or not; Check / Save and resolve refuse it too (2026-11-24) |
 | `TGN-070` | error | The target's platform has a generator image (the `generator` image profile) when the profile has lines (2026-11-24) |
 
 ---

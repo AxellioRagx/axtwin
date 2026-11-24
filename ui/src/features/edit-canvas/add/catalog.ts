@@ -67,6 +67,19 @@ export const CATEGORY_LABEL: Record<string, string> = {
 const TRAFFIC_PREFIXES = ["loadgen-", "xseg-"];
 
 /** §4.2: the file's category, else `traffic` for the generators, else `other` (the API applies the same rule). */
+/** A TRex app mix (`drive: trex-astf` with `mix:`): it plays from emulated instances on traffic lines,
+ *  so no picker that binds a persona to a VM offers it (validator TGN-060 refuses it too). Hidden until
+ *  the canvas has the instances split (`docs/design/traffic-generation-trex-astf.md` §4). The per-VM
+ *  `knobs.side` form (`trex-test`) has no mix and stays assignable. */
+export function isAppMix(p: Pick<Persona, "drive" | "mix">): boolean {
+  return p.drive === "trex-astf" && (p.mix?.length ?? 0) > 0;
+}
+
+/** The personas a VM may be bound to: every persona but the app mixes. */
+export function assignablePersonas<T extends Pick<Persona, "drive" | "mix">>(personas: readonly T[]): T[] {
+  return personas.filter((p) => !isAppMix(p));
+}
+
 export function personaCategory(p: Pick<Persona, "id" | "category">): string {
   if (p.category && CATEGORY_LABEL[p.category]) return p.category;
   return TRAFFIC_PREFIXES.some((x) => p.id.startsWith(x)) ? "traffic" : "other";
@@ -118,7 +131,7 @@ export function rolesFor(card: CardId, os: Os | null, personas: readonly Persona
   const out: RoleGroup[] = [];
   for (const cat of CATEGORY_ORDER) {
     if (!cats.includes(cat)) continue;
-    const list = personas.filter((p) => personaCategory(p) === cat && (os === null || card === "ot" || osOf(p) === os)).sort((a, b) => personaLabel(a).localeCompare(personaLabel(b)));
+    const list = personas.filter((p) => !isAppMix(p) && personaCategory(p) === cat && (os === null || card === "ot" || osOf(p) === os)).sort((a, b) => personaLabel(a).localeCompare(personaLabel(b)));
     if (list.length) out.push({ category: cat, label: CATEGORY_LABEL[cat]!, personas: list });
   }
   return out;

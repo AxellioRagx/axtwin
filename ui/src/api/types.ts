@@ -656,6 +656,24 @@ export interface Persona {
   label?: string;
   /** One plain sentence; "" when the file names none. */
   blurb?: string;
+  /** A TRex app mix (`drive: trex-astf` with `mix:`, `engine/src/axrange/trafficgen/SPEC.md`): played by a
+   *  planned generator on traffic lines, never bound to a VM. Absent or empty for every other persona. */
+  mix?: PersonaMixEntry[];
+  /** Every mix app may run against a real server (client-only lines; a later phase). */
+  real_server_ok?: boolean;
+}
+
+/** One `mix[]` entry of an app-mix persona, as `GET /api/personas` serves it. */
+export interface PersonaMixEntry {
+  app: string;
+  weight: number;
+  share?: number;
+  installed?: boolean;
+  label?: string;
+  proto?: string;
+  port?: number;
+  transport?: string;
+  real_server_ok?: boolean;
 }
 
 /** `GET /api/image-profiles` (`docs/design/canvas-add-panel.md` §4.3): the image a dropped device gets. */

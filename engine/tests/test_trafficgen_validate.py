@@ -173,6 +173,39 @@ def test_tgn_060_a_mix_assigned_to_a_vm(twin, apps):
     assert _codes(spec, twin, apps) == ["TGN-060"]
 
 
+def test_tgn_060_names_the_target_and_the_missing_emulated_instances(twin, apps):
+    from axrange.trafficgen.validate import mix_assignment_findings
+
+    spec = _spec(lambda b: b["assignments"].append({"node": "rack1-web01", "persona": "sql-oltp"}))
+    (f,) = mix_assignment_findings(spec, PERSONAS)
+    assert f.rule_id == "TGN-060" and f.severity.value == "error"
+    assert "assignments[2]: node 'rack1-web01' has no emulated instances" in f.message
+    assert "'sql-oltp' is a TRex app mix" in f.message and "lines[]" in f.message
+
+
+def test_tgn_060_runs_on_a_profile_without_lines(twin, apps):
+    """The canvas's dropdown writes a plain assignment: no emulated[], no
+    lines[]. The rule still fires (it used to need lines to run at all)."""
+    spec = parse_traffic_profile({"traffic-profile": {"target": "three-tier-dc-manual", "assignments": [
+        {"role": "web-tier", "persona": "web-tier"}, {"role": "web-tier", "persona": "web-browse"}]}})
+    assert _codes(spec, twin, apps) == ["TGN-060"]
+
+
+def test_tgn_060_leaves_the_per_vm_trex_form_alone(twin, apps):
+    """`knobs.side` personas (trex-test's crowd) are bound to their TRex VMs
+    on purpose: drive trex-astf, no mix."""
+    from axrange.trafficgen.validate import is_app_mix, mix_assignment_findings
+
+    from axrange.personas.registry import twin_overlay
+
+    side = twin_overlay(Path(__file__).parents[2] / "catalog" / "twins" / "trex-test" / "personas")["trex-crowd-server"]
+    assert side.drive == "trex-astf" and not is_app_mix(side)
+    spec = parse_traffic_profile({"traffic-profile": {"target": "trex-test", "assignments": [
+        {"node": "trex-server", "persona": side.id}]}})
+    assert mix_assignment_findings(spec, {side.id: side}) == []
+    assert is_app_mix(PERSONAS["web-browse"]) and not is_app_mix(PERSONAS["web-tier"])
+
+
 def test_tgn_070_no_generator_image(twin, apps):
     assert _codes(_spec(), twin, apps, image=None) == ["TGN-070"]
 

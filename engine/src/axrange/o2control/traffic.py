@@ -1188,6 +1188,14 @@ def resolve_traffic_bindings(
                 "catalog/personas/) -- check for a typo",
                 status=400,
             )
+        from axrange.trafficgen.validate import assignment_target, is_app_mix
+        if is_app_mix(persona):
+            # TGN-060 at resolve time too: every apply (CLI, API, the canvas's
+            # live change) binds through here, lines or not.
+            from axrange.validator._make import make_finding
+            f = make_finding("TGN-060", index=spec.assignments.index(a),
+                             target=assignment_target(a), persona_id=a.persona)
+            raise TrafficPlanError(f"TGN-060: {f.message}", status=400)
         _check_requires(persona, hosts_by_role)
 
         if a.node is not None:

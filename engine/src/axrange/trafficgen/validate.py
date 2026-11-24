@@ -60,6 +60,27 @@ def estimate_mbps(lines: list[Any], personas: dict[str, Any], apps: dict[str, An
     return bits / 1e6
 
 
+def is_app_mix(persona: Any) -> bool:
+    """A `drive: trex-astf` persona with `mix:` (played on traffic lines);
+    the per-VM `knobs.side` form (`trex-test`) is not one."""
+    return persona is not None and getattr(persona, "drive", None) == "trex-astf" and bool(getattr(persona, "mix", None))
+
+
+def assignment_target(a: Any) -> str:
+    return f"node '{a.node}'" if getattr(a, "node", None) else f"role '{a.role}'"
+
+
+def mix_assignment_findings(spec: Any, personas: Any) -> list[Finding]:
+    """TGN-060 on every `assignments[]` entry: an app mix bound to a role or
+    node (real VMs, never emulated instances) is refused. Runs on every tfc
+    profile, lines or not. `personas`: anything with `.get(id)`."""
+    out: list[Finding] = []
+    for i, a in enumerate(spec.assignments):
+        if is_app_mix(personas.get(a.persona)):
+            out.append(make_finding("TGN-060", index=i, target=assignment_target(a), persona_id=a.persona))
+    return out
+
+
 def check_lines(
     spec: Any,
     twin: TwinView,
@@ -68,12 +89,7 @@ def check_lines(
     *,
     generator_image: Optional[str],
 ) -> list[Finding]:
-    out: list[Finding] = []
-    # TGN-060: an app mix never plays on a VM.
-    for i, a in enumerate(spec.assignments):
-        p = personas.get(a.persona)
-        if p is not None and p.mix:
-            out.append(make_finding("TGN-060", index=i, persona_id=a.persona))
+    out: list[Finding] = mix_assignment_findings(spec, personas)
     if not spec.lines and not spec.emulated:
         return out
 

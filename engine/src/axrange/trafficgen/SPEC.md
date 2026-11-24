@@ -108,7 +108,7 @@ tfc plan), against the twin's te file read through `trafficgen.twin.TwinView`.
 | TGN-030 | every emulated group, line end, external segment and mix resolves |
 | TGN-040 | planned cps and estimated Mbps fit the budget |
 | TGN-050 | emulated addresses fit their segment and collide with no real address |
-| TGN-060 | an app mix is not in `assignments[]` |
+| TGN-060 | an app mix is not bound to a role or node in `assignments[]` (real VMs, no emulated instances); checked on every tfc profile: Check / Save (`POST /api/validate`, the document PUT), `tfc validate`, and at resolve, so every apply refuses it |
 | TGN-070 | the target's platform has a generator image |
 
 App-file shape errors are warnings from the registry (`list_apps`), and

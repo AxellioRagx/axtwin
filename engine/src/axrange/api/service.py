@@ -6952,6 +6952,10 @@ def _validate_twin_document(
             result = _with_target_image_warnings(scratch, twin_id, result)
         try:
             tier_warnings = _check_tier_files(td / twin_id, files)
+        except _TierRuleError as e:
+            if raise_on_fail:
+                raise
+            result = _with_tier_finding(result, e.rule_message, rule_id=e.rule_id, location=e.location)
         except ApiError as e:
             if raise_on_fail:
                 raise
@@ -6964,14 +6968,40 @@ def _validate_twin_document(
     return result
 
 
+class _TierRuleError(ApiError):
+    """A tier file refused by a catalogued rule (its finding keeps the rule id)."""
+
+    def __init__(self, rule_id: str, location: str, message: str) -> None:
+        super().__init__(400, f"{location}: {rule_id}: {message}")
+        self.rule_id, self.location, self.rule_message = rule_id, location, message
+
+
+def _refuse_mix_assignments(bundle_dir: Path, rel: str, spec: Any) -> None:
+    """TGN-060 on a tfc profile of the document: an app mix bound to a role
+    or node (real VMs) is refused at Check / Save, not only at apply. The
+    personas are the catalog plus the document's own `personas/`."""
+    from axrange.personas.registry import PERSONAS, PersonaRegistryError, twin_overlay
+    from axrange.trafficgen.validate import mix_assignment_findings
+
+    personas = dict(PERSONAS)
+    if (bundle_dir / "personas").is_dir():
+        try:
+            personas.update(twin_overlay(bundle_dir / "personas"))
+        except PersonaRegistryError:
+            pass  # reported by the personas/ check below
+    for f in mix_assignment_findings(spec, personas):
+        raise _TierRuleError(f.rule_id, rel, f.message)
+
+
 def _with_tier_finding(
     result: dtos.ValidateResultDTO, message: str, *, severity: str = "error",
+    rule_id: str = "TIER-LOAD", location: Optional[str] = None,
 ) -> dtos.ValidateResultDTO:
     """A tier-loader refusal folded into the validate answer as an error (or a
     tier file's soft problem -- taps naming no sensor -- as a warning)."""
     findings = list(result.findings) + [
-        dtos.FindingDTO(rule_id="TIER-LOAD", severity=severity, message=message,
-                        location=message.split(":", 1)[0]),
+        dtos.FindingDTO(rule_id=rule_id, severity=severity, message=message,
+                        location=location or message.split(":", 1)[0]),
     ]
     if severity != "error":
         return result.model_copy(update={"warnings": result.warnings + 1, "findings": findings})
@@ -7054,7 +7084,8 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
                 raw = edits.parse_yaml(files[rel])
                 if not isinstance(raw, dict) or "traffic-profile" not in raw:
                     continue  # a `roles_from:` fragment (tfc/roles.yaml), not a profile
-                load_traffic_profile(bundle_dir / rel)
+                spec = load_traffic_profile(bundle_dir / rel)
+                _refuse_mix_assignments(bundle_dir, rel, spec)
             else:
                 plan = load_tap_plan(bundle_dir / rel, require_sensors=False)
                 bare = sum(1 for b in plan.bindings if not b.sensors)

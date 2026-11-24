@@ -762,8 +762,14 @@ _RULES_LIST: list[Rule] = [
        "Emulated addresses fit their segment and collide with no real address",
        message_template="emulated group '{group}': {detail}"),
     _R("TGN-060", RuleCategory.PERSONA, ERR, 4,
-       "An app mix is not assigned to a VM",
-       message_template="assignments[{index}]: persona '{persona_id}' is an app mix -- it plays on traffic lines, not on a VM"),
+       "An app mix is not assigned to a group or member with no emulated instances",
+       description="A `drive: trex-astf` persona with `mix:` is played by a planned generator from emulated "
+                   "addresses on a traffic line. An `assignments[]` entry binds it to the real VMs of a role or "
+                   "node, which have no emulated instances, so TRex could not send from them. Checked on every "
+                   "tfc profile (Check, `tfc validate`, apply), with or without lines.",
+       message_template="assignments[{index}]: {target} has no emulated instances -- persona '{persona_id}' is a "
+                        "TRex app mix and cannot play on a real VM; add the group to emulated[] and play the mix "
+                        "on a lines[] entry"),
     _R("TGN-070", RuleCategory.PERSONA, ERR, 4,
        "The target platform has a generator image",
        description="The `generator` image profile (catalog/image-profiles.yaml) must resolve for the target's platform.",
