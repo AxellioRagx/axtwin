@@ -196,55 +196,59 @@ built-in app library.
 and diff the imprint against the original. This is the acceptance for
 discovered traffic.
 
-## 8. Storage and engine
+## 8. Storage and engine (built 2026-11-24, phase 2)
+
+The contract of what was built is `engine/src/axrange/trafficgen/SPEC.md`;
+this section records the shape and where it lives.
 
 ### 8.1 Where it is written
 
-The te schema does not change. Emulated instances and traffic lines live in
-the tfc profile. Sketch only; fit it to the real tfc schema:
-
-```yaml
-tfc:
-  target: three-tier-dc-manual
-  budget: { cps: 500, mbps: 200 }
-  emulated:
-    - { group: rack1-web, count: 20 }                 # addresses allocated at plan
-    - { group: internet-users, external: clients, count: 2000, pool: 198.18.0.0/20 }
-  lines:
-    - { from: internet-users, to: role:web-tier, mix: web-browse, rate_cps: 50 }
-    - { from: rack1-web, to: rack1-db, mix: sql-oltp, rate_cps: 20 }
-```
-
-Open point for §9: a group with Real 0 still needs to exist in te for its
-name, role and segment. Either te allows `count: 0`, or the group is
-declared only in tfc. Prefer the first if the validator allows it.
+As proposed: the te schema does not change. `budget`, `emulated` and
+`lines` live in the tfc profile (`trafficgen/profile.py`, hooked into
+`parse_traffic_profile`; unknown keys inside the blocks are refused).
+External groups are tfc-only (`external: true`, `segment`, `role`). The
+gate's profile is `catalog/twins/three-tier-dc-manual/tfc/trafficgen.yaml`.
 
 ### 8.2 Planning
 
-At tfc plan time the engine:
+`trafficgen/plan.py`, pure and deterministic (a golden plan pins it):
 
-1. resolves each line to client addresses, server addresses and a driver
-   (§4.1);
-2. groups TRex lines into generators, respecting the ASTF port pairing
-   (§8.4), and emits the generator VMs and their legs;
-3. compiles one JSON per generator for a single generic ASTF profile (no
-   per-twin Python generation);
-4. emits any router routes the address plan needs (§8.4).
+1. addresses: each emulated group takes the first contiguous block of free
+   addresses in its segment (ASTF pools are ranges), read from a static
+   view of the te file's expansion (`trafficgen/twin.py`); each generator
+   leg then takes one address;
+2. one generator VM per distinct (client segment, server segment), one TRex
+   port pair each (A1, A3, A5); an emulated group on two generators is
+   refused in this phase;
+3. one document per generator for the one generic ASTF profile
+   (`trafficgen/astf_profile.py`); programs rendered to hex at plan time;
+4. no router routes (in-segment addresses, A2).
 
-New ops, alongside `drive-persona`: `provision-generator`,
-`load-traffic-profile`, `start-traffic`, `update-traffic` (rate, live),
-`stop-traffic`. Destroy removes generators with the tfc tier.
+Ops (`trafficgen/compose.py`): the catalog's clone / hardware / cloud-init
+/ attach (literal inputs from the te deploy's recorded bridges and vnets) /
+start / wait-guest-agent, then `provision-generator`, `load-traffic-profile`,
+`start-traffic` (OP-TFC-030..050); `update-traffic` (OP-TFC-060) and
+`stop-traffic` (OP-TFC-070) run outside apply. Validator rules PSN-120..140
+and TGN-010..070 (`trafficgen/validate.py`). Destroy removes the generators
+through their `clone-vm` rows.
 
 ### 8.3 Driver
 
-A `trex-astf` persona driver beside the existing ones. TRex runs as a
-service in the generator VM; a small wrapper in the VM talks to it locally
-and is invoked over the guest agent, so there is no new management
-transport. Status and per-line counters come back the same way and feed the
-tfc status and the canvas overlay.
+`personas/drivers/trex_generator.py` beside the per-VM `trex_astf.py`:
+pushes the in-VM wrapper (`trafficgen/guest_tg.py`), the generic profile,
+the document and replay files over the guest agent, legs found by MAC. In
+the VM one controller per TRex owns the ASTF client (A6), reconciles a
+desired state, re-asserts the namespace addresses, holds each line under
+`max_concurrent` and the budget's Mbps by lowering its multiplier, and
+writes per-line stats; `GET /api/tfc` and `axrange tfc status
+--adapter-config` read them. Live rate: `axrange tfc update-traffic`,
+`POST /api/deploys/{id}/traffic-lines/{line}`.
 
-A `generator` image profile is added to `catalog/image-profiles.yaml`, with
-a manifest and Proxmox binding per `docs/contracts/IMAGE_MANIFEST.md`.
+Not built in phase 2 (open): lines in `POST /api/tfc`'s request body (lines
+come from the twin's tfc file: CLI `tfc deploy`, deploy follow-on); a
+narrowing re-apply that drops a whole generator leaves its VM until a tfc
+destroy (the dropped lines on a kept generator are removed); the tap tier
+does not select generator legs (T3 §8).
 
 ### 8.4 TRex constraints that shape the plan
 
@@ -252,6 +256,11 @@ Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/traffic
 ("TRex constraints the plan must respect").
 
 ## 9. Decisions for sign-off
+
+Outcome 2026-11-24: **T1, T2, T3, T5 signed off** and built (phase 2).
+T4 is decided for external groups only (tfc-only, part of T2); internal
+Real 0 groups stay open. **T6** is proposed (in-segment) and built that way
+for phase 2, not yet signed off on its own. **T7, T8, T9 open.**
 
 - **T1:** persona `drive: trex-astf` and a traffic-app catalog
   (`catalog/traffic/apps/`), served through the existing persona and a new
