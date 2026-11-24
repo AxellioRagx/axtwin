@@ -1,6 +1,7 @@
 # Crowd node: one generator pair stands in for a class of hosts
 
-**Status:** DESIGN NOTE, awaiting sign-off (Phase B0 of the crowd brief,
+**Status:** SUPERSEDED 2026-11-24 by `docs/design/traffic-generation-trex-astf.md`
+(the user's call); D1–D7 were never signed off. Was: DESIGN NOTE, awaiting sign-off (Phase B0 of the crowd brief,
 2026-11-16). Nothing in Phase B is built. Phase A (the `trex-astf` persona
 driver, the `trex-astf` golden template and the `trex-test` twin, all on
 existing schema) is built and was run live on dev45. Its numbers are in

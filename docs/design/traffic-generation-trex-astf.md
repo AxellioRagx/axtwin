@@ -2,6 +2,9 @@
 
 **Status:** proposed 2026-11-24. The decisions in §9 need the user's sign-off
 before anything past the spikes (§10) is built. Phases are in §11.
+**Supersedes** `docs/design/crowd-node.md` (D1–D7, never signed off): the
+user's call, 2026-11-24. Its `kind: trafficgen` te node is not built; the
+Phase A evidence it cites (`catalog/twins/trex-test/README.md`) still counts.
 
 **Loop steps:** **customize** (step 3, canvas) and **discover** (persona and
 traffic tiers). The deploy gate is unchanged: tapped traffic reaches a sensor,
