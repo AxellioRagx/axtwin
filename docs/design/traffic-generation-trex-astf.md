@@ -1,10 +1,13 @@
 # Traffic generation with TRex ASTF: emulated instances and traffic lines
 
-**Status:** proposed 2026-11-24. The decisions in §9 need the user's sign-off
-before anything past the spikes (§10) is built. Phases are in §11.
-**Supersedes** `docs/design/crowd-node.md` (D1–D7, never signed off): the
-user's call, 2026-11-24. Its `kind: trafficgen` te node is not built; the
-Phase A evidence it cites (`catalog/twins/trex-test/README.md`) still counts.
+**Status:** phase 2 in build. What is signed off and built lives in
+`engine/src/axrange/trafficgen/SPEC.md`; this doc keeps the decisions still open (§9), the
+spike record (§10) and the later phases (§11). Retire it when §9 is closed
+and phases 3–5 are built or dropped.
+**Supersedes** the crowd-node note (D1–D7, never signed off; removed
+2026-11-24, in git history at `61764a0:docs/design/crowd-node.md`). Its
+`kind: trafficgen` te node is not built; the Phase A evidence it cited
+(`catalog/twins/trex-test/README.md`) still counts.
 
 **Loop steps:** **customize** (step 3, canvas) and **discover** (persona and
 traffic tiers). The deploy gate is unchanged: tapped traffic reaches a sensor,
@@ -243,257 +246,29 @@ tfc status and the canvas overlay.
 A `generator` image profile is added to `catalog/image-profiles.yaml`, with
 a manifest and Proxmox binding per `docs/contracts/IMAGE_MANIFEST.md`.
 
-### 8.4 TRex constraints that shape the plan (verified 2026-11-24, §10.1)
+### 8.4 TRex constraints that shape the plan
 
-Measured on dev45 with TRex v3.08 (template 102) on `three-tier-dc-manual`.
-Replaces the unverified list this section held before.
-
-- **Low-end mode, af_packet, one core.** `low_end: true` with Linux interface
-  names (`net_af_packet`) works on virtio legs. One data-path thread per port
-  pair, all on the low-end core. 200 cps / 56 Mbps of the stock HTTP profile
-  used under half a core on the generator and up to 14 % of one VyOS router's
-  single vCPU (A1).
-- **The guest's GRO/GSO/TSO must be off** on every TRex leg. With GRO on,
-  af_packet hands TRex merged super-frames, TRex drops them (`err_len_err`)
-  and the server end retransmits (27,170 retransmitted packets in one 200 s
-  ramp; 0 with GRO off). The shipped `trex_astf` driver does not do this.
-- **In-segment emulated addresses work, in `stack: linux_based` only, and
-  only when the planner hands the addresses to the port's namespace.** Legacy
-  stack and bare `linux_based` answer ARP for the port IP alone; the gateway's
-  entry for an emulated address goes `FAILED`. Adding each emulated address as
-  a `/32` on the port's namespace veth (`trex-a-<port>-0-L`) makes the kernel
-  answer ARP with the port MAC, and every flow establishes. No router route is
-  needed. Routed stub pools (the `trex-test` precedent) remain a fallback, not
-  the plan (A2).
-- **Ports pair for numbering only.** A client port can reach any server port
-  in the same TRex, not just its partner (rack1 port 0 → internet port 5:
-  130/130). So the cost is one leg per (segment, role): one client leg per
-  segment that has emulated clients, one server leg per segment that has
-  emulated servers, padded with `dummy` to an even count. `client_mask` bit n
-  = TRex port n (A3).
-- **Same-segment lines need their own client leg.** TRex sends every packet
-  to its port's next-hop MAC. A client leg whose next hop is the router
-  hairpins same-segment traffic through it; a client leg whose `default_gw` is
-  the server leg's IP sends it on L2 directly (A3).
-- **Pools are split across data-path threads.** With N port pairs there are N
-  threads, every pool must hold more than N addresses (else the start is
-  refused: "Number of IPs in each pool must exceed the number of Data path
-  threads"), and a profile limited by `client_mask` to one port uses only that
-  thread's 1/N share. Planner rule: one pool per (line, leg), sized > N, or
-  one generator process per client segment (A3, A4).
-- **Rate changes and independent profiles work live** through one
-  `ASTFClient`: `update(mult, pid_input=)` takes effect within 5 s; a second
-  profile starts and stops beside running ones with 0 drops on the others;
-  the daemon keeps its PID. `stop()` cuts that profile's own in-flight flows.
-  Two clients that both `acquire(force=True)` steal each other's context, so
-  one controller per TRex process owns all profiles (A6).
-- **Identical profiles under two ids are refused** ("Fragment already added on
-  other profile_id"); a profile must be removed (`stop(is_remove=True)`), not
-  just stopped, before an identical one loads.
-- **Leg names are not predictable past five NICs.** On i440fx the sixth leg
-  came up as `enp1s1`, not `ens24`. Map legs by MAC.
-- **Licence:** TRex is Apache-2.0 (upstream `LICENSE`, client headers). The
-  release bundles third-party Python under its own licences (scapy 2.4.3 is
-  GPL-2), used only inside the generator VM as separate processes.
+Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/trafficgen/SPEC.md`
+("TRex constraints the plan must respect").
 
 ## 9. Decisions for sign-off
 
 - **T1:** persona `drive: trex-astf` and a traffic-app catalog
   (`catalog/traffic/apps/`), served through the existing persona and a new
   read-only apps endpoint.
-  **[SIGN-OFF] proposal (2026-11-24, not signed off):**
-
-  1. **A mix is a persona with `drive: trex-astf` and a `mix:` list.** The
-     drive already exists (the `trex-test` per-VM form: `knobs.side`). A
-     `trex-astf` persona carries exactly one of `mix:` (an app mix, this
-     design) or `knobs.side` (the per-VM form, kept for `trex-test` until T9).
-     `emits`, `requires`, `category`, `label`, `blurb` stay as they are; a mix
-     authors `emits` like any persona and the validator checks they cover its
-     apps. Schema diff (`engine/src/axrange/personas/schema.py`):
-
-     ```diff
-     +@dataclass(frozen=True)
-     +class MixEntry:
-     +    app: str          # a traffic-app id (catalog/traffic/apps/<id>/)
-     +    weight: float     # > 0; shares of the line's rate, normalised per mix
-     +
-      class Persona:
-          ...
-          blurb: str = ""
-     +    # 2026-11-24, T1: an app mix (drive: trex-astf). Empty for every other
-     +    # persona. Played by a generator for a tfc traffic line, never assigned
-     +    # to a VM.
-     +    mix: tuple[MixEntry, ...] = ()
-     ```
-
-     `load_persona` reads `mix: [{app, weight}]` (shape errors only, as today).
-     New validator rules, codes assigned in B2's numbering:
-     - a `trex-astf` persona has exactly one of `mix` / `knobs.side`;
-     - every `mix[].app` resolves to an installed app, and weights are > 0;
-     - every app's (proto, port) appears in the mix's `emits`;
-     - a mix persona in a tfc `assignments[]` entry is refused ("an app mix
-       plays on traffic lines, not on a VM").
-
-     A mix file, `catalog/personas/web-browse.yaml`:
-
-     ```yaml
-     persona:
-       id: web-browse
-       category: traffic
-       label: "Web browsing (emulated)"
-       blurb: "Emulated users fetch pages over HTTP and HTTPS."
-       os_family: linux          # the generator's OS
-       drive: trex-astf
-       emits:
-         - { proto: http, ports: [80],  peer_role: web-tier, transport: tcp }
-         - { proto: tls,  ports: [443], peer_role: web-tier, transport: tcp }
-       mix:
-         - { app: http-browse, weight: 7 }
-         - { app: tls-session, weight: 3 }
-     ```
-
-  2. **The three mixes and five apps** (B1). All of a line's apps go to the
-     line's one peer, so each mix is coherent per peer role:
-
-     | mix | apps (weight) | peer role |
-     |---|---|---|
-     | `web-browse` | `http-browse` 7, `tls-session` 3 | web-tier |
-     | `api-east-west` | `rest-api-call` 1 | web-tier / app |
-     | `sql-oltp` | `sql-query` 1 | db-tier |
-
-     `dns-lookup` ships as an app in no mix in this phase (listed by the apps
-     endpoint, used by a later mix such as internet services).
-
-  3. **Traffic-app catalog: `catalog/traffic/apps/<id>/app.yaml`,** plus any
-     file it names beside it (a capture). `axrange.paths` gains
-     `TRAFFIC_APPS_DIR` beside `PERSONAS_DIR`; a new registry
-     `axrange/personas/apps.py` lists whatever directories are installed (no
-     hard-coded table), loads lazily, and turns a bad file into a warning
-     (API) and a validator finding, not an import error. Schema:
-
-     ```yaml
-     app:
-       id: http-browse                 # = the directory name
-       label: "HTTP browse"
-       blurb: "GET a page, read the response, close."
-       proto: http                     # what a sensor should log it as (Zeek service)
-       transport: tcp                  # tcp | udp
-       port: 80                        # default server port; a line may override
-       real_server_ok: true            # the client end works against a real server (§6)
-       source:                         # exactly one of:
-         program:                      # the trex_astf driver's existing step language
-           - { send_text: "GET {path} HTTP/1.1\r\nHost: {server_name}\r\nUser-Agent: {user_agent}\r\nAccept: */*\r\nConnection: close\r\n\r\n" }
-           - { reply_text: "HTTP/1.1 200 OK\r\nServer: nginx\r\nContent-Type: text/html\r\nContent-Length: {resp_bytes}\r\n\r\n" }
-           - { reply: "3c68746d6c3e", size: "{resp_bytes}", fill: "3c703e" }
-         # pcap: capture.pcap          # a single-flow capture beside app.yaml, replayed as captured
-       tunables:                       # name -> {default, min, max} or {default, choices}
-         path:        { default: "/index.html" }
-         resp_bytes:  { default: 8192, min: 64, max: 1048576 }
-         think_ms:    { default: 0, min: 0, max: 60000 }
-       provenance: "Hand-written request/response, nginx-shaped."
-     ```
-
-     Steps: `send` / `reply` (hex, as the driver takes today), `recv: <n>`,
-     `size` / `fill`, plus two additions: `send_text` / `reply_text` (UTF-8
-     with `{name}` placeholders filled at plan time from tunables and the
-     peer: `server_name`, `user_agent`, ...) and `delay_ms` (think time).
-     This follows A4: replayed captures carry their original Host headers and
-     DNS answers, so four of the five apps are programs; `tls-session` is the
-     one replay (`source.pcap`, a TLS 1.3 session with SNI captured in A4).
-
-  4. **`GET /api/personas`** is unchanged for every persona. `PersonaDTO`
-     gains two additive fields, empty or false for non-mixes, so the UI needs
-     no change:
-
-     ```diff
-      class PersonaDTO(BaseModel):
-          ...
-          blurb: str = ""
-     +    mix: list[PersonaMixEntryDTO] = []   # [{app, weight, share, label, proto, port, transport, real_server_ok, installed}]
-     +    real_server_ok: bool = False         # a mix: every app is real_server_ok
-     ```
-
-     `share` is the normalised weight (`0.7` / `0.3`); `installed: false`
-     marks an app the mix names that is not on disk (also a warning).
-
-  5. **New read-only endpoints:** `GET /api/traffic-apps` returns
-     `{apps: [TrafficAppDTO], warnings}`, and `GET /api/traffic-apps/{id}`
-     returns one app. `TrafficAppDTO`: `id, label, blurb, proto, transport,
-     port, real_server_ok, source_kind (program | pcap), tunables,
-     provenance, used_by` (mix ids). No write endpoint.
-
-  Not proposed: a co-located `SPEC.md` for the apps registry (Claude.md asks
-  for one per plugin; this task's brief allows no new doc files, so its
-  contract lives here in §8). *Cost of no* (a separate drive name instead of
-  `mix:` on `trex-astf`): two drive kinds for one generator, until T9 retires
-  the per-VM form.
+  **Signed off 2026-11-24**, amended by the user: the feature gets its own
+  `engine/src/axrange/trafficgen/SPEC.md` (the apps registry moves to
+  `axrange.trafficgen.apps`). A mix is a `trex-astf` persona with a `mix:`
+  list; apps live in `catalog/traffic/apps/<id>/app.yaml`;
+  `GET /api/personas` adds `mix` and `real_server_ok`;
+  `GET /api/traffic-apps[/{id}]` is read-only. Contract: the spec ("Config").
 - **T2:** tfc profile gains `emulated`, `lines` and `budget` (§8.1).
 - **T3:** the tfc tier may plan and deploy generator VMs.
 - **T4:** how a Real 0 group is declared (te `count: 0`, or tfc-only).
 - **T5:** a `generator` image (TRex baked in) and its profile.
-  **Signed off 2026-11-24 (the user: "approved as written").** No new image. The
-  generator *is* the existing `trex-astf@v1` (dev45 template 102, built
-  2026-11-16, A0); `generator` is a profile name pointing at it.
-
-  1. **Image: unchanged, stays `trex-astf@v1`.** No rebuild. What A1–A6
-     needed beyond the bake is done at provision by the in-VM wrapper
-     (B5), not in the image: GRO/GSO/TSO off per leg, `vm.nr_hugepages`
-     raised to `20 + 40 × ports` + headroom when a generator has more than
-     5 legs, `stack: linux_based` (needs `ethtool`, already in the image),
-     the generic ASTF profile and the wrapper itself pushed over the guest
-     agent (B4 "pushed at provision"). The `trex-test` twin keeps using the
-     same image unchanged.
-  2. **Manifest and binding: tracked as fixtures, live copies stay operator
-     data.** The live files stay in the images root
-     (`~/axr-product/deploy-dev45/images/{manifests,bindings/proxmox}/trex-astf.yaml`,
-     outside the repo, like every other image). Copies go to
-     `engine/tests/fixtures/images/manifests/trex-astf.yaml` and
-     `engine/tests/fixtures/images/bindings/proxmox/trex-astf.yaml`, so the
-     planner and validator tests (B2, B3) resolve a generator image. Two edits
-     to both copies, neither needing a rebuild:
-
-     ```diff
-      # manifests/trex-astf.yaml, image.description
-     -    pre-baked for axtwin's `trex-astf` persona driver
-     -    (engine/src/axrange/personas/drivers/trex_astf.py; twin
-     -    catalog/twins/trex-test).
-     +    pre-baked for axtwin's `trex-astf` persona driver
-     +    (engine/src/axrange/personas/drivers/trex_astf.py; twin
-     +    catalog/twins/trex-test) and for the generator VMs the tfc tier
-     +    plans (image profile `generator`,
-     +    docs/design/traffic-generation-trex-astf.md).
-      # bindings/proxmox/trex-astf.yaml, build.probes (future builds only)
-     -  "traffic:trex-astf": "test -x /opt/trex/current/t-rex-64 && grep -qx v3.08 /opt/trex/VERSION && python3 -W ignore -c \"...\""
-     +  "traffic:trex-astf": "test -x /opt/trex/current/t-rex-64 && grep -qx v3.08 /opt/trex/VERSION && command -v ethtool >/dev/null && python3 -W ignore -c \"...\""
-     ```
-
-  3. **`catalog/image-profiles.yaml` gains one entry, Proxmox only:**
-
-     ```diff
-        l3-switch:      { image: vyos@2026.06, platforms: { proxmox: vyos@2026.06 } }
-     +  # The generator VM the tfc tier plans for emulated instances and traffic
-     +  # lines (docs/design/traffic-generation-trex-astf.md, T3). Never dropped
-     +  # by the canvas: read by the tfc planner, resolved for the twin's target
-     +  # platform. Default null: on a platform with no generator binding
-     +  # (libvirt today) the validator refuses TRex lines instead of planning
-     +  # a VM that cannot deploy.
-     +  generator:      { image: null, platforms: { proxmox: trex-astf@v1 } }
-     ```
-
-     Side effects: `GET /api/image-profiles` lists one more profile; the
-     canvas looks profiles up by name only, so the one visible change is that
-     the Advanced image picker on Proxmox also offers `trex-astf@v1`. The tfc
-     planner becomes a second reader of this file (today the Add panel is the
-     only one), through the same loader (`api/image_profiles.py`), moved or
-     wrapped so the engine can call it without the API package.
-  4. **Hardware:** the binding's clone (2 vCPU, 4 GiB, i440fx, virtio) is a
-     template default. The planner sets per generator, at clone:
-     `cores = 1 + ceil(pairs / 4)` (A1: one pair used under half a core at
-     200 cps) and `memory = 2 GiB + 0.1 GiB × legs`, plus one NIC per (segment,
-     role) leg (§8.4), matched by MAC.
-
-  *Cost of no:* a separate `generator` image would need a second bake of the
-  same bits and a second template on every target.
+  **Signed off 2026-11-24** ("approved as written"): no new image; the
+  generator is `trex-astf@v1` behind a Proxmox-only `generator` image
+  profile. Contract: `engine/src/axrange/trafficgen/SPEC.md` ("Generator image").
 - **T6:** address policy for emulated instances after spike S2: in-segment,
   or routed stub pools.
   **Proposal after A2 (not signed off):** in-segment. Emulated instances take

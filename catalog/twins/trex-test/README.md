@@ -1,7 +1,8 @@
 # trex-test: a TRex ASTF crowd with internal and external services
 
 Phase A of the crowd work (branch `wip/trex-crowd`; Phase B, a first-class
-crowd node, is a design note awaiting sign-off: `docs/design/crowd-node.md`).
+crowd node, was superseded on 2026-11-24 by
+`docs/design/traffic-generation-trex-astf.md` and `engine/src/axrange/trafficgen/SPEC.md`).
 Existing schema only. Loop steps: **deploy** and **drive realistic traffic**,
 proved against the **capture gate**.
 

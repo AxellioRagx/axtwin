@@ -24,7 +24,7 @@ Then the TRex crowd brief, Phase A, on `wip/trex-crowd`:
   and `stats` carried through `GET /api/deploys/{id}/health?host=`.
 - Golden template `trex-astf` (manifest and binding in `~/axr-product/deploy-dev45/images/`,
   untracked there; recipe restated in the twin README), built on dev45 as template **102**.
-- `docs/design/crowd-node.md`: the Phase B0 design note. **Stop here for sign-off.**
+- the crowd-node design note (Phase B0); superseded 2026-11-24 by `docs/design/traffic-generation-trex-astf.md`, removed.
 
 2026-11-17, the user's request (SMB as multi-packet sessions with file transfer, add AD, SMB
 server on lan-b, HTTP/TLS/DNS answered by a separate external node behind a boundary):
@@ -60,7 +60,7 @@ None half-edited. Phase B is not started, by the brief's rule.
 
 ## Next steps (ordered)
 
-1. The user signs off (or amends) `docs/design/crowd-node.md` D1–D7 before any Phase B code.
+1. (Superseded 2026-11-24: the crowd-node note is replaced by the TRex traffic-generation design.)
 2. Locate the DNS loss at ×2 (seen again on v2: 16,353 of 108,655 unanswered): capture during
    ×2 and compare the lan-a and perimeter tap counts of UDP/53.
    Also: gw's `axr-crowd-routes.service` is enabled but `inactive` (script ran routes.sh directly).
