@@ -7,6 +7,8 @@ import { useWhoami } from "../../api/whoami";
 import { remapFiles } from "../../model/preflight";
 import { DeployFlow } from "../shell/DeployFlow";
 import { DestroyControl } from "../shell/destroy";
+import { tfcDeployOf } from "../shell/deployState";
+import { TrafficLive } from "../shell/TrafficLive";
 
 /** Deploy a twin from the console (2026-11-08; the Twins list's "Deploy" used to land on a
  *  page that only printed the CLI commands). Two steps, the same ones the CLI takes: plan
@@ -53,6 +55,7 @@ export function DeployPanel({ id, standing, rows = [], focus, onDeployed, destro
               <DestroyControl twinId={id} deploy={standing} rows={rows} onDestroyed={onDeployed} open={destroyOpen} onOpenChange={onDestroyOpenChange} />
             </div>
           ) : null}
+          {tfcDeployOf(rows, standing.deploy_id) ? <TrafficLive tfcDeployId={tfcDeployOf(rows, standing.deploy_id)!} /> : null}
         </>
       ) : !whoami.can_write ? (
         <p className="muted" data-testid="deploy-blocked">

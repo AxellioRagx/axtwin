@@ -1033,6 +1033,46 @@ def _scan_te_inventory(
     )
 
 
+def _with_generator_legs(store: Any, te_deploy_id: str, twin: TwinInventory) -> TwinInventory:
+    """trafficgen (canvas task item 6, 2026-11-24): the generator VMs of the
+    twin's standing tfc deploy join the twin's hosts, so a segment tap
+    selects their legs like any te host's (spike A4: a span mirrors only the
+    ports it names, and a generator's legs are not te ports). Each generator
+    leg on a native switch also becomes a port of that switch (its OVS port
+    from `attach-vm-to-switch-port`), so the switch's SPAN session names it.
+    No standing tfc deploy, or one without generators: `twin` unchanged."""
+    from axrange.o2control.cascade import siblings_for_te
+    from axrange.planner.inventory import SwitchPortInfo, build_twin_inventory
+    from axrange.planner.state import DeployStatus
+
+    rows = [r for r in siblings_for_te(store, te_deploy_id).get("tfc", [])
+            if r.status != DeployStatus.DESTROYED]
+    if not rows:
+        return twin
+    try:
+        tfc_inv = build_twin_inventory(store, rows[0].deploy_id)
+    except InventoryError:
+        return twin
+    known = {h.host_id for h in twin.hosts}
+    gens = [h for h in tfc_inv.hosts
+            if h.host_id.startswith("gen-") and h.vmid is not None and h.host_id not in known
+            and (h.vm_status or "completed") == "completed"]
+    if not gens:
+        return twin
+    switches = []
+    for sw in twin.switches:
+        extra = [
+            SwitchPortInfo(port=n.port, mode="access", vlans=[n.net_id], native=n.net_id,
+                           source="auto", far={"kind": "vm", "device": h.host_id, "leg": n.net_id},
+                           ovs_port=n.ovs_port)
+            for h in gens for n in h.nets
+            if n.switch == sw.name and n.port and n.ovs_port
+            and not any(p.port == n.port for p in sw.ports)
+        ]
+        switches.append(replace(sw, ports=[*sw.ports, *extra]) if extra else sw)
+    return replace(twin, hosts=[*twin.hosts, *gens], switches=switches)
+
+
 def _tapped_iface_set(inv: _TeInventory) -> set[tuple[str, str, int]]:
     """The TE's ELIGIBLE interface set, as `(host_id, net_id, nic_index)`
     triples -- the twin's FULL attachment topology (`docs/
@@ -1723,7 +1763,7 @@ def resolve_tap_plan_bindings(
     # `TapPlanError`(400) every other resolve-time problem in this function
     # produces.
     try:
-        twin = build_twin_inventory(store, spec.target)
+        twin = _with_generator_legs(store, spec.target, build_twin_inventory(store, spec.target))
         index = build_tap_index(twin)
         inv = _scan_te_inventory(store, spec.target, twin=twin)
         ifaces = _tapped_iface_set(inv)

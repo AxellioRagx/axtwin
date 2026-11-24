@@ -1830,6 +1830,7 @@ def deploy_detail(settings: ApiSettings, deploy_id: str) -> dtos.DeployDetailDTO
             attempts = store.attempts_for_op(did, op.op_id)
             op_dtos.append(dtos.OpDTO(
                 op_id=op.op_id,
+                scope=_json_scope(op.scope_json),
                 op_name=op.op_name,
                 op_catalog_id=op.op_catalog_id,
                 kind=op.kind,
@@ -3064,6 +3065,14 @@ def _traffic_status_dto(status: Any) -> dtos.TrafficPlanStatusDTO:
         ],
         warnings=list(getattr(status, "warnings", None) or []),
     )
+
+
+def _json_scope(raw: Optional[str]) -> dict[str, Any]:
+    try:
+        v = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def tfc_apply(settings: ApiSettings, req: dtos.TrafficApplyRequest, *,
@@ -4991,6 +5000,12 @@ def run_follow_on(
         for t in order:
             rec.mark(te.deploy_id, t, "failed", reason=f"the twin's document: {e.message}")
         return rec.get(te.deploy_id)
+    # trafficgen (canvas task item 6): a profile with traffic lines plans generator VMs, and a
+    # span mirrors only the ports it names (spike A4), so tfc runs BEFORE tap: the tap tier then
+    # selects the generators' legs (`taps._with_generator_legs`). Without lines: tap, tfc as before.
+    gen_lines = _tfc_has_lines(doc.files, edits.tier_file_of(doc.files, "tfc"))
+    if gen_lines and order == ["tap", "tfc"]:
+        order = ["tfc", "tap"]
     for tier in order:
         rel = edits.tier_file_of(doc.files, tier)
         if tier == "tap" and not _tap_bindings_in(doc.files, rel):
@@ -5024,7 +5039,55 @@ def run_follow_on(
             continue
         rec.mark(te.deploy_id, tier, "completed", deploy_id=getattr(dto, "deploy_id", None),
                  reason="; ".join(warnings) or None)
+        if tier == "tfc" and gen_lines and "tap" not in order:
+            _reselect_taps(settings, te, doc.files, folder, target_node=target_node,
+                           tap_adapter=tap_adapter, tap_config_backend=tap_config_backend, rec=rec)
     return rec.get(te.deploy_id)
+
+
+def _tfc_has_lines(files: dict[str, str], rel: Optional[str]) -> bool:
+    """Does the twin's default traffic profile carry traffic lines (generators)?"""
+    from axrange.api import edits
+
+    if rel is None or rel not in files:
+        return False
+    try:
+        raw = edits.parse_yaml(files[rel])
+    except Exception:  # noqa: BLE001 -- the tier itself reports a bad file
+        return False
+    body = raw.get("traffic-profile") if isinstance(raw, dict) else None
+    return isinstance(body, dict) and bool(body.get("lines"))
+
+
+def _reselect_taps(settings: ApiSettings, te: Any, files: dict[str, str], folder: Path, *,
+                   target_node: Optional[str], tap_adapter: Any, tap_config_backend: Any,
+                   rec: Any) -> None:
+    """A tfc started on its own planned generators while a tap deploy already
+    stands: re-apply the twin's tap plan so its spans select the generators'
+    legs (spike A4). Recorded on the tap tier's follow-on row."""
+    from axrange.api import edits
+    from axrange.o2control.cascade import siblings_for_te
+    from axrange.planner.state import DeployStatus
+
+    store = _open_existing_store(settings.db_path)
+    try:
+        standing = [r for r in siblings_for_te(store, te.deploy_id).get("tap", [])
+                    if r.status != DeployStatus.DESTROYED]
+    finally:
+        store.close()
+    rel = edits.tier_file_of(files, "tap")
+    if not standing or not _tap_bindings_in(files, rel):
+        return
+    try:
+        with _hold_te_lease(settings, te):
+            dto = _replay_tap(settings, te, folder / str(rel), target_node=target_node,
+                              adapter=tap_adapter, config_backend=tap_config_backend)
+    except Exception as e:  # noqa: BLE001 -- detached: the record is the only report
+        msg = e.message if isinstance(e, ApiError) else f"{type(e).__name__}: {e}"
+        rec.mark(te.deploy_id, "tap", "failed", reason=f"re-selecting taps for the generators: {msg}")
+        return
+    rec.mark(te.deploy_id, "tap", "completed", deploy_id=getattr(dto, "deploy_id", None),
+             reason="re-applied after tfc so the spans select the generators' legs")
 
 
 def start_tier(

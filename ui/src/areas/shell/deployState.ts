@@ -53,3 +53,10 @@ export function twinTiers(rows: readonly DeploySummary[], twinId: string): Array
   if (!te) return [];
   return [["te", te.status], ...Object.entries(tierStatus(rows, te.deploy_id))];
 }
+
+/** The tfc deploy standing on a te deploy (its row, else the follow-on record's id), or null. */
+export function tfcDeployOf(rows: readonly DeploySummary[], teDeployId: string): string | null {
+  const mine = rows.filter((d) => d.scenario_id === `tfc-${teDeployId}` && d.status !== "destroyed");
+  mine.sort((a, b) => b.started_at - a.started_at);
+  return mine[0]?.deploy_id ?? rows.find((d) => d.deploy_id === teDeployId)?.follow_on?.["tfc"]?.deploy_id ?? null;
+}

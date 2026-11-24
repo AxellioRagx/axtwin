@@ -54,7 +54,8 @@ import { conduitOf, checkBadge, checkPasses, checkStatus, findingPins, findingTa
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
 import { useLeaveGuard, type LeaveVia } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
-import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
+import { FOLLOW_ON_TIERS, deployMoving, tfcDeployOf, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
+import { TrafficLive } from "../../areas/shell/TrafficLive";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -512,6 +513,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Destroy (2026-11-08): the standing deploy comes down from the bar; the canvas then returns to
   // the undeployed edit mode (the working copy is gone with the deploy) without a page reload.
   const [destroyOpen, setDestroyOpen] = useState(false);
+  // The deployed twin's traffic lines, live (trafficgen; canvas task item 6).
+  const [trafficOpen, setTrafficOpen] = useState(false);
   // The bar's Deploy (an undeployed design): the deploy dialog (docs/design/targets-and-lab.md §2.3).
   const [deployOpen, setDeployOpen] = useState(false);
   // Open (the bar's button, Ctrl+O) and the untitled design's first-Save prompt.
@@ -1845,6 +1848,11 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                     Start {t}
                   </button>
                 ))}
+                {teRow && tfcDeployOf(deployRows, teRow.deploy_id) ? (
+                  <button type="button" aria-pressed={trafficOpen} onClick={() => setTrafficOpen((v) => !v)} data-testid="traffic-open" title="the tfc deploy's generators and each traffic line's live counters">
+                    Traffic
+                  </button>
+                ) : null}
                 <button type="button" className="danger" onClick={() => setDestroyOpen(true)} disabled={busy !== null || Boolean(exit) || destroying} data-testid="destroy-open" title="bring the standing deploy down: te, with its tfc and tap (the tap's sensor binding is released)">
                   Destroy…
                 </button>
@@ -2084,6 +2092,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {trafficOpen && teRow && tfcDeployOf(deployRows, teRow.deploy_id) ? (
+        <div className="panel cv-traffic-pop" role="dialog" aria-label="Traffic lines, live" data-testid="traffic-pop">
+          <button type="button" className="cv-traffic-close" aria-label="Close traffic" onClick={() => setTrafficOpen(false)}>×</button>
+          <TrafficLive tfcDeployId={tfcDeployOf(deployRows, teRow.deploy_id)!} />
         </div>
       ) : null}
       {destroyOpen && data?.deploy ? (

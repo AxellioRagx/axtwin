@@ -311,6 +311,10 @@ class OpDTO(BaseModel):
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     attempts: list[OpAttemptDTO]
+    # The op's scope (`{"host": ...}`, `{"generator": ...}`, ...): which VM or
+    # generator it acts on, so a view can group a tier's ops (trafficgen's
+    # generator ops in the deploy view, canvas task item 6).
+    scope: dict[str, Any] = {}
 
 
 class DeployDetailDTO(BaseModel):

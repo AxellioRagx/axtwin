@@ -564,3 +564,7 @@ g.cv-conduit.open .react-flow__edge-text { fill: var(--warn, #b7791f); }
 /* B9 (2026-11-21): zoomed out (compact), a transit's /30 pill hides -- in a mesh they sat across
    one another's lines; hover or select the transit to read it. */
 .canvas-shell.compact .cv-seglink:not(.selected):not(:hover) .react-flow__edge-textwrapper { display: none; }
+
+/* The deployed twin's traffic lines, live (trafficgen, canvas task item 6). */
+.cv-traffic-pop { position: absolute; right: 16px; top: 64px; z-index: 30; max-width: min(720px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
+.cv-traffic-close { position: absolute; right: 6px; top: 6px; }
