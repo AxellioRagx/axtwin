@@ -1,18 +1,24 @@
-# trex-test -- the root manifest. The `trex-astf` persona driver's twin (the
-# crowd work, README.md): a TRex ASTF client generator emulating a 50-host
-# internal crowd on lan-a; an internal server generator (SMB file servers) on
-# lan-b beside a real AD DS domain controller; an external server generator
-# (web, DNS) on inet, beyond the router that is the boundary; all three
-# segments tapped.
+# trex-test -- the root manifest. SPIKE RIG, not the product model: Phase A of
+# the crowd work (2026-11-16/17, README.md), kept as the live acceptance of the
+# per-VM `trex-astf` driver (`knobs.side`). Its three TRex generators are
+# hand-placed te hosts on `trex-astf@v1`. The product model (signed off
+# 2026-11-24, docs/design/traffic-generation-trex-astf.md,
+# engine/src/axrange/trafficgen/SPEC.md) writes nothing to te: the tfc
+# profile's emulated[] and lines[] plan generator VMs, and the app mixes are
+# catalog personas (example: three-tier-dc-manual/tfc/trafficgen.yaml).
 twin:
   id: trex-test
   description: >
-    TRex ASTF crowd: 50 emulated internal clients (10.250.1.0/24) on lan-a;
-    SMB 3.1.1 file transfers to internal file servers (trex-server, lan-b,
-    with AD DS domain controller dc01 for crowd.axr.lab); HTTP, TLS and DNS to
-    external servers (trex-ext on inet, TEST-NET space) through one Debian
-    router that is the internal/external boundary; segment taps on both LANs
-    and a perimeter tap on the external edge.
+    Spike rig (TRex crowd Phase A, 2026-11-16), not the product model: three
+    TRex generators hand-placed as te hosts on trex-astf@v1 -- trex-client
+    (lan-a, 50 emulated clients in 10.250.1.0/24), trex-server (lan-b,
+    answers SMB 3.1.1 for fs01/fs02 beside the AD DS DC dc01) and trex-ext
+    (inet, web and DNS in TEST-NET space) -- behind one Debian router that
+    is the boundary; taps on both LANs and the perimeter. Its traffic is
+    three twin-local personas (personas/trex-crowd-client, -server, -ext:
+    drive trex-astf, knobs.side), listed by GET /api/personas?twin=trex-test
+    only; it uses none of the catalog's app mixes. Product traffic lines are
+    planned from the tfc profile (see three-tier-dc-manual).
   containment: uncontained
   tiers:
     te:

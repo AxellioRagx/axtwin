@@ -30,12 +30,16 @@
 twin_config:
   id: trex-test
   description: |
-    TRex ASTF crowd: 50 emulated internal clients on lan-a open SMB 3.1.1
+    Spike rig (TRex crowd Phase A), not the product model: the TRex
+    generators are hand-placed hosts here, which the product model never
+    does (tfc plans them; docs/design/traffic-generation-trex-astf.md).
+    50 emulated internal clients on lan-a (trex-client) open SMB 3.1.1
     file transfers to two internal file servers (trex-server, lan-b, beside a
     real AD DS domain controller for crowd.axr.lab) and HTTP, TLS and DNS to
     external servers beyond the boundary (trex-ext, inet). One Debian router
-    is the perimeter. The traffic (templates, cps, schedule) is the tfc
-    tier's personas/trex-crowd-*.yaml.
+    is the perimeter. The traffic (templates, cps, schedule) is this twin's
+    own personas/trex-crowd-*.yaml (twin-local, drive trex-astf with
+    knobs.side), bound by tfc/default.yaml.
 
   # The gateway is DECLARED on each segment and the router legs are left
   # unpinned, so the router takes it AND the segment records it (the hosts'

@@ -6,6 +6,18 @@ crowd node, was superseded on 2026-11-24 by
 Existing schema only. Loop steps: **deploy** and **drive realistic traffic**,
 proved against the **capture gate**.
 
+**Status: spike rig, not the product model (2026-11-24).** The three TRex
+generators here are hand-placed te hosts on `trex-astf@v1`, driven per VM
+(`drive: trex-astf` with `knobs.side`). The product model writes nothing to
+te: the tfc profile's `emulated[]` and `lines[]` plan the generator VMs, and
+the traffic is a catalog app mix (`drive: trex-astf` with `mix:`) played on a
+line. See `../three-tier-dc-manual/tfc/trafficgen.yaml`. This twin stays as
+the live acceptance of the per-VM driver. Nothing in the trafficgen engine
+reads it or depends on TRex hosts declared in te. Its personas are
+twin-local (`personas/`): `GET /api/personas?twin=trex-test` lists them, and
+the catalog-wide `GET /api/personas` does not. TGN-060 leaves them
+assignable because they carry no `mix:`.
+
 ```
             INTERNAL (RFC 1918)                         |  EXTERNAL (TEST-NET)
                                                         |
