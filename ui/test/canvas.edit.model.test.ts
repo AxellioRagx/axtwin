@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { allocateHostAddresses, nextFreeSlash24, takenAddresses } from "../src/features/edit-canvas/edit/allocate";
 import { EMPTY_STACK, record, redo, undo } from "../src/features/edit-canvas/edit/commands";
 import { attach, detach, documentGraph, duplicateOnto, mergeSegments, placeNodes, readDoc, removeSegment, saveAsFiles, setPersona, type WorkingDoc } from "../src/features/edit-canvas/edit/document";
-import { readManifest } from "../src/features/edit-canvas/edit/manifest";
+import { isTierFile, readManifest, tierTarget } from "../src/features/edit-canvas/edit/manifest";
 import { addSegment, copyNames, readTe, setNodeField, setNodeNets, setSegmentField } from "../src/features/edit-canvas/edit/te";
 import { readTfc, setAssignment } from "../src/features/edit-canvas/edit/tfc";
 import { validateTe } from "../src/features/edit-canvas/edit/validate";
@@ -218,11 +218,26 @@ describe("placement and addressing (C3.2)", () => {
     expect(g.exportData.nodes.find((n) => n.id === "attacker")!.role).toBe("attacker");
   });
 
-  it("Save-As rewrites the id in the twin config and the manifest, nothing else", () => {
+  it("Save-As rewrites the id in the twin config, the manifest and each tier file's target, nothing else", () => {
     const files = saveAsFiles(doc(), "corp-enterprise-2");
     expect(diff(TE, files["te.yaml"]!)).toEqual({ removed: ["  id: corp-enterprise"], added: ["  id: corp-enterprise-2"] });
     expect(diff(TWIN, files["twin.yaml"]!)).toEqual({ removed: ["  id: corp-enterprise"], added: ["  id: corp-enterprise-2"] });
-    expect(files["tfc/default.yaml"]).toBe(TFC);
+    const tfc = diff(TFC, files["tfc/default.yaml"]!);
+    expect(tfc.removed).toContain("  target: corp-enterprise");
+    expect(tfc.added).toContain("  target: corp-enterprise-2");
+    expect(tfc.removed.every((l) => l.includes("corp-enterprise"))).toBe(true);
+  });
+
+  it("a clone's tier files all name the new id (three-tier-dc-manual -> three-tier-dc-trex)", () => {
+    const dir = resolve(__dirname, "../../catalog/twins/three-tier-dc-manual");
+    const files: Record<string, string> = {};
+    for (const p of ["te.yaml", "twin.yaml", "tfc/default.yaml", "tfc/trafficgen.yaml", "tap/default.yaml"]) files[p] = readFileSync(resolve(dir, p), "utf8");
+    const out = saveAsFiles({ id: "three-tier-dc-manual", teFile: "te.yaml", files }, "three-tier-dc-trex");
+    for (const p of Object.keys(files).filter(isTierFile)) {
+      expect(tierTarget(out[p]!), p).toBe("three-tier-dc-trex");
+      expect(out[p]!.split("\n").filter((l) => l.startsWith("#")).join("\n"), p).not.toMatch(/three-tier-dc-manual(?![\w-])/);
+    }
+    expect(readTfc(out["tfc/trafficgen.yaml"]!).target).toBe("three-tier-dc-trex");
   });
 
   it("creates and wires a traffic profile when the bundle has none", () => {

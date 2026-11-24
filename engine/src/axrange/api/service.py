@@ -6951,7 +6951,7 @@ def _validate_twin_document(
         if image_warnings and target is None:
             result = _with_target_image_warnings(scratch, twin_id, result)
         try:
-            tier_warnings = _check_tier_files(td / twin_id, files)
+            tier_warnings = _check_tier_files(td / twin_id, files, twin_id=twin_id)
         except _TierRuleError as e:
             if raise_on_fail:
                 raise
@@ -7057,7 +7057,20 @@ def fabric_conversion(req: dtos.FabricConversionRequest) -> dtos.FabricConversio
     return dtos.FabricConversionDTO(recipe=recipe, **plan.as_dict())
 
 
-def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
+def _tier_target_mismatch(twin_id: str, target: Optional[str]) -> bool:
+    """A tier file of a bundle names the twin it is for: the twin's id, or a
+    deploy of it (`<id>-<8 hex>`). Anything else -- a Save-As copy that kept
+    its source's id -- would apply to another twin."""
+    import re
+
+    if not target or target == twin_id:
+        return False
+    return re.fullmatch(re.escape(twin_id) + r"-[0-9a-f]{8}", target) is None
+
+
+def _check_tier_files(
+    bundle_dir: Path, files: dict[str, str], *, twin_id: Optional[str] = None,
+) -> list[str]:
     """Every `tfc/*.yaml`, `tap/*.yaml` and `personas/*.yaml` of the
     document (and a legacy cast's root-level `tap-cast.yaml` / `tfc-cast.yaml`
     when it has no manifest) must parse as what its playout will load (one
@@ -7085,9 +7098,17 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
                 if not isinstance(raw, dict) or "traffic-profile" not in raw:
                     continue  # a `roles_from:` fragment (tfc/roles.yaml), not a profile
                 spec = load_traffic_profile(bundle_dir / rel)
+                if twin_id and _tier_target_mismatch(twin_id, spec.target):
+                    raise _TierRuleError("TIER-TARGET", rel, (
+                        f"names target {spec.target!r}, not this twin {twin_id!r}; "
+                        "it would apply to that twin (a Save-As copy that kept its source's id)"))
                 _refuse_mix_assignments(bundle_dir, rel, spec)
             else:
                 plan = load_tap_plan(bundle_dir / rel, require_sensors=False)
+                if twin_id and _tier_target_mismatch(twin_id, plan.target):
+                    raise _TierRuleError("TIER-TARGET", rel, (
+                        f"names target {plan.target!r}, not this twin {twin_id!r}; "
+                        "it would apply to that twin (a Save-As copy that kept its source's id)"))
                 bare = sum(1 for b in plan.bindings if not b.sensors)
                 if bare:
                     warnings.append(

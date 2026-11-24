@@ -14,7 +14,7 @@ import type { Topology, TwinTree, ValidationFinding } from "../../../api/types";
 import { authoredGraph, type AuthoredGraph } from "../canvas/authored";
 import { allocateHostAddresses, takenAddresses } from "./allocate";
 import type { Files } from "./commands";
-import { MANIFEST, readManifest, setManifestCluster, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
+import { isTierFile, MANIFEST, readManifest, retargetTierFile, setManifestCluster, setManifestDescription, setManifestId, unwireTierDefault, wireTapDefault, wireTfcDefault, type Manifest } from "./manifest";
 import { addTapBinding, emptyTap, moveTapBinding, readTap, removeTapBinding, setTapSelector, setTapSensors, type TapModel, type TapSelector, addSpanBinding, setSpanSources, type SpanSource } from "./tap";
 import {
   addConduit as teAddConduit,
@@ -573,6 +573,10 @@ export function renamedFiles<T extends string | undefined>(files: Record<string,
   const description = options.description?.trim() || null;
   const out: Record<string, T> = { ...files };
   const te = files[teFile];
+  // The id the bundle had: the manifest's, else the te file's (for the tier files' header comments).
+  const manifestText = files[MANIFEST];
+  const oldId = (manifestText !== undefined ? readManifest(manifestText).id : null)
+    ?? (te !== undefined ? readTe(te).id : null);
   if (te !== undefined) {
     const withId = setTwinId(te, newId);
     out[teFile] = (description ? setTwinDescription(withId, description) : withId) as T;
@@ -581,6 +585,12 @@ export function renamedFiles<T extends string | undefined>(files: Record<string,
   if (manifest !== undefined) {
     const withId = setManifestId(manifest, newId);
     out[MANIFEST] = (description ? setManifestDescription(withId, description) : withId) as T;
+  }
+  // Every tier file names the twin it is for (`traffic-profile.target`, `tap-plan.target`,
+  // `exercise.twin`): a copy that kept the old id would apply to the twin it was cloned from.
+  for (const [path, text] of Object.entries(files)) {
+    if (text === undefined || !isTierFile(path)) continue;
+    out[path] = retargetTierFile(text, newId, oldId) as T;
   }
   return out;
 }
