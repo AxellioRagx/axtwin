@@ -45,6 +45,9 @@ _EXPECTED_IDS = {
     "canvas-test", "switch-test", "switch-trunk-test",
     # The TRex ASTF crowd proof (catalog/twins/trex-test, 2026-11-16).
     "trex-test",
+    # The three-tier DC built on the canvas; its tfc/trafficgen.yaml is the
+    # trafficgen deploy gate (engine/src/axrange/trafficgen/SPEC.md, 2026-11-24).
+    "three-tier-dc-manual",
 }
 
 
