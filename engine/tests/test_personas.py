@@ -104,6 +104,9 @@ def test_psn_rules_registered_additively():
         "PSN-050", "PSN-060", "PSN-070", "PSN-080", "PSN-090",
         # The high-volume persona wave's two new emit fields, 2026-07-28.
         "PSN-100", "PSN-110",
+        # App mixes and traffic lines (trafficgen T1/T2), 2026-11-24.
+        "PSN-120", "PSN-130", "PSN-140",
+        "TGN-010", "TGN-020", "TGN-030", "TGN-040", "TGN-050", "TGN-060", "TGN-070",
     ]
     for rid in psn_ids:
         get_rule(rid)  # doesn't raise
@@ -1329,8 +1332,8 @@ def test_psn_rule_count_is_unchanged_by_the_command_drive_kind():
     rules, 114 total. `catalog.py`'s own asserts pin this at import; this test
     makes the intent explicit and greppable."""
     psn = [r for r in list_rules() if r.category == RuleCategory.PERSONA]
-    assert len(psn) == 11
-    assert len(list_rules()) == 131  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21); the PSN count is what these tests pin
+    assert len(psn) == 21  # 11 PSN + PSN-120..140 + TGN-010..070 (trafficgen, 2026-11-24), none from a drive kind
+    assert len(list_rules()) == 141  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21) + trafficgen's 10 (2026-11-24); the PSN count is what these tests pin
 
 
 # --- render: determinism, compilability, one template per proto ------------
@@ -2325,8 +2328,8 @@ def test_psn_030_accepts_browser_and_the_rule_count_is_unchanged():
     assert "browser" in DRIVE_KINDS
     bad = Persona(id="x", os_family="linux", drive="teleport")
     assert "PSN-030" in {f.rule_id for f in validate_persona(bad)}
-    assert len(list_rules()) == 131  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21); the PSN count is what these tests pin
-    assert len([r for r in list_rules() if r.category == RuleCategory.PERSONA]) == 11
+    assert len(list_rules()) == 141  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21) + trafficgen's 10 (2026-11-24); the PSN count is what these tests pin
+    assert len([r for r in list_rules() if r.category == RuleCategory.PERSONA]) == 21  # +PSN-120..140, TGN-010..070 (trafficgen)
 
 
 def test_quic_is_a_known_proto_carried_over_udp():
@@ -3198,7 +3201,7 @@ def test_windows_command_engine_adds_no_drive_kind_and_no_psn_rule():
 
     # `trex-astf` (2026-11-16) is a separate, later widening; E6 still minted no kind.
     assert DRIVE_KINDS == ("scripted", "replay", "real-service", "command", "browser", "trex-astf")
-    assert len(list_rules()) == 131  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21); the PSN count is what these tests pin
+    assert len(list_rules()) == 141  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (2026-11-12) + NET-150 (2026-11-21) + trafficgen's 10 (2026-11-24); the PSN count is what these tests pin
     # A windows `drive: command` persona is VALID against the catalog rules --
     # nothing in the validator had to learn about this engine.
     p = _win_persona(Emit(proto="kerberos", peer_role="domain-controller"))

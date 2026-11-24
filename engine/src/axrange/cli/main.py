@@ -3679,6 +3679,38 @@ def _tfc_static_os_check(args: argparse.Namespace, spec: Any, manifests: Any) ->
     return 0
 
 
+def _tfc_lines_check(args: argparse.Namespace, spec: Any) -> int:
+    """`tfc validate`'s trafficgen checks (TGN-0xx, `trafficgen/SPEC.md`):
+    emulated instances and traffic lines against the twin's te file. Prints
+    findings; returns 1 on an error finding, else 0. Silent for a profile
+    with no emulated[] / lines[] and no app mix."""
+    from axrange.platform.factory import check_platform, load_config, platform_of
+    from axrange.trafficgen.validate import LinesContextError, check_profile_file
+    from axrange.validator.finding import Severity
+
+    # The platform travels with the adapter config (its PLATFORM= key);
+    # without one, the conf's own absent-key meaning.
+    cfg_path = getattr(args, "adapter_config", None)
+    platform = platform_of(load_config(cfg_path)) if cfg_path else check_platform(None)
+    try:
+        findings = check_profile_file(spec, args.spec, platform=platform)
+    except LinesContextError as e:
+        sys.stderr.write(f"[error] {e}\n")
+        return 1
+    if not findings and not spec.lines:
+        return 0
+    errors = [f for f in findings if f.severity == Severity.ERROR]
+    for f in findings:
+        (sys.stderr if f in errors else sys.stdout).write(f"[{f.severity.value}] {f.rule_id}: {f.message}\n")
+    if errors:
+        sys.stdout.write(f"\nResult: FAIL ({len(errors)} traffic-line error(s))\n")
+        return 1
+    sys.stdout.write(
+        f"traffic lines: OK ({len(spec.lines)} line(s), "
+        f"{sum(e.count for e in spec.emulated)} emulated instance(s))\n")
+    return 0
+
+
 def cmd_tfc_validate(args: argparse.Namespace) -> int:
     """Two-tier, same posture as `tap validate` (work order §3.3): static
     `parse_traffic_profile`/`load_traffic_profile` ALWAYS; `resolve_traffic_
@@ -3708,6 +3740,8 @@ def cmd_tfc_validate(args: argparse.Namespace) -> int:
     for r in spec.replay:
         sys.stdout.write(f"  replay:{r.template} -> role:{r.onto_role}\n")
 
+    if _tfc_lines_check(args, spec):
+        return 1
     manifests, rc = _tfc_manifests(args, "tfc validate")
     if rc is not None:
         return rc

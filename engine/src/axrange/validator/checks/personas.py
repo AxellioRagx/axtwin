@@ -58,7 +58,10 @@ def _is_well_formed_cadence(cadence: str) -> bool:
     return True
 
 
-def validate_persona(persona: Any, *, available_roles: frozenset[str] | None = None) -> list[Finding]:
+def validate_persona(
+    persona: Any, *, available_roles: frozenset[str] | None = None,
+    apps: dict[str, Any] | None = None,
+) -> list[Finding]:
     """Run every PSN-0xx check against one `axrange.personas.schema.Persona`.
 
     `available_roles` is the optional twin role-set PSN-080 checks
@@ -170,7 +173,39 @@ def validate_persona(persona: Any, *, available_roles: frozenset[str] | None = N
                 )
             )
 
+    findings.extend(_mix_findings(persona, apps))
     return findings
+
+
+def _mix_findings(persona: Any, apps: dict[str, Any] | None) -> list[Finding]:
+    """PSN-120..140 (2026-11-24, T1, `trafficgen/SPEC.md`): the app-mix shape
+    of a `trex-astf` persona. `apps` defaults to the installed traffic apps."""
+    pid = persona.id
+    mix = getattr(persona, "mix", ())
+    side = isinstance(getattr(persona, "knobs", None), dict) and "side" in persona.knobs
+    out: list[Finding] = []
+    if mix and persona.drive != "trex-astf":
+        out.append(make_finding("PSN-120", persona_id=pid, why=f"mix: needs drive trex-astf, not {persona.drive!r}"))
+    elif persona.drive == "trex-astf" and bool(mix) == side:
+        out.append(make_finding("PSN-120", persona_id=pid,
+                                why="it has both mix: and knobs.side" if side else "it has neither mix: nor knobs.side"))
+    if not mix:
+        return out
+    if apps is None:
+        from axrange.trafficgen.apps import list_apps  # noqa: PLC0415 -- lazy: only mixes need it
+
+        apps = list_apps()[0]
+    emitted = {(e.proto, port) for e in persona.emits for port in e.ports}
+    for i, e in enumerate(mix):
+        app = apps.get(e.app)
+        if app is None or e.weight <= 0:
+            out.append(make_finding("PSN-130", persona_id=pid, index=i, app=e.app,
+                                    why="is not installed" if app is None else f"has weight {e.weight:g} (must be > 0)"))
+            continue
+        if (app.proto, app.port) not in emitted:
+            out.append(make_finding("PSN-140", persona_id=pid, index=i, app=e.app,
+                                    proto=app.proto, port=app.port))
+    return out
 
 
 def validate_catalog(
@@ -188,7 +223,12 @@ def validate_catalog(
     if personas is None:
         from axrange.personas.registry import PERSONAS as personas  # noqa: PLC0415
 
+    apps = None
+    if any(getattr(p, "mix", ()) for p in personas.values()):
+        from axrange.trafficgen.apps import list_apps  # noqa: PLC0415
+
+        apps = list_apps()[0]
     return {
-        pid: validate_persona(p, available_roles=available_roles)
+        pid: validate_persona(p, available_roles=available_roles, apps=apps)
         for pid, p in personas.items()
     }

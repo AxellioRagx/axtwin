@@ -1,0 +1,12 @@
+# The root manifest: which file is each tier's default.
+twin:
+  id: three-tier-dc-manual
+  description: "Three-tier DC built by hand on the canvas: 2 core + 2 aggregation L3 switches (VyOS, OSPF area 0), 3 dual-homed racks"
+  containment: uncontained
+  tiers:
+    te:
+      default: te.yaml
+    tfc:
+      default: tfc/default.yaml
+    tap:
+      default: tap/default.yaml

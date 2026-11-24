@@ -39,7 +39,7 @@ def test_catalog_total_count() -> None:
     # native-switches.md §9, Authority: user, 2026-11-12).
     # The catalog comment in catalog.py records the divergence from the spec's
     # headline number.
-    assert len(RULES) == 131  # +NET-150 vrrp (design D5, 2026-11-21)
+    assert len(RULES) == 141  # +NET-150 vrrp (design D5, 2026-11-21); +PSN-120..140, TGN-010..070 (trafficgen, 2026-11-24)
 
 
 def test_no_duplicate_rule_ids() -> None:

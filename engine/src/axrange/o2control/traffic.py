@@ -205,6 +205,11 @@ class TrafficProfileSpec:
     roles: list[RoleAssignmentSpec] = field(default_factory=list)
     assignments: list[AssignmentSpec] = field(default_factory=list)
     replay: list[ReplayBindingSpec] = field(default_factory=list)
+    # T2 (trafficgen/SPEC.md): emulated instances, traffic lines and the
+    # twin's traffic budget. Empty / None for every profile without them.
+    budget: Any = None
+    emulated: list[Any] = field(default_factory=list)
+    lines: list[Any] = field(default_factory=list)
 
 
 def role_entry_label(r: "RoleAssignmentSpec") -> str:
@@ -332,10 +337,15 @@ def parse_traffic_profile(raw: dict[str, Any]) -> TrafficProfileSpec:
     replay_raw = body.get("replay") or []
     if not isinstance(replay_raw, list):
         raise TrafficPlanError("traffic-profile.replay must be a list", status=400)
-    if not roles_raw and not assignments_raw and not replay_raw:
+    from axrange.trafficgen.profile import parse_trafficgen_blocks
+
+    budget, emulated, lines = parse_trafficgen_blocks(
+        body, lambda m: TrafficPlanError(m, status=400),
+    )
+    if not roles_raw and not assignments_raw and not replay_raw and not lines:
         raise TrafficPlanError(
             "traffic-profile must declare at least one roles[], assignments[] "
-            "or replay[] entry",
+            "or replay[] entry (or lines[])",
             status=400,
         )
 
@@ -435,6 +445,7 @@ def parse_traffic_profile(raw: dict[str, Any]) -> TrafficProfileSpec:
 
     return TrafficProfileSpec(
         target=target, roles=roles, assignments=assignments, replay=replay,
+        budget=budget, emulated=emulated, lines=lines,
     )
 
 

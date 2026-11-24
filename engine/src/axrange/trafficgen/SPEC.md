@@ -25,7 +25,8 @@ Sections below marked *pending* are not signed off.
   addresses and one profile JSON per generator (*pending T2, T3*).
 - **Persona driver** `trex-astf` (`axrange.personas.drivers.trex_astf`) and
   ops `provision-generator`, `load-traffic-profile`, `start-traffic`,
-  `update-traffic`, `stop-traffic`, all over the guest agent through an in-VM
+  `update-traffic`, `stop-traffic` (catalog `OP-TFC-030`…`070`; `OP-TFC-020`
+  is `assign-role`), all over the guest agent through an in-VM
   wrapper (*pending T3*).
 - **API**, read-only: `GET /api/traffic-apps`, `GET /api/traffic-apps/{id}`;
   `GET /api/personas` adds `mix` and `real_server_ok` to each persona (empty /
@@ -91,14 +92,28 @@ number). A UDP program has no `recv`. Binary protocols keep a
 replayed captures carry their original Host headers, URIs and DNS answers
 (spike A4). Replay is for TLS-shaped sessions.
 
-### Validator rules (codes assigned at build)
+### Validator rules
 
-- a `trex-astf` persona has exactly one of `mix` / `knobs.side`;
-- every `mix[].app` resolves to an installed app; weights > 0;
-- every app's (proto, port) appears in the mix's `emits`;
-- a mix persona in a tfc `assignments[]` entry is refused;
-- app files: required keys, one source, tunable defaults inside their bounds,
-  every `{placeholder}` defined.
+Text in `axrange.validator.catalog`, listed in `docs/contracts/VALIDATOR.md`
+§5.12. PSN rules run with the persona catalog; TGN rules run in
+`trafficgen.validate.check_lines` (from `axrange tfc validate`, and before a
+tfc plan), against the twin's te file read through `trafficgen.twin.TwinView`.
+
+| code | rule |
+|---|---|
+| PSN-120 | a `trex-astf` persona has exactly one of `mix` / `knobs.side`; `mix` only on `trex-astf` |
+| PSN-130 | every `mix[].app` is installed; weights > 0 |
+| PSN-140 | every app's (proto, port) appears in the mix's `emits` |
+| TGN-010 | a line's `from` group has emulated instances |
+| TGN-020 | a line's `to` group has emulated instances (no line to a real server in this phase) |
+| TGN-030 | every emulated group, line end, external segment and mix resolves |
+| TGN-040 | planned cps and estimated Mbps fit the budget |
+| TGN-050 | emulated addresses fit their segment and collide with no real address |
+| TGN-060 | an app mix is not in `assignments[]` |
+| TGN-070 | the target's platform has a generator image |
+
+App-file shape errors are warnings from the registry (`list_apps`), and
+`AppSchemaError` from `load_app`.
 
 ### tfc profile additions (*pending T2*), planning (*pending T3*)
 
