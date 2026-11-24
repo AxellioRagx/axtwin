@@ -244,6 +244,15 @@ writes per-line stats; `GET /api/tfc` and `axrange tfc status
 --adapter-config` read them. Live rate: `axrange tfc update-traffic`,
 `POST /api/deploys/{id}/traffic-lines/{line}`.
 
+**UI review fixes (2026-11-24).** TGN-060 (an app mix in `assignments[]`,
+i.e. on real VMs with no emulated instances) runs on every tfc profile, not
+only one with lines: in Check / Save (`POST /api/validate`, the document PUT),
+in `tfc validate`, and in `resolve_traffic_bindings`, so every apply refuses
+it. The canvas's persona dropdowns and the Add panel's role picker hide app
+mixes until the instances split exists (§4). `trex-test` is the Phase A
+spike rig (per-VM `knobs.side` driver, hand-placed TRex hosts); its
+descriptions say so, and the trafficgen engine does not read it.
+
 Not built in phase 2 (open): lines in `POST /api/tfc`'s request body (lines
 come from the twin's tfc file: CLI `tfc deploy`, deploy follow-on); a
 narrowing re-apply that drops a whole generator leaves its VM until a tfc
@@ -261,6 +270,10 @@ Outcome 2026-11-24: **T1, T2, T3, T5 signed off** and built (phase 2).
 T4 is decided for external groups only (tfc-only, part of T2); internal
 Real 0 groups stay open. **T6** is proposed (in-segment) and built that way
 for phase 2, not yet signed off on its own. **T7, T8, T9 open.**
+UI review 2026-11-24: T1 had been treated as granted on an implicit reply
+(the SPEC.md instruction), recorded here as such. No T10: hand-placed TRex
+hosts in te (`trex-test`) are the spike rig, not proposed as the product
+model.
 
 - **T1:** persona `drive: trex-astf` and a traffic-app catalog
   (`catalog/traffic/apps/`), served through the existing persona and a new
@@ -499,6 +512,33 @@ applied with `axrange tfc deploy` from this checkout onto
 - **Destroy** removed both generator VMs after one fix (the tfc teardown had
   no node for a placement-less deploy, `d36df1d`). The twin's original
   `tfc/default.yaml` was re-applied after.
+
+**Re-run after the UI review (2c, 2026-11-24 19:50-19:57 UTC).** Same
+profile, from this checkout, on `three-tier-dc-manual-e6429691`; evidence in
+`~/.axrange/gate-trafficgen/2c-*` and `2c-base/`.
+
+- **te and tfc files byte-identical:** sha256 of `te.yaml` (this checkout and
+  the sibling's), `tfc/default.yaml` and `tfc/trafficgen.yaml` equal before
+  and after (`te.yaml` 15323ccd...82cf).
+- **Ops:** 29 of 29 completed (9 `drive-persona`, 2 x 10 generator ops).
+- **Counters from the tfc status the API serves** (`GET /api/tfc`, 31 s
+  apart): web-browse 3646 -> 4557 (29.4 cps), sql-oltp 2104 -> 2712
+  (19.6 cps), 0 errors. The serve needed `--adapter-config` to read them:
+  run from this checkout it no longer found the sibling's `config/adapter.conf`.
+- **Sensor:** XPress-SW-A's capture NIC received 18,540 packets in 21 s.
+- **Zeek:** 949 `SF` of 982 flows; 220 emulated clients, 6 emulated servers;
+  `http.log` 410 x GET /index.html 200 Host rack2-web from 10.250.0.x;
+  `mysql.log` 380 logins (10.200.0.11-30 -> 10.200.2.5); `ssl.log` 159 TLS
+  1.3 SNI portal.corp.example. 19 `SHR` flows on internet -> rack2: see the
+  open retransmit note in §10.1.
+- **update-traffic** through `POST /api/deploys/{id}/traffic-lines/{line}`:
+  web-browse 30 -> 60, measured 58.8 cps (7172 -> 8995 in 31 s), TRex PID
+  539 before and after, 0 errors, sql-oltp unchanged.
+- **Limits:** peak 80 cps, about 9 Mbit/s on the capture NIC; host CPU peak
+  42 %, routers 4.7 % or less (watchdog, no trip). Generator VMs peaked at
+  96 % of one core (2 vCPU each).
+- **Destroy** removed both generator VMs (0 left); the original
+  `tfc/default.yaml` was re-applied (`tfc-three-tier-dc-manual-e6429691-9c32a024`).
 
 ## 11. Phases
 
