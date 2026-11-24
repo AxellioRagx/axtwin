@@ -6504,6 +6504,12 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
     merged: dict[str, tuple[Any, str]] = {pid: (p, "catalog") for pid, p in PERSONAS.items()}
     for pid, p in overlay.items():
         merged[pid] = (p, "twin")
+    apps: dict[str, Any] = {}
+    if any(p.mix for p, _ in merged.values()):
+        from axrange.trafficgen.apps import list_apps
+
+        apps, app_warnings = list_apps()
+        warnings = [*warnings, *app_warnings]
     out = []
     for pid in sorted(merged):
         p, source = merged[pid]
@@ -6511,6 +6517,7 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
             id=p.id, os_family=p.os_family, drive=p.drive, source=source,
             requires=list(p.requires), summary=_persona_summary(p),
             category=p.effective_category(), label=p.label or p.id, blurb=p.blurb,
+            **_persona_mix_fields(p, apps, warnings),
             emits=[
                 dtos.PersonaEmitDTO(
                     proto=e.proto, ports=list(e.ports), peer_role=e.peer_role,
@@ -6521,6 +6528,77 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
             ],
         ))
     return dtos.PersonaListDTO(twin=twin, personas=out, warnings=warnings)
+
+
+def _persona_mix_fields(p: Any, apps: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """`mix` / `real_server_ok` for `PersonaDTO` (T1, `trafficgen/SPEC.md`):
+    each app's share and facts; an app the mix names but that is not
+    installed is listed with `installed: false` and a warning."""
+    if not p.mix:
+        return {"mix": [], "real_server_ok": False}
+    total = sum(e.weight for e in p.mix if e.weight > 0) or 1.0
+    rows = []
+    for e in p.mix:
+        a = apps.get(e.app)
+        if a is None:
+            warnings.append(f"persona {p.id!r}: mix app {e.app!r} is not installed")
+        rows.append(dtos.PersonaMixEntryDTO(
+            app=e.app, weight=e.weight, share=round(max(e.weight, 0.0) / total, 4),
+            installed=a is not None,
+            **({"label": a.label, "proto": a.proto, "port": a.port, "transport": a.transport,
+                "real_server_ok": a.real_server_ok} if a is not None else {}),
+        ))
+    return {"mix": rows, "real_server_ok": all(r.installed and r.real_server_ok for r in rows)}
+
+
+def _traffic_app_dto(a: Any, used_by: list[str]) -> dtos.TrafficAppDTO:
+    tun = {}
+    for n, t in a.tunables.items():
+        d: dict[str, Any] = {"default": t.default}
+        if t.choices:
+            d["choices"] = list(t.choices)
+        if t.min is not None:
+            d["min"] = t.min
+        if t.max is not None:
+            d["max"] = t.max
+        tun[n] = d
+    return dtos.TrafficAppDTO(
+        id=a.id, label=a.label, blurb=a.blurb, proto=a.proto, transport=a.transport,
+        port=a.port, real_server_ok=a.real_server_ok, source_kind=a.source_kind,
+        tunables=tun, provenance=a.provenance, used_by=used_by,
+    )
+
+
+def _app_users() -> dict[str, list[str]]:
+    from axrange.personas.registry import PERSONAS
+
+    users: dict[str, list[str]] = {}
+    for pid in sorted(PERSONAS):
+        for e in PERSONAS[pid].mix:
+            users.setdefault(e.app, []).append(pid)
+    return users
+
+
+def list_traffic_apps(settings: ApiSettings) -> dtos.TrafficAppListDTO:
+    """`GET /api/traffic-apps`: every installed traffic app, with the catalog
+    mixes that name it. A file that does not load is a warning, not a 500."""
+    from axrange.trafficgen.apps import list_apps
+
+    apps, warnings = list_apps()
+    users = _app_users()
+    return dtos.TrafficAppListDTO(
+        apps=[_traffic_app_dto(apps[i], users.get(i, [])) for i in sorted(apps)],
+        warnings=warnings,
+    )
+
+
+def get_traffic_app(settings: ApiSettings, app_id: str) -> dtos.TrafficAppDTO:
+    from axrange.trafficgen.apps import list_apps
+
+    apps, _ = list_apps()
+    if app_id not in apps:
+        raise ApiError(404, f"unknown traffic app {app_id!r}", detail={"apps": sorted(apps)})
+    return _traffic_app_dto(apps[app_id], _app_users().get(app_id, []))
 
 
 def _host_assignments(

@@ -45,6 +45,9 @@
  * `broadcast`, `multicast`: not a role that listens). On the serving side the
  * peer_role is only the client, so a daemon serving `internet` still listens.
  * In this catalog:
+ *   - 1 x app mix (api-east-west: its peers are emulated)
+ *   - 1 x app mix (sql-oltp: its peers are emulated)
+ *   - 1 x app mix (web-browse: its peers are emulated)
  *   - 1 x excluded persona (loadgen-corp: load-generator scaffolding)
  *   - 1 x excluded persona (loadgen-l1: load-generator scaffolding)
  *   - 1 x excluded persona (loadgen-l2: load-generator scaffolding)

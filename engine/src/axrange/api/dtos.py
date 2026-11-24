@@ -2357,6 +2357,22 @@ class PersonaEmitDTO(BaseModel):
     peer_scope: str = "one"
 
 
+class PersonaMixEntryDTO(BaseModel):
+    """One app of an app mix (`trafficgen/SPEC.md`): the mix's own `app` and
+    `weight`, its normalised `share`, and the app's facts when it is installed
+    (`installed: false` -> the facts are empty and a warning names it)."""
+
+    app: str
+    weight: float
+    share: float
+    installed: bool = True
+    label: str = ""
+    proto: str = ""
+    port: Optional[int] = None
+    transport: str = ""
+    real_server_ok: bool = False
+
+
 class PersonaDTO(BaseModel):
     id: str
     os_family: str
@@ -2371,6 +2387,32 @@ class PersonaDTO(BaseModel):
     category: str = "other"
     label: str = ""
     blurb: str = ""
+    # T1 (trafficgen/SPEC.md): an app mix's apps; empty for every other persona.
+    mix: list[PersonaMixEntryDTO] = []
+    # An app mix: every app is installed and `real_server_ok`. False otherwise.
+    real_server_ok: bool = False
+
+
+class TrafficAppDTO(BaseModel):
+    """`GET /api/traffic-apps[/{id}]` (`trafficgen/SPEC.md`): one installed
+    traffic app (`catalog/traffic/apps/<id>/app.yaml`), read-only."""
+
+    id: str
+    label: str
+    blurb: str = ""
+    proto: str
+    transport: str
+    port: int
+    real_server_ok: bool
+    source_kind: str  # program | pcap
+    tunables: dict[str, dict[str, Any]] = {}
+    provenance: str = ""
+    used_by: list[str] = []  # app-mix persona ids that name it
+
+
+class TrafficAppListDTO(BaseModel):
+    apps: list[TrafficAppDTO]
+    warnings: list[str] = []
 
 
 class TemplateDTO(BaseModel):

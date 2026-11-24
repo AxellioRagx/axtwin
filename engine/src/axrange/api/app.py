@@ -1409,6 +1409,16 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     ) -> dtos.PersonaListDTO:
         return service.list_personas(settings, twin=twin)
 
+    @app.get("/api/traffic-apps", response_model=dtos.TrafficAppListDTO)
+    @_ro
+    def traffic_apps() -> dtos.TrafficAppListDTO:
+        return service.list_traffic_apps(settings)
+
+    @app.get("/api/traffic-apps/{app_id}", response_model=dtos.TrafficAppDTO)
+    @_ro
+    def traffic_app(app_id: str) -> dtos.TrafficAppDTO:
+        return service.get_traffic_app(settings, app_id)
+
     @app.get("/api/image-profiles", response_model=dtos.ImageProfileListDTO)
     @_ro
     def image_profiles(

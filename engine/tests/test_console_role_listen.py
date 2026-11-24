@@ -106,6 +106,11 @@ def test_every_entry_is_an_emit_the_catalog_names_on_the_schemas_own_transport()
         if persona.id.startswith("loadgen-"):
             excluded += 1
             continue
+        # An app mix (2026-11-24, trafficgen/SPEC.md) is a `trex-astf` persona
+        # whose emits are served by a generator for EMULATED peers: no real
+        # host listens for them, so it adds no row.
+        if persona.mix:
+            continue
         for emit in persona.emits:
             if emit.proto == "icmp" or not emit.ports:
                 continue

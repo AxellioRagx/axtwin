@@ -1,0 +1,17 @@
+# App mix (engine/src/axrange/trafficgen/SPEC.md): emulated users browsing a
+# web tier, 70 % plain HTTP pages, 30 % HTTPS sessions. Played by a generator
+# for a tfc traffic line (`lines[].mix`), never assigned to a VM.
+persona:
+  id: web-browse
+  category: traffic
+  label: "Web browsing (emulated)"
+  blurb: "Emulated users fetch pages over HTTP and HTTPS."
+  os_family: linux
+  drive: trex-astf
+  emits:
+    - { proto: http, ports: [80],  peer_role: web-tier, transport: tcp }
+    - { proto: tls,  ports: [443], peer_role: web-tier, transport: tcp }
+  requires: [web-tier]
+  mix:
+    - { app: http-browse, weight: 7 }
+    - { app: tls-session, weight: 3 }

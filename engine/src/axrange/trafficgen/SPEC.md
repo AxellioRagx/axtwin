@@ -18,7 +18,7 @@ Sections below marked *pending* are not signed off.
   `drive: trex-astf` and a `mix:` list. It plays on traffic lines only, never
   on a VM. The per-VM form of the same drive (`knobs.side`, `trex-test`) is a
   different shape of the same drive; a persona carries exactly one of the two.
-- **Traffic-app registry** (`axrange.trafficgen.apps`): lists every
+- **Traffic-app registry** (`axrange.trafficgen.apps`, `list_apps()`): lists every
   `catalog/traffic/apps/<id>/app.yaml` installed (`axrange.paths.TRAFFIC_APPS_DIR`);
   no hard-coded table. Lazy; a bad file is a warning and a validator finding.
 - **tfc tier** (`axrange.o2control.traffic`): plans generator VMs, legs,
@@ -83,7 +83,11 @@ app:
 Program steps (the driver's step language): `send` / `reply` (hex),
 `recv: <n>`, `size` / `fill` padding, `send_text` / `reply_text` (UTF-8 with
 `{name}` placeholders filled at plan time from tunables and the peer:
-`server_name`, `user_agent`, ...), `delay_ms`. Programs are the default:
+`server_name`, `server_ip`, `client_ip` from the peer, the rest from
+tunables), `delay_ms`. Literal braces in text are doubled (`{{` `}}`, as in
+JSON bodies); hex is always quoted (an all-digit hex string is a YAML
+number). A UDP program has no `recv`. Binary protocols keep a
+`gen_program.py` beside their `app.yaml` that prints the steps. Programs are the default:
 replayed captures carry their original Host headers, URIs and DNS answers
 (spike A4). Replay is for TLS-shaped sessions.
 
@@ -141,7 +145,9 @@ Measured 2026-11-24 on dev45, TRex v3.08, `three-tier-dc-manual` (design §10.1)
 ## Acceptance
 
 - **Automated** (beside the code, `engine/tests/test_trafficgen_*.py`): the
-  apps registry lists what is installed and warns on a bad file; each
+  apps registry lists what is installed and warns on a bad file, and the
+  shipped programs are well-formed (REST lengths, whole MySQL packets, one DNS
+  question and answer; `test_trafficgen_apps.py`); each
   validator rule above has a code and a test; the planner turns a fixture of
   `three-tier-dc-manual` plus a hand-written tfc into the same generators,
   legs, addresses and profile JSON every run; the driver and ops run against a

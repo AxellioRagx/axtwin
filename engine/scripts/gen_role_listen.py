@@ -175,6 +175,11 @@ def build_table(catalog_dir: Path = CATALOG_DIR) -> Table:
         if pid.startswith(_EXCLUDED_ID_PREFIXES):
             table.skip(f"excluded persona ({pid}: load-generator scaffolding)")
             continue
+        if persona.mix:
+            # An app mix (trafficgen/SPEC.md) plays on traffic lines between
+            # EMULATED instances a generator answers for; no real host listens.
+            table.skip(f"app mix ({pid}: its peers are emulated)")
+            continue
         serving = persona.drive == _SERVING_DRIVE
         for emit in persona.emits:
             why = _skip_reason(emit, serving=serving)

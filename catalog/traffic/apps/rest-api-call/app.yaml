@@ -1,0 +1,22 @@
+# A service calling another service's JSON API: POST an order, think, GET it
+# back, on one keep-alive connection. Bodies are literal JSON, so the
+# Content-Length values are fixed (recompute them if a body changes).
+app:
+  id: rest-api-call
+  label: "REST API call"
+  blurb: "POST a JSON order, then GET it back, on one keep-alive connection."
+  proto: http
+  transport: tcp
+  port: 8080
+  real_server_ok: false          # a real service answers with its own bodies and lengths
+  source:
+    program:
+      - { send_text: "POST /api/v1/orders HTTP/1.1\r\nHost: {server_name}\r\nUser-Agent: orders-client/2.4 (python-requests/2.32)\r\nAccept: application/json\r\nContent-Type: application/json\r\nAuthorization: Bearer {token}\r\nContent-Length: 97\r\n\r\n{{\"customer_id\":4711,\"items\":[{{\"sku\":\"A-1001\",\"qty\":2}},{{\"sku\":\"B-2203\",\"qty\":1}}],\"currency\":\"EUR\"}}" }
+      - { reply_text: "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nLocation: /api/v1/orders/90413\r\nContent-Length: 94\r\n\r\n{{\"order_id\":90413,\"status\":\"pending\",\"total\":\"129.80\",\"links\":{{\"self\":\"/api/v1/orders/90413\"}}}}" }
+      - { delay_ms: "{think_ms}" }
+      - { send_text: "GET /api/v1/orders/90413 HTTP/1.1\r\nHost: {server_name}\r\nUser-Agent: orders-client/2.4 (python-requests/2.32)\r\nAccept: application/json\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n" }
+      - { reply_text: "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 215\r\nConnection: close\r\n\r\n{{\"order_id\":90413,\"status\":\"pending\",\"customer_id\":4711,\"items\":[{{\"sku\":\"A-1001\",\"qty\":2,\"price\":\"39.90\"}},{{\"sku\":\"B-2203\",\"qty\":1,\"price\":\"50.00\"}}],\"total\":\"129.80\",\"currency\":\"EUR\",\"created\":\"2026-11-24T09:15:02Z\"}}" }
+  tunables:
+    token:    { default: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJvcmRlcnMtY2xpZW50In0.c2lnbmF0dXJl" }
+    think_ms: { default: 50, min: 0, max: 60000 }
+  provenance: "Hand-written HTTP/1.1 JSON exchange; the bearer token is a fixed, unsigned placeholder."
