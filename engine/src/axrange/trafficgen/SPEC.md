@@ -159,6 +159,14 @@ Measured 2026-11-24 on dev45, TRex v3.08, `three-tier-dc-manual` (design §10.1)
 
 ## Acceptance
 
+- **Real release check of the generic profile** (`astf_profile.py`): push it,
+  a generator document and the replay files into a `trex-astf` VM and run
+  `astf-sim -f astf_profile.py --full --pcap -o OUT -t --doc DOC --line ID
+  --files DIR`; Zeek over OUT logs the apps (2026-11-24: `mysql.log` login /
+  SELECT / UPDATE / quit, `http.log` GET 200 with the peer's Host,
+  `ssl.log` TLS 1.3 with SNI, every flow `SF`). Use `--full`: the simple
+  mode segfaults on a port + address-range association (v3.08), which the
+  real daemon accepts (spike A3).
 - **Automated** (beside the code, `engine/tests/test_trafficgen_*.py`): the
   apps registry lists what is installed and warns on a bad file, and the
   shipped programs are well-formed (REST lengths, whole MySQL packets, one DNS
