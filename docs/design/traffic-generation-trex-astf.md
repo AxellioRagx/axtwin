@@ -305,6 +305,69 @@ Replaces the unverified list this section held before.
 - **T3:** the tfc tier may plan and deploy generator VMs.
 - **T4:** how a Real 0 group is declared (te `count: 0`, or tfc-only).
 - **T5:** a `generator` image (TRex baked in) and its profile.
+  **[SIGN-OFF] proposal (2026-11-24, not signed off):** no new image. The
+  generator *is* the existing `trex-astf@v1` (dev45 template 102, built
+  2026-11-16, A0); `generator` is a profile name pointing at it.
+
+  1. **Image: unchanged, stays `trex-astf@v1`.** No rebuild. What A1–A6
+     needed beyond the bake is done at provision by the in-VM wrapper
+     (B5), not in the image: GRO/GSO/TSO off per leg, `vm.nr_hugepages`
+     raised to `20 + 40 × ports` + headroom when a generator has more than
+     5 legs, `stack: linux_based` (needs `ethtool`, already in the image),
+     the generic ASTF profile and the wrapper itself pushed over the guest
+     agent (B4 "pushed at provision"). The `trex-test` twin keeps using the
+     same image unchanged.
+  2. **Manifest and binding: tracked as fixtures, live copies stay operator
+     data.** The live files stay in the images root
+     (`~/axr-product/deploy-dev45/images/{manifests,bindings/proxmox}/trex-astf.yaml`,
+     outside the repo, like every other image). Copies go to
+     `engine/tests/fixtures/images/manifests/trex-astf.yaml` and
+     `engine/tests/fixtures/images/bindings/proxmox/trex-astf.yaml`, so the
+     planner and validator tests (B2, B3) resolve a generator image. Two edits
+     to both copies, neither needing a rebuild:
+
+     ```diff
+      # manifests/trex-astf.yaml, image.description
+     -    pre-baked for axtwin's `trex-astf` persona driver
+     -    (engine/src/axrange/personas/drivers/trex_astf.py; twin
+     -    catalog/twins/trex-test).
+     +    pre-baked for axtwin's `trex-astf` persona driver
+     +    (engine/src/axrange/personas/drivers/trex_astf.py; twin
+     +    catalog/twins/trex-test) and for the generator VMs the tfc tier
+     +    plans (image profile `generator`,
+     +    docs/design/traffic-generation-trex-astf.md).
+      # bindings/proxmox/trex-astf.yaml, build.probes (future builds only)
+     -  "traffic:trex-astf": "test -x /opt/trex/current/t-rex-64 && grep -qx v3.08 /opt/trex/VERSION && python3 -W ignore -c \"...\""
+     +  "traffic:trex-astf": "test -x /opt/trex/current/t-rex-64 && grep -qx v3.08 /opt/trex/VERSION && command -v ethtool >/dev/null && python3 -W ignore -c \"...\""
+     ```
+
+  3. **`catalog/image-profiles.yaml` gains one entry, Proxmox only:**
+
+     ```diff
+        l3-switch:      { image: vyos@2026.06, platforms: { proxmox: vyos@2026.06 } }
+     +  # The generator VM the tfc tier plans for emulated instances and traffic
+     +  # lines (docs/design/traffic-generation-trex-astf.md, T3). Never dropped
+     +  # by the canvas: read by the tfc planner, resolved for the twin's target
+     +  # platform. Default null: on a platform with no generator binding
+     +  # (libvirt today) the validator refuses TRex lines instead of planning
+     +  # a VM that cannot deploy.
+     +  generator:      { image: null, platforms: { proxmox: trex-astf@v1 } }
+     ```
+
+     Side effects: `GET /api/image-profiles` lists one more profile; the
+     canvas looks profiles up by name only, so the one visible change is that
+     the Advanced image picker on Proxmox also offers `trex-astf@v1`. The tfc
+     planner becomes a second reader of this file (today the Add panel is the
+     only one), through the same loader (`api/image_profiles.py`), moved or
+     wrapped so the engine can call it without the API package.
+  4. **Hardware:** the binding's clone (2 vCPU, 4 GiB, i440fx, virtio) is a
+     template default. The planner sets per generator, at clone:
+     `cores = 1 + ceil(pairs / 4)` (A1: one pair used under half a core at
+     200 cps) and `memory = 2 GiB + 0.1 GiB × legs`, plus one NIC per (segment,
+     role) leg (§8.4), matched by MAC.
+
+  *Cost of no:* a separate `generator` image would need a second bake of the
+  same bits and a second template on every target.
 - **T6:** address policy for emulated instances after spike S2: in-segment,
   or routed stub pools.
   **Proposal after A2 (not signed off):** in-segment. Emulated instances take
