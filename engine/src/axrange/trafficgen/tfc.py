@@ -45,14 +45,16 @@ def _row(r: Any) -> dict[str, Any]:
             "status": getattr(r.status, "value", r.status)}
 
 
-def te_twin_path(store: Any, te_deploy_id: str, spec_path: Optional[Any]) -> Path:
-    """The twin's te file: the profile's own twin folder when it lives in one,
-    else `catalog/twins/<te deploy's scenario id>/`."""
+def te_twin_path(store: Any, te_deploy_id: str, spec_path: Optional[Any],
+                 twin_dir: Optional[Any] = None) -> Path:
+    """The twin's te file: `twin_dir` when the caller knows it (the API: the
+    twin's folder in the serve's catalog), else the profile's own twin folder
+    when it lives in one, else `catalog/twins/<te deploy's scenario id>/`."""
     from axrange.paths import TWINS_DIR
     from axrange.twinconfig import TwinConfigError
     from axrange.twinconfig.manifest import load_twin_manifest, twin_dir_for_file
 
-    twin_dir = twin_dir_for_file(spec_path) if spec_path else None
+    twin_dir = Path(twin_dir) if twin_dir else (twin_dir_for_file(spec_path) if spec_path else None)
     if twin_dir is None:
         d = store.get_deploy(te_deploy_id)
         if d is None:
@@ -93,14 +95,15 @@ def generator_binding(manifests: Any, image_ref: str, platform: str) -> dict[str
 
 
 def prepare_lines(spec: Any, *, spec_path: Optional[Any], store: Any, te_deploy_id: str, platform: str,
-                  manifests: Any, tfc_deploy_id: Optional[str]) -> PreparedLines:
+                  manifests: Any, tfc_deploy_id: Optional[str],
+                  twin_dir: Optional[Any] = None) -> PreparedLines:
     from axrange.personas.registry import PERSONAS, twin_overlay
     from axrange.trafficgen.apps import list_apps
     from axrange.trafficgen.image import generator_image
     from axrange.trafficgen.validate import check_lines
     from axrange.validator.finding import Severity
 
-    te_path = te_twin_path(store, te_deploy_id, spec_path)
+    te_path = te_twin_path(store, te_deploy_id, spec_path, twin_dir)
     twin = TwinView.from_te_path(te_path)
     personas = {**PERSONAS, **twin_overlay(te_path.parent / "personas")}
     apps = list_apps()[0]

@@ -1667,6 +1667,7 @@ def apply_traffic_profile(
     manifests: Any = None,
     allow_revert_host_edits: bool = False,
     cancel_event: Any = None,
+    twin_dir: Optional[str | Path] = None,
 ) -> TrafficPlanStatus:
     """Apply a traffic profile: bind personas onto the target twin's hosts
     and run the composed drive-persona ops through the engine executor
@@ -1785,6 +1786,7 @@ def apply_traffic_profile(
             try:
                 prep = prepare_lines(
                     resolved_spec, spec_path=spec_path, store=store, te_deploy_id=resolved_spec.target,
+                    twin_dir=twin_dir,
                     platform=platform_of(cfg), manifests=manifests,
                     tfc_deploy_id=existing.deploy_id if existing is not None else None,
                 )

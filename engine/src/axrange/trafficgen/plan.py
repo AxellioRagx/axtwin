@@ -154,15 +154,17 @@ def plan_lines(spec: Any, twin: TwinView, personas: dict[str, Any], apps: dict[s
 
     # An emulated group's addresses are answered by exactly one leg (one MAC
     # per address), so a group may sit on one generator only.
-    owner: dict[str, str] = {}
+    owner: dict[str, tuple[str, str]] = {}
     for (cs, ss), lines in combos.items():
         gid = generator_host_id(cs, ss)
         for ln in lines:
             for g in (ln.from_group, ln.to_group):
-                if owner.setdefault(g, gid) != gid:
+                first_gid, first_line = owner.setdefault(g, (gid, ln.id))
+                if first_gid != gid:
                     raise TrafficGenPlanError(
-                        f"emulated group {g!r} would be answered by two generators ({owner[g]}, {gid}): "
-                        "its lines must share one (from segment, to segment) pair in this phase")
+                        f"emulated group {g!r} would need two generators: line {first_line!r} puts it on "
+                        f"{first_gid}, line {ln.id!r} on {gid}; its lines must share one "
+                        "(from segment, to segment) pair in this phase")
 
     for (cs, ss), lines in combos.items():
         gid = generator_host_id(cs, ss)

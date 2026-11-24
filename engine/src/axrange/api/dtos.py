@@ -1153,6 +1153,39 @@ class TrafficReplayBindingDTO(BaseModel):
     iface: str = "eth0"
 
 
+class TrafficBudgetDTO(BaseModel):
+    """tfc `budget` (trafficgen T2): ceilings for the twin's traffic lines."""
+
+    model_config = ConfigDict(extra="forbid")
+    cps: float
+    mbps: float
+
+
+class TrafficEmulatedDTO(BaseModel):
+    """tfc `emulated[]` (trafficgen T2): instances with no VM added to a te
+    node group, or a tfc-only external group (`external`, `segment`, `role`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    group: str
+    count: int
+    external: Optional[bool] = None
+    segment: Optional[str] = None
+    role: Optional[str] = None
+    start: Optional[str] = None
+
+
+class TrafficLineDTO(BaseModel):
+    """tfc `lines[]` (trafficgen T2): `from` group -> `to` group, an app mix, a rate."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    id: Optional[str] = None
+    from_: str = Field(alias="from")
+    to: str
+    mix: str
+    rate_cps: float
+    max_concurrent: Optional[int] = None
+
+
 class TrafficApplyRequest(BaseModel):
     # (Unified Console ruling §3.3) -- required to apply a profile that would
     # revert a per-host persona edit; without it such an apply is a 409.
@@ -1169,6 +1202,11 @@ class TrafficApplyRequest(BaseModel):
     roles: list[TrafficRoleAssignmentDTO] = []
     assignments: list[TrafficAssignmentDTO] = []
     replay: list[TrafficReplayBindingDTO] = []
+    # trafficgen (T2): the same three blocks a tfc file carries, through the
+    # same parser and, at apply, the same TGN checks (`prepare_lines`).
+    budget: Optional[TrafficBudgetDTO] = None
+    emulated: list[TrafficEmulatedDTO] = []
+    lines: list[TrafficLineDTO] = []
     target_node: Optional[str] = None
 
 
