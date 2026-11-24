@@ -3434,8 +3434,11 @@ def destroy_traffic_profile(
                 log(f"  ! traffic-profile stop pass failed: {e}")
 
             try:
+                # A tfc deploy records no placement (it owned no VM until
+                # trafficgen's generators, which are cloned on the adapter's
+                # default node), so the teardown falls back to that node.
                 result = destroy_deploy(
-                    store, backend, did, node=node, log=log,
+                    store, backend, did, node=node or cfg.default_node, log=log,
                     protected_names=cfg.protected_external_names,
                     protected_vmids=cfg.protected_external_vmids,
                 )

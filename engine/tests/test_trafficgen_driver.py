@@ -396,3 +396,34 @@ def test_apply_plans_and_runs_the_generators(tmp_path, monkeypatch):
     assert {h for _, h in ran} == {g, "gen-rack1-lan--rack3-lan"}
     assert (twin / "te.yaml").read_bytes() == te_before
     assert any("2 generator(s)" in w for w in status.warnings)
+
+
+def test_tfc_destroy_removes_generator_vms_on_the_default_node(tmp_path, monkeypatch):
+    """A tfc deploy records no placement; its generators were cloned on the
+    adapter's default node, so the teardown must look there (live gate
+    2026-11-24: 'no PVE node resolved' before this fallback)."""
+    from axrange.o2control.traffic import destroy_traffic_profile
+    from axrange.planner import StateStore
+    from tests.test_traffic_tier import _op_row
+
+    db = str(tmp_path / "state.db")
+    store = StateStore(db)
+    tfc = "tfc-twin-1-0001"
+    store.create_deploy(deploy_id=tfc, scenario_id="tfc-twin-1", scenario_version=None, scenario_schema_version=1,
+                        plan_id="tfc-twin-1", ir_hash="", placement={}, tier="tfc")
+    store.insert_ops(tfc, [_op_row(tfc, "c1", "clone-vm", "OP-HOST-010", {"host": "gen-a--b"},
+                                   inputs={}, outputs={"vmid": 432100})])
+    store.close()
+    calls = []
+
+    class Teardown:
+        def vm_name(self, node, vmid): return "tfc-abcdef-gen-a--b"
+        def destroy_vm(self, node, vmid): calls.append((node, vmid))
+        def __getattr__(self, name): return lambda *a, **k: None
+
+    cfg = SimpleNamespace(default_node="dev45", platform="proxmox", protected_external_names=(),
+                          protected_external_vmids=())
+    monkeypatch.setattr("axrange.platform.load_config", lambda p=None: cfg)
+    destroy_traffic_profile(db_path=db, deploy_id=tfc, teardown_backend=Teardown(),
+                            persona_backend=SimpleNamespace())
+    assert calls == [("dev45", 432100)]
