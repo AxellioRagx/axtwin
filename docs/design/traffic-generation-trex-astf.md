@@ -263,7 +263,7 @@ Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/traffic
   `GET /api/personas` adds `mix` and `real_server_ok`;
   `GET /api/traffic-apps[/{id}]` is read-only. Contract: the spec ("Config").
 - **T2:** tfc profile gains `emulated`, `lines` and `budget` (§8.1).
-  **[SIGN-OFF] proposal (2026-11-24, not signed off).** Fitted to the real
+  **Signed off 2026-11-24** ("approved as written"). Fitted to the real
   parser (`o2control/traffic.py: parse_traffic_profile`). Three optional
   top-level keys beside `target`, `roles`, `assignments`, `replay`; nothing
   existing changes. A profile with only the new keys is valid. The parser
@@ -332,6 +332,74 @@ Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/traffic
   *Cost of no* (lines on te instead): every traffic change becomes a te
   redeploy, against the design's "te does not change".
 - **T3:** the tfc tier may plan and deploy generator VMs.
+  **[SIGN-OFF] proposal (2026-11-24, not signed off).**
+
+  1. **Model: hand-composed ops, like the tfc and tap tiers, not the O2
+     surface's IR route.** The O2 surface builds an IR and runs
+     `build_plan_and_ctx(tier="o2")`, but that emits the networks too. A
+     generator joins the te's *existing* bridges, so, like `taps.py`, the tfc
+     tier reads the te deploy's recorded outputs (bridge names, VLAN tags,
+     vnet ids) and composes `OpInstance`s by hand. They run through the same
+     executor and are torn down by `planner.teardown.destroy_deploy`. Naming
+     and teardown already support it: `vm_name_for_host(tier="tfc")` gives
+     `tfc-<6hex>-<host>`, and the tfc teardown gate accepts that shape.
+  2. **Ops per generator,** reusing catalog ops with literal inputs:
+     `clone-vm` (template from the `generator` image profile → binding),
+     `configure-vm-hardware` (cores and memory per T5),
+     `attach-vm-to-switch-port` (OVS segments: `bridge_name`, `vlan_tag`) or
+     `attach-vm-to-vnet` (SDN segments: `vnet_id`) per leg, with deterministic
+     MACs (`mac_for_nic`); then `start-vm`, `wait-guest-agent`. Then five new
+     config-class ops over the guest agent (catalog `OP-TFC-020`…`060`), run
+     by the tfc tier's existing guest-agent backend beside `drive-persona`:
+
+     | op | does | retry |
+     |---|---|---|
+     | `provision-generator` | push the wrapper, generic profile and `trex_cfg.yaml`; offloads off, hugepages, `/32`s on the port namespaces; (re)start the TRex unit | converges: re-renders everything, restarts the unit only if `trex_cfg` changed, adds addresses idempotently |
+     | `load-traffic-profile` | one ASTF profile per line (profile id = line id) from the generator's profile JSON | remove the profile id, then load |
+     | `start-traffic` | start each line's profile with its client port mask | no-op if already transmitting |
+     | `update-traffic` | `update(mult)` for one line, live (not in the apply plan; §5 below) | idempotent (sets, not adds) |
+     | `stop-traffic` | stop and remove a line's profile (a line dropped on re-apply) | no-op if absent |
+
+     The wrapper is the one controller per TRex process (A6): it owns the
+     `ASTFClient`, enforces `max_concurrent` and the budget's Mbps (T2), and
+     writes per-line stats for `heartbeat`. One tfc deploy holds both the
+     existing `drive-persona` ops and the generator ops, with no dependency
+     between them, so the real personas run as today.
+  3. **Grouping: one generator VM per distinct (client segment, server
+     segment) of the lines.** Lines that share a combination share its VM.
+     Each VM runs one TRex process with one port pair: client leg on the
+     `from` segment, server leg on the `to` segment (a same-segment
+     combination: client leg's `default_gw` = the server leg's IP, §8.4).
+     Reason: in a single-pair process any pool size works (A1, A5); with N
+     pairs every pool needs more than N addresses (A3), and the gate's
+     `rack3-db +1` is a 1-address pool. Packing several pairs into one VM is
+     a later planner optimisation behind the same output, not phase 2.
+     Gate: `rack1-lan → rack3-lan` and `internet → rack2-lan` → **2 VMs**,
+     each 2 legs, 2 vCPU, 2.2 GiB. Planned names `gen-<from-seg>--<to-seg>`;
+     leg IPs are allocated like emulated addresses (T2), one per leg.
+  4. **Images root:** tfc apply now needs the images root (`--images`, the
+     API's existing setting), but only when the profile has lines. A profile
+     without lines plans exactly as today.
+  5. **Live rate change:** `axrange tfc update-traffic <tfc-deploy> --line
+     <id> --rate <cps>` and `POST /api/deploys/{id}/traffic-lines/{line}`
+     `{rate_cps}`. Both check `budget.cps`, run `update-traffic` on that
+     line's generator, and record the new rate on the deploy, so status and a
+     later re-apply agree. Re-applying the tfc file with only a rate changed
+     plans `update-traffic` instead of a reload.
+  6. **Status:** per-line counters (connections opened, established,
+     errors, bytes) come from the wrapper's stats through `heartbeat`, and
+     appear in the tfc status the API already serves, keyed by line id.
+  7. **Destroy:** tfc destroy removes the generator VMs (`clone-vm`'s cleanup)
+     with everything else in the tier. A te destroy cascades as today.
+  8. **The tap tier is unchanged in phase 2,** a documented limit. The spans
+     select the te's ports, so a routed line is still mirrored (once per
+     direction, on the router legs of its two segments), which is what the
+     gate's two lines are. A same-segment generator↔generator line is
+     invisible to the sensor until the tap tier also selects generator legs.
+     That is a follow-up to sign off separately, not part of T3.
+
+  *Cost of no* (generators as te nodes instead): a traffic edit becomes a te
+  redeploy, and te would carry tfc-only VMs.
 - **T4:** how a Real 0 group is declared (te `count: 0`, or tfc-only).
 - **T5:** a `generator` image (TRex baked in) and its profile.
   **Signed off 2026-11-24** ("approved as written"): no new image; the
