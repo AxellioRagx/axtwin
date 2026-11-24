@@ -84,7 +84,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
 import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
-import { applyDeviceDrop, applyInternetDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
+import { applyDeviceDrop, applyInternetDrop, applyExternalDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
@@ -924,6 +924,11 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         }
         return;
       }
+      if (item.kind === "tool" && (item.tool === "internet-users" || item.tool === "internet-services")) {
+        // Wherever it lands: an external group lives on the internet segment (made when the design has none).
+        setPendingDrop({ item, target: { pane: true }, at, screen: where });
+        return;
+      }
       if (item.kind === "tool" && item.tool === "tap" && !("segment" in target)) {
         setBlocked("drop the Sensor / tap on a segment or a switch");
         return;
@@ -968,6 +973,14 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         if (edit(`tap on ${c.segment}`, (d, m) => applyTapDrop(d, m, c.segment, c.sensors).files) === null) rememberAdd(p.item);
         return;
       }
+      if (c.kind === "external") {
+        let made: string | null = null;
+        if (edit(`add ${p.item.label} ×${c.count}`, (d, m) => { const r = applyExternalDrop(d, m, { name: c.name, role: c.role, count: c.count }, imageFor(imageProfiles, "linux-server")); made = r.names[0] ?? null; return r.files; }) === null) {
+          rememberAdd(p.item);
+          if (made) setSelection({ kind: "node", names: [made] });
+        }
+        return;
+      }
       const s = c.spec;
       let placed: string[] = [];
       let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
@@ -1001,7 +1014,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       if (layoutModeRef.current === "free" && made && (p.at || "segment" in s.target)) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
-    [pendingDrop, edit, onPin, onPinMany, personas, selection, model],
+    [pendingDrop, edit, onPin, onPinMany, personas, selection, model, imageProfiles],
   );
 
   // Duplicate subtree (§6.2, B3): the copy keeps the original's shape -- its root at the drop point, or

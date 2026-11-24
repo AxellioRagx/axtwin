@@ -157,9 +157,30 @@ export function documentTree(te: TeModel, id: string): TwinTree {
 }
 
 export function documentGraph(model: DocModel, id: string): AuthoredGraph {
+  // The traffic profile's external groups (Internet users / services: tfc `emulated[]` with
+  // `external: true`) are drawn as host groups on their segment, hatched (`source: emulated`); they
+  // are not te nodes and no te edit reaches them.
+  const te = withExternalGroups(model);
   // The document's own conduits: drawn in the design view as declared connectors (`canvas/pairs.ts`).
-  return authoredGraph(documentTopology(model.te, id), documentTree(model.te, id), model.te.conduits.map((c) => ({ from: c.from, to: c.to })));
+  return authoredGraph(documentTopology(te, id), documentTree(te, id), model.te.conduits.map((c) => ({ from: c.from, to: c.to })));
 }
+
+/** The te model with each external group of the traffic profile as a host group on its segment. */
+export function withExternalGroups(model: DocModel): TeModel {
+  const ext = (model.tfc?.emulated ?? []).filter((e) => e.external && e.segment && model.te.segments.some((s) => s.name === e.segment) && !model.te.nodes.some((n) => n.name === e.group));
+  if (!ext.length) return model.te;
+  return {
+    ...model.te,
+    nodes: [...model.te.nodes, ...ext.map((e): TeNode => ({
+      name: e.group, kind: "host", role: e.role, image: "", count: e.count, countValue: e.count,
+      nets: [{ segment: e.segment!, ip: null }], requires: [], resources: null, members: [],
+      source: EMULATED_SOURCE, confidence: null, routing: null, otherKeys: [],
+    }))],
+  };
+}
+
+/** The `source` an external (emulated) group is drawn with: hatched, no provenance mark. */
+export const EMULATED_SOURCE = "emulated" as TeNode["source"];
 
 // ---------------------------------------------------------------------------
 // Mutations

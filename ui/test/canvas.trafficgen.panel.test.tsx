@@ -150,3 +150,44 @@ describe("the Traffic section: instances split and traffic lines", () => {
     expect(summary.textContent).toBe("1 line · planned 50 cps of 40 budget (over budget) · 1 generator planned");
   });
 });
+
+describe("Internet users / services from the Add panel (item 4)", () => {
+  it("adds an external group on the internet segment, hatched, selectable, and a peer in the lines table", async () => {
+    const { api } = withTwin();
+    renderAt(api, "/twins/tg/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const { addTool } = await import("./helpers/canvasFixtures");
+    fireEvent.click(addTool("internet-users"));
+    const pop = within(await screen.findByTestId("drop-popover"));
+    fireEvent.change(pop.getByTestId("drop-external-count"), { target: { value: "200" } });
+    fireEvent.click(pop.getByRole("button", { name: /^Add/ }));
+    const ext = await waitFor(() => {
+      const h = screen.getAllByTestId("canvas-host").find((x) => x.dataset["nodeId"] === "internet-users");
+      if (!h) throw new Error("not drawn yet");
+      return h;
+    });
+    expect(ext.dataset["emulated"]).toBe("external");
+    expect(within(ext).getByTestId("emulated-count").textContent).toBe("×200");
+    // Selected: its own panel (count, lines, remove).
+    fireEvent.click(ext);
+    const { tab } = await import("./helpers/canvasFixtures");
+    tab("Selection");
+    const panel = within(await screen.findByTestId("external-panel"));
+    expect((panel.getByLabelText("Emulated instances") as HTMLInputElement).value).toBe("200");
+    // A peer in a group's lines table.
+    const web = await openGroup("web");
+    commit(web.getByLabelText("Emulated instances"), "4");
+    await waitFor(() => expect(web.queryByTestId("add-line-hint")).toBeNull());
+    expect(options(web.getByLabelText("New line peer"))).toContain("internet-users");
+    fireEvent.change(web.getByLabelText("New line direction"), { target: { value: "serves" } });
+    fireEvent.change(web.getByLabelText("New line peer"), { target: { value: "internet-users" } });
+    expect(options(web.getByLabelText("New line mix"))).toEqual(["", "web-browse"]);
+    fireEvent.change(web.getByLabelText("New line mix"), { target: { value: "web-browse" } });
+    fireEvent.change(web.getByLabelText("New line rate"), { target: { value: "30" } });
+    fireEvent.click(web.getByTestId("add-line-button"));
+    const row = await web.findByTestId("line-row");
+    expect(row.dataset["line"]).toBe("internet-users--web--web-browse");
+    expect(within(row).getByTestId("line-tag").textContent).toBe("N-S");
+    expect(web.getByTestId("traffic-badge").textContent).toBe("server");
+  });
+});

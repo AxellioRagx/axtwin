@@ -17,7 +17,17 @@ import { DEVICE_CARDS, defaultRole, imageFor, missingPeers, peerOffer, personaBl
 import { INTERNET_SEGMENT, type DeviceDrop, type DropTarget } from "./drop";
 import { usePopoverAt } from "./usePopoverAt";
 
-export type DropCommit = { kind: "device"; spec: DeviceDrop } | { kind: "tap"; segment: string; sensors: string[] };
+export type DropCommit =
+  | { kind: "device"; spec: DeviceDrop }
+  | { kind: "tap"; segment: string; sensors: string[] }
+  | { kind: "external"; tool: "internet-users" | "internet-services"; name: string; role: string; count: number };
+
+/** The server roles the installed app mixes emit to: what an Internet services group can stand for. */
+function mixServerRoles(personas: readonly Persona[]): string[] {
+  const out = new Set<string>();
+  for (const p of personas) if (p.drive === "trex-astf" && p.mix?.length) for (const e of p.emits) out.add(e.peer_role);
+  return [...out].sort();
+}
 
 export interface DropPopoverProps {
   item: PaletteItem;
@@ -86,6 +96,11 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const [schedule, setSchedule] = useState("");
   const [peers, setPeers] = useState<PeerOffer[]>([]);
   const [tapSensors, setTapSensors] = useState(sensors[0] ?? "");
+  // Internet users / services (trafficgen §4.3): how many emulated instances, and a services group's role.
+  const extTool = item.kind === "tool" && (item.tool === "internet-users" || item.tool === "internet-services") ? item.tool : null;
+  const serverRoles = useMemo(() => mixServerRoles(personas), [personas]);
+  const [extCount, setExtCount] = useState(extTool === "internet-services" ? 10 : 200);
+  const [extRole, setExtRole] = useState(() => serverRoles.includes("web-tier") ? "web-tier" : (serverRoles[0] ?? "web-tier"));
   // A switch carrying several segments was dropped on: which one (B2); its default is the switch's own pick.
   const [segChoice, setSegChoice] = useState<string | null>(null);
   const landing: DropTarget = "segment" in target && segChoice ? { segment: segChoice, via: target.via ?? null } : target;
@@ -112,6 +127,9 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   }, [card, isHost, groups, role, os, personas]);
 
   const spec = (): DropCommit | null => {
+    if (extTool) {
+      return { kind: "external", tool: extTool, name: extTool, role: extTool === "internet-users" ? "internet-user" : extRole, count: Math.max(1, Math.floor(extCount) || 1) };
+    }
     if (item.kind === "tool" && item.tool === "tap") {
       if (!("segment" in landing)) return null;
       return { kind: "tap", segment: landing.segment, sensors: tapSensors.split(",").map((s) => s.trim()).filter(Boolean) };
@@ -177,6 +195,23 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
             ))}
           </select>
         </label>
+      ) : null}
+      {extTool ? (
+        <>
+          <p className="muted hint" data-testid="drop-external-note">emulated instances on the internet segment, no VM: a planned TRex generator answers for them (free addresses of the segment). Written to the traffic profile; give them traffic lines in a group's Traffic section.</p>
+          <label className="cv-field">
+            <span className="cv-field-label">Count</span>
+            <input type="number" min={1} aria-label="Emulated count" data-testid="drop-external-count" value={extCount} onChange={(e) => setExtCount(Number(e.target.value))} />
+          </label>
+          {extTool === "internet-services" ? (
+            <label className="cv-field">
+              <span className="cv-field-label">Serves as</span>
+              <select aria-label="Services role" value={extRole} onChange={(e) => setExtRole(e.target.value)}>
+                {(serverRoles.length ? serverRoles : ["web-tier"]).map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+          ) : null}
+        </>
       ) : null}
       {item.kind === "tool" && item.tool === "tap" ? (
         <label className="cv-field">

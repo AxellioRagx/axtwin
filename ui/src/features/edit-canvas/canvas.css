@@ -173,6 +173,11 @@
 /* Rule 4: a multi-homed host sits on the lowest of its buses; a second ring says it is on more. */
 .cv-host.cv-multi { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--muted); }
 .cv-host.cv-multi.selected { box-shadow: 0 0 0 2px var(--accent); }
+/* Emulated (no VM): an external group of the traffic profile, hatched (design trafficgen §4.2). */
+.cv-host.cv-emulated { border-style: dashed; background: repeating-linear-gradient(45deg, var(--bg) 0 3px, color-mix(in srgb, var(--muted) 35%, var(--bg)) 3px 5px); }
+.cv-reasons { margin: 2px 0 6px; padding-left: 16px; font-size: 12px; }
+.cv-lines td { padding: 1px 3px; }
+.cv-lines select { max-width: 9.5em; }
 .cv-host.ghost { opacity: 0.55; border-style: dashed; }
 .cv-host.glow { border-color: var(--glow); box-shadow: 0 0 0 3px var(--glow), 0 0 14px 4px var(--glow); transition: box-shadow 0.3s ease; }
 .cv-rungs { background: var(--panel); border-style: dashed; cursor: default; }

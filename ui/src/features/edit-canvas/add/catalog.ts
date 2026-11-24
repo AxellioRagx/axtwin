@@ -15,7 +15,7 @@ import { L3_SWITCH_ROLE } from "../model/roles";
 
 export type CardId = "router" | "l3switch" | "switch" | "server" | "workstation" | "ot";
 export type Os = "linux" | "windows";
-export type ToolId = "internet" | "tap";
+export type ToolId = "internet" | "internet-users" | "internet-services" | "tap";
 
 export interface DeviceCard {
   id: CardId;
@@ -50,6 +50,9 @@ export interface Tool {
 /** The Tools section (§6). Attacker is not offered: no attack-framework registry exists to say one is installed. */
 export const TOOLS: readonly Tool[] = [
   { id: "internet", label: "Internet", line: "an internet segment with a sink a router can uplink to" },
+  // trafficgen (design §4.3): tfc-only external groups on the internet segment, emulated by TRex (no VM).
+  { id: "internet-users", label: "Internet users", line: "emulated clients on the internet (no VM): traffic lines go inward, to web, VPN, mail" },
+  { id: "internet-services", label: "Internet services", line: "emulated servers on the internet (no VM): internal groups' lines go outward" },
   { id: "tap", label: "Sensor / tap", line: "drop on a segment or switch: mirror it to a sensor" },
 ];
 
@@ -192,7 +195,12 @@ const CARD_WORDS: Record<CardId, string[]> = {
   workstation: ["workstation", "desktop", "laptop", "client", "pc", "user", "endpoint"],
   ot: ["ot", "ics", "scada", "industrial"],
 };
-const TOOL_WORDS: Record<ToolId, string[]> = { internet: ["internet", "wan", "uplink", "sink", "cloud"], tap: ["sensor", "tap", "mirror", "span", "capture"] };
+const TOOL_WORDS: Record<ToolId, string[]> = {
+  internet: ["internet", "wan", "uplink", "sink", "cloud"],
+  "internet-users": ["internet", "users", "clients", "emulated", "trex", "north-south"],
+  "internet-services": ["internet", "services", "servers", "saas", "emulated", "trex", "north-south"],
+  tap: ["sensor", "tap", "mirror", "span", "capture"],
+};
 
 function words(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);

@@ -51,6 +51,8 @@ import {
   setEmulated,
   setLine,
   setNoTraffic,
+  setExternalGroup,
+  removeExternalGroup,
   type DocModel,
   type WorkingDoc,
 } from "./edit/document";
@@ -92,13 +94,14 @@ export type Selection =
  *  took branch-gw and branch-sw away and the Selection tab still listed them). Nothing left is no
  *  selection -- the Twin summary. An annotation is not the document's: kept. Returns `sel` itself
  *  when nothing changed. Pure. */
-export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null }): Selection {
+export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null; tfc?: { emulated: ReadonlyArray<{ group: string; external: boolean }> } | null }): Selection {
   const te = model.te;
   const node = (n: string) => te.nodes.find((x) => x.name === n);
+  const external = (n: string) => Boolean(model.tfc?.emulated.some((e) => e.external && e.group === n));
   switch (sel.kind) {
     case "node":
     case "segment": {
-      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) : te.segments.some((s) => s.name === n)));
+      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) || external(n) : te.segments.some((s) => s.name === n)));
       if (names.length === sel.names.length) return sel;
       return names.length ? { ...sel, names } : { kind: "none" };
     }
@@ -831,7 +834,44 @@ function MemberPanel(p: SidePanelProps & { node: string; index: number }) {
   );
 }
 
+/** An external group (Internet users / services): a tfc-only emulated group on its segment, no VM,
+ *  no te node. Its count, its lines, and remove. */
+function ExternalPanel(p: SidePanelProps & { name: string }) {
+  const e = p.model.tfc!.emulated.find((x) => x.external && x.group === p.name)!;
+  const ro = p.locked;
+  const set = (patch: Partial<{ group: string; count: number; role: string }>, what: string) =>
+    p.apply(`${what} of ${e.group}`, (d, m) => setExternalGroup(d, m, { group: patch.group ?? e.group, segment: e.segment ?? "internet", role: patch.role ?? e.role ?? "internet-user", count: patch.count ?? e.count }, e.group));
+  return (
+    <section className="cv-side-section" data-testid="external-panel">
+      <h3>
+        External group <span className="mono">{e.group}</span>{" "}
+        {groupBadge(p.model.tfc, e.group) ? <span className="cv-chip" data-testid="traffic-badge">{groupBadge(p.model.tfc, e.group)}</span> : null}
+      </h3>
+      <p className="muted hint">emulated instances on <span className="mono">{e.segment}</span> with no VM: a planned TRex generator answers for them, from free addresses of the segment. Written to the traffic profile only (tfc <span className="mono">emulated[]</span>, <span className="mono">external: true</span>).</p>
+      <Field label="Name">
+        <Text ariaLabel="External group name" value={e.group} disabled={ro} mono onCommit={(v) => { const t = v.trim(); if (t && t !== e.group && set({ group: t }, "rename") === null) p.onSelect?.({ kind: "node", names: [t] }); }} />
+      </Field>
+      <Field label="Role" hint="the role a line's mix is matched against when this group is the server end">
+        <Text ariaLabel="External group role" value={e.role ?? ""} disabled={ro} mono onCommit={(v) => { if (v.trim()) set({ role: v.trim() }, "role"); }} />
+      </Field>
+      <Field label="Instances" hint="Emulated only: an external group has no real VMs">
+        <Text ariaLabel="Emulated instances" value={String(e.count)} disabled={ro} mono onCommit={(v) => { const c = Number(v); if (Number.isInteger(c) && c >= 1) set({ count: c }, "count"); }} />
+      </Field>
+      <TrafficLines {...p} group={e.group} />
+      <h4>Actions</h4>
+      <button type="button" className="danger" disabled={ro} data-testid="remove-external" onClick={() => p.apply(`remove ${e.group}`, (d, m) => removeExternalGroup(d, m, e.group))}>
+        Remove external group (and its lines)
+      </button>
+    </section>
+  );
+}
+
 function NodePanel(p: SidePanelProps & { name: string }) {
+  if (!p.model.te.nodes.some((x) => x.name === p.name) && p.model.tfc?.emulated.some((e) => e.external && e.group === p.name)) return <ExternalPanel {...p} />;
+  return <TeNodePanel {...p} />;
+}
+
+function TeNodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
   const [legTarget, setLegTarget] = useState("");
