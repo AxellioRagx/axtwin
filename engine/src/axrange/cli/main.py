@@ -786,6 +786,21 @@ def _add_tfc_status(group):
     return p
 
 
+def _add_tfc_update_traffic(group):
+    p = group.add_parser(
+        "update-traffic",
+        help="Change one traffic line's rate live (trafficgen; no TRex restart, flows kept)",
+    )
+    p.add_argument("deploy_id", metavar="TFC-DEPLOY-ID", help="The standing tfc deploy")
+    p.add_argument("--line", required=True, help="Line id (lines[].id, default <from>--<to>--<mix>)")
+    p.add_argument("--rate", required=True, type=float, help="New connections per second for the whole line")
+    p.add_argument("--db", default=_DEFAULT_DB_PATH, help=f"State-store DB path (default: {_DEFAULT_DB_PATH})")
+    p.add_argument("--adapter-config", default=None, help="Path to adapter.conf")
+    p.add_argument("--node", default=None, help="Override DEFAULT_NODE from adapter.conf")
+    p.set_defaults(tier="tfc", verb="update-traffic")
+    return p
+
+
 def _add_tfc_info(group):
     p = group.add_parser(
         "info", help="Show a traffic profile's resolved assignments + peers + vmids",
@@ -980,6 +995,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_tfc_plan(tfc_sub)
     _add_tfc_deploy(tfc_sub)
     _add_tfc_status(tfc_sub)
+    _add_tfc_update_traffic(tfc_sub)
     _add_tfc_info(tfc_sub)
     _add_tfc_destroy(tfc_sub)
     _add_tfc_set_host(tfc_sub)
@@ -4035,6 +4051,22 @@ def cmd_tfc_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tfc_update_traffic(args: argparse.Namespace) -> int:
+    from axrange.o2control.traffic import TrafficPlanError, update_traffic_line
+
+    try:
+        r = update_traffic_line(db_path=args.db, tfc_deploy_id=args.deploy_id, line=args.line,
+                                rate_cps=args.rate, adapter_config=args.adapter_config,
+                                target_node=args.node)
+    except TrafficPlanError as e:
+        sys.stderr.write(f"axrange tfc update-traffic: {e.message}\n")
+        return 2 if e.status < 500 else 1
+    sys.stdout.write(
+        f"line {r['line']} on {r['generator']}: {r['planned_rate_cps']:g} -> {r['rate_cps']:g} cps "
+        f"(multiplier {r['mult']:.3f})\n")
+    return 0
+
+
 def cmd_tfc_info(args: argparse.Namespace) -> int:
     from axrange.o2control.traffic import (
         TrafficPlanError, TrafficProfileSpec, latest_traffic_deploy, load_traffic_profile,
@@ -4668,6 +4700,7 @@ _HANDLERS: dict[tuple[str, str], Any] = {
     ("tfc", "plan"): cmd_tfc_plan,
     ("tfc", "deploy"): cmd_tfc_deploy,
     ("tfc", "status"): cmd_tfc_status,
+    ("tfc", "update-traffic"): cmd_tfc_update_traffic,
     ("tfc", "info"): cmd_tfc_info,
     ("tfc", "destroy"): cmd_tfc_destroy,
     ("tfc", "set-host"): cmd_tfc_set_host,

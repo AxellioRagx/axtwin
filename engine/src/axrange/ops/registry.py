@@ -1243,6 +1243,85 @@ _OPS: list[OpDefinition] = [
         resource_categories=(),
         timeout="10s",
     ),
+    # trafficgen (engine/src/axrange/trafficgen/SPEC.md, T3 signed off 2026-11-24): a
+    # generator VM's guest-side ops, composed by hand by the tfc playout like
+    # drive-persona, run over the guest agent through the in-VM wrapper
+    # (`trafficgen/guest_tg.py`). Each converges on retry.
+    OpDefinition(
+        id="OP-TFC-030",
+        name="provision-generator",
+        kind=OpKind.ACTION,
+        description=(
+            'Push the wrapper, the generic ASTF profile, the generator document and replay files into a generator VM; render trex_cfg (legs by MAC), offloads off, hugepages, (re)start TRex only when its config changed, and wait until the port namespaces hold every emulated address.'
+        ),
+        inputs={'generator': 'node-id:str', 'vmid': 'vmid:int', 'legs': 'leg-mac-map:obj', 'document_sha256': 'sha256:str'},
+        outputs={'provisioned': 'bool', 'ifaces': 'obj'},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.CONFIG,
+        resource_categories=("ansible-pool", "vm:$vmid"),
+        timeout="300s",
+    ),
+    OpDefinition(
+        id="OP-TFC-040",
+        name="load-traffic-profile",
+        kind=OpKind.ACTION,
+        description=(
+            'Load one ASTF profile per traffic line (profile id = line id) from the generator document; a changed line is removed and reloaded, a dropped one removed.'
+        ),
+        inputs={'generator': 'node-id:str', 'vmid': 'vmid:int', 'lines': 'line-ids:list'},
+        outputs={'loaded': 'bool'},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.CONFIG,
+        resource_categories=("ansible-pool", "vm:$vmid"),
+        timeout="120s",
+    ),
+    OpDefinition(
+        id="OP-TFC-050",
+        name="start-traffic",
+        kind=OpKind.ACTION,
+        description=(
+            'Start every line of a generator at its recorded multiplier (1.0 = the planned rate); a line already transmitting is left alone.'
+        ),
+        inputs={'generator': 'node-id:str', 'vmid': 'vmid:int', 'lines': 'line-ids:list', 'mults': 'line-mult-map:obj'},
+        outputs={'started': 'bool'},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.CONFIG,
+        resource_categories=("ansible-pool", "vm:$vmid"),
+        timeout="120s",
+    ),
+    OpDefinition(
+        id="OP-TFC-060",
+        name="update-traffic",
+        kind=OpKind.ACTION,
+        description=(
+            "Set one line's multiplier live (rate = planned rate x multiplier) without restarting TRex or the line's established flows; run by `axrange tfc update-traffic` / `POST /api/deploys/{id}/traffic-lines/{line}`, not by apply."
+        ),
+        inputs={'generator': 'node-id:str', 'vmid': 'vmid:int', 'line': 'line-id:str', 'mult': 'float'},
+        outputs={'updated': 'bool'},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.CONFIG,
+        resource_categories=("ansible-pool", "vm:$vmid"),
+        timeout="60s",
+    ),
+    OpDefinition(
+        id="OP-TFC-070",
+        name="stop-traffic",
+        kind=OpKind.ACTION,
+        description=(
+            "Stop and remove one line's profile on its generator (a line dropped on re-apply)."
+        ),
+        inputs={'generator': 'node-id:str', 'vmid': 'vmid:int', 'line': 'line-id:str'},
+        outputs={'stopped': 'bool'},
+        after=(),
+        cleanup_strategy=CleanupStrategy.REDO,
+        idempotency_class=IdempotencyClass.CONFIG,
+        resource_categories=("ansible-pool", "vm:$vmid"),
+        timeout="60s",
+    ),
 ]
 
 
@@ -1399,6 +1478,7 @@ def list_barriers() -> list[Barrier]:
 # docs/WORK_ORDER_role_persona_tier.md, 2026-08-04 -- 39 -> 40) + 6 barriers.
 # Native switches (docs/design/native-switches.md, 2026-11-12): +5
 # (create-switch, link-switches, set-port-state, attach-vm-to-switch-port,
-# install-span) -- 40 -> 45.
-assert len(_OPS) == 39, f"OP_CATALOG action/wait count must be 39 (got {len(_OPS)})"
+# install-span) -- 40 -> 45. trafficgen (engine/src/axrange/trafficgen/SPEC.md,
+# 2026-11-24): +5 (OP-TFC-030..070) -- action/wait 39 -> 44.
+assert len(_OPS) == 44, f"OP_CATALOG action/wait count must be 44 (got {len(_OPS)})"
 assert len(_BARRIERS) == 6, f"OP_CATALOG barrier count must be 6 (got {len(_BARRIERS)})"
