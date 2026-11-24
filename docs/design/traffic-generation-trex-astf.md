@@ -12,10 +12,8 @@ confirmed by climbing capture metrics.
 
 **Repo path:** `docs/design/traffic-generation-trex-astf.md`.
 
-**Unverified:** every statement about TRex behaviour in this doc comes from
-recollection of the TRex ASTF manual, not from a test. §10 lists the spikes
-that turn them into facts. Do not build on a TRex claim before its spike
-passes.
+**Verified 2026-11-24:** the TRex constraints in §8.4 come from the spikes
+(§10.1). Statements elsewhere that §8.4 does not cover are still unverified.
 
 ## 1. Problem
 
@@ -245,22 +243,58 @@ tfc status and the canvas overlay.
 A `generator` image profile is added to `catalog/image-profiles.yaml`, with
 a manifest and Proxmox binding per `docs/contracts/IMAGE_MANIFEST.md`.
 
-### 8.4 TRex constraints that shape the plan (all unverified)
+### 8.4 TRex constraints that shape the plan (verified 2026-11-24, §10.1)
 
-- **Low-end mode on virtual NICs** is the only mode in a Proxmox VM.
-- **Ports come in client/server pairs.** A flow leaves a pair's client port
-  and must arrive at the same pair's server port. Each distinct
-  (client segment, server segment) combination needs a pair, or VLAN
-  sub-interfaces on a trunk leg, or a second TRex instance. The planner
-  hides this; the spike sizes it.
-- **Emulated addresses inside a segment that also has real hosts** must
-  answer ARP. If TRex cannot do that in this mode, emulated instances get
-  addresses from a per-segment stub pool routed via the generator's leg, and
-  "replace at the same address" is not available.
-- **Rate can change while running;** profiles can start and stop
-  independently. `update-traffic` relies on this.
-- **TRex is Apache-2.0** (to confirm), a separate process, so compatible
-  with axtwin's proprietary licence.
+Measured on dev45 with TRex v3.08 (template 102) on `three-tier-dc-manual`.
+Replaces the unverified list this section held before.
+
+- **Low-end mode, af_packet, one core.** `low_end: true` with Linux interface
+  names (`net_af_packet`) works on virtio legs. One data-path thread per port
+  pair, all on the low-end core. 200 cps / 56 Mbps of the stock HTTP profile
+  used under half a core on the generator and up to 14 % of one VyOS router's
+  single vCPU (A1).
+- **The guest's GRO/GSO/TSO must be off** on every TRex leg. With GRO on,
+  af_packet hands TRex merged super-frames, TRex drops them (`err_len_err`)
+  and the server end retransmits (27,170 retransmitted packets in one 200 s
+  ramp; 0 with GRO off). The shipped `trex_astf` driver does not do this.
+- **In-segment emulated addresses work, in `stack: linux_based` only, and
+  only when the planner hands the addresses to the port's namespace.** Legacy
+  stack and bare `linux_based` answer ARP for the port IP alone; the gateway's
+  entry for an emulated address goes `FAILED`. Adding each emulated address as
+  a `/32` on the port's namespace veth (`trex-a-<port>-0-L`) makes the kernel
+  answer ARP with the port MAC, and every flow establishes. No router route is
+  needed. Routed stub pools (the `trex-test` precedent) remain a fallback, not
+  the plan (A2).
+- **Ports pair for numbering only.** A client port can reach any server port
+  in the same TRex, not just its partner (rack1 port 0 → internet port 5:
+  130/130). So the cost is one leg per (segment, role): one client leg per
+  segment that has emulated clients, one server leg per segment that has
+  emulated servers, padded with `dummy` to an even count. `client_mask` bit n
+  = TRex port n (A3).
+- **Same-segment lines need their own client leg.** TRex sends every packet
+  to its port's next-hop MAC. A client leg whose next hop is the router
+  hairpins same-segment traffic through it; a client leg whose `default_gw` is
+  the server leg's IP sends it on L2 directly (A3).
+- **Pools are split across data-path threads.** With N port pairs there are N
+  threads, every pool must hold more than N addresses (else the start is
+  refused: "Number of IPs in each pool must exceed the number of Data path
+  threads"), and a profile limited by `client_mask` to one port uses only that
+  thread's 1/N share. Planner rule: one pool per (line, leg), sized > N, or
+  one generator process per client segment (A3, A4).
+- **Rate changes and independent profiles work live** through one
+  `ASTFClient`: `update(mult, pid_input=)` takes effect within 5 s; a second
+  profile starts and stops beside running ones with 0 drops on the others;
+  the daemon keeps its PID. `stop()` cuts that profile's own in-flight flows.
+  Two clients that both `acquire(force=True)` steal each other's context, so
+  one controller per TRex process owns all profiles (A6).
+- **Identical profiles under two ids are refused** ("Fragment already added on
+  other profile_id"); a profile must be removed (`stop(is_remove=True)`), not
+  just stopped, before an identical one loads.
+- **Leg names are not predictable past five NICs.** On i440fx the sixth leg
+  came up as `enp1s1`, not `ens24`. Map legs by MAC.
+- **Licence:** TRex is Apache-2.0 (upstream `LICENSE`, client headers). The
+  release bundles third-party Python under its own licences (scapy 2.4.3 is
+  GPL-2), used only inside the generator VM as separate processes.
 
 ## 9. Decisions for sign-off
 
@@ -273,6 +307,11 @@ a manifest and Proxmox binding per `docs/contracts/IMAGE_MANIFEST.md`.
 - **T5:** a `generator` image (TRex baked in) and its profile.
 - **T6:** address policy for emulated instances after spike S2: in-segment,
   or routed stub pools.
+  **Proposal after A2 (not signed off):** in-segment. Emulated instances take
+  free addresses in their group's segment (the existing allocator), and the
+  generator's wrapper adds them as `/32`s on its port namespace under
+  `stack: linux_based`. No `configure-routing` change. Routed stub pools only
+  where a segment has no free addresses.
 - **T7:** external pools: which ranges, and that they are routed at the
   internet segment.
 - **T8:** discovery default threshold for "emulate this group".
@@ -299,6 +338,31 @@ pasted output.
 - **S5 Client-only:** TRex client against the real nginx on `rack1-web01`;
   and confirm the expected failure against mariadb.
 - **S6 Live rate change** without restarting flows.
+
+### 10.1 Results (dev45, 2026-11-24, TRex v3.08, spike VM 9701)
+
+Scripts and raw output: `~/.axrange/spikes/trex-astf/` (outside the repo).
+
+| Spike | Result | Evidence |
+|---|---|---|
+| A0 image | Reused template 102 (`img-trex-astf`, volid `axrpool:base-102-disk-0`, Debian 12, TRex v3.08). Apache-2.0. | `/opt/trex/VERSION`; upstream `LICENSE` |
+| S1 throughput | 201.5 cps, 55.3 Mbps, 0 drops, 0 retransmits (GRO off), rack1→rack3 via agg-1, tap attached. agg-1 ≤ 14 % of 1 vCPU, cores < 1 %, generator 35–52 % of one core, host +2–3 % over a 31 % baseline. No-tap run not done (tap destroy not permitted in the session). | `out/a1-tap-*` |
+| S2 addressing | Legacy and bare `linux_based`: gateway ARP `FAILED`. `linux_based` + namespace `/32`s: agg-1 resolves 10.200.2.100 → port MAC, 299/299 flows. | `out/a2-*` |
+| S3 pairing | One TRex, 6 legs, 3 pairs, one core: rack1→rack3, rack1→rack1 (L2 direct), rack2→internet, 263–265 flows each, 100 % established; cross-pair works. VLAN sub-interfaces do not apply here: each rack segment is its own OVS bridge. Intermittent server retransmits on the rack2→internet path on a first run after idle (0 on repeat runs); no drop counter moved; not root-caused. | `out/a3-*` |
+| S4 sensor | Each rack span mirrors only packets *from* the te ports present when it was installed: one span alone sees half flows (`SH`/`SHR`, `possible_split_routing`). Both spans merged: HTTP 316 `SF`, `http.log` GET 200; DNS 190 `dns.log` NOERROR; TLS 1.3 replay of a captured session 126 `ssl.log` established, SNI `portal.corp.example`. Replayed bytes show: `Host: 22.0.0.3`, fixed DNS answer `100.100.100.100`. | `out/a4/` |
+| S5 client-only | Programmatic GET to the real nginx on rack1-web01 from 20 emulated rack2 addresses: 599/599, nginx logs 599 × 200. mariadb on rack1-db: 100/100 refused, because it listens on 127.0.0.1 only (Debian default; the twin's `listen: 3306` is not honoured). Its greeting carries a fresh 20-byte scramble per connection, so a replayed login cannot succeed even when reachable. | `out/a5`, nginx access.log |
+| S6 live control | `update` ×1→×2→×1 tracked within 5 s; a second profile started and stopped beside two running ones; 0 drops on 182 long (20 s) flows; daemon PID unchanged. | `out/a6.txt` |
+
+**What this changes beyond §8.4:**
+- **T3 and the tap tier:** a generator added after the tap tier is invisible
+  to the rack spans except via router legs, and generator↔generator traffic
+  on one segment is never mirrored. Provisioning a generator must be followed
+  by re-applying the tap plan with the generator's legs selected.
+- **T1 apps:** replayed captures carry their original Host headers, URIs and
+  DNS answers. Built-in apps should be programmatic (`ASTFProgram`) with
+  templated names; replay stays for TLS-shaped sessions.
+- **§6 limits:** `real_server_ok` held for plain GET (100 %). A twin's real
+  databases may not listen on the LAN at all.
 
 ## 11. Phases
 
