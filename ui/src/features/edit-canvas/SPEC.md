@@ -86,7 +86,12 @@ Every exit that overwrites a twin -- **Save** (A3 `PUT`), **Save As**,
 **Persist**, **Apply**, a draft's **Replace <origin>** -- opens only while the
 last Check passed AND the files are the ones it judged; the API validates
 again on the write and a 422 lands as the Check's findings, never as a
-rollback. **Save layout** stays separate and needs no Check. **Save as
+rollback. A copy under a new id (Save As, Save as draft, a clone's first
+Save) rewrites the id in the te file and `twin.yaml` **and in every tier
+file** (`traffic-profile.target`, `tap-plan.target`, `exercise.twin`, and the
+old id in each file's header comment; `edit/manifest.ts` `retargetTierFile`,
+2026-11-24); the API's Check refuses a tier file naming another twin
+(`TIER-TARGET`; a deploy id `<id>-<8 hex>` of this twin is fine). **Save layout** stays separate and needs no Check. **Save as
 draft** is always open: a copy under a new id (suggested `<id>-draft`,
 checked against the twins and drafts) written to the drafts area (A3d)
 without the gate; the twin it came from is never touched. A draft
@@ -396,6 +401,56 @@ to the layout as last loaded or saved; a 412 keeps the draft, takes the
 fresh etag and says another console saved meanwhile; leaving the page with
 unsaved moves asks first. An earlier build wrote the side-car on every drag.
 
+### Emulated instances and traffic lines (trafficgen, 2026-11-24)
+
+Design `docs/design/traffic-generation-trex-astf.md` §4; engine contract
+`engine/src/axrange/trafficgen/SPEC.md`. Every edit here writes the tfc
+profile only (`budget`, `emulated[]`, `lines[]`); te is never written, except
+that Internet users / services make the `internet` segment (and its sink)
+when the design has none.
+
+- **Instances** (a host group's panel): `Real N · Emulated M`. Real is the te
+  `count` (aria label still "Count"); 0 is not written: te refuses it (T4
+  open), shown as a hint ("keep 1 and set it to no traffic"). Emulated is the
+  group's `emulated[]` entry (0 removes it); only a host group on one segment
+  can have it.
+- **Traffic lines** (`SidePanel.tsx` `TrafficLines`): the lines touching the
+  group, each row *calls* (the group is `from`) or *serves* (`to`) a peer
+  (host groups on one segment and external groups), an app mix (only
+  `drive: trex-astf` mixes whose `emits` name the server end's role), rate
+  (cps) and a concurrency cap. A row is addable only when the group has
+  emulated instances. A first line brings `budget: { cps: 100, mbps: 60 }`
+  (raised to the planned cps when that is higher).
+- **Row reasons** (`edit/traffic.ts` `lineReasons`, the canvas's mirror of the
+  engine; Check runs the real TGN rules and the planner): TGN-010 / 020 (an end
+  with no emulated instances), TGN-030 (an end or mix that does not resolve, a
+  mix that emits to no peer of that role), TGN-040 (over budget), and the
+  planner's limit, "*g* would need two generators: line *x* puts it on
+  *gen-a*, this line on *gen-b*".
+- **Derived, read-only:** the group's badge (client, server, both) and each
+  line's E-W / N-S tag (N-S when an end is an external group).
+- **No traffic** (group and member persona dropdowns): no binding drives those
+  real VMs, which stay up idle. Written with no new key: their own `node:`
+  bindings go, and a `role:` binding that covers them is replaced by `node:`
+  bindings (same persona, intensity, schedule) for the role's other hosts.
+  The TRex app mixes stay out of every persona dropdown (UI review 2a).
+- **Internet users / Internet services** (Add panel → Tools): an `emulated[]`
+  group with `external: true` on the `internet` segment, a count, and a role
+  (users `internet-user`; services a server role the installed mixes emit to,
+  default `web-tier`). Addresses are free addresses of the segment, as the gate
+  run used. Drawn as a hatched host group with an emulated-count chip
+  (`documentGraph` adds it, `source: emulated`), selectable (its own panel:
+  name, role, count, lines, remove), and a peer in every lines table.
+- **Twin summary** (nothing selected): lines, planned cps against the budget,
+  planned generator count (one per distinct client segment, server segment);
+  the budget is editable there.
+- **Live** (a deployed twin): the canvas's **Traffic** button and the twin
+  page's deploy panel show the tfc deploy's generators with their ops
+  (`GET /api/deploys/{tfc}`, ops now carry `scope`) and each line's counters
+  (`GET /api/tfc?deploy_id=`), re-read every 10 s (`areas/shell/TrafficLive.tsx`).
+- Not here: traffic arcs on the canvas, schedules, live rate edit, a "Show
+  generators" toggle.
+
 ## Config
 
 None of its own. The telemetry base URL and everything else come from
@@ -406,6 +461,13 @@ and names no image, persona or platform in code.
 
 `ui/Spec.md`'s C2 and C3 tests are the acceptance; this feature adds no
 criteria of its own beyond them.
+
+- **trafficgen (2026-11-24):** `test/canvas.trafficgen.model.test.ts` (Emulated,
+  external groups and lines write tfc only, te byte-identical; badges, tags,
+  generators; row reasons; no traffic), `test/canvas.trafficgen.panel.test.tsx`
+  (the panel and the Add panel's Internet users), `test/traffic.live.test.tsx`
+  (generators and counters in the deploy view), `test/canvas.edit.model.test.ts`
+  (Save-As rewrites every tier file's target).
 
 - **Automated (Vitest, the node gate):** C2 — the authored and cast graphs
   render with every segment, host and router present and positions stable

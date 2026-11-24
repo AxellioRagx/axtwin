@@ -1,6 +1,6 @@
 # Traffic generation with TRex ASTF: emulated instances and traffic lines
 
-**Status:** phase 2 in build. What is signed off and built lives in
+**Status:** phase 2 built; phase 3 (canvas) built minimal 2026-11-24 (§4.4). What is signed off and built lives in
 `engine/src/axrange/trafficgen/SPEC.md`; this doc keeps the decisions still open (§9), the
 spike record (§10) and the later phases (§11). Retire it when §9 is closed
 and phases 3–5 are built or dropped.
@@ -118,6 +118,20 @@ emulated instances").
 - App mixes appear under each card's role list as "traffic only" roles, and
   in search. The Advanced-only "Traffic generators" category goes away once
   the old `loadgen-*` personas are migrated or retired.
+
+### 4.4 Built (minimal phase 3, 2026-11-24)
+
+Contract: `ui/src/features/edit-canvas/SPEC.md` ("Emulated instances and
+traffic lines"). Built: §4.1's instances split (Real 0 shown as a hint, te
+refuses it), the lines table (talks to, app mix filtered by the server end's
+role, rate and concurrency cap; no schedule), the badge and E-W / N-S tag,
+the row reasons (the TGN rules the canvas can see and the planner's
+one-generator limit), "no traffic" for a real group or member (§9 T12); §4.2's
+hatched external group with its count chip and the design health line as
+the Twin panel's traffic summary (planned cps against `budget`, planned
+generators); §4.3's Internet users / Internet services. Not built: traffic
+arcs, "Show generators", live rate edit, schedules, a hatched part on an
+internal group's icon, app mixes in the role lists.
 
 ## 5. East-west and north-south
 
@@ -253,11 +267,33 @@ mixes until the instances split exists (§4). `trex-test` is the Phase A
 spike rig (per-VM `knobs.side` driver, hand-placed TRex hosts); its
 descriptions say so, and the trafficgen engine does not read it.
 
-Not built in phase 2 (open): lines in `POST /api/tfc`'s request body (lines
-come from the twin's tfc file: CLI `tfc deploy`, deploy follow-on); a
-narrowing re-apply that drops a whole generator leaves its VM until a tfc
-destroy (the dropped lines on a kept generator are removed); the tap tier
-does not select generator legs (T3 §8).
+Not built in phase 2 (open): a narrowing re-apply that drops a whole
+generator leaves its VM until a tfc destroy (the dropped lines on a kept
+generator are removed). Built since (§8.3a): lines in `POST /api/tfc`'s
+body, and the tap tier selecting generator legs.
+
+### 8.3a API, Check and Deploy (built 2026-11-24, canvas task)
+
+- `POST /api/tfc` takes `budget`, `emulated[]` and `lines[]` (typed, unknown
+  keys refused) into the same `parse_traffic_profile` and apply as a file;
+  the TGN checks run in `prepare_lines` at apply, as for a file.
+- The API's tfc apply and the Deploy follow-on pass the image manifests (the
+  generator template) and the twin's folder in the serve's catalog; before,
+  lines planned from the API failed on "need the images root".
+- Check / Save of a twin document run `check_profile_file` (TGN-010..050;
+  TGN-060 as before; TGN-070 is the deploy target's question, asked at apply)
+  and the planner on each tfc profile with `emulated[]` / `lines[]`, and list
+  every refusal. The planner's two-generator refusal names both lines.
+- Deploy order: a twin whose default tfc profile has lines runs te → tfc →
+  tap, so the generators stand when the tap plans; a tfc started on its own
+  under a standing tap re-applies the tap plan.
+- **The tap tier selects generator legs** (closes T3 point 8's follow-up, §9
+  T13): `o2control/taps.py` `_with_generator_legs` adds the standing tfc
+  deploy's generator VMs to the twin inventory the tap resolves against, so a
+  segment tap mirrors their legs, and a leg on a native switch becomes a port
+  of that switch (its OVS port), so the switch's SPAN names it.
+- `GET /api/deploys/{id}` ops carry their `scope`; the UI groups a tfc
+  deploy's generator ops by it.
 
 ### 8.4 TRex constraints that shape the plan
 
@@ -438,6 +474,19 @@ model.
   internet segment.
 - **T8:** discovery default threshold for "emulate this group".
 - **T9:** retire or migrate `loadgen-*` / `xseg-*`.
+- **T12 (recorded, no new key):** "no traffic" for a real group or member,
+  so a twin runs TRex-only while its real VMs stay up idle. Written in
+  today's vocabulary: no assignment resolves to those hosts. Their own
+  `node:` bindings are removed, and a `role:` binding covering them is
+  replaced by `node:` bindings (same persona, intensity, schedule) for the
+  role's other hosts. Cost: the profile stops being role-general for that
+  role (a later count change does not pick up new instances). The
+  alternative, an `exclude:` list on a role assignment, is a tfc schema
+  change and would need sign-off; not proposed unless the cost bites.
+- **T13 (asked for in the canvas task, item 6, 2026-11-24):** the tap tier
+  selects generator legs (T3 point 8's follow-up), built as §8.3a describes.
+  T7 is not raised: external groups take free addresses of their segment,
+  as the gate run did.
 
 ## 10. Spikes (before any sign-off beyond T5's image)
 
