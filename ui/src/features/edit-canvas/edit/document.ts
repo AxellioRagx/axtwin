@@ -47,7 +47,8 @@ import {
   type TeNet,
   type TeNode,
 } from "./te";
-import { emptyTfc, readTfc, removeAssignment, renameNodeBindings, setAssignment, type AssignmentPatch, type TfcModel } from "./tfc";
+import { emptyTfc, readTfc, removeAssignment, renameNodeBindings, setAssignment, setTrafficgen, type AssignmentPatch, type TfcBudget, type TfcEmulated, type TfcLine, type TfcModel } from "./tfc";
+import { hostRoles } from "./traffic";
 import { carriedBy } from "./subtree";
 import { validateTe } from "./validate";
 import { leaveGateways } from "./vrrp";
@@ -444,6 +445,135 @@ export function setPersona(doc: WorkingDoc, model: DocModel, by: "node" | "role"
 export function clearPersona(doc: WorkingDoc, model: DocModel, by: "node" | "role", target: string): Files {
   if (!model.tfcPath) return doc.files;
   return { ...doc.files, [model.tfcPath]: removeAssignment(doc.files[model.tfcPath]!, by, target) };
+}
+
+// ---- trafficgen (design traffic-generation-trex-astf.md §4.1): emulated instances, traffic
+// lines, the budget, and the real persona off. Every one writes the tfc profile only; te is
+// never written. ----
+
+/** The tfc profile's path and text, created (and wired in the manifest) when the bundle has none. */
+function tfcFiles(doc: WorkingDoc, model: DocModel): { files: Files; path: string } {
+  const files = { ...doc.files };
+  let path = model.tfcPath;
+  if (!path) {
+    path = DEFAULT_TFC_PATH;
+    files[path] = emptyTfc(doc.id);
+    if (files[MANIFEST] !== undefined) files[MANIFEST] = wireTfcDefault(files[MANIFEST]!, path);
+  }
+  return { files, path };
+}
+
+type Tg = Pick<TfcModel, "budget" | "emulated" | "lines">;
+
+function editTrafficgen(doc: WorkingDoc, model: DocModel, change: (tg: Tg) => Tg): Files {
+  const { files, path } = tfcFiles(doc, model);
+  const cur = readTfc(files[path]!);
+  const next = change({ budget: cur.budget, emulated: cur.emulated, lines: cur.lines });
+  // `budget` is required once a line exists (TGN T2): a first line brings a default one that fits it.
+  if (next.lines.length && !next.budget) {
+    const cps = next.lines.reduce((s, l) => s + l.rate_cps, 0);
+    next.budget = { ...DEFAULT_BUDGET, cps: Math.max(DEFAULT_BUDGET.cps, Math.ceil(cps)) };
+  }
+  files[path] = setTrafficgen(files[path]!, next);
+  return files;
+}
+
+/** The budget a first traffic line brings when the profile has none (the gate run's scale). */
+export const DEFAULT_BUDGET: TfcBudget = { cps: 100, mbps: 60 };
+
+/** Emulated instances of a te node group (0 removes its `emulated[]` entry; its lines stay, and
+ *  their rows say why they are refused). */
+export function setEmulated(doc: WorkingDoc, model: DocModel, group: string, count: number): Files {
+  if (!Number.isInteger(count) || count < 0) throw new Error(`emulated instances must be a whole number ≥ 0, got ${count}`);
+  return editTrafficgen(doc, model, (tg) => {
+    const rest = tg.emulated.filter((e) => e.group !== group);
+    if (count === 0) return { ...tg, emulated: rest };
+    const cur = tg.emulated.find((e) => e.group === group);
+    const entry: TfcEmulated = cur ? { ...cur, count } : { group, count, external: false, segment: null, role: null, start: null };
+    return { ...tg, emulated: cur ? tg.emulated.map((e) => (e.group === group ? entry : e)) : [...tg.emulated, entry] };
+  });
+}
+
+/** Add or change an external group (Internet users / services: `external: true` on a segment).
+ *  `previous` names the entry it replaces (a rename follows into its lines); null adds. */
+export function setExternalGroup(doc: WorkingDoc, model: DocModel, ext: { group: string; segment: string; role: string; count: number }, previous: string | null = null): Files {
+  if (!ext.group.trim()) throw new Error("an external group needs a name");
+  if (model.te.nodes.some((n) => n.name === ext.group)) throw new Error(`'${ext.group}' is a node group; an external group needs its own name`);
+  if (!Number.isInteger(ext.count) || ext.count < 1) throw new Error("an external group has at least 1 instance");
+  return editTrafficgen(doc, model, (tg) => {
+    if (tg.emulated.some((e) => e.group === ext.group && e.group !== previous)) throw new Error(`'${ext.group}' is already in the traffic profile`);
+    const entry: TfcEmulated = { group: ext.group, count: ext.count, external: true, segment: ext.segment, role: ext.role, start: null };
+    const emulated = previous && tg.emulated.some((e) => e.group === previous) ? tg.emulated.map((e) => (e.group === previous ? entry : e)) : [...tg.emulated, entry];
+    const lines = previous && previous !== ext.group ? tg.lines.map((l) => ({ ...l, from: l.from === previous ? ext.group : l.from, to: l.to === previous ? ext.group : l.to })) : tg.lines;
+    return { ...tg, emulated, lines };
+  });
+}
+
+/** Remove an external group and every line that names it. */
+export function removeExternalGroup(doc: WorkingDoc, model: DocModel, group: string): Files {
+  return editTrafficgen(doc, model, (tg) => ({ ...tg, emulated: tg.emulated.filter((e) => e.group !== group), lines: tg.lines.filter((l) => l.from !== group && l.to !== group) }));
+}
+
+export function addLine(doc: WorkingDoc, model: DocModel, line: TfcLine): Files {
+  return editTrafficgen(doc, model, (tg) => {
+    const id = (l: TfcLine) => l.id ?? `${l.from}--${l.to}--${l.mix}`;
+    let l = line;
+    // Ids are unique (the parser refuses a repeat): a second line of the same ends and mix gets a suffix.
+    for (let n = 2; tg.lines.some((x) => id(x) === id(l)); n++) l = { ...line, id: `${line.from}--${line.to}--${line.mix}-${n}` };
+    return { ...tg, lines: [...tg.lines, l] };
+  });
+}
+
+export function setLine(doc: WorkingDoc, model: DocModel, index: number, patch: Partial<TfcLine>): Files {
+  return editTrafficgen(doc, model, (tg) => {
+    if (!tg.lines[index]) throw new Error(`no traffic line ${index}`);
+    return { ...tg, lines: tg.lines.map((l, i) => (i === index ? { ...l, ...patch } : l)) };
+  });
+}
+
+export function removeLine(doc: WorkingDoc, model: DocModel, index: number): Files {
+  return editTrafficgen(doc, model, (tg) => ({ ...tg, lines: tg.lines.filter((_, i) => i !== index) }));
+}
+
+export function setBudget(doc: WorkingDoc, model: DocModel, budget: TfcBudget | null): Files {
+  if (budget && (!(budget.cps > 0) || !(budget.mbps > 0))) throw new Error("the budget's cps and Mbps are numbers > 0");
+  return editTrafficgen(doc, model, (tg) => {
+    if (!budget && tg.lines.length) throw new Error("the budget is required while the profile has traffic lines");
+    return { ...tg, budget };
+  });
+}
+
+/** The real persona off for `hosts` (te host ids): no assignment drives them, so the VMs stay up
+ *  idle. Written without a new key: their own `node:` bindings (and their group's) go, and a
+ *  `role:` binding that covers them is replaced by `node:` bindings for the role's other hosts,
+ *  each with the role binding's persona, intensity and schedule. */
+export function setNoTraffic(doc: WorkingDoc, model: DocModel, hosts: readonly string[]): Files {
+  if (!model.tfcPath || !model.tfc) return doc.files;
+  const off = new Set(hosts);
+  const roles = hostRoles(model);
+  const groupsOff = new Set(roles.filter((h) => off.has(h.host)).map((h) => h.group));
+  let text = doc.files[model.tfcPath]!;
+  for (const a of model.tfc.assignments) {
+    if (a.by === "node" && (off.has(a.target) || (groupsOff.has(a.target) && roles.filter((h) => h.group === a.target).every((h) => off.has(h.host))))) {
+      text = removeAssignment(text, "node", a.target);
+    } else if (a.by === "node" && groupsOff.has(a.target)) {
+      // A group binding that covers some hosts kept on: bind those instances one by one.
+      text = removeAssignment(text, "node", a.target);
+      for (const h of roles.filter((x) => x.group === a.target && !off.has(x.host))) text = setAssignment(text, "node", h.host, { persona: a.persona, intensity: a.intensity, schedule: a.schedule });
+    }
+  }
+  for (const a of model.tfc.assignments) {
+    if (a.by !== "role") continue;
+    const covered = roles.filter((h) => h.role === a.target);
+    if (!covered.some((h) => off.has(h.host))) continue;
+    text = removeAssignment(text, "role", a.target);
+    for (const h of covered) {
+      if (off.has(h.host)) continue;
+      if (readTfc(text).assignments.some((x) => x.by === "node" && x.target === h.host && x.persona === a.persona)) continue;
+      text = setAssignment(text, "node", h.host, { persona: a.persona, intensity: a.intensity, schedule: a.schedule });
+    }
+  }
+  return { ...doc.files, [model.tfcPath]: text };
 }
 
 // ---- the device tree (topology-layers §2.3, §5, §8) ----

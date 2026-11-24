@@ -244,6 +244,6 @@ describe("placement and addressing (C3.2)", () => {
     const d: WorkingDoc = { id: "bare", teFile: "te.yaml", files: { "te.yaml": TE.replace("id: corp-enterprise", "id: bare"), "twin.yaml": "twin:\n  id: bare\n  tiers:\n    te:\n      default: te.yaml\n" } };
     const files = setPersona(d, readDoc(d), "node", "attacker", { persona: "generic-endpoint" });
     expect(files["twin.yaml"]).toBe("twin:\n  id: bare\n  tiers:\n    te:\n      default: te.yaml\n    tfc:\n      default: tfc/default.yaml\n");
-    expect(readTfc(files["tfc/default.yaml"]!)).toEqual({ target: "bare", assignments: [{ by: "node", target: "attacker", persona: "generic-endpoint", intensity: null, schedule: null, seed: null }] });
+    expect(readTfc(files["tfc/default.yaml"]!)).toEqual({ target: "bare", assignments: [{ by: "node", target: "attacker", persona: "generic-endpoint", intensity: null, schedule: null, seed: null }], budget: null, emulated: [], lines: [] });
   });
 });
