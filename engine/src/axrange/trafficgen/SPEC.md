@@ -8,9 +8,8 @@ instances** (addresses in a node group's segment, no VM) and **traffic lines**
 the tfc tier plans and runs TRex ASTF on. Loop step: **drive realistic
 traffic**, proved by the capture gate (tapped traffic reaches the sensor).
 
-Status: being built (design phase 2, hand-written tfc). Decisions and later
+Status: phase 2 built and live-verified on dev45 2026-11-24 (design §10.2). Decisions and later
 phases (canvas, discovery, client-only lines): `docs/design/traffic-generation-trex-astf.md`.
-Sections below marked *pending* are not signed off.
 
 ## Seam
 
@@ -22,12 +21,12 @@ Sections below marked *pending* are not signed off.
   `catalog/traffic/apps/<id>/app.yaml` installed (`axrange.paths.TRAFFIC_APPS_DIR`);
   no hard-coded table. Lazy; a bad file is a warning and a validator finding.
 - **tfc tier** (`axrange.o2control.traffic`): plans generator VMs, legs,
-  addresses and one profile JSON per generator (*pending T2, T3*).
+  addresses and one profile JSON per generator (`trafficgen.plan`, `trafficgen.compose`).
 - **Persona driver** `trex-astf` (`axrange.personas.drivers.trex_astf`) and
   ops `provision-generator`, `load-traffic-profile`, `start-traffic`,
   `update-traffic`, `stop-traffic` (catalog `OP-TFC-030`…`070`; `OP-TFC-020`
   is `assign-role`), all over the guest agent through an in-VM
-  wrapper (*pending T3*).
+  wrapper (`trafficgen/guest_tg.py`).
 - **API**, read-only: `GET /api/traffic-apps`, `GET /api/traffic-apps/{id}`;
   `GET /api/personas` adds `mix` and `real_server_ok` to each persona (empty /
   false for non-mixes).
@@ -115,9 +114,12 @@ tfc plan), against the twin's te file read through `trafficgen.twin.TwinView`.
 App-file shape errors are warnings from the registry (`list_apps`), and
 `AppSchemaError` from `load_app`.
 
-### tfc profile additions (*pending T2*), planning (*pending T3*)
+### tfc profile additions
 
-Not signed off; see the design doc §9.
+`budget {cps, mbps}`, `emulated[] {group, count, external, segment, role,
+start}`, `lines[] {id, from, to, mix, rate_cps, max_concurrent}`; unknown keys
+inside the blocks are refused. Example: `catalog/twins/three-tier-dc-manual/
+tfc/trafficgen.yaml`; field rules in the design doc §9 T2.
 
 ### Generator image
 

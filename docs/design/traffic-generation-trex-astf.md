@@ -473,6 +473,33 @@ Scripts and raw output: `~/.axrange/spikes/trex-astf/` (outside the repo).
 - **§6 limits:** `real_server_ok` held for plain GET (100 %). A twin's real
   databases may not listen on the LAN at all.
 
+### 10.2 Phase 2 deploy gate (dev45, 2026-11-24)
+
+Profile `catalog/twins/three-tier-dc-manual/tfc/trafficgen.yaml` (by hand)
+applied with `axrange tfc deploy` from this checkout onto
+`three-tier-dc-manual-e6429691`; evidence in `~/.axrange/gate-trafficgen/`.
+
+- **Ops:** every tfc op completed: 9 real `drive-persona` instances (web-tier
+  x6, db-tier x3) and both generators' 10 ops each
+  (`gen-rack1-lan--rack3-lan`, `gen-internet--rack2-lan`; 2 vCPU, 2253 MiB,
+  legs on the te's bridges, VLAN tags 70/90 and vnet + tag 80).
+- **Counters climb** (`axrange tfc status --adapter-config`, 30 s apart):
+  web-browse 909 -> 1821 established (30.1 cps), sql-oltp 282 -> 930
+  (19.8 cps), 0 errors.
+- **Sensor:** XPress-SW-A's capture NIC received 19,161 packets in 21 s; of
+  the four tap feeds' 17,693 frames in 20 s, 17,524 carry emulated addresses.
+- **Zeek 8.0 over the merged feeds:** 948 `SF` flows from 220 distinct
+  emulated clients to 6 emulated servers; `http.log` 385 x GET /index.html
+  200 Host rack2-web (10.250.0.x -> 10.200.1.5-9); `mysql.log` 380 x login
+  app / SELECT / UPDATE / quit (10.200.0.11-30 -> 10.200.2.5); `ssl.log` 185
+  x TLS 1.3 SNI portal.corp.example.
+- **update-traffic** 30 -> 60 cps on web-browse: 59.6 cps measured
+  (5408 -> 7355 in 32 s), TRex PID 538 before and after, 0 errors, the other
+  line unchanged.
+- **Destroy** removed both generator VMs after one fix (the tfc teardown had
+  no node for a placement-less deploy, `d36df1d`). The twin's original
+  `tfc/default.yaml` was re-applied after.
+
 ## 11. Phases
 
 1. **Spikes** (§10) and the generator image.
