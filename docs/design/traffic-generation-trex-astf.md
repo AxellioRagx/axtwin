@@ -332,7 +332,7 @@ Verified by the spikes (§10.1); the list is kept in `engine/src/axrange/traffic
   *Cost of no* (lines on te instead): every traffic change becomes a te
   redeploy, against the design's "te does not change".
 - **T3:** the tfc tier may plan and deploy generator VMs.
-  **[SIGN-OFF] proposal (2026-11-24, not signed off).**
+  **Signed off 2026-11-24** ("approved as written").
 
   1. **Model: hand-composed ops, like the tfc and tap tiers, not the O2
      surface's IR route.** The O2 surface builds an IR and runs

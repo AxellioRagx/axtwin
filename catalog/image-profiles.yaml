@@ -46,3 +46,9 @@ profiles:
   # as the router it is. VyOS because it is the catalog's one image that
   # routes, runs OSPF and carries many legs (datacenter's fabric routers).
   l3-switch:      { image: vyos@2026.06, platforms: { proxmox: vyos@2026.06 } }
+  # The generator VM the tfc tier plans for emulated instances and traffic
+  # lines (engine/src/axrange/trafficgen/SPEC.md). Never dropped by the
+  # canvas: read by the tfc planner, resolved for the twin's target platform.
+  # Default null: on a platform with no generator binding (libvirt today) the
+  # validator refuses TRex lines instead of planning a VM that cannot deploy.
+  generator:      { image: null, platforms: { proxmox: trex-astf@v1 } }

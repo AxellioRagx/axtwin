@@ -1,0 +1,62 @@
+binding_schema_version: 1
+binding:
+  image: trex-astf
+  platform: proxmox
+  versions:
+  - id: v1
+      # template_vmid is written by `axrange image build trex-astf`.
+      # 0 until built (a trex-astf node can't deploy until then).
+    storage: {type: template, node: any, volid: "", template_vmid: 102}
+    clone_mode: linked
+    cloud_init: {supported: true, user: debian, sysprep_required: false}
+    hardware:
+        # Same as debian-12-cloud (i440fx so cloud-init sees the cidata CD).
+      machine: pc
+      bios: seabios
+      nic_model: virtio
+      disk_bus: scsi
+      scsi_controller: virtio-scsi-pci
+      agent: true
+    placement_constraints:
+      requires_host_caps: []
+    clone_estimate: 60
+      # Build recipe: Debian 12 cloud + TRex v3.08. `axrange image build
+      # trex-astf --images ~/axr-product/deploy-dev45` runs it on the build host
+      # (vmbr0 egress reaches trex-tgn.cisco.com), bakes, conforms, and writes
+      # template_vmid. Pin: upstream tag v3.0.8 (2025-11-05), the newest release
+      # on 2026-11-16; tarball sha256 verified below so a changed upstream file
+      # fails the build instead of baking something else.
+    build:
+      base_image:
+        url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+        checksum_url: https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
+        checksum_algo: sha512
+        filename: debian-12-genericcloud-amd64.qcow2
+      disk_size: 12G
+      memory: 4096
+      provision:
+          # pciutils: TRex's setup script lists NICs with lspci even in vdev
+          # mode; python3 runs the bundled ASTF client (pure-python + ctypes zmq).
+      - {pkg: [curl, ca-certificates, python3, pciutils, iproute2, tcpdump]}
+      - script:
+          inline: |
+            #!/bin/sh
+            set -eu
+            V=v3.08
+            SHA=d2ac73627906c4ce01127c1c6954464fab373463966ea9592509446e74972b5f
+            mkdir -p /opt/trex
+            cd /opt/trex
+            curl -fsSL --retry 3 -o trex-$V.tar.gz https://trex-tgn.cisco.com/trex/release/$V.tar.gz
+            echo "$SHA  trex-$V.tar.gz" | sha256sum -c -
+            tar -xzf trex-$V.tar.gz
+            rm -f trex-$V.tar.gz
+            ln -sfn /opt/trex/$V /opt/trex/current
+            test -x /opt/trex/current/t-rex-64
+            # low_end allocates 20 + 40 * ports 2 MiB pages; 256 leaves headroom.
+            echo 'vm.nr_hugepages = 256' > /etc/sysctl.d/80-trex.conf
+            sysctl -p /etc/sysctl.d/80-trex.conf || true
+            echo "$V" > /opt/trex/VERSION
+      probes:
+          # one probe per non-default `provides:` keyword (conformance §4.1):
+          # the binary is there, the pinned version, and the ASTF client imports.
+        "traffic:trex-astf": "test -x /opt/trex/current/t-rex-64 && grep -qx v3.08 /opt/trex/VERSION && command -v ethtool >/dev/null && python3 -W ignore -c \"import sys; sys.path.insert(0, '/opt/trex/current/automation/trex_control_plane/interactive'); from trex.astf.api import ASTFClient, ASTFProfile\""
