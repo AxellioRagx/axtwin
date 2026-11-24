@@ -3139,11 +3139,41 @@ def _tfc_twin_overlay(settings: ApiSettings, target: Optional[str]) -> dict:
 
 def tfc_status(settings: ApiSettings, *,
                target: Optional[str] = None,
-               deploy_id: Optional[str] = None) -> dtos.TrafficPlanStatusDTO:
+               deploy_id: Optional[str] = None,
+               persona_backend: Any = None) -> dtos.TrafficPlanStatusDTO:
     from axrange.o2control.traffic import traffic_status
 
     status = traffic_status(db_path=settings.db_path, target=target, deploy_id=deploy_id)
-    return _traffic_status_dto(status)
+    dto = _traffic_status_dto(status)
+    if status.deploy_id and status.status not in ("destroyed", "not-applied"):
+        dto.lines = _tfc_lines(settings, status.deploy_id, persona_backend=persona_backend)
+    return dto
+
+
+def _tfc_lines(settings: ApiSettings, deploy_id: str, *, persona_backend: Any = None) -> dict:
+    """Per-line counters (trafficgen B6); a read failure is reported in the
+    line rows, never a 500 for the whole status."""
+    from axrange.o2control.traffic import TrafficPlanError, traffic_line_status
+
+    try:
+        return traffic_line_status(db_path=settings.db_path, tfc_deploy_id=deploy_id,
+                                   adapter_config=settings.adapter_config, persona_backend=persona_backend)
+    except TrafficPlanError:
+        return {}
+
+
+def tfc_update_line(settings: ApiSettings, deploy_id: str, line: str, req: dtos.TrafficLineRateRequest, *,
+                    persona_backend: Any = None) -> dtos.TrafficLineRateResponse:
+    """`update-traffic` (trafficgen T3 §5): one line's rate, live."""
+    from axrange.o2control.traffic import TrafficPlanError, update_traffic_line
+
+    try:
+        r = update_traffic_line(db_path=settings.db_path, tfc_deploy_id=deploy_id, line=line,
+                                rate_cps=req.rate_cps, adapter_config=settings.adapter_config,
+                                persona_backend=persona_backend)
+    except TrafficPlanError as e:
+        raise ApiError(e.status, e.message, detail=e.detail) from e
+    return dtos.TrafficLineRateResponse(**r)
 
 
 def tfc_destroy(settings: ApiSettings, req: dtos.TrafficDestroyRequest, *,

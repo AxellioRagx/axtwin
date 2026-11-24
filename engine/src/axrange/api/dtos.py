@@ -1178,6 +1178,25 @@ class TrafficPlanStatusDTO(BaseModel):
     status: str  # not-applied | running | completed | failed | destroyed | ...
     assignments: list[TrafficAssignmentDTO] = []
     warnings: list[str] = []
+    # trafficgen (trafficgen/SPEC.md, B6): per traffic line, read live from its
+    # generator -- {line_id: {generator, from, to, mix, rate_cps, mult, state,
+    # opened, established, accepted, errors, bytes, open, cps_now, ...}}.
+    # Empty for a profile without lines.
+    lines: dict[str, dict[str, Any]] = {}
+
+
+class TrafficLineRateRequest(BaseModel):
+    """`POST /api/deploys/{id}/traffic-lines/{line}`: the line's new rate."""
+
+    rate_cps: float
+
+
+class TrafficLineRateResponse(BaseModel):
+    line: str
+    generator: str
+    rate_cps: float
+    planned_rate_cps: float
+    mult: float
 
 
 class TrafficDestroyRequest(BaseModel):

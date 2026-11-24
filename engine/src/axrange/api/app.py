@@ -1220,7 +1220,22 @@ def create_app(settings: Optional[ApiSettings] = None) -> FastAPI:
     ) -> dtos.TrafficPlanStatusDTO:
         return service.tfc_status(
             _for_twin(deploy_id=deploy_id, twin=target), target=target, deploy_id=deploy_id,
+            persona_backend=app.state.tfc_persona_backend,
         )
+
+    @app.post(
+        "/api/deploys/{deploy_id}/traffic-lines/{line}",
+        response_model=dtos.TrafficLineRateResponse,
+        dependencies=[Depends(write_token)],
+    )
+    def tfc_update_line(
+        deploy_id: str, line: str, req: dtos.TrafficLineRateRequest,
+        override_protection: Optional[str] = _OVERRIDE_QUERY,
+    ) -> dtos.TrafficLineRateResponse:
+        in_store = _for_twin(deploy_id=deploy_id)
+        service.guard_protected(in_store, deploy_id=deploy_id, override=override_protection)
+        return service.tfc_update_line(in_store, deploy_id, line, req,
+                                       persona_backend=app.state.tfc_persona_backend)
 
     @app.post(
         "/api/tfc",

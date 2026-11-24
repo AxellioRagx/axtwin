@@ -782,6 +782,9 @@ def _add_tfc_status(group):
                    help=f"State-store DB path (default: {_DEFAULT_DB_PATH})")
     p.add_argument("--json", action="store_true",
                    help="Emit a stable JSON shape instead of a human table")
+    p.add_argument("--adapter-config", default=None,
+                   help="Also read each traffic line's live counters from its generator (trafficgen)")
+    p.add_argument("--node", default=None, help="Override DEFAULT_NODE from adapter.conf")
     p.set_defaults(tier="tfc", verb="status")
     return p
 
@@ -4044,10 +4047,27 @@ def cmd_tfc_status(args: argparse.Namespace) -> int:
     from axrange.o2control.traffic import traffic_status
 
     status = traffic_status(db_path=args.db, target=args.target, deploy_id=args.deploy_id)
+    lines: dict[str, Any] = {}
+    if getattr(args, "adapter_config", None) and status.deploy_id and status.status != "destroyed":
+        from axrange.o2control.traffic import traffic_line_status
+
+        lines = traffic_line_status(db_path=args.db, tfc_deploy_id=status.deploy_id,
+                                    adapter_config=args.adapter_config, target_node=getattr(args, "node", None))
     if getattr(args, "json", False):
-        _print_json(dataclasses.asdict(status))
+        _print_json({**dataclasses.asdict(status), "lines": lines})
         return 0
     _render_traffic_status(status)
+    if lines:
+        sys.stdout.write("\n  traffic lines (live, from the generators):\n")
+        for lid, r in sorted(lines.items()):
+            if r.get("error"):
+                sys.stdout.write(f"    {lid}: [error] {r['error']}\n")
+                continue
+            sys.stdout.write(
+                f"    {lid}: {r.get('state', '?')} {r.get('rate_cps')} cps (x{r.get('mult')}) on {r.get('generator')}"
+                f" | opened {r.get('opened')} established {r.get('established')} errors {r.get('errors')}"
+                f" bytes {r.get('bytes')} open {r.get('open')} now {r.get('cps_now')} cps"
+                + (f" [capped: {r['capped']}]" if r.get("capped") else "") + "\n")
     return 0
 
 
