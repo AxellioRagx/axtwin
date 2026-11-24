@@ -107,11 +107,12 @@ def test_allocation_is_deterministic_and_skips_real_addresses(twin):
     a, b = allocate(twin, spec.emulated), allocate(twin, spec.emulated)
     assert a == b
     r1 = a["rack1-web"]
-    assert (r1[0].name, r1[0].ip, r1[0].role) == ("rack1-web-e01", "10.200.0.5", "web-tier")
-    assert [i.ip for i in r1[:6]] == ["10.200.0.5", "10.200.0.6", "10.200.0.7", "10.200.0.8", "10.200.0.9", "10.200.0.11"]
+    # .5-.9 is a run of five: too short for twenty, so the block starts after rack1-db (.10).
+    assert (r1[0].name, r1[0].ip, r1[0].role) == ("rack1-web-e01", "10.200.0.11", "web-tier")
+    assert (r1[-1].name, r1[-1].ip) == ("rack1-web-e20", "10.200.0.30")
     assert a["rack3-db"][0].ip == "10.200.2.5"
     users = a["internet-users"]
-    assert len(users) == 200 and users[0].name == "internet-users-e001" and users[0].ip == "10.250.0.3"
+    assert len(users) == 200 and users[0].name == "internet-users-e001" and users[0].ip == "10.250.0.11"  # after the sink (.10)
     assert not {i.ip for g in a.values() for i in g} & twin.real_ips()
 
 
@@ -121,7 +122,7 @@ def test_start_moves_the_first_address(twin):
 
 
 def test_a_full_segment_is_an_allocation_error(twin):
-    with pytest.raises(AllocationError, match="no free address"):
+    with pytest.raises(AllocationError, match="consecutive free"):
         allocate(twin, [EmulatedSpec(group="rack1-web", count=250)])
 
 

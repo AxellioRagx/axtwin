@@ -3708,6 +3708,16 @@ def _tfc_lines_check(args: argparse.Namespace, spec: Any) -> int:
     sys.stdout.write(
         f"traffic lines: OK ({len(spec.lines)} line(s), "
         f"{sum(e.count for e in spec.emulated)} emulated instance(s))\n")
+    from axrange.trafficgen.plan import TrafficGenPlanError, plan_for_file
+
+    try:
+        plan = plan_for_file(spec, args.spec)
+    except TrafficGenPlanError as e:
+        sys.stderr.write(f"[error] trafficgen plan: {e}\n")
+        return 1
+    for g in plan.generators:
+        legs = ", ".join(f"{leg.role} {leg.segment} {leg.ip}" for leg in g.legs)
+        sys.stdout.write(f"  generator {g.host_id}: {g.cores} vCPU, {g.memory_mib} MiB; {legs}; lines {', '.join(g.lines)}\n")
     return 0
 
 

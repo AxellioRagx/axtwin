@@ -1,11 +1,12 @@
 """Emulated-instance addresses (`SPEC.md`, T2 "Addresses"; policy T6:
 in-segment, spike A2).
 
-Deterministic: groups in profile order, instances in index order, each taking
-the next free host address in its segment, ascending from the group's
-`start` (or the segment's first host address), skipping the gateway, every
-router leg, every te host address and every address already handed out.
-Extra addresses (generator legs) are taken the same way, after the instances.
+Deterministic: groups in profile order; each group takes the FIRST CONTIGUOUS
+block of `count` free host addresses in its segment, ascending from the
+group's `start` (or the segment's first host address), where taken means the
+gateway, a router leg, a te host address or an address already handed out.
+Contiguous because TRex's ASTF IP generator takes one range per pool. Extra
+single addresses (generator legs) are taken after the instances, lowest free.
 """
 from __future__ import annotations
 
@@ -55,6 +56,30 @@ class Allocator:
         self.twin = twin
         self.taken: dict[str, set[str]] = {k: set(v) for k, v in twin.used.items()}
 
+    def take_block(self, segment: str, count: int, *, start: Optional[str] = None, who: str = "") -> list[str]:
+        """The first run of `count` consecutive free host addresses at or above
+        `start`, marked taken."""
+        seg = self.twin.segments[segment]
+        taken = self.taken.setdefault(segment, set())
+        lo = ipaddress.IPv4Address(start) if start else None
+        run: list[str] = []
+        for host in seg.cidr.hosts():
+            if lo is not None and host < lo:
+                continue
+            ip = str(host)
+            if ip in taken:
+                run = []
+                continue
+            run.append(ip)
+            if len(run) == count:
+                taken.update(run)
+                return run
+        raise AllocationError(
+            f"{who or 'emulated group'}: segment {segment} ({seg.cidr}) has no block of {count} "
+            f"consecutive free addresses" + (f" at or above {start}" if start else ""),
+            group=who, segment=segment,
+        )
+
     def take(self, segment: str, *, start: Optional[str] = None, who: str = "") -> str:
         seg = self.twin.segments[segment]
         taken = self.taken.setdefault(segment, set())
@@ -84,9 +109,10 @@ def allocate(twin: TwinView, emulated: Iterable[EmulatedSpec],
         if seg is None or seg not in twin.segments:
             continue
         role = e.role if e.external else (twin.groups[e.group].role or "")
+        ips = alloc.take_block(seg, e.count, start=e.start, who=e.group)
         out[e.group] = [
             Instance(name=instance_name(e.group, i, e.count), group=e.group, role=role or "",
-                     segment=seg, ip=alloc.take(seg, start=e.start, who=e.group))
-            for i in range(1, e.count + 1)
+                     segment=seg, ip=ip)
+            for i, ip in enumerate(ips, start=1)
         ]
     return out
