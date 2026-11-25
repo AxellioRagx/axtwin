@@ -844,7 +844,7 @@ function ExternalPanel(p: SidePanelProps & { name: string }) {
   return (
     <section className="cv-side-section" data-testid="external-panel">
       <h3>
-        External group <span className="mono">{e.group}</span>{" "}
+        {(e.segment ?? "internet") === "internet" ? "External group" : "Emulated group"} <span className="mono">{e.group}</span>{" "}
         {groupBadge(p.model.tfc, e.group) ? <span className="cv-chip" data-testid="traffic-badge">{groupBadge(p.model.tfc, e.group)}</span> : null}
       </h3>
       <p className="muted hint">emulated instances on <span className="mono">{e.segment}</span> with no VM: a planned TRex generator answers for them, from free addresses of the segment. Written to the traffic profile only (tfc <span className="mono">emulated[]</span>, <span className="mono">external: true</span>).</p>
@@ -2007,7 +2007,7 @@ function TrafficLines(p: SidePanelProps & { group: string }) {
                   </td>
                   <td><Text ariaLabel={`Rate of ${lineId(l)}`} value={String(l.rate_cps)} disabled={ro} mono onCommit={(v) => { const r = Number(v); if (r > 0) set({ rate_cps: r }, "rate"); }} /></td>
                   <td><Text ariaLabel={`Concurrency of ${lineId(l)}`} value={l.max_concurrent === null ? "" : String(l.max_concurrent)} placeholder={`${Math.round(l.rate_cps * 10)}`} disabled={ro} mono onCommit={(v) => { const c = v.trim() === "" ? null : Number(v); if (c === null || (Number.isInteger(c) && c >= 1)) set({ max_concurrent: c }, "concurrency"); }} /></td>
-                  <td><span className="cv-chip" data-testid="line-tag" title={lineTag(t, l) === "N-S" ? "north-south: one end is an external group" : "east-west: both ends internal"}>{lineTag(t, l)}</span></td>
+                  <td><span className="cv-chip" data-testid="line-tag" title={lineTag(t, l) === "N-S" ? "north-south: one end is an external group on the internet" : "east-west: both ends inside the twin"}>{lineTag(t, l)}</span></td>
                   <td><button type="button" disabled={ro} aria-label={`Remove line ${lineId(l)}`} onClick={() => p.apply(`remove line ${lineId(l)}`, (doc, m) => removeLine(doc, m, index))}>×</button></td>
                 </tr>
               );

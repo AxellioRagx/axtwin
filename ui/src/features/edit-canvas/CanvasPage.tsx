@@ -85,7 +85,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
 import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
-import { applyDeviceDrop, applyInternetDrop, applyExternalDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
+import { applyDeviceDrop, applyInternetDrop, applyEmulatedDrop, applyExternalDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
@@ -936,6 +936,10 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         setBlocked("drop the Sensor / tap on a segment or a switch");
         return;
       }
+      if (item.kind === "tool" && item.tool === "emulated-group" && !("segment" in target)) {
+        setBlocked("drop the Emulated group on a segment or a switch");
+        return;
+      }
       setPendingDrop({ item, target, at, screen: where });
     },
     [edit, imageProfiles, templates],
@@ -974,6 +978,14 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       if (!p) return;
       if (c.kind === "tap") {
         if (edit(`tap on ${c.segment}`, (d, m) => applyTapDrop(d, m, c.segment, c.sensors).files) === null) rememberAdd(p.item);
+        return;
+      }
+      if (c.kind === "emulated") {
+        let made: string | null = null;
+        if (edit(`add emulated group ×${c.count} on ${c.segment}`, (d, m) => { const r = applyEmulatedDrop(d, m, c); made = r.names[0] ?? null; return r.files; }) === null) {
+          rememberAdd(p.item);
+          if (made) setSelection({ kind: "node", names: [made] });
+        }
         return;
       }
       if (c.kind === "external") {

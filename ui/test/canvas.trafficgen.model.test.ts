@@ -115,3 +115,30 @@ describe("trafficgen in the edit model", () => {
     expect(hasNoTraffic(m2, ["rack2-web01"])).toBe(false);
   });
 });
+
+describe("the Emulated group tool (T11 decided D): an emulated-only group on any segment", () => {
+  it("writes tfc only, makes the name unique, is drawn on its segment, and its lines are E-W", async () => {
+    const { applyEmulatedDrop } = await import("../src/features/edit-canvas/add/drop");
+    const { documentGraph } = await import("../src/features/edit-canvas/edit/document");
+    let d = doc();
+    const te0 = d.files["te.yaml"];
+    d = step(d, (x, m) => setEmulated(x, m, "rack1-web", 4));
+    d = step(d, (x, m) => setEmulated(x, m, "rack3-db", 2));
+    d = step(d, (x, m) => setExternalGroup(x, m, USERS));
+    const r = applyEmulatedDrop(d, readDoc(d), { segment: "rack1-lan", name: "rack1-web", role: "web-tier", count: 4 });
+    expect(r.names).toEqual(["rack1-web-2"]); // a te node group's name is taken
+    d = { ...d, files: r.files };
+    expect(d.files["te.yaml"]).toBe(te0);
+    expect(d.files["tfc/default.yaml"]).toContain("{ group: rack1-web-2, external: true, segment: rack1-lan, role: web-tier, count: 4 }");
+    expect(() => applyEmulatedDrop(d, readDoc(d), { segment: "nope", name: "", role: "x", count: 1 })).toThrow(/no segment nope/);
+    // The canvas's two-group answer to "rack1-web both serves Internet users and calls rack3-db".
+    d = step(d, (x, m) => addLine(x, m, { from: "internet-users", to: "rack1-web", mix: "web-browse", rate_cps: 30 }));
+    d = step(d, (x, m) => addLine(x, m, { from: "rack1-web-2", to: "rack3-db", mix: "sql-oltp", rate_cps: 20 }));
+    const m = readDoc(d);
+    expect(m.tfc!.lines.map((l) => lineTag(m.tfc, l))).toEqual(["N-S", "E-W"]);
+    expect(plannedGenerators(m)).toEqual(["gen-internet--rack1-lan", "gen-rack1-lan--rack3-lan"]);
+    m.tfc!.lines.forEach((_, i) => expect(lineReasons(m, PERSONAS, i)).toEqual([]));
+    const g = documentGraph(m);
+    expect(JSON.stringify(g)).toContain("rack1-web-2");
+  });
+});

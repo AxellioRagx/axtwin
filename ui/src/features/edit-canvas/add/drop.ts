@@ -250,3 +250,17 @@ export function applyExternalDrop(doc: WorkingDoc, model: DocModel, ext: { name:
   const files = setExternalGroup(inet.doc, m, { group: name, segment: inet.segment, role: ext.role, count: ext.count });
   return { files, names: [name], segment: inet.segment };
 }
+
+/** The Emulated group tool (T11 decided D): an emulated-only group of the traffic profile on the
+ *  segment it was dropped on (`emulated[]`, `external: true`, `segment`), so a node group that both
+ *  serves and calls across segments is modelled as two groups. tfc only; the name is made unique
+ *  against te node groups and the profile's emulated groups. */
+export function applyEmulatedDrop(doc: WorkingDoc, model: DocModel, ext: { segment: string; name: string; role: string; count: number }): DropResult {
+  if (!model.te.segments.some((s) => s.name === ext.segment)) throw new Error(`no segment ${ext.segment} in the design`);
+  const base = ext.name.trim() || `${ext.segment}-emulated`;
+  const taken = new Set([...model.te.nodes.map((n) => n.name), ...(model.tfc?.emulated ?? []).map((e) => e.group)]);
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+  const files = setExternalGroup(doc, model, { group: name, segment: ext.segment, role: ext.role.trim() || "emulated", count: ext.count });
+  return { files, names: [name], segment: ext.segment };
+}

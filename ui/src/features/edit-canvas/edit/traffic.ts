@@ -55,9 +55,10 @@ export function groupBadge(tfc: TfcModel | null, group: string): "client" | "ser
   return c && s ? "both" : c ? "client" : s ? "server" : null;
 }
 
-/** North-south when either end is an external group, east-west otherwise (§5). */
+/** North-south when either end is an external group on the internet segment, east-west otherwise
+ *  (§5). An emulated-only group on an internal segment (the Emulated group tool) is east-west. */
 export function lineTag(tfc: TfcModel | null, l: Pick<TfcLine, "from" | "to">): "N-S" | "E-W" {
-  const ext = new Set(externalGroups(tfc).map((e) => e.group));
+  const ext = new Set(externalGroups(tfc).filter((e) => (e.segment ?? "internet") === "internet").map((e) => e.group));
   return ext.has(l.from) || ext.has(l.to) ? "N-S" : "E-W";
 }
 

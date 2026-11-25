@@ -191,3 +191,43 @@ describe("Internet users / services from the Add panel (item 4)", () => {
     expect(web.getByTestId("traffic-badge").textContent).toBe("server");
   });
 });
+
+describe("the Emulated group tool (T11 decided D)", () => {
+  it("drops on the selected segment: hatched, its own panel, and a peer whose lines are E-W", async () => {
+    const { api } = withTwin();
+    renderAt(api, "/twins/tg/canvas");
+    await screen.findAllByTestId("canvas-host");
+    const { addTool, segment, tab } = await import("./helpers/canvasFixtures");
+    // Not on a segment: refused with the reason.
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(addTool("emulated-group"));
+    expect((await screen.findByTestId("blocked-reason")).textContent).toContain("drop the Emulated group on a segment or a switch");
+    fireEvent.click(segment("web-lan"));
+    fireEvent.click(addTool("emulated-group"));
+    const pop = within(await screen.findByTestId("drop-popover"));
+    expect(pop.getByTestId("drop-emulated-note").textContent).toContain("web-lan");
+    expect(options(pop.getByTestId("drop-emulated-role"))[0]).toBe("web-tier"); // the segment's own role first
+    fireEvent.change(pop.getByTestId("drop-emulated-name"), { target: { value: "web-back" } });
+    fireEvent.change(pop.getByTestId("drop-emulated-count"), { target: { value: "4" } });
+    fireEvent.click(pop.getByRole("button", { name: /^Add/ }));
+    const g = await waitFor(() => {
+      const h = screen.getAllByTestId("canvas-host").find((x) => x.dataset["nodeId"] === "web-back");
+      if (!h) throw new Error("not drawn yet");
+      return h;
+    });
+    expect(g.dataset["emulated"]).toBe("external");
+    expect(within(g).getByTestId("emulated-count").textContent).toBe("×4");
+    fireEvent.click(g);
+    tab("Selection");
+    const panel = within(await screen.findByTestId("external-panel"));
+    expect(panel.getByRole("heading", { level: 3 }).textContent).toContain("Emulated group web-back");
+    // It calls db: a line from its own panel, tagged east-west.
+    fireEvent.change(panel.getByLabelText("New line peer"), { target: { value: "db" } });
+    fireEvent.change(panel.getByLabelText("New line mix"), { target: { value: "sql-oltp" } });
+    fireEvent.change(panel.getByLabelText("New line rate"), { target: { value: "20" } });
+    fireEvent.click(panel.getByTestId("add-line-button"));
+    const row = await panel.findByTestId("line-row");
+    expect(row.dataset["line"]).toBe("web-back--db--sql-oltp");
+    expect(within(row).getByTestId("line-tag").textContent).toBe("E-W");
+  });
+});

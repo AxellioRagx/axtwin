@@ -441,6 +441,17 @@ when the design has none.
   run used. Drawn as a hatched host group with an emulated-count chip
   (`documentGraph` adds it, `source: emulated`), selectable (its own panel:
   name, role, count, lines, remove), and a peer in every lines table.
+- **Emulated group** (Add panel → Tools, 2026-11-25; design §9 T11 decided D):
+  the same kind of tfc-only group (`external: true`) on the segment it is
+  dropped or clicked onto (a switch: its segment pick), so a group that both
+  serves and calls across segments is modelled as two groups. Off a segment
+  it is refused ("drop the Emulated group on a segment or a switch"). The
+  popover asks name (default `<segment>-emulated`, made unique against node
+  groups and emulated groups), count (default 4) and role (the segment's own
+  host roles first, then the roles the installed mixes serve). Drawn and
+  selected like Internet users; its panel is headed "Emulated group". A line
+  is N-S only when an end is an external group on the `internet` segment, so
+  this group's lines are E-W.
 - **Twin summary** (nothing selected): lines, planned cps against the budget,
   planned generator count (one per distinct client segment, server segment);
   the budget is editable there.
@@ -465,7 +476,7 @@ criteria of its own beyond them.
 - **trafficgen (2026-11-24):** `test/canvas.trafficgen.model.test.ts` (Emulated,
   external groups and lines write tfc only, te byte-identical; badges, tags,
   generators; row reasons; no traffic), `test/canvas.trafficgen.panel.test.tsx`
-  (the panel and the Add panel's Internet users), `test/traffic.live.test.tsx`
+  (the panel, the Add panel's Internet users and Emulated group), `test/traffic.live.test.tsx`
   (generators and counters in the deploy view), `test/canvas.edit.model.test.ts`
   (Save-As rewrites every tier file's target).
 

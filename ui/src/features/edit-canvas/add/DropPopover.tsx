@@ -20,7 +20,8 @@ import { usePopoverAt } from "./usePopoverAt";
 export type DropCommit =
   | { kind: "device"; spec: DeviceDrop }
   | { kind: "tap"; segment: string; sensors: string[] }
-  | { kind: "external"; tool: "internet-users" | "internet-services"; name: string; role: string; count: number };
+  | { kind: "external"; tool: "internet-users" | "internet-services"; name: string; role: string; count: number }
+  | { kind: "emulated"; segment: string; name: string; role: string; count: number };
 
 /** The server roles the installed app mixes emit to: what an Internet services group can stand for. */
 function mixServerRoles(personas: readonly Persona[]): string[] {
@@ -104,6 +105,18 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   // A switch carrying several segments was dropped on: which one (B2); its default is the switch's own pick.
   const [segChoice, setSegChoice] = useState<string | null>(null);
   const landing: DropTarget = "segment" in target && segChoice ? { segment: segChoice, via: target.via ?? null } : target;
+  // The Emulated group tool (T11 decided D): name, count and role on the segment it landed on. The
+  // role choices are the segment's own host roles first (a second group beside a real one), then
+  // the roles the installed mixes serve.
+  const emuTool = item.kind === "tool" && item.tool === "emulated-group";
+  const emuSegment = "segment" in landing ? landing.segment : null;
+  const emuRoles = useMemo(() => {
+    const own = te.nodes.filter((n) => n.kind === "host" && n.role && n.nets.some((x) => x.segment === emuSegment)).map((n) => n.role!);
+    return [...new Set([...own, ...serverRoles])];
+  }, [te, emuSegment, serverRoles]);
+  const [emuName, setEmuName] = useState("");
+  const [emuCount, setEmuCount] = useState(4);
+  const [emuRole, setEmuRole] = useState<string | null>(null);
   const groups = useMemo(() => (card ? rolesFor(card, os, personas, traffic) : []), [card, os, personas, traffic]);
   const persona = personas.find((p) => p.id === role) ?? null;
   const profile = card ? profileFor(card, os) : null;
@@ -129,6 +142,10 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
   const spec = (): DropCommit | null => {
     if (extTool) {
       return { kind: "external", tool: extTool, name: extTool, role: extTool === "internet-users" ? "internet-user" : extRole, count: Math.max(1, Math.floor(extCount) || 1) };
+    }
+    if (emuTool) {
+      if (!emuSegment) return null;
+      return { kind: "emulated", segment: emuSegment, name: emuName.trim(), role: emuRole ?? emuRoles[0] ?? "emulated", count: Math.max(1, Math.floor(emuCount) || 1) };
     }
     if (item.kind === "tool" && item.tool === "tap") {
       if (!("segment" in landing)) return null;
@@ -211,6 +228,25 @@ export function DropPopover({ item, target, te, personas, profiles, sensors, at,
               </select>
             </label>
           ) : null}
+        </>
+      ) : null}
+      {emuTool ? (
+        <>
+          <p className="muted hint" data-testid="drop-emulated-note">emulated instances on <span className="mono">{emuSegment}</span>, no VM: a planned TRex generator answers for them (free addresses of the segment). Written to the traffic profile only; give them traffic lines in their own panel or a group's Traffic section.</p>
+          <label className="cv-field">
+            <span className="cv-field-label">Name</span>
+            <input type="text" aria-label="Emulated group name" data-testid="drop-emulated-name" placeholder={`${emuSegment ?? "segment"}-emulated`} value={emuName} onChange={(e) => setEmuName(e.target.value)} />
+          </label>
+          <label className="cv-field">
+            <span className="cv-field-label">Count</span>
+            <input type="number" min={1} aria-label="Emulated count" data-testid="drop-emulated-count" value={emuCount} onChange={(e) => setEmuCount(Number(e.target.value))} />
+          </label>
+          <label className="cv-field">
+            <span className="cv-field-label">Role</span>
+            <select aria-label="Emulated group role" data-testid="drop-emulated-role" value={emuRole ?? emuRoles[0] ?? "emulated"} onChange={(e) => setEmuRole(e.target.value)}>
+              {(emuRoles.length ? emuRoles : ["emulated"]).map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
         </>
       ) : null}
       {item.kind === "tool" && item.tool === "tap" ? (

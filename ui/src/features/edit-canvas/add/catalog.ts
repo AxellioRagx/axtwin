@@ -15,7 +15,7 @@ import { L3_SWITCH_ROLE } from "../model/roles";
 
 export type CardId = "router" | "l3switch" | "switch" | "server" | "workstation" | "ot";
 export type Os = "linux" | "windows";
-export type ToolId = "internet" | "internet-users" | "internet-services" | "tap";
+export type ToolId = "internet" | "internet-users" | "internet-services" | "emulated-group" | "tap";
 
 export interface DeviceCard {
   id: CardId;
@@ -53,6 +53,8 @@ export const TOOLS: readonly Tool[] = [
   // trafficgen (design §4.3): tfc-only external groups on the internet segment, emulated by TRex (no VM).
   { id: "internet-users", label: "Internet users", line: "emulated clients on the internet (no VM): traffic lines go inward, to web, VPN, mail" },
   { id: "internet-services", label: "Internet services", line: "emulated servers on the internet (no VM): internal groups' lines go outward" },
+  // The same kind of group on any segment (T11 decided D, 2026-11-25): a second emulated group beside a real one.
+  { id: "emulated-group", label: "Emulated group", line: "drop on a segment or switch: emulated instances there (no VM), for traffic lines" },
   { id: "tap", label: "Sensor / tap", line: "drop on a segment or switch: mirror it to a sensor" },
 ];
 
@@ -199,6 +201,7 @@ const TOOL_WORDS: Record<ToolId, string[]> = {
   internet: ["internet", "wan", "uplink", "sink", "cloud"],
   "internet-users": ["internet", "users", "clients", "emulated", "trex", "north-south"],
   "internet-services": ["internet", "services", "servers", "saas", "emulated", "trex", "north-south"],
+  "emulated-group": ["emulated", "group", "trex", "traffic", "generator", "east-west", "virtual"],
   tap: ["sensor", "tap", "mirror", "span", "capture"],
 };
 

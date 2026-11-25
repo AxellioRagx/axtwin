@@ -115,6 +115,8 @@ emulated instances").
 
 - Tools → **Internet** gains two options: *Internet users* and *Internet
   services* (§5).
+- Tools → **Emulated group** (§9 T11 D): an emulated-only group on the
+  segment it is dropped on.
 - App mixes appear under each card's role list as "traffic only" roles, and
   in search. The Advanced-only "Traffic generators" category goes away once
   the old `loadgen-*` personas are migrated or retired.
@@ -129,7 +131,9 @@ the row reasons (the TGN rules the canvas can see and the planner's
 one-generator limit), "no traffic" for a real group or member (§9 T12); §4.2's
 hatched external group with its count chip and the design health line as
 the Twin panel's traffic summary (planned cps against `budget`, planned
-generators); §4.3's Internet users / Internet services. Not built: traffic
+generators); §4.3's Internet users / Internet services, and (2026-11-25, §9
+T11 D) an **Emulated group** tool that places the same tfc-only group on any
+segment; its lines are E-W. Not built: traffic
 arcs, "Show generators", live rate edit, schedules, a hatched part on an
 internal group's icon, app mixes in the role lists.
 
@@ -566,10 +570,10 @@ model.
     `rack1-app → rack3-db` passes Check (0 errors, 2 generators).
   - **Emulated-only:** `emulated: { group: rack1-web-back, external: true,
     segment: rack1-lan, role: web-tier, count: 4 }` already passes TGN and the
-    planner (TGN-030 allows `external` on any segment). The canvas's Tools only
-    place external groups on the internet segment, so this is YAML-only today.
-    Offering it on any segment from the canvas is a separate UI change, not
-    proposed here.
+    planner (TGN-030 allows `external` on any segment). **Built in the canvas
+    2026-11-25** (asked for by the user): Tools → *Emulated group*, dropped on
+    a segment; no real VM. Checked: `internet-users → rack1-web` plus
+    `rack1-web-2 (emulated, rack1-lan) → rack3-db` passes Check (0 errors).
 
   *Exact diff if B is signed off and S3b passes* (contract text; code
   follows it; not built, see the outcome above):

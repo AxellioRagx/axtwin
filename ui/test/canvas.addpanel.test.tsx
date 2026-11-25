@@ -83,7 +83,7 @@ describe("the Add panel (phase 1, §10)", () => {
     openPalette();
     const panel = within(screen.getByTestId("palette"));
     expect(panel.getAllByTestId("add-card").map((c) => c.dataset["id"])).toEqual(["router", "l3switch", "switch", "server", "workstation", "ot"]);
-    expect(panel.getAllByTestId("add-tool").map((c) => c.dataset["id"])).toEqual(["internet", "internet-users", "internet-services", "tap"]);
+    expect(panel.getAllByTestId("add-tool").map((c) => c.dataset["id"])).toEqual(["internet", "internet-users", "internet-services", "emulated-group", "tap"]);
     expect(panel.getByTestId("add-recent")).toBeTruthy();
     expect(panel.getByTestId("add-health").textContent).toBe("no design hints");
     const text = screen.getByTestId("palette").textContent ?? "";
