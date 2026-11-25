@@ -487,7 +487,7 @@ model.
   selects generator legs (T3 point 8's follow-up), built as §8.3a describes.
   T7 is not raised: external groups take free addresses of their segment,
   as the gate run did.
-- **T11 [SIGN-OFF] (raised by the canvas task, item 5, 2026-11-25): one
+- **T11 (raised by the canvas task, item 5, 2026-11-25; decided D): one
   generator with several port pairs**, so an emulated group can be in lines
   to more than one segment (gate example: `internet-users → rack1-web` and
   `rack1-web → rack3-db`; today Check refuses the second line with the
@@ -555,8 +555,24 @@ model.
     and `rack1-web-back` calling `rack3-db`). Cost: none; the canvas shows two
     groups.
 
+  **Decided 2026-11-25: D.** No planner change; a group's lines stay on one
+  (from segment, to segment) pair, and the two-generator reason stands. A
+  group that both serves and calls across segments is modelled as two
+  emulated groups. Two ways to do that:
+  - **From the canvas today:** add a second node group on the segment (e.g.
+    `rack1-app`: Real 1, "no traffic", Emulated 4) and put the other line on
+    it. Real 0 is still refused (T4 open for internal groups), so this costs
+    one idle real VM. Checked: `internet-users → rack1-web` plus
+    `rack1-app → rack3-db` passes Check (0 errors, 2 generators).
+  - **Emulated-only:** `emulated: { group: rack1-web-back, external: true,
+    segment: rack1-lan, role: web-tier, count: 4 }` already passes TGN and the
+    planner (TGN-030 allows `external` on any segment). The canvas's Tools only
+    place external groups on the internet segment, so this is YAML-only today.
+    Offering it on any segment from the canvas is a separate UI change, not
+    proposed here.
+
   *Exact diff if B is signed off and S3b passes* (contract text; code
-  follows it):
+  follows it; not built, see the outcome above):
   ```diff
   --- engine/src/axrange/trafficgen/SPEC.md  (Grouping)
   -One generator per distinct (client segment, server segment) of the lines;
