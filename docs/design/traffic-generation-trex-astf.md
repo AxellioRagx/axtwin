@@ -487,6 +487,96 @@ model.
   selects generator legs (T3 point 8's follow-up), built as §8.3a describes.
   T7 is not raised: external groups take free addresses of their segment,
   as the gate run did.
+- **T11 [SIGN-OFF] (raised by the canvas task, item 5, 2026-11-25): one
+  generator with several port pairs**, so an emulated group can be in lines
+  to more than one segment (gate example: `internet-users → rack1-web` and
+  `rack1-web → rack3-db`; today Check refuses the second line with the
+  two-generator reason).
+  *What is already generic:* `compose.py`, the in-VM wrapper (`guest_tg.py`:
+  `port_limit` = legs, one namespace per port, `client_mask = 1 << client_port`,
+  the A3 "port" mode) and `astf_profile.py` take any number of legs and a
+  per-line `client_port`. Packing pairs is a planner change.
+  *Why it is not contained:*
+  1. **Pool split (A3, `trafficgen/SPEC.md` "Pools"):** with N pairs in one
+     process, a profile limited to one client port uses 1/N of each pool, and
+     every pool needs more than N addresses. On a 2-pair generator, Internet
+     users ×200 originate from 100 addresses, and `rack3-db` ×2 is refused
+     (2 ≤ N). The canvas's counts would no longer mean what they say.
+  2. **One group on two legs of one segment (not spiked):** `rack1-web` is
+     the server leg of pair 0 (odd port) and the client leg of pair 1 (even
+     port), both on `rack1-lan`. An address can have one ARP owner on that L2
+     (two namespaces answering for it flap the MAC). So pair 1 must send from
+     addresses it does not own, and the return traffic lands on pair 0's
+     port. Spike S3 gave every leg its own pool, so this is unproven.
+  *Options:*
+  - **B (recommended): spike S3b on dev45, then build.** Spike: one TRex VM
+    (not a twin change), 4 legs, pair 0 `internet → rack1-lan`, pair 1
+    `rack1-lan → rack3-lan`. `rack1-web`'s /32s sit only on port 1; pair 1's
+    profile originates on port 2 with those sources. Pass means: pair 1 flows
+    established, 0 drops, return frames counted on port 1, Zeek `SF` on the
+    span. The spike also tries undoing the 1/N split by widening the profile's
+    range, so that pair k's slice is exactly the group's block.
+    Build, if it passes:
+    - one generator per connected set of segment pairs (groups link pairs);
+    - legs 2k/2k+1;
+    - one ARP owner per (group, segment), the first leg in line order;
+    - `client_port = 2k` per line, and sizing with `pairs = N`;
+    - single-pair stays the fallback for any set the spike's checks exclude
+      (or any pool ≤ N), and then the two-generator refusal stands.
+
+    Cost: about ½ day of spike, plus about 1 day for the planner, document and
+    tests (golden plan for the gate twin, two-segment group, fallback). If the
+    spike fails on point 2, fall back to C or D.
+  - **C: split the group by role, no spike.** A group in lines on two pairs
+    gives each leg a disjoint slice of its addresses (the proven A3
+    mechanics). Cost: about 1 day. Semantic cost: the "both" group's client
+    addresses are not its server addresses, and with the 1/N split each slice
+    needs more than N addresses. `rack3-db` ×2 and `rack1-web` ×4 do not fit
+    the gate's two pairs.
+  - **D: no build.** The row's two-generator reason stands, and the twin
+    models two emulated groups (e.g. `rack1-web-front` serving Internet users
+    and `rack1-web-back` calling `rack3-db`). Cost: none; the canvas shows two
+    groups.
+
+  *Exact diff if B is signed off and S3b passes* (contract text; code
+  follows it):
+  ```diff
+  --- engine/src/axrange/trafficgen/SPEC.md  (Grouping)
+  -One generator per distinct (client segment, server segment) of the lines;
+  -lines sharing that pair share the generator. One TRex port pair per generator.
+  +One generator per connected set of (client segment, server segment) pairs,
+  +two pairs being connected when an emulated group is in lines on both. Pair k
+  +is ports 2k (client) / 2k+1 (server); a line carries `client_port: 2k`.
+  +An emulated group's addresses have one owner leg per segment (the first leg
+  +in line order); other legs on that segment originate from them without
+  +answering ARP. A set with a pool of N or fewer addresses (N = its pairs)
+  +is planned single-pair, and a group then on two generators is refused (PLAN).
+  --- engine/src/axrange/trafficgen/plan.py  (module docstring)
+  -Grouping (T3 §3): one generator per distinct (client segment, server segment)
+  -of the lines; lines sharing that pair share the generator. Each generator runs
+  -one TRex process with one port pair: ...
+  +Grouping (T3 §3, T11): one generator per connected set of segment pairs;
+  +pair k = ports 2k/2k+1; one ARP owner leg per (group, segment); single-pair
+  +fallback when any pool of the set holds N or fewer addresses.
+  --- engine/src/axrange/trafficgen/plan.py  (plan_lines)
+  -    combos: dict[tuple[str, str], list[Any]]   # one generator each
+  +    sets: list[list[tuple[str, str]]]          # union-find over pairs sharing a group
+  -    owner check raises "would need two generators" for any shared group
+  +    owner check raises only across sets left single-pair by the pool rule
+  -    legs = (Leg(CLIENT_PORT, ...), Leg(SERVER_PORT, ...))
+  +    legs = [Leg(2k, client...), Leg(2k+1, server...) for k, pair in enumerate(set)]
+  -    "namespaces": {str(leg.index): list(leg.addresses) for leg in legs}
+  +    "namespaces": {str(leg.index): owned addresses only}
+  -    "client_port": CLIENT_PORT
+  +    "client_port": 2 * k
+  -    cores, mem = sizing(pairs=1, legs=len(legs))
+  +    cores, mem = sizing(pairs=len(set), legs=len(legs))
+  --- generator_host_id
+  +    multi-pair name: gen-<first client seg>--<first server seg>-x<N>
+  ```
+  Canvas: one change. `edit/traffic.ts` `plannedGenerators` / `generatorClash`
+  mirror the connected-set rule; the row's reason text still comes from the
+  planner at Check.
 
 ## 10. Spikes (before any sign-off beyond T5's image)
 
