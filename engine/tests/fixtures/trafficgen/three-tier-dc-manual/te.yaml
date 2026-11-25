@@ -1,0 +1,187 @@
+# Designed on the XTwin canvas; the twin config (te tier).
+twin_config:
+  id: three-tier-dc-manual
+  description: "Three-tier DC built by hand on the canvas: 2 core + 2 aggregation L3 switches (VyOS, OSPF area 0), 3 dual-homed racks"
+
+  segments:
+    - { name: internet, cidr: 10.250.0.0/24, zone_type: vlan, gateway: 10.250.0.1, source: authored, ospf_area: 0 }
+    - { name: agg-1--core-1, cidr: 10.254.0.0/30, zone_type: vlan, ospf_area: 0, source: authored }
+    - { name: agg-2--core-1, cidr: 10.254.0.4/30, zone_type: vlan, ospf_area: 0, source: authored }
+    - { name: agg-1--core-2, cidr: 10.254.0.8/30, zone_type: vlan, ospf_area: 0, source: authored }
+    - { name: agg-2--core-2, cidr: 10.254.0.12/30, zone_type: vlan, ospf_area: 0, source: authored }
+    - { name: agg-1--agg-2, cidr: 10.254.0.16/30, zone_type: vlan, source: authored, ospf_area: 0 }
+    - { name: rack1-lan, cidr: 10.200.0.0/24, zone_type: vlan, source: authored, gateway: 10.200.0.1, ospf_area: 0 }
+    - { name: rack2-lan, cidr: 10.200.1.0/24, zone_type: vlan, gateway: 10.200.1.1, source: authored, ospf_area: 0 }
+    - { name: rack3-lan, cidr: 10.200.2.0/24, zone_type: vlan, gateway: 10.200.2.1, source: authored, ospf_area: 0 }
+
+  nodes:
+    - name: internet-sink
+      role: internet-sink
+      image: debian-12-cloud@v1
+      nets:
+        - { segment: internet, ip: 10.250.0.10 }
+      source: authored
+    - name: core-1
+      role: l3-switch
+      kind: router
+      image: vyos@2026.06
+      nets:
+        - { segment: internet, ip: 10.250.0.1 }
+        - { segment: agg-1--core-1, ip: 10.254.0.1 }
+        - { segment: agg-2--core-1, ip: 10.254.0.5 }
+      routing: { region: dc, role: spine, loopback: 10.255.0.1/32 }
+      source: authored
+    - name: core-2
+      role: l3-switch
+      kind: router
+      image: vyos@2026.06
+      nets:
+        - { segment: internet, ip: 10.250.0.2 }
+        - { segment: agg-1--core-2, ip: 10.254.0.9 }
+        - { segment: agg-2--core-2, ip: 10.254.0.13 }
+      routing: { region: dc, role: spine, loopback: 10.255.0.2/32 }
+      source: authored
+    - name: agg-1
+      role: l3-switch
+      kind: router
+      image: vyos@2026.06
+      nets:
+        - { segment: agg-1--core-1, ip: 10.254.0.2 }
+        - { segment: agg-1--core-2, ip: 10.254.0.10 }
+        - { segment: agg-1--agg-2, ip: 10.254.0.17 }
+        - { segment: rack1-lan, ip: 10.200.0.1 }
+        - { segment: rack2-lan, ip: 10.200.1.1 }
+        - { segment: rack3-lan, ip: 10.200.2.1 }
+      routing: { region: dc, role: leaf, loopback: 10.255.0.3/32 }
+      source: authored
+    - name: agg-2
+      role: l3-switch
+      kind: router
+      image: vyos@2026.06
+      nets:
+        - { segment: agg-2--core-1, ip: 10.254.0.6 }
+        - { segment: agg-2--core-2, ip: 10.254.0.14 }
+        - { segment: agg-1--agg-2, ip: 10.254.0.18 }
+        - { segment: rack1-lan, ip: 10.200.0.2 }
+        - { segment: rack2-lan, ip: 10.200.1.2 }
+        - { segment: rack3-lan, ip: 10.200.2.2 }
+      routing: { region: dc, role: leaf, loopback: 10.255.0.4/32 }
+      source: authored
+    - name: rack1-tor
+      role: l2-switch
+      kind: switch
+      net: rack1-lan
+      source: authored
+    - name: rack1-web
+      role: web-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: nginx }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+      count: 2
+      net: rack1-lan
+      source: authored
+    - name: rack1-db
+      role: db-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: mariadb-server }
+      listen:
+        - { port: 3306, proto: tcp }
+      nets:
+        - { segment: rack1-lan, ip: 10.200.0.10 }
+      source: authored
+    - name: rack2-tor
+      role: l2-switch
+      kind: switch
+      net: rack2-lan
+      source: authored
+    - name: rack2-web
+      role: web-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: nginx }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+      count: 2
+      net: rack2-lan
+      source: authored
+    - name: rack2-db
+      role: db-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: mariadb-server }
+      listen:
+        - { port: 3306, proto: tcp }
+      nets:
+        - { segment: rack2-lan, ip: 10.200.1.10 }
+      source: authored
+    - name: rack3-tor
+      role: l2-switch
+      kind: switch
+      net: rack3-lan
+      source: authored
+    - name: rack3-web
+      role: web-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: nginx }
+      listen:
+        - { port: 80, proto: tcp }
+        - { port: 443, proto: tcp }
+      count: 2
+      net: rack3-lan
+      source: authored
+    - name: rack3-db
+      role: db-tier
+      image: debian-12-cloud@v1
+      install:
+        - { pkg: mariadb-server }
+      listen:
+        - { port: 3306, proto: tcp }
+      nets:
+        - { segment: rack3-lan, ip: 10.200.2.10 }
+      source: authored
+  fabric:
+    regions:
+      - { id: dc, igp: ospf }
+  links:
+    - a: { device: agg-1, port: eth1 }
+      b: { device: rack1-tor, port: P1 }
+      mode: trunk
+      native: rack1-lan
+      vlans: [rack1-lan]
+      source: authored
+    - a: { device: agg-2, port: eth1 }
+      b: { device: rack1-tor, port: P2 }
+      mode: trunk
+      native: rack1-lan
+      vlans: [rack1-lan]
+      source: authored
+    - a: { device: agg-1, port: eth2 }
+      b: { device: rack2-tor, port: P1 }
+      mode: trunk
+      native: rack2-lan
+      vlans: [rack2-lan]
+      source: authored
+    - a: { device: agg-2, port: eth2 }
+      b: { device: rack2-tor, port: P2 }
+      mode: trunk
+      native: rack2-lan
+      vlans: [rack2-lan]
+      source: authored
+    - a: { device: agg-1, port: eth3 }
+      b: { device: rack3-tor, port: P1 }
+      mode: trunk
+      native: rack3-lan
+      vlans: [rack3-lan]
+      source: authored
+    - a: { device: agg-2, port: eth3 }
+      b: { device: rack3-tor, port: P2 }
+      mode: trunk
+      native: rack3-lan
+      vlans: [rack3-lan]
+      source: authored

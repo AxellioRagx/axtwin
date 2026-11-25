@@ -7,7 +7,7 @@
  */
 import { DEFAULT_LAN_PREFIX, gatewayAddress, lanSitePrefix, nextFreeLan, nextFreeSlash24 } from "../edit/allocate";
 import type { Files } from "../edit/commands";
-import { addSegment, addTap, attach, placeNodes, readDoc, setAttachmentAddress, setNodeField, setPersona, type DocModel, type WorkingDoc } from "../edit/document";
+import { addSegment, addTap, attach, placeNodes, readDoc, setAttachmentAddress, setExternalGroup, setNodeField, setPersona, type DocModel, type WorkingDoc } from "../edit/document";
 import { insertSwitch, newSegmentOnRouter } from "../edit/switches";
 import { addNode } from "../edit/te";
 import { L3_SWITCH_ROLE, type CardId, type Os } from "./catalog";
@@ -235,4 +235,32 @@ export function applyInternetDrop(doc: WorkingDoc, model: DocModel, target: Drop
 export function applyTapDrop(doc: WorkingDoc, model: DocModel, segment: string, sensors: string[]): DropResult {
   if (!sensors.length) throw new Error("name a sensor: the tap tier refuses a tap with none");
   return { files: addTap(doc, model, { scope: "segment", target: segment, sensors, source: "authored" }), names: [], segment };
+}
+
+/** The Internet users / services tools (design trafficgen §4.3, §5): an external group of the traffic
+ *  profile (`emulated[]`, `external: true`) on the internet segment, made (with its sink) when the
+ *  design has none. Its addresses are free addresses of that segment, as the gate run used (T7 open
+ *  for a public-looking pool). Writes te only when the internet segment is new; the group is tfc. */
+export function applyExternalDrop(doc: WorkingDoc, model: DocModel, ext: { name: string; role: string; count: number }, sinkImage: string | null): DropResult {
+  const inet = ensureInternet(doc, model, sinkImage);
+  const m = readDoc(inet.doc);
+  const taken = new Set([...m.te.nodes.map((n) => n.name), ...(m.tfc?.emulated ?? []).map((e) => e.group)]);
+  let name = ext.name;
+  for (let n = 2; taken.has(name); n++) name = `${ext.name}-${n}`;
+  const files = setExternalGroup(inet.doc, m, { group: name, segment: inet.segment, role: ext.role, count: ext.count });
+  return { files, names: [name], segment: inet.segment };
+}
+
+/** The Emulated group tool (T11 decided D): an emulated-only group of the traffic profile on the
+ *  segment it was dropped on (`emulated[]`, `external: true`, `segment`), so a node group that both
+ *  serves and calls across segments is modelled as two groups. tfc only; the name is made unique
+ *  against te node groups and the profile's emulated groups. */
+export function applyEmulatedDrop(doc: WorkingDoc, model: DocModel, ext: { segment: string; name: string; role: string; count: number }): DropResult {
+  if (!model.te.segments.some((s) => s.name === ext.segment)) throw new Error(`no segment ${ext.segment} in the design`);
+  const base = ext.name.trim() || `${ext.segment}-emulated`;
+  const taken = new Set([...model.te.nodes.map((n) => n.name), ...(model.tfc?.emulated ?? []).map((e) => e.group)]);
+  let name = base;
+  for (let n = 2; taken.has(name); n++) name = `${base}-${n}`;
+  const files = setExternalGroup(doc, model, { group: name, segment: ext.segment, role: ext.role.trim() || "emulated", count: ext.count });
+  return { files, names: [name], segment: ext.segment };
 }

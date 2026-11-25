@@ -1,0 +1,20 @@
+# Traffic profile: three-tier-dc-manual / trafficgen (written by hand; the
+# deploy gate of engine/src/axrange/trafficgen/SPEC.md). The nine real
+# personas of tfc/default.yaml unchanged, plus two TRex lines between
+# emulated instances played by planned generator VMs.
+traffic-profile:
+  target: three-tier-dc-manual
+  assignments:
+    - role: web-tier
+      persona: web-tier
+    - role: db-tier
+      persona: db-tier
+  budget: { cps: 100, mbps: 60 }
+  emulated:
+    - { group: rack1-web, count: 20 }
+    - { group: rack3-db, count: 1 }
+    - { group: rack2-web, count: 5 }
+    - { group: internet-users, external: true, segment: internet, role: internet-user, count: 200 }
+  lines:
+    - { from: rack1-web, to: rack3-db, mix: sql-oltp, rate_cps: 20 }
+    - { from: internet-users, to: rack2-web, mix: web-browse, rate_cps: 30 }

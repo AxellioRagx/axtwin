@@ -376,6 +376,8 @@ export function HostNode(p: P) {
   const lit = glow.hosts.has(d.nodeId);
   // In edit mode the icon is a node GROUP of the working document: its count and pinned address ride along.
   const group = edit?.model.te.nodes.find((n) => n.name === d.nodeId) ?? null;
+  // An external group of the traffic profile (Internet users / services): emulated, hatched, its count a chip.
+  const external = group ? null : (edit?.model.tfc?.emulated.find((e) => e.external && e.group === d.nodeId) ?? null);
   const pinned = group?.nets[0]?.ip ?? null;
   const armed = edit?.attachFrom === d.nodeId;
   const labels = useContext(LabelsContext);
@@ -383,8 +385,9 @@ export function HostNode(p: P) {
   const sw = d.role !== null && SWITCH_ROLES.has(d.role);
   return (
     <div
-      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
+      className={`cv-host bare ${evidenceClassName(d.evidence)}${p.selected ? " selected" : ""}${lit ? " glow" : ""}${d.isGhost ? " ghost" : ""}${armed ? " cv-armed" : ""}${sw ? " cv-switch" : ""}${d.multi ? " cv-multi" : ""}${external ? " cv-emulated" : ""}${overlay ? ` cv-ov cv-ov-${d.source ?? "authored"}` : ""}${dim}`}
       data-testid="canvas-host"
+      data-emulated={external ? "external" : undefined}
       data-node-id={d.nodeId}
       data-source={d.source ?? undefined}
       data-role={d.roleLabel}
@@ -406,9 +409,10 @@ export function HostNode(p: P) {
         {sw ? <Icon.switch /> : <RoleIcon label={d.roleLabel} />}
       </span>
       {sw ? <span className="cv-role-badge" data-testid="role-badge" title={`role: ${d.role}`}>{switchBadge(d.role!)}</span> : null}
-      <ProvenanceMark source={d.source} confidence={d.confidence} />
+      {external ? null : <ProvenanceMark source={d.source} confidence={d.confidence} />}
       <FindingBadge k={`node:${d.nodeId}`} />
       {labelled ? <span className="cv-host-label mono" title={d.label}>{d.short}</span> : null}
+      {external ? <span className="badge cv-count-badge" data-testid="emulated-count" title={`${external.count} emulated instances (no VM): an external group of the traffic profile, answered by a planned TRex generator`}>×{external.count}</span> : null}
       {group && group.countValue > 1 ? (
         <span className={`badge cv-count-badge${group.members.length ? " has-overrides" : ""}${edit?.membersOpen.has(d.nodeId) ? " open" : ""}`} data-testid="count-badge" data-overrides={group.members.length || undefined} title={`${group.countValue} instances (count: ${String(group.count)})${group.members.length ? `; ${group.members.length} with a role override` : ""}; double-click for the members`} onDoubleClick={(e) => { e.stopPropagation(); edit?.onToggleMembers(d.nodeId); }}>
           ×{group.countValue}

@@ -15,7 +15,7 @@ import { L3_SWITCH_ROLE } from "../model/roles";
 
 export type CardId = "router" | "l3switch" | "switch" | "server" | "workstation" | "ot";
 export type Os = "linux" | "windows";
-export type ToolId = "internet" | "tap";
+export type ToolId = "internet" | "internet-users" | "internet-services" | "emulated-group" | "tap";
 
 export interface DeviceCard {
   id: CardId;
@@ -50,6 +50,11 @@ export interface Tool {
 /** The Tools section (§6). Attacker is not offered: no attack-framework registry exists to say one is installed. */
 export const TOOLS: readonly Tool[] = [
   { id: "internet", label: "Internet", line: "an internet segment with a sink a router can uplink to" },
+  // trafficgen (design §4.3): tfc-only external groups on the internet segment, emulated by TRex (no VM).
+  { id: "internet-users", label: "Internet users", line: "emulated clients on the internet (no VM): traffic lines go inward, to web, VPN, mail" },
+  { id: "internet-services", label: "Internet services", line: "emulated servers on the internet (no VM): internal groups' lines go outward" },
+  // The same kind of group on any segment (T11 decided D, 2026-11-25): a second emulated group beside a real one.
+  { id: "emulated-group", label: "Emulated group", line: "drop on a segment or switch: emulated instances there (no VM), for traffic lines" },
   { id: "tap", label: "Sensor / tap", line: "drop on a segment or switch: mirror it to a sensor" },
 ];
 
@@ -67,6 +72,19 @@ export const CATEGORY_LABEL: Record<string, string> = {
 const TRAFFIC_PREFIXES = ["loadgen-", "xseg-"];
 
 /** §4.2: the file's category, else `traffic` for the generators, else `other` (the API applies the same rule). */
+/** A TRex app mix (`drive: trex-astf` with `mix:`): it plays from emulated instances on traffic lines,
+ *  so no picker that binds a persona to a VM offers it (validator TGN-060 refuses it too). Hidden until
+ *  the canvas has the instances split (`docs/design/traffic-generation-trex-astf.md` §4). The per-VM
+ *  `knobs.side` form (`trex-test`) has no mix and stays assignable. */
+export function isAppMix(p: Pick<Persona, "drive" | "mix">): boolean {
+  return p.drive === "trex-astf" && (p.mix?.length ?? 0) > 0;
+}
+
+/** The personas a VM may be bound to: every persona but the app mixes. */
+export function assignablePersonas<T extends Pick<Persona, "drive" | "mix">>(personas: readonly T[]): T[] {
+  return personas.filter((p) => !isAppMix(p));
+}
+
 export function personaCategory(p: Pick<Persona, "id" | "category">): string {
   if (p.category && CATEGORY_LABEL[p.category]) return p.category;
   return TRAFFIC_PREFIXES.some((x) => p.id.startsWith(x)) ? "traffic" : "other";
@@ -118,7 +136,7 @@ export function rolesFor(card: CardId, os: Os | null, personas: readonly Persona
   const out: RoleGroup[] = [];
   for (const cat of CATEGORY_ORDER) {
     if (!cats.includes(cat)) continue;
-    const list = personas.filter((p) => personaCategory(p) === cat && (os === null || card === "ot" || osOf(p) === os)).sort((a, b) => personaLabel(a).localeCompare(personaLabel(b)));
+    const list = personas.filter((p) => !isAppMix(p) && personaCategory(p) === cat && (os === null || card === "ot" || osOf(p) === os)).sort((a, b) => personaLabel(a).localeCompare(personaLabel(b)));
     if (list.length) out.push({ category: cat, label: CATEGORY_LABEL[cat]!, personas: list });
   }
   return out;
@@ -179,7 +197,13 @@ const CARD_WORDS: Record<CardId, string[]> = {
   workstation: ["workstation", "desktop", "laptop", "client", "pc", "user", "endpoint"],
   ot: ["ot", "ics", "scada", "industrial"],
 };
-const TOOL_WORDS: Record<ToolId, string[]> = { internet: ["internet", "wan", "uplink", "sink", "cloud"], tap: ["sensor", "tap", "mirror", "span", "capture"] };
+const TOOL_WORDS: Record<ToolId, string[]> = {
+  internet: ["internet", "wan", "uplink", "sink", "cloud"],
+  "internet-users": ["internet", "users", "clients", "emulated", "trex", "north-south"],
+  "internet-services": ["internet", "services", "servers", "saas", "emulated", "trex", "north-south"],
+  "emulated-group": ["emulated", "group", "trex", "traffic", "generator", "east-west", "virtual"],
+  tap: ["sensor", "tap", "mirror", "span", "capture"],
+};
 
 function words(text: string): string[] {
   return text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);

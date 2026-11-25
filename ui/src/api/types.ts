@@ -656,6 +656,24 @@ export interface Persona {
   label?: string;
   /** One plain sentence; "" when the file names none. */
   blurb?: string;
+  /** A TRex app mix (`drive: trex-astf` with `mix:`, `engine/src/axrange/trafficgen/SPEC.md`): played by a
+   *  planned generator on traffic lines, never bound to a VM. Absent or empty for every other persona. */
+  mix?: PersonaMixEntry[];
+  /** Every mix app may run against a real server (client-only lines; a later phase). */
+  real_server_ok?: boolean;
+}
+
+/** One `mix[]` entry of an app-mix persona, as `GET /api/personas` serves it. */
+export interface PersonaMixEntry {
+  app: string;
+  weight: number;
+  share?: number;
+  installed?: boolean;
+  label?: string;
+  proto?: string;
+  port?: number;
+  transport?: string;
+  real_server_ok?: boolean;
 }
 
 /** `GET /api/image-profiles` (`docs/design/canvas-add-panel.md` §4.3): the image a dropped device gets. */
@@ -1082,4 +1100,55 @@ export interface ValidateResult {
   errors: number;
   warnings: number;
   findings: ValidationFinding[];
+}
+
+/** One op of a deploy (`GET /api/deploys/{id}`), with its scope (which VM or generator it acts on). */
+export interface DeployOp {
+  op_id: string;
+  op_name: string;
+  op_catalog_id: string;
+  kind: string;
+  status: string;
+  started_at?: number | null;
+  completed_at?: number | null;
+  scope?: Record<string, string>;
+}
+
+/** `GET /api/deploys/{id}`: the deploy, its ops and their counts by status. */
+export interface DeployDetail {
+  deploy: DeploySummary;
+  plan_id: string;
+  placement: Record<string, string>;
+  ops: DeployOp[];
+  counts: Record<string, number>;
+}
+
+/** One traffic line's live counters (`GET /api/tfc`'s `lines`, trafficgen T3 §6), read from its generator. */
+export interface TrafficLineStatus {
+  generator?: string;
+  from?: string;
+  to?: string;
+  mix?: string;
+  rate_cps?: number;
+  mult?: number;
+  state?: string;
+  opened?: number;
+  established?: number;
+  accepted?: number;
+  errors?: number;
+  bytes?: number;
+  open?: number;
+  cps_now?: number;
+  error?: string;
+  [k: string]: unknown;
+}
+
+/** `GET /api/tfc`: a tfc deploy's status, with per-line counters when its profile has lines. */
+export interface TrafficStatus {
+  deploy_id: string | null;
+  twin: string;
+  status: string;
+  assignments: Array<{ persona?: string | null; hosts?: string[] | null }>;
+  warnings: string[];
+  lines: Record<string, TrafficLineStatus>;
 }

@@ -1269,6 +1269,46 @@ def test_validate_document_reports_a_bad_tap_plan_and_a_bad_persona(env):
     )
 
 
+def test_validate_document_refuses_an_app_mix_on_a_real_vm_with_tgn_060(env):
+    """UI review 2a: a TRex app mix picked for a VM in the canvas is refused
+    by Check (its own rule id, the file as location) and by Save."""
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    files = _edited(_doc(c), **{"tfc/default.yaml": TFC + "    - node: h-a\n      persona: web-browse\n"})
+    r = _validate(c, files)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["disposition"] == "FAIL"
+    (f,) = [f for f in j["findings"] if f["rule_id"] == "TGN-060"]
+    assert f["severity"] == "error" and f["location"] == "tfc/default.yaml"
+    assert "node 'h-a' has no emulated instances" in f["message"] and "web-browse" in f["message"]
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 400 and "TGN-060" in r.text
+    assert (catalog / TWIN / "tfc" / "default.yaml").read_text() == TFC
+
+
+def test_validate_document_flags_a_tier_file_naming_another_twin(env):
+    """2026-11-24: a Save-As copy kept its source's id in tfc/ and tap/
+    (`three-tier-dc-trex` said `target: three-tier-dc-manual`). Check names
+    the file (TIER-TARGET); Save refuses it; a deploy id of this twin is fine."""
+    settings, catalog = env
+    c, _, _ = _client(settings)
+    tap = "tap-plan:\n  target: other-twin\n  bindings: []\n"
+    files = _edited(_doc(c), **{"tap/default.yaml": tap})
+    j = _validate(c, files).json()
+    assert j["disposition"] == "FAIL"
+    (f,) = [f for f in j["findings"] if f["rule_id"] == "TIER-TARGET"]
+    assert f["location"] == "tap/default.yaml" and "'other-twin'" in f["message"]
+    files = _edited(_doc(c), **{"tfc/default.yaml": TFC.replace("target: edit-twin", "target: other-twin")})
+    assert "target: other-twin" in files["tfc/default.yaml"]
+    j = _validate(c, files).json()
+    assert [f["location"] for f in j["findings"] if f["rule_id"] == "TIER-TARGET"] == ["tfc/default.yaml"]
+    r = c.put(f"/api/twin-configs/{TWIN}", json={"files": files}, headers=AUTH)
+    assert r.status_code == 400 and "TIER-TARGET" in r.text
+    ok = _edited(_doc(c), **{"tap/default.yaml": "tap-plan:\n  target: edit-twin-0123abcd\n  bindings: []\n"})
+    assert not [f for f in _validate(c, ok).json()["findings"] if f["rule_id"] == "TIER-TARGET"]
+
+
 def test_a_tap_binding_with_no_sensor_is_a_warning_and_legacy_cast_names_are_tier_files(env):
     """2026-11-09: a fresh cast's tap plan names no sensor on any binding; the
     document is sound (Save stays open) and Checks says how many taps need

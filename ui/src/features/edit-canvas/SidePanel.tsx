@@ -45,19 +45,28 @@ import {
   setSpanSourcesOf,
   setTapSensorsOf,
   tapsWithoutSensor,
+  addLine,
+  removeLine,
+  setBudget,
+  setEmulated,
+  setLine,
+  setNoTraffic,
+  setExternalGroup,
+  removeExternalGroup,
   type DocModel,
   type WorkingDoc,
 } from "./edit/document";
 import type { Files } from "./edit/commands";
 import type { TeModel } from "./edit/te";
-import { effectiveAssignment } from "./edit/tfc";
+import { effectiveAssignment, lineId, type TfcLine } from "./edit/tfc";
+import { canEmulate, emulatedCount, externalGroups, groupBadge, groupInstances, groupRole, hasNoTraffic, lineReasons, lineTag, mixesFor, trafficHealth } from "./edit/traffic";
 import { detachMember, instanceId, mergeGroups, mergeTargets, moveMember, splitGroup } from "./edit/members";
 import { carriedBy, duplicateSubtree, subtreeCount, subtreeOf, uplinksOf } from "./edit/subtree";
 import { isBridgeVm } from "./edit/fabric";
 import { hostSwitch, insertSwitch } from "./edit/switches";
 import { SPAN_DIRS, selectorOf, spanOn, tapsOn, type SpanSource, type TapBinding, type TapSelector } from "./edit/tap";
 import { SWITCH_ROLES } from "./model/roles";
-import { isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
+import { assignablePersonas, isL3Switch, twoGatewayLans, twoGatewayText } from "./add/catalog";
 import { inTransitPool as isTransitCidr } from "./edit/allocate";
 import { effectiveGateway, routersOn, setVip, shareGateway, stopSharing, vrrpImageGaps } from "./edit/vrrp";
 import { enableOspf, runsOspf } from "./edit/ospf";
@@ -85,13 +94,14 @@ export type Selection =
  *  took branch-gw and branch-sw away and the Selection tab still listed them). Nothing left is no
  *  selection -- the Twin summary. An annotation is not the document's: kept. Returns `sel` itself
  *  when nothing changed. Pure. */
-export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null }): Selection {
+export function pruneSelection(sel: Selection, model: { te: Pick<TeModel, "nodes" | "segments" | "links" | "conduits">; tap: { bindings: ReadonlyArray<{ index: number }> } | null; tfc?: { emulated: ReadonlyArray<{ group: string; external: boolean }> } | null }): Selection {
   const te = model.te;
   const node = (n: string) => te.nodes.find((x) => x.name === n);
+  const external = (n: string) => Boolean(model.tfc?.emulated.some((e) => e.external && e.group === n));
   switch (sel.kind) {
     case "node":
     case "segment": {
-      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) : te.segments.some((s) => s.name === n)));
+      const names = sel.names.filter((n) => (sel.kind === "node" ? Boolean(node(n)) || external(n) : te.segments.some((s) => s.name === n)));
       if (names.length === sel.names.length) return sel;
       return names.length ? { ...sel, names } : { kind: "none" };
     }
@@ -488,6 +498,7 @@ function TwinPanel(p: SidePanelProps) {
         <dt>Traffic profile</dt>
         <dd className="mono">{p.model.tfcPath ?? <span className="muted">none yet</span>}</dd>
       </dl>
+      <TrafficSummary {...p} />
       <p className="muted">Select a node, a segment or an attachment to edit it. The twin config carries no presentation: positions and annotations live beside it.</p>
     </section>
   );
@@ -617,10 +628,10 @@ function Members(p: SidePanelProps & { name: string }) {
                 <td>
                   <select aria-label={`Persona of ${instance(i)}`} value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${instance(i)}`, (d, mo) => clearPersona(d, mo, "node", instance(i))); else p.apply(`persona of ${instance(i)}`, (d, mo) => setPersona(d, mo, "node", instance(i), { persona: v })); }}>
                     <option value="">{inherited ? `(${inherited.persona})` : "none"}</option>
-                    {p.personas.map((ps) => (
+                    {assignablePersonas(p.personas).map((ps) => (
                       <option key={ps.id} value={ps.id}>{ps.id}</option>
                     ))}
-                    {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+                    {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
                   </select>
                 </td>
               </tr>
@@ -641,7 +652,7 @@ function Members(p: SidePanelProps & { name: string }) {
           <div className="row cv-inline">
             <select aria-label="Persona for picked members" value={bulkPersona} disabled={ro} onChange={(e) => setBulkPersona(e.target.value)}>
               <option value="">unbind (inherit)</option>
-              {p.personas.map((ps) => (
+              {assignablePersonas(p.personas).map((ps) => (
                 <option key={ps.id} value={ps.id}>{ps.id}</option>
               ))}
             </select>
@@ -776,12 +787,13 @@ function MemberPanel(p: SidePanelProps & { node: string; index: number }) {
         <Text ariaLabel="Member role" value={m?.role ?? ""} placeholder={n.role ?? "inherits"} disabled={ro} onCommit={(v) => p.apply(`role of ${id}`, (d) => setMemberRole(d, n.name, p.index, v.trim() || null))} />
       </Field>
       <Field label={bound ? "Bound to this instance" : inherited ? `Inherited: ${inherited.persona}` : "Not bound"}>
-        <select aria-label="Member persona" value={bound?.persona ?? ""} disabled={ro} onChange={(e) => { const v = e.target.value; if (!v) p.apply(`unbind persona of ${id}`, (d, mo) => clearPersona(d, mo, "node", id)); else p.apply(`persona of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { persona: v })); }}>
+        <select aria-label="Member persona" value={bound?.persona ?? (hasNoTraffic(p.model, [id]) ? NO_TRAFFIC : "")} disabled={ro} onChange={(e) => { const v = e.target.value; if (v === NO_TRAFFIC) p.apply(`no traffic on ${id}`, (d, mo) => setNoTraffic(d, mo, [id])); else if (!v) p.apply(`unbind persona of ${id}`, (d, mo) => clearPersona(d, mo, "node", id)); else p.apply(`persona of ${id}`, (d, mo) => setPersona(d, mo, "node", id, { persona: v })); }}>
           <option value="">{inherited && !bound ? `(group's: ${inherited.persona})` : "none"}</option>
-          {p.personas.map((ps) => (
+          <option value={NO_TRAFFIC}>no traffic</option>
+          {assignablePersonas(p.personas).map((ps) => (
             <option key={ps.id} value={ps.id}>{ps.id}</option>
           ))}
-          {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+          {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
         </select>
       </Field>
       {bound ? (
@@ -822,7 +834,44 @@ function MemberPanel(p: SidePanelProps & { node: string; index: number }) {
   );
 }
 
+/** An external group (Internet users / services): a tfc-only emulated group on its segment, no VM,
+ *  no te node. Its count, its lines, and remove. */
+function ExternalPanel(p: SidePanelProps & { name: string }) {
+  const e = p.model.tfc!.emulated.find((x) => x.external && x.group === p.name)!;
+  const ro = p.locked;
+  const set = (patch: Partial<{ group: string; count: number; role: string }>, what: string) =>
+    p.apply(`${what} of ${e.group}`, (d, m) => setExternalGroup(d, m, { group: patch.group ?? e.group, segment: e.segment ?? "internet", role: patch.role ?? e.role ?? "internet-user", count: patch.count ?? e.count }, e.group));
+  return (
+    <section className="cv-side-section" data-testid="external-panel">
+      <h3>
+        {(e.segment ?? "internet") === "internet" ? "External group" : "Emulated group"} <span className="mono">{e.group}</span>{" "}
+        {groupBadge(p.model.tfc, e.group) ? <span className="cv-chip" data-testid="traffic-badge">{groupBadge(p.model.tfc, e.group)}</span> : null}
+      </h3>
+      <p className="muted hint">emulated instances on <span className="mono">{e.segment}</span> with no VM: a planned TRex generator answers for them, from free addresses of the segment. Written to the traffic profile only (tfc <span className="mono">emulated[]</span>, <span className="mono">external: true</span>).</p>
+      <Field label="Name">
+        <Text ariaLabel="External group name" value={e.group} disabled={ro} mono onCommit={(v) => { const t = v.trim(); if (t && t !== e.group && set({ group: t }, "rename") === null) p.onSelect?.({ kind: "node", names: [t] }); }} />
+      </Field>
+      <Field label="Role" hint="the role a line's mix is matched against when this group is the server end">
+        <Text ariaLabel="External group role" value={e.role ?? ""} disabled={ro} mono onCommit={(v) => { if (v.trim()) set({ role: v.trim() }, "role"); }} />
+      </Field>
+      <Field label="Instances" hint="Emulated only: an external group has no real VMs">
+        <Text ariaLabel="Emulated instances" value={String(e.count)} disabled={ro} mono onCommit={(v) => { const c = Number(v); if (Number.isInteger(c) && c >= 1) set({ count: c }, "count"); }} />
+      </Field>
+      <TrafficLines {...p} group={e.group} />
+      <h4>Actions</h4>
+      <button type="button" className="danger" disabled={ro} data-testid="remove-external" onClick={() => p.apply(`remove ${e.group}`, (d, m) => removeExternalGroup(d, m, e.group))}>
+        Remove external group (and its lines)
+      </button>
+    </section>
+  );
+}
+
 function NodePanel(p: SidePanelProps & { name: string }) {
+  if (!p.model.te.nodes.some((x) => x.name === p.name) && p.model.tfc?.emulated.some((e) => e.external && e.group === p.name)) return <ExternalPanel {...p} />;
+  return <TeNodePanel {...p} />;
+}
+
+function TeNodePanel(p: SidePanelProps & { name: string }) {
   const n = p.model.te.nodes.find((x) => x.name === p.name);
   const [dupTarget, setDupTarget] = useState("");
   const [legTarget, setLegTarget] = useState("");
@@ -888,9 +937,13 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           {runsOspf(p.model.te, n) ? " (OSPF)" : ""}
         </p>
       ) : null}
-      <Field label="Count" hint="instances fanned out at deploy; a number or a ${PARAM:default}">
-        <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(v.trim()) ? Number(v.trim()) : v.trim() || null))} />
-      </Field>
+      {n.kind === "host" ? (
+        <Instances {...p} name={n.name} />
+      ) : (
+        <Field label="Count" hint="instances fanned out at deploy; a number or a ${PARAM:default}">
+          <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(v.trim()) ? Number(v.trim()) : v.trim() || null))} />
+        </Field>
+      )}
       <h5>Attachments</h5>
       {isSwitch ? <p className="muted hint" data-testid="switch-note">a switch's attachments are its own ports (address-less unless a management address is given); the segments its links carry are below</p> : null}
       {n.nets.length === 0 ? <p className="muted">on no segment</p> : null}
@@ -988,27 +1041,39 @@ function NodePanel(p: SidePanelProps & { name: string }) {
           </ul>
         </>
       ) : null}
-      <h4>Traffic <span className="muted">· tfc, live</span></h4>
-      <Field label={bound ? "Bound to this group" : assignment ? `Inherited from role ${assignment.target}` : "Not bound"} hint="written to the traffic profile; applies live on a deployed twin">
-        <select
-          aria-label="Persona"
-          value={bound?.persona ?? ""}
-          disabled={ro}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (!v) p.apply(`unbind persona of ${n.name}`, (d, m) => clearPersona(d, m, "node", n.name));
-            else p.apply(`persona of ${n.name}`, (d, m) => setPersona(d, m, "node", n.name, { persona: v }));
-          }}
-        >
-          <option value="">{assignment && !bound ? `(role's: ${assignment.persona})` : "none"}</option>
-          {p.personas.map((ps) => (
-            <option key={ps.id} value={ps.id}>
-              {ps.id}
-            </option>
-          ))}
-          {bound && !p.personas.some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
-        </select>
-      </Field>
+      <h4>
+        Traffic <span className="muted">· tfc, live</span>
+        {groupBadge(p.model.tfc, n.name) ? <span className="cv-chip" data-testid="traffic-badge" title="derived from the traffic lines: client sends, server answers">{groupBadge(p.model.tfc, n.name)}</span> : null}
+      </h4>
+      {(() => {
+        const hosts = groupInstances(n);
+        const off = n.kind === "host" && hasNoTraffic(p.model, hosts);
+        return (
+          <Field label={bound ? "Real persona: bound to this group" : assignment ? `Real persona: inherited from role ${assignment.target}` : off ? "Real persona: no traffic (the VMs stay up, idle)" : "Real persona: not bound"} hint="the real VMs' persona, written to the traffic profile; applies live on a deployed twin. No traffic: no binding drives these VMs (a role binding that covers them becomes node bindings for the role's other hosts)">
+            <select
+              aria-label="Persona"
+              value={bound?.persona ?? (off ? NO_TRAFFIC : "")}
+              disabled={ro}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === NO_TRAFFIC) p.apply(`no traffic on ${n.name}`, (d, m) => setNoTraffic(d, m, hosts));
+                else if (!v) p.apply(`unbind persona of ${n.name}`, (d, m) => clearPersona(d, m, "node", n.name));
+                else p.apply(`persona of ${n.name}`, (d, m) => setPersona(d, m, "node", n.name, { persona: v }));
+              }}
+            >
+              {!off || bound ? <option value="">{assignment && !bound ? `(role's: ${assignment.persona})` : "none"}</option> : null}
+              {n.kind === "host" ? <option value={NO_TRAFFIC}>no traffic</option> : null}
+              {assignablePersonas(p.personas).map((ps) => (
+                <option key={ps.id} value={ps.id}>
+                  {ps.id}
+                </option>
+              ))}
+              {bound && !assignablePersonas(p.personas).some((ps) => ps.id === bound.persona) ? <option value={bound.persona}>{bound.persona}</option> : null}
+            </select>
+          </Field>
+        );
+      })()}
+      {n.kind === "host" ? <TrafficLines {...p} group={n.name} /> : null}
       {bound ? (
         <>
           <Field label="Intensity">
@@ -1831,5 +1896,183 @@ function PromoteButton(p: { testId: string; block: string | null; disabled: bool
         </p>
       ) : null}
     </>
+  );
+}
+
+/** The persona dropdowns' "no traffic" choice (the real VMs stay up, idle; `setNoTraffic`). */
+const NO_TRAFFIC = "__no-traffic__";
+
+/** Instances: `Real N · Emulated M` (design §4.1). Real is the te `count`; te refuses 0 (Real 0 is
+ *  open, T4), shown as a hint, not written. Emulated is the tfc profile's `emulated[]` entry: no VM,
+ *  addresses a planned generator answers for; te is never written. */
+function Instances(p: SidePanelProps & { name: string }) {
+  const n = p.model.te.nodes.find((x) => x.name === p.name)!;
+  const [zero, setZero] = useState(false);
+  const ro = p.locked;
+  const emul = emulatedCount(p.model.tfc, n.name);
+  const able = canEmulate(n);
+  return (
+    <Field label="Instances" hint={able ? "Real: VMs, fanned out at deploy (te count; a number or a ${PARAM:default}). Emulated: addresses in the group's segment a planned TRex generator answers for (tfc only)" : "Real: VMs fanned out at deploy. Emulated instances need a group on exactly one segment"}>
+      <div className="row cv-inline" data-testid="instances">
+        <span>Real</span>
+        <Text ariaLabel="Count" value={String(n.count)} disabled={ro} mono onCommit={(v) => {
+          const t = v.trim();
+          if (t === "0") { setZero(true); return; }
+          setZero(false);
+          p.apply(`count of ${n.name}`, (d) => setNodeField(d, n.name, "count", /^\d+$/.test(t) ? Number(t) : t || null));
+        }} />
+        <span>· Emulated</span>
+        <Text ariaLabel="Emulated instances" value={String(emul)} disabled={ro || !able} mono onCommit={(v) => {
+          const c = Number(v.trim() || "0");
+          if (!Number.isInteger(c) || c < 0) return;
+          p.apply(`emulated instances of ${n.name}`, (d, m) => setEmulated(d, m, n.name, c));
+        }} />
+      </div>
+      {zero ? <p className="muted hint" data-testid="real-zero-hint">Real 0 is not available: te refuses a group with no VMs (open decision T4). Keep 1 and set its persona to no traffic.</p> : null}
+    </Field>
+  );
+}
+
+/** A line's row reasons, from the canvas's mirror of the TGN rules and the planner's limit. */
+function Reasons({ reasons }: { reasons: { rule: string; message: string }[] }) {
+  if (!reasons.length) return null;
+  return (
+    <ul className="cv-reasons" data-testid="line-reasons">
+      {reasons.map((r, i) => (
+        <li key={i} className="error">
+          <span className="mono">{r.rule === "PLAN" ? "planner" : r.rule}</span> {r.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Traffic lines touching `group` (design §4.1): add / edit / remove. A row's direction is this
+ *  group's part: `calls` (it is the line's `from`, the client) or `serves` (its `to`). The mixes
+ *  offered are TRex app mixes that emit to the server end's role. */
+function TrafficLines(p: SidePanelProps & { group: string }) {
+  const t = p.model.tfc;
+  const ro = p.locked;
+  const [dir, setDir] = useState<"calls" | "serves">("calls");
+  const [peer, setPeer] = useState("");
+  const [mix, setMix] = useState("");
+  const [rate, setRate] = useState("10");
+  const [cap, setCap] = useState("");
+  const g = p.group;
+  const emul = emulatedCount(t, g);
+  const rows = (t?.lines ?? []).map((l, index) => ({ l, index })).filter(({ l }) => l.from === g || l.to === g);
+  const peers = [
+    ...p.model.te.nodes.filter((n) => n.name !== g && canEmulate(n)).map((n) => ({ name: n.name, role: n.role, external: false })),
+    ...externalGroups(t).filter((e) => e.group !== g).map((e) => ({ name: e.group, role: e.role, external: true })),
+  ];
+  const serverOf = (from: string, to: string) => groupRole(p.model, to === g && from !== g ? g : to);
+  const newServer = dir === "calls" ? (peer ? groupRole(p.model, peer) : null) : groupRole(p.model, g);
+  const offered = mixesFor(p.personas, newServer);
+  const ends = (d: "calls" | "serves", other: string) => (d === "calls" ? { from: g, to: other } : { from: other, to: g });
+  const canAdd = emul > 0 && !!peer && !!mix && Number(rate) > 0;
+  return (
+    <div data-testid="traffic-lines">
+      <h5>Traffic lines <span className="muted">· TRex, tfc</span></h5>
+      {rows.length === 0 ? <p className="muted">on no traffic line</p> : null}
+      {rows.length ? (
+        <table className="cv-members cv-lines">
+          <thead>
+            <tr><th>this group</th><th>talks to</th><th>app mix</th><th>cps</th><th>max open</th><th /><th /></tr>
+          </thead>
+          <tbody>
+            {rows.map(({ l, index }) => {
+              const d: "calls" | "serves" = l.from === g ? "calls" : "serves";
+              const other = d === "calls" ? l.to : l.from;
+              const mixes = mixesFor(p.personas, serverOf(l.from, l.to));
+              const set = (patch: Partial<TfcLine>, what: string) => p.apply(`${what} of line ${lineId(l)}`, (doc, m) => setLine(doc, m, index, patch));
+              return (
+                <tr key={index} data-testid="line-row" data-line={lineId(l)}>
+                  <td>
+                    <select aria-label={`Direction of ${lineId(l)}`} value={d} disabled={ro} onChange={(e) => set(ends(e.target.value as "calls" | "serves", other), "direction")}>
+                      <option value="calls">calls</option>
+                      <option value="serves">serves</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select aria-label={`Peer of ${lineId(l)}`} value={other} disabled={ro} onChange={(e) => set(ends(d, e.target.value), "peer")}>
+                      {peers.some((x) => x.name === other) ? null : <option value={other}>{other}</option>}
+                      {peers.map((x) => <option key={x.name} value={x.name}>{x.name}{x.role ? ` (${x.role})` : ""}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <select aria-label={`Mix of ${lineId(l)}`} value={l.mix} disabled={ro} onChange={(e) => set({ mix: e.target.value }, "mix")}>
+                      {mixes.some((x) => x.id === l.mix) ? null : <option value={l.mix}>{l.mix}</option>}
+                      {mixes.map((x) => <option key={x.id} value={x.id}>{x.label?.trim() || x.id}</option>)}
+                    </select>
+                  </td>
+                  <td><Text ariaLabel={`Rate of ${lineId(l)}`} value={String(l.rate_cps)} disabled={ro} mono onCommit={(v) => { const r = Number(v); if (r > 0) set({ rate_cps: r }, "rate"); }} /></td>
+                  <td><Text ariaLabel={`Concurrency of ${lineId(l)}`} value={l.max_concurrent === null ? "" : String(l.max_concurrent)} placeholder={`${Math.round(l.rate_cps * 10)}`} disabled={ro} mono onCommit={(v) => { const c = v.trim() === "" ? null : Number(v); if (c === null || (Number.isInteger(c) && c >= 1)) set({ max_concurrent: c }, "concurrency"); }} /></td>
+                  <td><span className="cv-chip" data-testid="line-tag" title={lineTag(t, l) === "N-S" ? "north-south: one end is an external group on the internet" : "east-west: both ends inside the twin"}>{lineTag(t, l)}</span></td>
+                  <td><button type="button" disabled={ro} aria-label={`Remove line ${lineId(l)}`} onClick={() => p.apply(`remove line ${lineId(l)}`, (doc, m) => removeLine(doc, m, index))}>×</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : null}
+      {rows.map(({ l, index }) => {
+        const r = lineReasons(p.model, p.personas, index);
+        return r.length ? (
+          <div key={index} data-testid="line-why" data-line={lineId(l)}>
+            <span className="mono muted">{lineId(l)}</span>
+            <Reasons reasons={r} />
+          </div>
+        ) : null;
+      })}
+      <div className="row cv-inline" data-testid="add-line">
+        <select aria-label="New line direction" value={dir} disabled={ro || emul === 0} onChange={(e) => setDir(e.target.value as "calls" | "serves")}>
+          <option value="calls">calls</option>
+          <option value="serves">serves</option>
+        </select>
+        <select aria-label="New line peer" value={peer} disabled={ro || emul === 0} onChange={(e) => { setPeer(e.target.value); setMix(""); }}>
+          <option value="">talks to…</option>
+          {peers.map((x) => <option key={x.name} value={x.name}>{x.name}{x.role ? ` (${x.role})` : ""}{x.external ? " · external" : ""}</option>)}
+        </select>
+        <select aria-label="New line mix" value={mix} disabled={ro || emul === 0 || !peer} onChange={(e) => setMix(e.target.value)}>
+          <option value="">app mix…</option>
+          {offered.map((x) => <option key={x.id} value={x.id}>{x.label?.trim() || x.id}</option>)}
+        </select>
+        <input aria-label="New line rate" className="mono" size={4} value={rate} disabled={ro || emul === 0} onChange={(e) => setRate(e.target.value)} title="connections per second" />
+        <input aria-label="New line concurrency" className="mono" size={4} value={cap} placeholder="cap" disabled={ro || emul === 0} onChange={(e) => setCap(e.target.value)} title="max concurrent connections (default rate × 10)" />
+        <button type="button" disabled={ro || !canAdd} data-testid="add-line-button" onClick={() => {
+          const c = cap.trim() === "" ? null : Number(cap);
+          if (p.apply(`add line ${g} ${dir} ${peer}`, (doc, m) => addLine(doc, m, { id: null, ...ends(dir, peer), mix, rate_cps: Number(rate), max_concurrent: c !== null && Number.isInteger(c) && c >= 1 ? c : null })) === null) {
+            setPeer(""); setMix("");
+          }
+        }}>
+          Add line
+        </button>
+      </div>
+      {emul === 0 ? <p className="muted hint" data-testid="add-line-hint">a line needs emulated instances on this group: TRex sends and answers only from emulated addresses, never from a real VM's</p> : null}
+    </div>
+  );
+}
+
+/** The twin summary's traffic part: planned cps against the budget, the planned generators. */
+function TrafficSummary(p: SidePanelProps) {
+  const h = trafficHealth(p.model);
+  if (!h) return null;
+  const over = h.budget !== null && h.cps > h.budget;
+  return (
+    <div data-testid="traffic-summary">
+      <h5>Traffic lines</h5>
+      <p className={over ? "error" : "muted"} data-testid="traffic-health">
+        {h.lines} line{h.lines === 1 ? "" : "s"} · planned {h.cps} cps of {h.budget ?? "no"} budget{over ? " (over budget)" : ""} · {h.generators} generator{h.generators === 1 ? "" : "s"} planned
+      </p>
+      {p.model.tfc?.budget ? (
+        <div className="row cv-inline">
+          <span>Budget</span>
+          <Text ariaLabel="Budget cps" value={String(p.model.tfc.budget.cps)} disabled={p.locked} mono onCommit={(v) => { const c = Number(v); if (c > 0) p.apply("traffic budget", (d, m) => setBudget(d, m, { ...m.tfc!.budget!, cps: c })); }} />
+          <span>cps ·</span>
+          <Text ariaLabel="Budget Mbps" value={String(p.model.tfc.budget.mbps)} disabled={p.locked} mono onCommit={(v) => { const c = Number(v); if (c > 0) p.apply("traffic budget", (d, m) => setBudget(d, m, { ...m.tfc!.budget!, mbps: c })); }} />
+          <span>Mbps</span>
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -800,3 +800,25 @@ def test_new_clients_still_compile_and_never_go_through_a_shell():
     compile(src, "<command-persona-client>", "exec")
     assert "shell=True" not in src
     assert "os.system" not in src
+
+
+# ===========================================================================
+# TGN-060 at resolve time: an app mix never binds to a real VM (UI review 2a)
+# ===========================================================================
+def test_an_app_mix_on_a_real_vm_is_refused_at_resolve_and_apply(tmp_path):
+    """The canvas's live change goes through apply -> resolve with no lines;
+    the refusal has to be there, not only in the lines checks."""
+    db = _seeded_db(tmp_path)
+    spec = TrafficProfileSpec(target=TWIN_DEPLOY, assignments=[AssignmentSpec(node="ws01", persona="web-browse")])
+    store = StateStore(db)
+    try:
+        with pytest.raises(TrafficPlanError) as e:
+            resolve_traffic_bindings(spec, store)
+    finally:
+        store.close()
+    assert e.value.status == 400
+    assert e.value.message.startswith("TGN-060: assignments[0]: node 'ws01' has no emulated instances")
+    backend = _FakePersonaBackend()
+    with pytest.raises(TrafficPlanError, match="TGN-060"):
+        _apply(tmp_path, spec, db=db, backend=backend)
+    assert not backend.running and not backend.calls

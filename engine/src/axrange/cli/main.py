@@ -782,7 +782,25 @@ def _add_tfc_status(group):
                    help=f"State-store DB path (default: {_DEFAULT_DB_PATH})")
     p.add_argument("--json", action="store_true",
                    help="Emit a stable JSON shape instead of a human table")
+    p.add_argument("--adapter-config", default=None,
+                   help="Also read each traffic line's live counters from its generator (trafficgen)")
+    p.add_argument("--node", default=None, help="Override DEFAULT_NODE from adapter.conf")
     p.set_defaults(tier="tfc", verb="status")
+    return p
+
+
+def _add_tfc_update_traffic(group):
+    p = group.add_parser(
+        "update-traffic",
+        help="Change one traffic line's rate live (trafficgen; no TRex restart, flows kept)",
+    )
+    p.add_argument("deploy_id", metavar="TFC-DEPLOY-ID", help="The standing tfc deploy")
+    p.add_argument("--line", required=True, help="Line id (lines[].id, default <from>--<to>--<mix>)")
+    p.add_argument("--rate", required=True, type=float, help="New connections per second for the whole line")
+    p.add_argument("--db", default=_DEFAULT_DB_PATH, help=f"State-store DB path (default: {_DEFAULT_DB_PATH})")
+    p.add_argument("--adapter-config", default=None, help="Path to adapter.conf")
+    p.add_argument("--node", default=None, help="Override DEFAULT_NODE from adapter.conf")
+    p.set_defaults(tier="tfc", verb="update-traffic")
     return p
 
 
@@ -980,6 +998,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_tfc_plan(tfc_sub)
     _add_tfc_deploy(tfc_sub)
     _add_tfc_status(tfc_sub)
+    _add_tfc_update_traffic(tfc_sub)
     _add_tfc_info(tfc_sub)
     _add_tfc_destroy(tfc_sub)
     _add_tfc_set_host(tfc_sub)
@@ -3679,6 +3698,48 @@ def _tfc_static_os_check(args: argparse.Namespace, spec: Any, manifests: Any) ->
     return 0
 
 
+def _tfc_lines_check(args: argparse.Namespace, spec: Any) -> int:
+    """`tfc validate`'s trafficgen checks (TGN-0xx, `trafficgen/SPEC.md`):
+    emulated instances and traffic lines against the twin's te file. Prints
+    findings; returns 1 on an error finding, else 0. Silent for a profile
+    with no emulated[] / lines[] and no app mix."""
+    from axrange.platform.factory import check_platform, load_config, platform_of
+    from axrange.trafficgen.validate import LinesContextError, check_profile_file
+    from axrange.validator.finding import Severity
+
+    # The platform travels with the adapter config (its PLATFORM= key);
+    # without one, the conf's own absent-key meaning.
+    cfg_path = getattr(args, "adapter_config", None)
+    platform = platform_of(load_config(cfg_path)) if cfg_path else check_platform(None)
+    try:
+        findings = check_profile_file(spec, args.spec, platform=platform)
+    except LinesContextError as e:
+        sys.stderr.write(f"[error] {e}\n")
+        return 1
+    if not findings and not spec.lines:
+        return 0
+    errors = [f for f in findings if f.severity == Severity.ERROR]
+    for f in findings:
+        (sys.stderr if f in errors else sys.stdout).write(f"[{f.severity.value}] {f.rule_id}: {f.message}\n")
+    if errors:
+        sys.stdout.write(f"\nResult: FAIL ({len(errors)} traffic-line error(s))\n")
+        return 1
+    sys.stdout.write(
+        f"traffic lines: OK ({len(spec.lines)} line(s), "
+        f"{sum(e.count for e in spec.emulated)} emulated instance(s))\n")
+    from axrange.trafficgen.plan import TrafficGenPlanError, plan_for_file
+
+    try:
+        plan = plan_for_file(spec, args.spec)
+    except TrafficGenPlanError as e:
+        sys.stderr.write(f"[error] trafficgen plan: {e}\n")
+        return 1
+    for g in plan.generators:
+        legs = ", ".join(f"{leg.role} {leg.segment} {leg.ip}" for leg in g.legs)
+        sys.stdout.write(f"  generator {g.host_id}: {g.cores} vCPU, {g.memory_mib} MiB; {legs}; lines {', '.join(g.lines)}\n")
+    return 0
+
+
 def cmd_tfc_validate(args: argparse.Namespace) -> int:
     """Two-tier, same posture as `tap validate` (work order §3.3): static
     `parse_traffic_profile`/`load_traffic_profile` ALWAYS; `resolve_traffic_
@@ -3708,6 +3769,8 @@ def cmd_tfc_validate(args: argparse.Namespace) -> int:
     for r in spec.replay:
         sys.stdout.write(f"  replay:{r.template} -> role:{r.onto_role}\n")
 
+    if _tfc_lines_check(args, spec):
+        return 1
     manifests, rc = _tfc_manifests(args, "tfc validate")
     if rc is not None:
         return rc
@@ -3984,10 +4047,43 @@ def cmd_tfc_status(args: argparse.Namespace) -> int:
     from axrange.o2control.traffic import traffic_status
 
     status = traffic_status(db_path=args.db, target=args.target, deploy_id=args.deploy_id)
+    lines: dict[str, Any] = {}
+    if getattr(args, "adapter_config", None) and status.deploy_id and status.status != "destroyed":
+        from axrange.o2control.traffic import traffic_line_status
+
+        lines = traffic_line_status(db_path=args.db, tfc_deploy_id=status.deploy_id,
+                                    adapter_config=args.adapter_config, target_node=getattr(args, "node", None))
     if getattr(args, "json", False):
-        _print_json(dataclasses.asdict(status))
+        _print_json({**dataclasses.asdict(status), "lines": lines})
         return 0
     _render_traffic_status(status)
+    if lines:
+        sys.stdout.write("\n  traffic lines (live, from the generators):\n")
+        for lid, r in sorted(lines.items()):
+            if r.get("error"):
+                sys.stdout.write(f"    {lid}: [error] {r['error']}\n")
+                continue
+            sys.stdout.write(
+                f"    {lid}: {r.get('state', '?')} {r.get('rate_cps')} cps (x{r.get('mult')}) on {r.get('generator')}"
+                f" | opened {r.get('opened')} established {r.get('established')} errors {r.get('errors')}"
+                f" bytes {r.get('bytes')} open {r.get('open')} now {r.get('cps_now')} cps"
+                + (f" [capped: {r['capped']}]" if r.get("capped") else "") + "\n")
+    return 0
+
+
+def cmd_tfc_update_traffic(args: argparse.Namespace) -> int:
+    from axrange.o2control.traffic import TrafficPlanError, update_traffic_line
+
+    try:
+        r = update_traffic_line(db_path=args.db, tfc_deploy_id=args.deploy_id, line=args.line,
+                                rate_cps=args.rate, adapter_config=args.adapter_config,
+                                target_node=args.node)
+    except TrafficPlanError as e:
+        sys.stderr.write(f"axrange tfc update-traffic: {e.message}\n")
+        return 2 if e.status < 500 else 1
+    sys.stdout.write(
+        f"line {r['line']} on {r['generator']}: {r['planned_rate_cps']:g} -> {r['rate_cps']:g} cps "
+        f"(multiplier {r['mult']:.3f})\n")
     return 0
 
 
@@ -4624,6 +4720,7 @@ _HANDLERS: dict[tuple[str, str], Any] = {
     ("tfc", "plan"): cmd_tfc_plan,
     ("tfc", "deploy"): cmd_tfc_deploy,
     ("tfc", "status"): cmd_tfc_status,
+    ("tfc", "update-traffic"): cmd_tfc_update_traffic,
     ("tfc", "info"): cmd_tfc_info,
     ("tfc", "destroy"): cmd_tfc_destroy,
     ("tfc", "set-host"): cmd_tfc_set_host,

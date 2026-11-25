@@ -54,7 +54,8 @@ import { conduitOf, checkBadge, checkPasses, checkStatus, findingPins, findingTa
 import { OpenDesignDialog } from "../../areas/canvas/OpenDesignDialog";
 import { useLeaveGuard, type LeaveVia } from "../../areas/shell/leaveGuard";
 import { remapFiles } from "../../model/preflight";
-import { FOLLOW_ON_TIERS, deployMoving, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
+import { FOLLOW_ON_TIERS, deployMoving, tfcDeployOf, tierReason, tierStatus, tierWord } from "../../areas/shell/deployState";
+import { TrafficLive } from "../../areas/shell/TrafficLive";
 import { ErrorLine, errorText } from "../../areas/shell/parts";
 import { useLoad } from "../../areas/shell/useLoad";
 import { TwinTree as TwinTreeView } from "../../areas/twins/TwinTree";
@@ -84,7 +85,7 @@ import { matrix0 } from "./layout/matrix";
 import { buildGraph, type ConsoleGraph } from "./model/graph";
 import { AddPanel } from "./add/AddPanel";
 import { healthHints, imageFor, personaLabel, pushRecent, readRefs, RECENT_KEY, twoGatewayLans, twoGatewayText, writeRefs } from "./add/catalog";
-import { applyDeviceDrop, applyInternetDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
+import { applyDeviceDrop, applyInternetDrop, applyEmulatedDrop, applyExternalDrop, applyTapDrop, INTERNET_SEGMENT, type DropTarget } from "./add/drop";
 import { DropPopover, type DropCommit } from "./add/DropPopover";
 import { QuickAdd } from "./add/QuickAdd";
 import { applyTemplateDrop, type TemplateDrop, type Values } from "./add/template";
@@ -512,6 +513,8 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
   // Destroy (2026-11-08): the standing deploy comes down from the bar; the canvas then returns to
   // the undeployed edit mode (the working copy is gone with the deploy) without a page reload.
   const [destroyOpen, setDestroyOpen] = useState(false);
+  // The deployed twin's traffic lines, live (trafficgen; canvas task item 6).
+  const [trafficOpen, setTrafficOpen] = useState(false);
   // The bar's Deploy (an undeployed design): the deploy dialog (docs/design/targets-and-lab.md §2.3).
   const [deployOpen, setDeployOpen] = useState(false);
   // Open (the bar's button, Ctrl+O) and the untitled design's first-Save prompt.
@@ -924,8 +927,17 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         }
         return;
       }
+      if (item.kind === "tool" && (item.tool === "internet-users" || item.tool === "internet-services")) {
+        // Wherever it lands: an external group lives on the internet segment (made when the design has none).
+        setPendingDrop({ item, target: { pane: true }, at, screen: where });
+        return;
+      }
       if (item.kind === "tool" && item.tool === "tap" && !("segment" in target)) {
         setBlocked("drop the Sensor / tap on a segment or a switch");
+        return;
+      }
+      if (item.kind === "tool" && item.tool === "emulated-group" && !("segment" in target)) {
+        setBlocked("drop the Emulated group on a segment or a switch");
         return;
       }
       setPendingDrop({ item, target, at, screen: where });
@@ -968,6 +980,22 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
         if (edit(`tap on ${c.segment}`, (d, m) => applyTapDrop(d, m, c.segment, c.sensors).files) === null) rememberAdd(p.item);
         return;
       }
+      if (c.kind === "emulated") {
+        let made: string | null = null;
+        if (edit(`add emulated group ×${c.count} on ${c.segment}`, (d, m) => { const r = applyEmulatedDrop(d, m, c); made = r.names[0] ?? null; return r.files; }) === null) {
+          rememberAdd(p.item);
+          if (made) setSelection({ kind: "node", names: [made] });
+        }
+        return;
+      }
+      if (c.kind === "external") {
+        let made: string | null = null;
+        if (edit(`add ${p.item.label} ×${c.count}`, (d, m) => { const r = applyExternalDrop(d, m, { name: c.name, role: c.role, count: c.count }, imageFor(imageProfiles, "linux-server")); made = r.names[0] ?? null; return r.files; }) === null) {
+          rememberAdd(p.item);
+          if (made) setSelection({ kind: "node", names: [made] });
+        }
+        return;
+      }
       const s = c.spec;
       let placed: string[] = [];
       let span: { before: DocModel["te"]; after: DocModel["te"] } | null = null;
@@ -1001,7 +1029,7 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
       if (layoutModeRef.current === "free" && made && (p.at || "segment" in s.target)) onPinMany(placeDropped(made.before, made.after, p.at, fixed, { ...settled.current, ...pinsRef.current }, { clear: "pane" in s.target }));
       else if (fixed[`host:${first}`]) onPin(`host:${first}`, fixed[`host:${first}`]!);
     },
-    [pendingDrop, edit, onPin, onPinMany, personas, selection, model],
+    [pendingDrop, edit, onPin, onPinMany, personas, selection, model, imageProfiles],
   );
 
   // Duplicate subtree (§6.2, B3): the copy keeps the original's shape -- its root at the drop point, or
@@ -1832,6 +1860,11 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
                     Start {t}
                   </button>
                 ))}
+                {teRow && tfcDeployOf(deployRows, teRow.deploy_id) ? (
+                  <button type="button" aria-pressed={trafficOpen} onClick={() => setTrafficOpen((v) => !v)} data-testid="traffic-open" title="the tfc deploy's generators and each traffic line's live counters">
+                    Traffic
+                  </button>
+                ) : null}
                 <button type="button" className="danger" onClick={() => setDestroyOpen(true)} disabled={busy !== null || Boolean(exit) || destroying} data-testid="destroy-open" title="bring the standing deploy down: te, with its tfc and tap (the tap's sensor binding is released)">
                   Destroy…
                 </button>
@@ -2071,6 +2104,12 @@ export function CanvasPage({ untitled = false, draft: isDraft = false }: { untit
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+      {trafficOpen && teRow && tfcDeployOf(deployRows, teRow.deploy_id) ? (
+        <div className="panel cv-traffic-pop" role="dialog" aria-label="Traffic lines, live" data-testid="traffic-pop">
+          <button type="button" className="cv-traffic-close" aria-label="Close traffic" onClick={() => setTrafficOpen(false)}>×</button>
+          <TrafficLive tfcDeployId={tfcDeployOf(deployRows, teRow.deploy_id)!} />
         </div>
       ) : null}
       {destroyOpen && data?.deploy ? (

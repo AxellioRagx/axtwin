@@ -1,0 +1,2288 @@
+{
+ "generators": [
+  {
+   "client_segment": "rack1-lan",
+   "cores": 2,
+   "document": {
+    "budget": {
+     "cps": 100,
+     "mbps": 60
+    },
+    "generator": "gen-rack1-lan--rack3-lan",
+    "lines": [
+     {
+      "client_port": 0,
+      "clients": [
+       "10.200.0.11",
+       "10.200.0.30"
+      ],
+      "from": "rack1-web",
+      "id": "rack1-web--rack3-db--sql-oltp",
+      "max_concurrent": 200,
+      "mix": "sql-oltp",
+      "rate_cps": 20.0,
+      "servers": [
+       "10.200.2.5",
+       "10.200.2.5"
+      ],
+      "templates": [
+       {
+        "app": "sql-query",
+        "cps": 20.0,
+        "port": 3306,
+        "program": [
+         {
+          "reply": "640000000a352e352e352d31302e31312e31392d4d6172696144422d302b6465623132753100671200003a5f2c7e41316b2600fef72d0200bf81150000000000001d0000005d2f6e4c3b7a215e56294d33006d7973716c5f6e61746976655f70617373776f726400"
+         },
+         {
+          "send": "560000010da20800000000012d000000000000000000000000000000000000000000000061707000149c0e7d3b5a41f2286e17c4b09d53a6e1f0827c4d6f7264657273006d7973716c5f6e61746976655f70617373776f726400"
+         },
+         {
+          "reply": "0700000200000002000000"
+         },
+         {
+          "send": "580000000353454c4543542069642c207374617475732c20746f74616c2046524f4d206f726465727320574845524520637573746f6d65725f6964203d2034373131204f524445522042592069642044455343204c494d4954203130"
+         },
+         {
+          "reply": "01000001032c00000203646566066f7264657273066f7264657273066f72646572730269640269640c2d000b0000000300000000003400000303646566066f7264657273066f7264657273066f726465727306737461747573067374617475730c2d0040000000fd00000000003200000403646566066f7264657273066f7264657273066f726465727305746f74616c05746f74616c0c2d000c000000f6000000000005000005fe00000200140000060539303431320770656e64696e670534302e30301100000705393034313104706169640534372e31331400000805393034313007736869707065640535342e3236140000090539303430390770656e64696e670536312e33391100000a05393034303804706169640536382e35321400000b05393034303707736869707065640537352e36351400000c0539303430360770656e64696e670538322e37381100000d05393034303504706169640538392e39311400000e05393034303407736869707065640539362e30341500000f0539303430330770656e64696e67063130332e313705000010fe00000200"
+         },
+         {
+          "delay_ms": 20
+         },
+         {
+          "send": "3600000003555044415445206f72646572732053455420737461747573203d20277368697070656427205748455245206964203d203930343132"
+         },
+         {
+          "reply": "0700000100010002000000"
+         },
+         {
+          "send": "0100000001"
+         }
+        ],
+        "proto": "mysql",
+        "share": 1.0,
+        "transport": "tcp"
+       }
+      ],
+      "to": "rack3-db"
+     }
+    ],
+    "namespaces": {
+     "0": [
+      "10.200.0.11",
+      "10.200.0.12",
+      "10.200.0.13",
+      "10.200.0.14",
+      "10.200.0.15",
+      "10.200.0.16",
+      "10.200.0.17",
+      "10.200.0.18",
+      "10.200.0.19",
+      "10.200.0.20",
+      "10.200.0.21",
+      "10.200.0.22",
+      "10.200.0.23",
+      "10.200.0.24",
+      "10.200.0.25",
+      "10.200.0.26",
+      "10.200.0.27",
+      "10.200.0.28",
+      "10.200.0.29",
+      "10.200.0.30"
+     ],
+     "1": [
+      "10.200.2.5"
+     ]
+    },
+    "trex": {
+     "hugepages": 164,
+     "low_end": true,
+     "ports": [
+      {
+       "default_gw": "10.200.0.1",
+       "ip": "10.200.0.5",
+       "leg": 0
+      },
+      {
+       "default_gw": "10.200.2.1",
+       "ip": "10.200.2.6",
+       "leg": 1
+      }
+     ],
+     "stack": "linux_based"
+    },
+    "version": 1
+   },
+   "host_id": "gen-rack1-lan--rack3-lan",
+   "legs": [
+    {
+     "addresses": [
+      "10.200.0.11",
+      "10.200.0.12",
+      "10.200.0.13",
+      "10.200.0.14",
+      "10.200.0.15",
+      "10.200.0.16",
+      "10.200.0.17",
+      "10.200.0.18",
+      "10.200.0.19",
+      "10.200.0.20",
+      "10.200.0.21",
+      "10.200.0.22",
+      "10.200.0.23",
+      "10.200.0.24",
+      "10.200.0.25",
+      "10.200.0.26",
+      "10.200.0.27",
+      "10.200.0.28",
+      "10.200.0.29",
+      "10.200.0.30"
+     ],
+     "default_gw": "10.200.0.1",
+     "index": 0,
+     "ip": "10.200.0.5",
+     "prefix": 24,
+     "role": "client",
+     "segment": "rack1-lan"
+    },
+    {
+     "addresses": [
+      "10.200.2.5"
+     ],
+     "default_gw": "10.200.2.1",
+     "index": 1,
+     "ip": "10.200.2.6",
+     "prefix": 24,
+     "role": "server",
+     "segment": "rack3-lan"
+    }
+   ],
+   "lines": [
+    "rack1-web--rack3-db--sql-oltp"
+   ],
+   "memory_mib": 2253,
+   "server_segment": "rack3-lan"
+  },
+  {
+   "client_segment": "internet",
+   "cores": 2,
+   "document": {
+    "budget": {
+     "cps": 100,
+     "mbps": 60
+    },
+    "generator": "gen-internet--rack2-lan",
+    "lines": [
+     {
+      "client_port": 0,
+      "clients": [
+       "10.250.0.11",
+       "10.250.0.210"
+      ],
+      "from": "internet-users",
+      "id": "internet-users--rack2-web--web-browse",
+      "max_concurrent": 300,
+      "mix": "web-browse",
+      "rate_cps": 30.0,
+      "servers": [
+       "10.200.1.5",
+       "10.200.1.9"
+      ],
+      "templates": [
+       {
+        "app": "http-browse",
+        "cps": 21.0,
+        "port": 80,
+        "program": [
+         {
+          "send": "474554202f696e6465782e68746d6c20485454502f312e310d0a486f73743a207261636b322d7765620d0a557365722d4167656e743a204d6f7a696c6c612f352e30202857696e646f7773204e542031302e303b2057696e36343b207836343b2072763a3132382e3029204765636b6f2f32303130303130312046697265666f782f3132382e300d0a4163636570743a20746578742f68746d6c2c6170706c69636174696f6e2f7868746d6c2b786d6c2c2a2f2a3b713d302e380d0a4163636570742d4c616e67756167653a20656e2d55532c656e3b713d302e350d0a4163636570742d456e636f64696e673a206964656e746974790d0a436f6e6e656374696f6e3a20636c6f73650d0a0d0a"
+         },
+         {
+          "reply": "485454502f312e3120323030204f4b0d0a5365727665723a206e67696e782f312e32322e310d0a436f6e74656e742d547970653a20746578742f68746d6c0d0a436f6e74656e742d4c656e6774683a20383139320d0a436f6e6e656374696f6e3a20636c6f73650d0a0d0a"
+         },
+         {
+          "fill": "3c703e4c6f72656d20697073756d20646f6c6f722073697420616d65742e3c2f703e0a",
+          "reply": "3c21444f43545950452068746d6c3e0a3c68746d6c3e3c686561643e3c7469746c653e496e7472616e65743c2f7469746c653e3c2f686561643e3c626f64793e0a",
+          "size": 8192
+         }
+        ],
+        "proto": "http",
+        "share": 0.7,
+        "transport": "tcp"
+       },
+       {
+        "app": "tls-session",
+        "cps": 9.0,
+        "pcap": {
+         "name": "tls-session--capture.pcap",
+         "sha256": "b30c27d961908227bac8ce3c1e5ebba33c08bc535ea3e90c9fab854d28707000"
+        },
+        "port": 443,
+        "proto": "tls",
+        "share": 0.3,
+        "transport": "tcp"
+       }
+      ],
+      "to": "rack2-web"
+     }
+    ],
+    "namespaces": {
+     "0": [
+      "10.250.0.11",
+      "10.250.0.12",
+      "10.250.0.13",
+      "10.250.0.14",
+      "10.250.0.15",
+      "10.250.0.16",
+      "10.250.0.17",
+      "10.250.0.18",
+      "10.250.0.19",
+      "10.250.0.20",
+      "10.250.0.21",
+      "10.250.0.22",
+      "10.250.0.23",
+      "10.250.0.24",
+      "10.250.0.25",
+      "10.250.0.26",
+      "10.250.0.27",
+      "10.250.0.28",
+      "10.250.0.29",
+      "10.250.0.30",
+      "10.250.0.31",
+      "10.250.0.32",
+      "10.250.0.33",
+      "10.250.0.34",
+      "10.250.0.35",
+      "10.250.0.36",
+      "10.250.0.37",
+      "10.250.0.38",
+      "10.250.0.39",
+      "10.250.0.40",
+      "10.250.0.41",
+      "10.250.0.42",
+      "10.250.0.43",
+      "10.250.0.44",
+      "10.250.0.45",
+      "10.250.0.46",
+      "10.250.0.47",
+      "10.250.0.48",
+      "10.250.0.49",
+      "10.250.0.50",
+      "10.250.0.51",
+      "10.250.0.52",
+      "10.250.0.53",
+      "10.250.0.54",
+      "10.250.0.55",
+      "10.250.0.56",
+      "10.250.0.57",
+      "10.250.0.58",
+      "10.250.0.59",
+      "10.250.0.60",
+      "10.250.0.61",
+      "10.250.0.62",
+      "10.250.0.63",
+      "10.250.0.64",
+      "10.250.0.65",
+      "10.250.0.66",
+      "10.250.0.67",
+      "10.250.0.68",
+      "10.250.0.69",
+      "10.250.0.70",
+      "10.250.0.71",
+      "10.250.0.72",
+      "10.250.0.73",
+      "10.250.0.74",
+      "10.250.0.75",
+      "10.250.0.76",
+      "10.250.0.77",
+      "10.250.0.78",
+      "10.250.0.79",
+      "10.250.0.80",
+      "10.250.0.81",
+      "10.250.0.82",
+      "10.250.0.83",
+      "10.250.0.84",
+      "10.250.0.85",
+      "10.250.0.86",
+      "10.250.0.87",
+      "10.250.0.88",
+      "10.250.0.89",
+      "10.250.0.90",
+      "10.250.0.91",
+      "10.250.0.92",
+      "10.250.0.93",
+      "10.250.0.94",
+      "10.250.0.95",
+      "10.250.0.96",
+      "10.250.0.97",
+      "10.250.0.98",
+      "10.250.0.99",
+      "10.250.0.100",
+      "10.250.0.101",
+      "10.250.0.102",
+      "10.250.0.103",
+      "10.250.0.104",
+      "10.250.0.105",
+      "10.250.0.106",
+      "10.250.0.107",
+      "10.250.0.108",
+      "10.250.0.109",
+      "10.250.0.110",
+      "10.250.0.111",
+      "10.250.0.112",
+      "10.250.0.113",
+      "10.250.0.114",
+      "10.250.0.115",
+      "10.250.0.116",
+      "10.250.0.117",
+      "10.250.0.118",
+      "10.250.0.119",
+      "10.250.0.120",
+      "10.250.0.121",
+      "10.250.0.122",
+      "10.250.0.123",
+      "10.250.0.124",
+      "10.250.0.125",
+      "10.250.0.126",
+      "10.250.0.127",
+      "10.250.0.128",
+      "10.250.0.129",
+      "10.250.0.130",
+      "10.250.0.131",
+      "10.250.0.132",
+      "10.250.0.133",
+      "10.250.0.134",
+      "10.250.0.135",
+      "10.250.0.136",
+      "10.250.0.137",
+      "10.250.0.138",
+      "10.250.0.139",
+      "10.250.0.140",
+      "10.250.0.141",
+      "10.250.0.142",
+      "10.250.0.143",
+      "10.250.0.144",
+      "10.250.0.145",
+      "10.250.0.146",
+      "10.250.0.147",
+      "10.250.0.148",
+      "10.250.0.149",
+      "10.250.0.150",
+      "10.250.0.151",
+      "10.250.0.152",
+      "10.250.0.153",
+      "10.250.0.154",
+      "10.250.0.155",
+      "10.250.0.156",
+      "10.250.0.157",
+      "10.250.0.158",
+      "10.250.0.159",
+      "10.250.0.160",
+      "10.250.0.161",
+      "10.250.0.162",
+      "10.250.0.163",
+      "10.250.0.164",
+      "10.250.0.165",
+      "10.250.0.166",
+      "10.250.0.167",
+      "10.250.0.168",
+      "10.250.0.169",
+      "10.250.0.170",
+      "10.250.0.171",
+      "10.250.0.172",
+      "10.250.0.173",
+      "10.250.0.174",
+      "10.250.0.175",
+      "10.250.0.176",
+      "10.250.0.177",
+      "10.250.0.178",
+      "10.250.0.179",
+      "10.250.0.180",
+      "10.250.0.181",
+      "10.250.0.182",
+      "10.250.0.183",
+      "10.250.0.184",
+      "10.250.0.185",
+      "10.250.0.186",
+      "10.250.0.187",
+      "10.250.0.188",
+      "10.250.0.189",
+      "10.250.0.190",
+      "10.250.0.191",
+      "10.250.0.192",
+      "10.250.0.193",
+      "10.250.0.194",
+      "10.250.0.195",
+      "10.250.0.196",
+      "10.250.0.197",
+      "10.250.0.198",
+      "10.250.0.199",
+      "10.250.0.200",
+      "10.250.0.201",
+      "10.250.0.202",
+      "10.250.0.203",
+      "10.250.0.204",
+      "10.250.0.205",
+      "10.250.0.206",
+      "10.250.0.207",
+      "10.250.0.208",
+      "10.250.0.209",
+      "10.250.0.210"
+     ],
+     "1": [
+      "10.200.1.5",
+      "10.200.1.6",
+      "10.200.1.7",
+      "10.200.1.8",
+      "10.200.1.9"
+     ]
+    },
+    "trex": {
+     "hugepages": 164,
+     "low_end": true,
+     "ports": [
+      {
+       "default_gw": "10.250.0.1",
+       "ip": "10.250.0.3",
+       "leg": 0
+      },
+      {
+       "default_gw": "10.200.1.1",
+       "ip": "10.200.1.11",
+       "leg": 1
+      }
+     ],
+     "stack": "linux_based"
+    },
+    "version": 1
+   },
+   "host_id": "gen-internet--rack2-lan",
+   "legs": [
+    {
+     "addresses": [
+      "10.250.0.11",
+      "10.250.0.12",
+      "10.250.0.13",
+      "10.250.0.14",
+      "10.250.0.15",
+      "10.250.0.16",
+      "10.250.0.17",
+      "10.250.0.18",
+      "10.250.0.19",
+      "10.250.0.20",
+      "10.250.0.21",
+      "10.250.0.22",
+      "10.250.0.23",
+      "10.250.0.24",
+      "10.250.0.25",
+      "10.250.0.26",
+      "10.250.0.27",
+      "10.250.0.28",
+      "10.250.0.29",
+      "10.250.0.30",
+      "10.250.0.31",
+      "10.250.0.32",
+      "10.250.0.33",
+      "10.250.0.34",
+      "10.250.0.35",
+      "10.250.0.36",
+      "10.250.0.37",
+      "10.250.0.38",
+      "10.250.0.39",
+      "10.250.0.40",
+      "10.250.0.41",
+      "10.250.0.42",
+      "10.250.0.43",
+      "10.250.0.44",
+      "10.250.0.45",
+      "10.250.0.46",
+      "10.250.0.47",
+      "10.250.0.48",
+      "10.250.0.49",
+      "10.250.0.50",
+      "10.250.0.51",
+      "10.250.0.52",
+      "10.250.0.53",
+      "10.250.0.54",
+      "10.250.0.55",
+      "10.250.0.56",
+      "10.250.0.57",
+      "10.250.0.58",
+      "10.250.0.59",
+      "10.250.0.60",
+      "10.250.0.61",
+      "10.250.0.62",
+      "10.250.0.63",
+      "10.250.0.64",
+      "10.250.0.65",
+      "10.250.0.66",
+      "10.250.0.67",
+      "10.250.0.68",
+      "10.250.0.69",
+      "10.250.0.70",
+      "10.250.0.71",
+      "10.250.0.72",
+      "10.250.0.73",
+      "10.250.0.74",
+      "10.250.0.75",
+      "10.250.0.76",
+      "10.250.0.77",
+      "10.250.0.78",
+      "10.250.0.79",
+      "10.250.0.80",
+      "10.250.0.81",
+      "10.250.0.82",
+      "10.250.0.83",
+      "10.250.0.84",
+      "10.250.0.85",
+      "10.250.0.86",
+      "10.250.0.87",
+      "10.250.0.88",
+      "10.250.0.89",
+      "10.250.0.90",
+      "10.250.0.91",
+      "10.250.0.92",
+      "10.250.0.93",
+      "10.250.0.94",
+      "10.250.0.95",
+      "10.250.0.96",
+      "10.250.0.97",
+      "10.250.0.98",
+      "10.250.0.99",
+      "10.250.0.100",
+      "10.250.0.101",
+      "10.250.0.102",
+      "10.250.0.103",
+      "10.250.0.104",
+      "10.250.0.105",
+      "10.250.0.106",
+      "10.250.0.107",
+      "10.250.0.108",
+      "10.250.0.109",
+      "10.250.0.110",
+      "10.250.0.111",
+      "10.250.0.112",
+      "10.250.0.113",
+      "10.250.0.114",
+      "10.250.0.115",
+      "10.250.0.116",
+      "10.250.0.117",
+      "10.250.0.118",
+      "10.250.0.119",
+      "10.250.0.120",
+      "10.250.0.121",
+      "10.250.0.122",
+      "10.250.0.123",
+      "10.250.0.124",
+      "10.250.0.125",
+      "10.250.0.126",
+      "10.250.0.127",
+      "10.250.0.128",
+      "10.250.0.129",
+      "10.250.0.130",
+      "10.250.0.131",
+      "10.250.0.132",
+      "10.250.0.133",
+      "10.250.0.134",
+      "10.250.0.135",
+      "10.250.0.136",
+      "10.250.0.137",
+      "10.250.0.138",
+      "10.250.0.139",
+      "10.250.0.140",
+      "10.250.0.141",
+      "10.250.0.142",
+      "10.250.0.143",
+      "10.250.0.144",
+      "10.250.0.145",
+      "10.250.0.146",
+      "10.250.0.147",
+      "10.250.0.148",
+      "10.250.0.149",
+      "10.250.0.150",
+      "10.250.0.151",
+      "10.250.0.152",
+      "10.250.0.153",
+      "10.250.0.154",
+      "10.250.0.155",
+      "10.250.0.156",
+      "10.250.0.157",
+      "10.250.0.158",
+      "10.250.0.159",
+      "10.250.0.160",
+      "10.250.0.161",
+      "10.250.0.162",
+      "10.250.0.163",
+      "10.250.0.164",
+      "10.250.0.165",
+      "10.250.0.166",
+      "10.250.0.167",
+      "10.250.0.168",
+      "10.250.0.169",
+      "10.250.0.170",
+      "10.250.0.171",
+      "10.250.0.172",
+      "10.250.0.173",
+      "10.250.0.174",
+      "10.250.0.175",
+      "10.250.0.176",
+      "10.250.0.177",
+      "10.250.0.178",
+      "10.250.0.179",
+      "10.250.0.180",
+      "10.250.0.181",
+      "10.250.0.182",
+      "10.250.0.183",
+      "10.250.0.184",
+      "10.250.0.185",
+      "10.250.0.186",
+      "10.250.0.187",
+      "10.250.0.188",
+      "10.250.0.189",
+      "10.250.0.190",
+      "10.250.0.191",
+      "10.250.0.192",
+      "10.250.0.193",
+      "10.250.0.194",
+      "10.250.0.195",
+      "10.250.0.196",
+      "10.250.0.197",
+      "10.250.0.198",
+      "10.250.0.199",
+      "10.250.0.200",
+      "10.250.0.201",
+      "10.250.0.202",
+      "10.250.0.203",
+      "10.250.0.204",
+      "10.250.0.205",
+      "10.250.0.206",
+      "10.250.0.207",
+      "10.250.0.208",
+      "10.250.0.209",
+      "10.250.0.210"
+     ],
+     "default_gw": "10.250.0.1",
+     "index": 0,
+     "ip": "10.250.0.3",
+     "prefix": 24,
+     "role": "client",
+     "segment": "internet"
+    },
+    {
+     "addresses": [
+      "10.200.1.5",
+      "10.200.1.6",
+      "10.200.1.7",
+      "10.200.1.8",
+      "10.200.1.9"
+     ],
+     "default_gw": "10.200.1.1",
+     "index": 1,
+     "ip": "10.200.1.11",
+     "prefix": 24,
+     "role": "server",
+     "segment": "rack2-lan"
+    }
+   ],
+   "lines": [
+    "internet-users--rack2-web--web-browse"
+   ],
+   "memory_mib": 2253,
+   "server_segment": "rack2-lan"
+  }
+ ],
+ "instances": {
+  "internet-users": [
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.11",
+    "name": "internet-users-e001",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.12",
+    "name": "internet-users-e002",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.13",
+    "name": "internet-users-e003",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.14",
+    "name": "internet-users-e004",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.15",
+    "name": "internet-users-e005",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.16",
+    "name": "internet-users-e006",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.17",
+    "name": "internet-users-e007",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.18",
+    "name": "internet-users-e008",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.19",
+    "name": "internet-users-e009",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.20",
+    "name": "internet-users-e010",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.21",
+    "name": "internet-users-e011",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.22",
+    "name": "internet-users-e012",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.23",
+    "name": "internet-users-e013",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.24",
+    "name": "internet-users-e014",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.25",
+    "name": "internet-users-e015",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.26",
+    "name": "internet-users-e016",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.27",
+    "name": "internet-users-e017",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.28",
+    "name": "internet-users-e018",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.29",
+    "name": "internet-users-e019",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.30",
+    "name": "internet-users-e020",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.31",
+    "name": "internet-users-e021",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.32",
+    "name": "internet-users-e022",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.33",
+    "name": "internet-users-e023",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.34",
+    "name": "internet-users-e024",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.35",
+    "name": "internet-users-e025",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.36",
+    "name": "internet-users-e026",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.37",
+    "name": "internet-users-e027",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.38",
+    "name": "internet-users-e028",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.39",
+    "name": "internet-users-e029",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.40",
+    "name": "internet-users-e030",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.41",
+    "name": "internet-users-e031",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.42",
+    "name": "internet-users-e032",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.43",
+    "name": "internet-users-e033",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.44",
+    "name": "internet-users-e034",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.45",
+    "name": "internet-users-e035",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.46",
+    "name": "internet-users-e036",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.47",
+    "name": "internet-users-e037",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.48",
+    "name": "internet-users-e038",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.49",
+    "name": "internet-users-e039",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.50",
+    "name": "internet-users-e040",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.51",
+    "name": "internet-users-e041",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.52",
+    "name": "internet-users-e042",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.53",
+    "name": "internet-users-e043",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.54",
+    "name": "internet-users-e044",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.55",
+    "name": "internet-users-e045",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.56",
+    "name": "internet-users-e046",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.57",
+    "name": "internet-users-e047",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.58",
+    "name": "internet-users-e048",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.59",
+    "name": "internet-users-e049",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.60",
+    "name": "internet-users-e050",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.61",
+    "name": "internet-users-e051",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.62",
+    "name": "internet-users-e052",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.63",
+    "name": "internet-users-e053",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.64",
+    "name": "internet-users-e054",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.65",
+    "name": "internet-users-e055",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.66",
+    "name": "internet-users-e056",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.67",
+    "name": "internet-users-e057",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.68",
+    "name": "internet-users-e058",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.69",
+    "name": "internet-users-e059",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.70",
+    "name": "internet-users-e060",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.71",
+    "name": "internet-users-e061",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.72",
+    "name": "internet-users-e062",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.73",
+    "name": "internet-users-e063",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.74",
+    "name": "internet-users-e064",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.75",
+    "name": "internet-users-e065",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.76",
+    "name": "internet-users-e066",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.77",
+    "name": "internet-users-e067",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.78",
+    "name": "internet-users-e068",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.79",
+    "name": "internet-users-e069",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.80",
+    "name": "internet-users-e070",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.81",
+    "name": "internet-users-e071",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.82",
+    "name": "internet-users-e072",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.83",
+    "name": "internet-users-e073",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.84",
+    "name": "internet-users-e074",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.85",
+    "name": "internet-users-e075",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.86",
+    "name": "internet-users-e076",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.87",
+    "name": "internet-users-e077",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.88",
+    "name": "internet-users-e078",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.89",
+    "name": "internet-users-e079",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.90",
+    "name": "internet-users-e080",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.91",
+    "name": "internet-users-e081",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.92",
+    "name": "internet-users-e082",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.93",
+    "name": "internet-users-e083",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.94",
+    "name": "internet-users-e084",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.95",
+    "name": "internet-users-e085",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.96",
+    "name": "internet-users-e086",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.97",
+    "name": "internet-users-e087",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.98",
+    "name": "internet-users-e088",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.99",
+    "name": "internet-users-e089",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.100",
+    "name": "internet-users-e090",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.101",
+    "name": "internet-users-e091",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.102",
+    "name": "internet-users-e092",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.103",
+    "name": "internet-users-e093",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.104",
+    "name": "internet-users-e094",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.105",
+    "name": "internet-users-e095",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.106",
+    "name": "internet-users-e096",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.107",
+    "name": "internet-users-e097",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.108",
+    "name": "internet-users-e098",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.109",
+    "name": "internet-users-e099",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.110",
+    "name": "internet-users-e100",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.111",
+    "name": "internet-users-e101",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.112",
+    "name": "internet-users-e102",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.113",
+    "name": "internet-users-e103",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.114",
+    "name": "internet-users-e104",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.115",
+    "name": "internet-users-e105",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.116",
+    "name": "internet-users-e106",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.117",
+    "name": "internet-users-e107",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.118",
+    "name": "internet-users-e108",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.119",
+    "name": "internet-users-e109",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.120",
+    "name": "internet-users-e110",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.121",
+    "name": "internet-users-e111",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.122",
+    "name": "internet-users-e112",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.123",
+    "name": "internet-users-e113",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.124",
+    "name": "internet-users-e114",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.125",
+    "name": "internet-users-e115",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.126",
+    "name": "internet-users-e116",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.127",
+    "name": "internet-users-e117",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.128",
+    "name": "internet-users-e118",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.129",
+    "name": "internet-users-e119",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.130",
+    "name": "internet-users-e120",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.131",
+    "name": "internet-users-e121",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.132",
+    "name": "internet-users-e122",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.133",
+    "name": "internet-users-e123",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.134",
+    "name": "internet-users-e124",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.135",
+    "name": "internet-users-e125",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.136",
+    "name": "internet-users-e126",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.137",
+    "name": "internet-users-e127",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.138",
+    "name": "internet-users-e128",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.139",
+    "name": "internet-users-e129",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.140",
+    "name": "internet-users-e130",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.141",
+    "name": "internet-users-e131",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.142",
+    "name": "internet-users-e132",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.143",
+    "name": "internet-users-e133",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.144",
+    "name": "internet-users-e134",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.145",
+    "name": "internet-users-e135",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.146",
+    "name": "internet-users-e136",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.147",
+    "name": "internet-users-e137",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.148",
+    "name": "internet-users-e138",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.149",
+    "name": "internet-users-e139",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.150",
+    "name": "internet-users-e140",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.151",
+    "name": "internet-users-e141",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.152",
+    "name": "internet-users-e142",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.153",
+    "name": "internet-users-e143",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.154",
+    "name": "internet-users-e144",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.155",
+    "name": "internet-users-e145",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.156",
+    "name": "internet-users-e146",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.157",
+    "name": "internet-users-e147",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.158",
+    "name": "internet-users-e148",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.159",
+    "name": "internet-users-e149",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.160",
+    "name": "internet-users-e150",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.161",
+    "name": "internet-users-e151",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.162",
+    "name": "internet-users-e152",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.163",
+    "name": "internet-users-e153",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.164",
+    "name": "internet-users-e154",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.165",
+    "name": "internet-users-e155",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.166",
+    "name": "internet-users-e156",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.167",
+    "name": "internet-users-e157",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.168",
+    "name": "internet-users-e158",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.169",
+    "name": "internet-users-e159",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.170",
+    "name": "internet-users-e160",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.171",
+    "name": "internet-users-e161",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.172",
+    "name": "internet-users-e162",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.173",
+    "name": "internet-users-e163",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.174",
+    "name": "internet-users-e164",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.175",
+    "name": "internet-users-e165",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.176",
+    "name": "internet-users-e166",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.177",
+    "name": "internet-users-e167",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.178",
+    "name": "internet-users-e168",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.179",
+    "name": "internet-users-e169",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.180",
+    "name": "internet-users-e170",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.181",
+    "name": "internet-users-e171",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.182",
+    "name": "internet-users-e172",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.183",
+    "name": "internet-users-e173",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.184",
+    "name": "internet-users-e174",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.185",
+    "name": "internet-users-e175",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.186",
+    "name": "internet-users-e176",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.187",
+    "name": "internet-users-e177",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.188",
+    "name": "internet-users-e178",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.189",
+    "name": "internet-users-e179",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.190",
+    "name": "internet-users-e180",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.191",
+    "name": "internet-users-e181",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.192",
+    "name": "internet-users-e182",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.193",
+    "name": "internet-users-e183",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.194",
+    "name": "internet-users-e184",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.195",
+    "name": "internet-users-e185",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.196",
+    "name": "internet-users-e186",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.197",
+    "name": "internet-users-e187",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.198",
+    "name": "internet-users-e188",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.199",
+    "name": "internet-users-e189",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.200",
+    "name": "internet-users-e190",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.201",
+    "name": "internet-users-e191",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.202",
+    "name": "internet-users-e192",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.203",
+    "name": "internet-users-e193",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.204",
+    "name": "internet-users-e194",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.205",
+    "name": "internet-users-e195",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.206",
+    "name": "internet-users-e196",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.207",
+    "name": "internet-users-e197",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.208",
+    "name": "internet-users-e198",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.209",
+    "name": "internet-users-e199",
+    "role": "internet-user",
+    "segment": "internet"
+   },
+   {
+    "group": "internet-users",
+    "ip": "10.250.0.210",
+    "name": "internet-users-e200",
+    "role": "internet-user",
+    "segment": "internet"
+   }
+  ],
+  "rack1-web": [
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.11",
+    "name": "rack1-web-e01",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.12",
+    "name": "rack1-web-e02",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.13",
+    "name": "rack1-web-e03",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.14",
+    "name": "rack1-web-e04",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.15",
+    "name": "rack1-web-e05",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.16",
+    "name": "rack1-web-e06",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.17",
+    "name": "rack1-web-e07",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.18",
+    "name": "rack1-web-e08",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.19",
+    "name": "rack1-web-e09",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.20",
+    "name": "rack1-web-e10",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.21",
+    "name": "rack1-web-e11",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.22",
+    "name": "rack1-web-e12",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.23",
+    "name": "rack1-web-e13",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.24",
+    "name": "rack1-web-e14",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.25",
+    "name": "rack1-web-e15",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.26",
+    "name": "rack1-web-e16",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.27",
+    "name": "rack1-web-e17",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.28",
+    "name": "rack1-web-e18",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.29",
+    "name": "rack1-web-e19",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   },
+   {
+    "group": "rack1-web",
+    "ip": "10.200.0.30",
+    "name": "rack1-web-e20",
+    "role": "web-tier",
+    "segment": "rack1-lan"
+   }
+  ],
+  "rack2-web": [
+   {
+    "group": "rack2-web",
+    "ip": "10.200.1.5",
+    "name": "rack2-web-e01",
+    "role": "web-tier",
+    "segment": "rack2-lan"
+   },
+   {
+    "group": "rack2-web",
+    "ip": "10.200.1.6",
+    "name": "rack2-web-e02",
+    "role": "web-tier",
+    "segment": "rack2-lan"
+   },
+   {
+    "group": "rack2-web",
+    "ip": "10.200.1.7",
+    "name": "rack2-web-e03",
+    "role": "web-tier",
+    "segment": "rack2-lan"
+   },
+   {
+    "group": "rack2-web",
+    "ip": "10.200.1.8",
+    "name": "rack2-web-e04",
+    "role": "web-tier",
+    "segment": "rack2-lan"
+   },
+   {
+    "group": "rack2-web",
+    "ip": "10.200.1.9",
+    "name": "rack2-web-e05",
+    "role": "web-tier",
+    "segment": "rack2-lan"
+   }
+  ],
+  "rack3-db": [
+   {
+    "group": "rack3-db",
+    "ip": "10.200.2.5",
+    "name": "rack3-db-e01",
+    "role": "db-tier",
+    "segment": "rack3-lan"
+   }
+  ]
+ },
+ "routes": [],
+ "version": 1
+}

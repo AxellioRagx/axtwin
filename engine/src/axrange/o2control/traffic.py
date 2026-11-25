@@ -205,6 +205,11 @@ class TrafficProfileSpec:
     roles: list[RoleAssignmentSpec] = field(default_factory=list)
     assignments: list[AssignmentSpec] = field(default_factory=list)
     replay: list[ReplayBindingSpec] = field(default_factory=list)
+    # T2 (trafficgen/SPEC.md): emulated instances, traffic lines and the
+    # twin's traffic budget. Empty / None for every profile without them.
+    budget: Any = None
+    emulated: list[Any] = field(default_factory=list)
+    lines: list[Any] = field(default_factory=list)
 
 
 def role_entry_label(r: "RoleAssignmentSpec") -> str:
@@ -332,10 +337,15 @@ def parse_traffic_profile(raw: dict[str, Any]) -> TrafficProfileSpec:
     replay_raw = body.get("replay") or []
     if not isinstance(replay_raw, list):
         raise TrafficPlanError("traffic-profile.replay must be a list", status=400)
-    if not roles_raw and not assignments_raw and not replay_raw:
+    from axrange.trafficgen.profile import parse_trafficgen_blocks
+
+    budget, emulated, lines = parse_trafficgen_blocks(
+        body, lambda m: TrafficPlanError(m, status=400),
+    )
+    if not roles_raw and not assignments_raw and not replay_raw and not lines:
         raise TrafficPlanError(
             "traffic-profile must declare at least one roles[], assignments[] "
-            "or replay[] entry",
+            "or replay[] entry (or lines[])",
             status=400,
         )
 
@@ -435,6 +445,7 @@ def parse_traffic_profile(raw: dict[str, Any]) -> TrafficProfileSpec:
 
     return TrafficProfileSpec(
         target=target, roles=roles, assignments=assignments, replay=replay,
+        budget=budget, emulated=emulated, lines=lines,
     )
 
 
@@ -1177,6 +1188,14 @@ def resolve_traffic_bindings(
                 "catalog/personas/) -- check for a typo",
                 status=400,
             )
+        from axrange.trafficgen.validate import assignment_target, is_app_mix
+        if is_app_mix(persona):
+            # TGN-060 at resolve time too: every apply (CLI, API, the canvas's
+            # live change) binds through here, lines or not.
+            from axrange.validator._make import make_finding
+            f = make_finding("TGN-060", index=spec.assignments.index(a),
+                             target=assignment_target(a), persona_id=a.persona)
+            raise TrafficPlanError(f"TGN-060: {f.message}", status=400)
         _check_requires(persona, hosts_by_role)
 
         if a.node is not None:
@@ -1371,6 +1390,7 @@ def _make_tfc_op(
 def compose_traffic_ops(
     resolution: TrafficPlanResolution, plan_id: str, *,
     origins: Optional[dict[str, str]] = None,
+    extend: Optional[Callable[[Plan], Any]] = None,
 ) -> Plan:
     """Compose the drive-persona playout for an ALREADY-RESOLVED traffic
     profile, WITHOUT running it -- also the `tfc plan`/`tfc validate` entry
@@ -1425,6 +1445,10 @@ def compose_traffic_ops(
         if ra.host_id in origins:
             inputs["origin"] = origins[ra.host_id]
         plan.add_op(_make_tfc_op(plan_id, scope, inputs))
+    # trafficgen (trafficgen/SPEC.md, T3): the generator VMs' ops, added by the
+    # caller before the plan is frozen. None for a profile without lines.
+    if extend is not None:
+        extend(plan)
     plan.freeze()
     return plan
 
@@ -1437,6 +1461,11 @@ def compose_traffic_ops(
 # module docstring for why this can't just be `axrange.config_exec.
 # ConfigBackend` (an import-cycle boundary reason, not a laziness one).
 # ---------------------------------------------------------------------------
+_GENERATOR_OPS = frozenset({
+    "provision-generator", "load-traffic-profile", "start-traffic", "update-traffic", "stop-traffic",
+})
+
+
 class PersonaBackend:
     """Drives one persona instance via `axrange.personas.drivers.get_driver`
     over the platform's guest-exec seam (`axrange.platform`, ARCHITECTURE
@@ -1469,12 +1498,84 @@ class PersonaBackend:
 
         if op.op_name == _ASSIGN_ROLE_OP:
             return self._assign_role(resolved_inputs)
+        if op.op_name in _GENERATOR_OPS:
+            return self._generator_op(op.op_name, resolved_inputs, ctx)
         if op.op_name != _DRIVE_PERSONA_OP:
             raise AdapterError(
                 f"persona backend has no implementation for {op.op_name!r}",
                 error_class="tfc-unsupported",
             )
         return self._drive_persona(resolved_inputs, ctx)
+
+    def _leg_macs(self, node: str, vmid: int, legs: dict[str, Any]) -> dict[str, str]:
+        """NIC index -> MAC, read from the VM's own config (`netN: virtio=<mac>,...`),
+        so the in-VM wrapper finds each leg by MAC (spike A3: names are not
+        predictable past five NICs)."""
+        from axrange.planner.executor import AdapterError
+
+        cfg = self._client.request("GET", f"/nodes/{node}/qemu/{int(vmid)}/config") or {}
+        out = {}
+        for idx in legs:
+            spec = str(cfg.get(f"net{int(idx)}") or "")
+            mac = next((part.split("=", 1)[1] for part in spec.split(",") if "=" in part
+                        and part.split("=", 1)[0] in ("virtio", "e1000", "vmxnet3", "rtl8139")), None)
+            if not mac:
+                raise AdapterError(f"generator vmid={vmid}: net{idx} has no MAC in its config ({spec!r})",
+                                   error_class="tfc-generator-leg")
+            out[str(idx)] = mac.lower()
+        return out
+
+    def _generator_op(self, name: str, inp: dict[str, Any], ctx: Any) -> dict[str, Any]:
+        """The trafficgen generator ops (`trafficgen/SPEC.md`, OP-TFC-030..070)
+        through `TrexGeneratorDriver` over the guest agent."""
+        import json as _json
+
+        from axrange.personas.drivers.trex_generator import TrexGeneratorDriver
+        from axrange.planner.executor import AdapterError
+
+        node = ctx.cluster.default_node
+        vmid = int(inp["vmid"])
+        ga = self._ga_factory(self._client, node, os_family="linux")
+        drv = TrexGeneratorDriver()
+        try:
+            if name == "provision-generator":
+                from axrange.trafficgen.apps import list_apps
+
+                apps = list_apps()[0]
+                files = {}
+                for f in inp.get("files") or []:
+                    app = apps.get(f["app"])
+                    if app is None or app.pcap is None:
+                        raise PersonaDriverError(f"replay file for app {f['app']!r} is not installed")
+                    data = app.pcap.read_bytes()
+                    import hashlib as _h
+                    if _h.sha256(data).hexdigest() != f["sha256"]:
+                        raise PersonaDriverError(f"app {f['app']!r}: capture changed since the plan (re-plan)")
+                    files[f["name"]] = data
+                doc = _json.dumps(inp["document"], sort_keys=True, indent=1)
+                res = drv.provision(ga, vmid, document_json=doc, legs=self._leg_macs(node, vmid, inp["legs"]),
+                                    files=files)
+                return {"provisioned": True, "ifaces": res.get("ifaces", {})}
+            if name == "load-traffic-profile":
+                drv.load(ga, vmid)
+                return {"loaded": True}
+            if name == "start-traffic":
+                drv.start(ga, vmid, mults=inp.get("mults") or {})
+                return {"started": True}
+            if name == "update-traffic":
+                drv.update(ga, vmid, inp["line"], float(inp["mult"]))
+                return {"updated": True}
+            if name == "stop-traffic":
+                drv.stop(ga, vmid, inp["line"])
+                return {"stopped": True}
+        except PersonaDriverError as e:
+            raise AdapterError(f"{name}[{inp.get('generator')}]: {e}", error_class="tfc-generator") from e
+        raise AdapterError(f"no generator op {name!r}", error_class="tfc-unsupported")
+
+    def generator_status(self, node: str, vmid: int) -> dict[str, Any]:
+        from axrange.personas.drivers.trex_generator import TrexGeneratorDriver
+
+        return TrexGeneratorDriver().status(self._ga_factory(self._client, node, os_family="linux"), int(vmid))
 
     def _credentials(self) -> dict[str, Any]:
         """The credential material a persona driver may need in the guest
@@ -1566,6 +1667,7 @@ def apply_traffic_profile(
     manifests: Any = None,
     allow_revert_host_edits: bool = False,
     cancel_event: Any = None,
+    twin_dir: Optional[str | Path] = None,
 ) -> TrafficPlanStatus:
     """Apply a traffic profile: bind personas onto the target twin's hosts
     and run the composed drive-persona ops through the engine executor
@@ -1672,9 +1774,31 @@ def apply_traffic_profile(
         ctx = ClusterContext.single_node(cfg.default_node)
 
         plan_id = f"tfc-{resolved_spec.target}"
-        plan = compose_traffic_ops(resolution, plan_id)
-
         existing = store.find_deploy_for_plan(plan_id, exclude_destroyed=True)
+        gen_extend = None
+        gen_warnings: list[str] = []
+        if resolved_spec.lines:
+            # trafficgen (trafficgen/SPEC.md, T3): plan the generator VMs.
+            from axrange.platform.factory import platform_of
+            from axrange.trafficgen.compose import compose_generator_ops
+            from axrange.trafficgen.tfc import LinesError, prepare_lines
+
+            try:
+                prep = prepare_lines(
+                    resolved_spec, spec_path=spec_path, store=store, te_deploy_id=resolved_spec.target,
+                    twin_dir=twin_dir,
+                    platform=platform_of(cfg), manifests=manifests,
+                    tfc_deploy_id=existing.deploy_id if existing is not None else None,
+                )
+            except LinesError as e:
+                raise TrafficPlanError(e.message, status=e.status, detail=e.detail) from e
+            gen_warnings = list(prep.warnings)
+
+            def gen_extend(p: Plan) -> None:
+                compose_generator_ops(p, prep.tg_plan, attach=prep.attach, binding=prep.binding,
+                                      target_node=cfg.default_node, mults=prep.mults)
+        plan = compose_traffic_ops(resolution, plan_id, extend=gen_extend)
+
         deploy_id = (
             existing.deploy_id if existing is not None
             else f"{plan_id}-{secrets.token_hex(4)}"
@@ -1735,8 +1859,23 @@ def apply_traffic_profile(
 
             # Force EVERY op back to pending, including one already
             # `completed` from an earlier apply, so a changed assignment is
-            # genuinely re-driven (LES-057, mirrors taps.py's M1 fix).
-            store.force_reset_ops(deploy_id, [op.op_id for op in plan.ops.values()])
+            # genuinely re-driven (LES-057, mirrors taps.py's M1 fix). A
+            # generator VM's infra ops (clone, attach, start) are the
+            # exception: re-running them on a live VM buys nothing, so they
+            # re-run only when incomplete (`reset_incomplete_ops` above); its
+            # config ops (provision, load, start) converge and are re-asserted.
+            from axrange.trafficgen.compose import GENERATOR_INFRA_OPS
+
+            store.force_reset_ops(deploy_id, [
+                op.op_id for op in plan.ops.values()
+                if not (op.op_name in GENERATOR_INFRA_OPS and "host" in op.scope
+                        and str(op.scope["host"]).startswith("gen-"))
+            ])
+            # With generators the infra slot needs the real platform adapter
+            # (clone/attach/start are infra-class); without them, unchanged.
+            infra = backend
+            if gen_extend is not None:
+                infra = backend._bundle().adapter if hasattr(backend, "_bundle") else backend
 
             # `backend` fills BOTH the `adapter=` (infra) and `config_backend=`
             # slots -- valid only because every `drive-persona` op is
@@ -1753,13 +1892,13 @@ def apply_traffic_profile(
             apply_started = _time.time()
             try:
                 result = run_deploy_executor(
-                    store, backend, backend, plan, ctx, deploy_id, heartbeat,
+                    store, infra, backend, plan, ctx, deploy_id, heartbeat,
                     cancel_event=cancel_event,
                 )
             finally:
                 _restore_jobs(store, deploy_id, jobs_before)
             status = "completed" if result.succeeded else "failed"
-            warnings: list[str] = list(resolution.warnings) + revert_warnings
+            warnings: list[str] = list(resolution.warnings) + revert_warnings + gen_warnings
             if result.succeeded:
                 # MUST-FIX (code review, LES-112): stop + de-scope every
                 # instance THIS apply's new plan no longer contains -- see
@@ -3305,8 +3444,11 @@ def destroy_traffic_profile(
                 log(f"  ! traffic-profile stop pass failed: {e}")
 
             try:
+                # A tfc deploy records no placement (it owned no VM until
+                # trafficgen's generators, which are cloned on the adapter's
+                # default node), so the teardown falls back to that node.
                 result = destroy_deploy(
-                    store, backend, did, node=node, log=log,
+                    store, backend, did, node=node or cfg.default_node, log=log,
                     protected_names=cfg.protected_external_names,
                     protected_vmids=cfg.protected_external_vmids,
                 )
@@ -3508,3 +3650,81 @@ def traffic_info_from_deploy(
         target=target, target_status=target_status, deploy_id=deploy_id,
         status=status, assignments=assignments,
     )
+
+
+# ---------------------------------------------------------------------------
+# trafficgen: live rate change and per-line status (trafficgen/SPEC.md, T3 §5-6)
+# ---------------------------------------------------------------------------
+def _tfc_deploy_and_plan(store: Any, tfc_deploy_id: str) -> tuple[Any, str]:
+    d = store.get_deploy(tfc_deploy_id)
+    if d is None or d.tier != "tfc":
+        raise TrafficPlanError(f"no tfc deploy {tfc_deploy_id!r}", status=404)
+    return d, d.plan_id
+
+
+def update_traffic_line(
+    *, db_path: str, tfc_deploy_id: str, line: str, rate_cps: float,
+    adapter_config: Optional[str] = None, target_node: Optional[str] = None,
+    persona_backend: Any = None,
+) -> dict[str, Any]:
+    """`update-traffic` (OP-TFC-060) for one line of a standing tfc deploy:
+    the new rate must fit the profile's budget; the line's multiplier changes
+    live on its generator (no TRex restart, established flows kept) and is
+    recorded on the generator's `start-traffic` row, so the tfc status and a
+    later re-apply agree. Serialized with apply by the same lease."""
+    from types import SimpleNamespace
+
+    from axrange.platform import load_config
+    from axrange.planner import StateStore
+    from axrange.planner.cluster import ClusterContext
+    from axrange.planner.state import default_process_info
+    from axrange.trafficgen.tfc import LinesError, update_line_rate
+
+    store = StateStore(db_path)
+    try:
+        d, plan_id = _tfc_deploy_and_plan(store, tfc_deploy_id)
+        cfg = load_config(adapter_config)
+        if target_node:
+            cfg.default_node = target_node
+        backend = persona_backend or PersonaBackend(cfg)
+        ctx = SimpleNamespace(cluster=ClusterContext.single_node(cfg.default_node))
+        lease = store.acquire_lease(plan_id, tfc_deploy_id, process_info=default_process_info())
+        if not lease.acquired:
+            raise TrafficPlanError(f"another traffic-profile operation on {plan_id} is in progress", status=409)
+        try:
+            return update_line_rate(
+                store, tfc_deploy_id, line, float(rate_cps),
+                run_update=lambda g, vmid, ln, mult: backend.run(
+                    SimpleNamespace(op_name="update-traffic"),
+                    {"generator": g, "vmid": vmid, "line": ln, "mult": mult}, ctx),
+            )
+        except LinesError as e:
+            raise TrafficPlanError(e.message, status=e.status, detail=e.detail) from e
+        finally:
+            store.release_lease(plan_id, tfc_deploy_id)
+    finally:
+        store.close()
+
+
+def traffic_line_status(
+    *, db_path: str, tfc_deploy_id: str, adapter_config: Optional[str] = None,
+    target_node: Optional[str] = None, persona_backend: Any = None,
+) -> dict[str, Any]:
+    """Per-line counters of a tfc deploy's generators (empty without lines)."""
+    from axrange.platform import load_config
+    from axrange.planner import StateStore
+    from axrange.trafficgen.tfc import line_status
+
+    store = StateStore(db_path)
+    try:
+        _tfc_deploy_and_plan(store, tfc_deploy_id)
+        if not any(r.op_name == "start-traffic" for r in store.ops_for_deploy(tfc_deploy_id)):
+            return {}
+        cfg = load_config(adapter_config)
+        if target_node:
+            cfg.default_node = target_node
+        backend = persona_backend or PersonaBackend(cfg)
+        return line_status(store, tfc_deploy_id,
+                           read_status=lambda vmid: backend.generator_status(cfg.default_node, vmid))
+    finally:
+        store.close()

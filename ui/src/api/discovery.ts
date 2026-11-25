@@ -11,6 +11,7 @@ import type {
   DestroyResult,
   DeployConfigApply,
   DeployConfigReset,
+  DeployDetail,
   DeployList,
   DiscoveryPluginList,
   DiscoveryRun,
@@ -41,6 +42,7 @@ import type {
   DraftDetail,
   DraftList,
   DraftWrite,
+  TrafficStatus,
   TwinDeployRequest,
   TwinList,
   TwinSummary,
@@ -164,6 +166,10 @@ export interface Api {
   destroyDeploy(deployId: string): Promise<DestroyResult>;
   /** A running destroy's progress (the te sweep's VM count), polled while the DELETE runs. */
   getDestroyProgress(deployId: string, signal?: AbortSignal): Promise<DestroyProgress>;
+  /** One deploy with its ops (`GET /api/deploys/{id}`): the deploy view's op list. */
+  getDeploy(deployId: string, signal?: AbortSignal): Promise<DeployDetail>;
+  /** A tfc deploy's status with its traffic lines' live counters (`GET /api/tfc?deploy_id=`). */
+  getTfcStatus(tfcDeployId: string, signal?: AbortSignal): Promise<TrafficStatus>;
 }
 
 const enc = encodeURIComponent;
@@ -242,5 +248,7 @@ export function makeApi(request: Requester): Api {
     // The confirmation rides the query: some proxies drop a DELETE's body (the route takes either).
     destroyDeploy: (deployId) => request("DELETE", `/api/deploys/${enc(deployId)}?allow_destroy=true`, {}),
     getDestroyProgress: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}/destroy-progress`, { signal }),
+    getDeploy: (deployId, signal) => request("GET", `/api/deploys/${enc(deployId)}`, { signal }),
+    getTfcStatus: (tfcDeployId, signal) => request("GET", `/api/tfc?deploy_id=${enc(tfcDeployId)}`, { signal }),
   };
 }

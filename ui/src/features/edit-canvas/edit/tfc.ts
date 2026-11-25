@@ -7,7 +7,7 @@
  *
  * Pure -- no React, no DOM.
  */
-import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, removeSpan, replaceValueOnLine, scalarText, type YMap, type YSeq } from "./yaml";
+import { contentEnd, encodeScalar, entry, get, insertLines, joinLines, parseYaml, removeSpan, replaceValueOnLine, scalarText, toPlain, type YMap, type YSeq } from "./yaml";
 
 export interface TfcAssignment {
   by: "node" | "role";
@@ -18,15 +18,75 @@ export interface TfcAssignment {
   seed: string | null;
 }
 
+/** trafficgen T2 (`engine/src/axrange/trafficgen/SPEC.md`): the twin's ceilings for its traffic lines. */
+export interface TfcBudget {
+  cps: number;
+  mbps: number;
+}
+
+/** `emulated[]`: instances with no VM added to a te node group, or a tfc-only external group. */
+export interface TfcEmulated {
+  group: string;
+  count: number;
+  external: boolean;
+  segment: string | null;
+  role: string | null;
+  start: string | null;
+}
+
+/** `lines[]`: `from` group -> `to` group, an app mix, a rate. */
+export interface TfcLine {
+  /** As written (null: the engine's default `<from>--<to>--<mix>`). */
+  id: string | null;
+  from: string;
+  to: string;
+  mix: string;
+  rate_cps: number;
+  max_concurrent: number | null;
+}
+
 export interface TfcModel {
   target: string | null;
   assignments: TfcAssignment[];
+  budget: TfcBudget | null;
+  emulated: TfcEmulated[];
+  lines: TfcLine[];
+}
+
+/** The id the engine gives a line (`lines[].id`, default `<from>--<to>--<mix>`). */
+export function lineId(l: TfcLine): string {
+  return l.id ?? `${l.from}--${l.to}--${l.mix}`;
 }
 
 export function readTfc(text: string): TfcModel {
   const doc = parseYaml(text);
   const tp = get(doc.root, "traffic-profile");
-  const out: TfcModel = { target: scalarText(get(tp, "target")), assignments: [] };
+  const out: TfcModel = { target: scalarText(get(tp, "target") ?? get(tp, "twin")), assignments: [], budget: null, emulated: [], lines: [] };
+  const num = (v: unknown): number | null => (typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+  const str = (v: unknown): string | null => (v === null || v === undefined || v === "" ? null : String(v));
+  const b = toPlain(get(tp, "budget"));
+  if (b && typeof b === "object" && !Array.isArray(b)) {
+    const cps = num(b["cps"]), mbps = num(b["mbps"]);
+    if (cps !== null && mbps !== null) out.budget = { cps, mbps };
+  }
+  const em = toPlain(get(tp, "emulated"));
+  if (Array.isArray(em)) {
+    for (const e of em) {
+      if (!e || typeof e !== "object" || Array.isArray(e)) continue;
+      const group = str(e["group"]), count = num(e["count"]);
+      if (!group || count === null) continue;
+      out.emulated.push({ group, count, external: e["external"] === true, segment: str(e["segment"]), role: str(e["role"]), start: str(e["start"]) });
+    }
+  }
+  const ls = toPlain(get(tp, "lines"));
+  if (Array.isArray(ls)) {
+    for (const l of ls) {
+      if (!l || typeof l !== "object" || Array.isArray(l)) continue;
+      const from = str(l["from"]), to = str(l["to"]), mix = str(l["mix"]), rate = num(l["rate_cps"]);
+      if (!from || !to || !mix || rate === null) continue;
+      out.lines.push({ id: str(l["id"]), from, to, mix, rate_cps: rate, max_concurrent: num(l["max_concurrent"]) });
+    }
+  }
   const as = get(tp, "assignments");
   if (as && as.kind === "seq") {
     for (const it of as.items) {
@@ -146,4 +206,55 @@ export function renameNodeBindings(text: string, from: string, to: string): stri
     }
   }
   return changed ? joinLines(lines, doc.trailingNewline) : text;
+}
+
+// ---------------------------------------------------------------------------
+// trafficgen blocks (`budget`, `emulated`, `lines`): each block is rewritten
+// whole from the model, one flow map per item (the shape the gate profile and
+// the SPEC use); every other line of the profile is kept as it was.
+// ---------------------------------------------------------------------------
+type TgKey = "budget" | "emulated" | "lines";
+
+function flow(pairs: [string, string | number | boolean | null][]): string {
+  return `{ ${pairs.filter(([, v]) => v !== null).map(([k, v]) => `${k}: ${typeof v === "string" ? encodeScalar(v) : String(v)}`).join(", ")} }`;
+}
+
+function blockLines(key: TgKey, model: Pick<TfcModel, TgKey>, indent: number): string[] | null {
+  const pad = " ".repeat(indent);
+  if (key === "budget") return model.budget ? [`${pad}budget: ${flow([["cps", model.budget.cps], ["mbps", model.budget.mbps]])}`] : null;
+  if (key === "emulated") {
+    if (!model.emulated.length) return null;
+    return [`${pad}emulated:`, ...model.emulated.map((e) => `${pad}  - ${flow(e.external
+      ? [["group", e.group], ["external", true], ["segment", e.segment], ["role", e.role], ["count", e.count], ["start", e.start]]
+      : [["group", e.group], ["count", e.count], ["start", e.start]])}`)];
+  }
+  if (!model.lines.length) return null;
+  return [`${pad}lines:`, ...model.lines.map((l) => `${pad}  - ${flow([["id", l.id], ["from", l.from], ["to", l.to], ["mix", l.mix], ["rate_cps", l.rate_cps], ["max_concurrent", l.max_concurrent]])}`)];
+}
+
+function writeBlock(text: string, key: TgKey, model: Pick<TfcModel, TgKey>): string {
+  const doc = parseYaml(text);
+  const lines = [...doc.lines];
+  const tp = get(doc.root, "traffic-profile");
+  if (!tp || tp.kind !== "map" || tp.flow) throw new Error("the traffic profile has no `traffic-profile:` mapping");
+  const e = entry(tp, key);
+  const next = blockLines(key, model, tp.indent);
+  if (e) {
+    const end = Math.max(contentEnd(lines, e.end), e.start + 1);
+    lines.splice(e.start, end - e.start, ...(next ?? []));
+  } else if (next) {
+    insertLines(lines, contentEnd(lines, tp.end), next);
+  } else return text;
+  return joinLines(lines, doc.trailingNewline);
+}
+
+/** Write the profile's `budget` / `emulated` / `lines` to `model` (an empty list or null removes the block). */
+export function setTrafficgen(text: string, model: Pick<TfcModel, TgKey>): string {
+  const current = readTfc(text);
+  let out = text;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  for (const key of ["budget", "emulated", "lines"] as const) {
+    if (!same(current[key], model[key])) out = writeBlock(out, key, model);
+  }
+  return out;
 }

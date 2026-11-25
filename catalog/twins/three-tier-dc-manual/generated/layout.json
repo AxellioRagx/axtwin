@@ -1,0 +1,68 @@
+{
+  "imprint": "three-tier-dc-manual",
+  "mode": "free",
+  "pins": {
+    "host:agg-1": {
+      "x": 576.0,
+      "y": 600.0
+    },
+    "host:agg-2": {
+      "x": 816.0,
+      "y": 600.0
+    },
+    "host:core-1": {
+      "x": 576.0,
+      "y": 312.0
+    },
+    "host:core-2": {
+      "x": 864.0,
+      "y": 312.0
+    },
+    "host:internet-sink": {
+      "x": 825.0,
+      "y": 201.0
+    },
+    "host:rack1-db": {
+      "x": 485.0,
+      "y": 873.0
+    },
+    "host:rack1-tor": {
+      "x": 381.0,
+      "y": 735.0
+    },
+    "host:rack1-web": {
+      "x": 441.0,
+      "y": 873.0
+    },
+    "host:rack2-db": {
+      "x": 760.0,
+      "y": 889.0
+    },
+    "host:rack2-tor": {
+      "x": 656.0,
+      "y": 751.0
+    },
+    "host:rack2-web": {
+      "x": 716.0,
+      "y": 889.0
+    },
+    "host:rack3-db": {
+      "x": 1046.0,
+      "y": 889.0
+    },
+    "host:rack3-tor": {
+      "x": 942.0,
+      "y": 751.0
+    },
+    "host:rack3-web": {
+      "x": 1002.0,
+      "y": 889.0
+    },
+    "segment:10.250.0.0/24": {
+      "x": 765.0,
+      "y": 63.0
+    }
+  },
+  "plane": "canvas-7-dec5e3b8",
+  "schema": "axr-layout/1"
+}

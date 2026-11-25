@@ -726,6 +726,54 @@ _RULES_LIST: list[Rule] = [
            "hard-unresolvable-role fail-loud is unchanged."
        ),
        message_template="Persona '{persona_id}' emits[{index}].peer_scope '{peer_scope}' is not one of one, all"),
+    # --- App mixes and traffic lines (2026-11-24, engine/src/axrange/trafficgen/
+    # SPEC.md; T1/T2 signed off by the user). PSN-120..140 police the app-mix
+    # shape of a persona (catalog-side, like PSN-010..110). TGN-010..070 police
+    # a tfc profile's emulated instances and traffic lines against the twin
+    # (`trafficgen.validate.check_lines`, run by `tfc validate` and before a tfc
+    # plan). Both live in the persona category, pass 4.
+    _R("PSN-120", RuleCategory.PERSONA, ERR, 4,
+       "A trex-astf persona carries exactly one of mix: or knobs.side",
+       description="`mix:` makes it an app mix (played on traffic lines); `knobs.side` is the per-VM generator form (`trex-test`). `mix:` on any other drive is refused too.",
+       message_template="Persona '{persona_id}': {why}"),
+    _R("PSN-130", RuleCategory.PERSONA, ERR, 4,
+       "Every mix[] app is an installed traffic app with a weight > 0",
+       message_template="Persona '{persona_id}' mix[{index}] app '{app}' {why}"),
+    _R("PSN-140", RuleCategory.PERSONA, ERR, 4,
+       "Every mix[] app's (proto, port) appears in the persona's emits",
+       description="The canvas filters mixes by `emits` against a peer's role; an app the emits do not name would be invisible to that filter.",
+       message_template="Persona '{persona_id}' mix[{index}] app '{app}' sends {proto}/{port}, which no emits[] entry names"),
+    _R("TGN-010", RuleCategory.PERSONA, ERR, 4,
+       "A traffic line's from group has emulated instances",
+       description="TRex sends only from emulated addresses; it cannot send from a real VM's address.",
+       message_template="lines[{index}]: from group '{group}' has no emulated instances -- TRex cannot send from a real VM's address; add it to emulated[]"),
+    _R("TGN-020", RuleCategory.PERSONA, ERR, 4,
+       "A traffic line ends at emulated instances (no line to a real server in this phase)",
+       description="Client-only lines against real servers are a later phase; each such line names the mix apps that are not real_server_ok.",
+       message_template="lines[{index}]: to group '{group}' has no emulated instances -- lines to a real server are refused in this phase (apps not real_server_ok: {apps}); add '{group}' to emulated[]"),
+    _R("TGN-030", RuleCategory.PERSONA, ERR, 4,
+       "Every emulated group, line end, segment and mix resolves",
+       message_template="{where} '{name}' does not resolve: {why}"),
+    _R("TGN-040", RuleCategory.PERSONA, ERR, 4,
+       "The planned traffic fits the profile's budget",
+       description="Connections/s is the sum of lines[].rate_cps; Mbps is estimated from each mix's app sizes.",
+       message_template="planned {what} {planned} exceeds budget {budget}"),
+    _R("TGN-050", RuleCategory.PERSONA, ERR, 4,
+       "Emulated addresses fit their segment and collide with no real address",
+       message_template="emulated group '{group}': {detail}"),
+    _R("TGN-060", RuleCategory.PERSONA, ERR, 4,
+       "An app mix is not assigned to a group or member with no emulated instances",
+       description="A `drive: trex-astf` persona with `mix:` is played by a planned generator from emulated "
+                   "addresses on a traffic line. An `assignments[]` entry binds it to the real VMs of a role or "
+                   "node, which have no emulated instances, so TRex could not send from them. Checked on every "
+                   "tfc profile (Check, `tfc validate`, apply), with or without lines.",
+       message_template="assignments[{index}]: {target} has no emulated instances -- persona '{persona_id}' is a "
+                        "TRex app mix and cannot play on a real VM; add the group to emulated[] and play the mix "
+                        "on a lines[] entry"),
+    _R("TGN-070", RuleCategory.PERSONA, ERR, 4,
+       "The target platform has a generator image",
+       description="The `generator` image profile (catalog/image-profiles.yaml) must resolve for the target's platform.",
+       message_template="no generator image for this target's platform (image profile 'generator'); traffic lines cannot be planned"),
 ]
 
 
@@ -802,6 +850,7 @@ assert _BY_CAT[RuleCategory.FABRIC] == 8, _BY_CAT  # fabric slice, 2026-06-29
 assert _BY_CAT[RuleCategory.CLUSTER] == 8, _BY_CAT  # +CLU-080 native switches
 assert _BY_CAT[RuleCategory.NATIVE_SWITCH] == 8, _BY_CAT  # NSW-020..090, 2026-11-12
 # PSN-010..090 persona library 2026-07-24; +PSN-100/110 (transport +
-# peer_scope enums) with the high-volume persona wave, 2026-07-28.
-assert _BY_CAT[RuleCategory.PERSONA] == 11, _BY_CAT
-assert sum(_BY_CAT.values()) == 131  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (NSW-020..090, CLU-080, 2026-11-12) + NET-150 vrrp (D5, 2026-11-21)
+# peer_scope enums) with the high-volume persona wave, 2026-07-28; +PSN-120..140
+# (app mixes) and TGN-010..070 (traffic lines), trafficgen T1/T2, 2026-11-24.
+assert _BY_CAT[RuleCategory.PERSONA] == 21, _BY_CAT
+assert sum(_BY_CAT.values()) == 141  # 114 + the device tree's 7 (2026-11-07) + native switches' 9 (NSW-020..090, CLU-080, 2026-11-12) + NET-150 vrrp (D5, 2026-11-21) + trafficgen's 10 (2026-11-24)

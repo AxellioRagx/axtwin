@@ -115,6 +115,10 @@ export function tunnelSource(over: Partial<DiscoverySource> = {}): DiscoverySour
 }
 
 export interface FakeState {
+  /** `GET /api/deploys/{id}` answers, by deploy id (the deploy view's op list). */
+  deployDetails?: Record<string, import("../../src/api/types").DeployDetail>;
+  /** `GET /api/tfc?deploy_id=` answers, by tfc deploy id. */
+  tfcStatus?: Record<string, import("../../src/api/types").TrafficStatus>;
   /** What `POST /api/fabric-conversion` answers; unset, the fake refuses like a twin with no bridge VM. */
   fabricPlan?: FabricPlan;
   /** What `GET /api/whoami` answers (A8); the dev default is an open deployment. */
@@ -740,6 +744,16 @@ export function fakeApi(seed: Partial<FakeState> = {}): { api: Api; state: FakeS
     },
     async listTargetDeploys(target) {
       return { deploys: state.deploys.filter((d) => (d.target ?? "dev45") === target), warnings: [] };
+    },
+    async getDeploy(deployId) {
+      const d = state.deployDetails?.[deployId];
+      if (!d) throw notFound(`deploy '${deployId}'`);
+      return d;
+    },
+    async getTfcStatus(tfcDeployId) {
+      const t = state.tfcStatus?.[tfcDeployId];
+      if (!t) throw notFound(`tfc deploy '${tfcDeployId}'`);
+      return t;
     },
     async getTaps(twinDeployId) {
       const t = state.taps[twinDeployId];

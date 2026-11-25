@@ -1830,6 +1830,7 @@ def deploy_detail(settings: ApiSettings, deploy_id: str) -> dtos.DeployDetailDTO
             attempts = store.attempts_for_op(did, op.op_id)
             op_dtos.append(dtos.OpDTO(
                 op_id=op.op_id,
+                scope=_json_scope(op.scope_json),
                 op_name=op.op_name,
                 op_catalog_id=op.op_catalog_id,
                 kind=op.kind,
@@ -3066,6 +3067,14 @@ def _traffic_status_dto(status: Any) -> dtos.TrafficPlanStatusDTO:
     )
 
 
+def _json_scope(raw: Optional[str]) -> dict[str, Any]:
+    try:
+        v = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
 def tfc_apply(settings: ApiSettings, req: dtos.TrafficApplyRequest, *,
              persona_backend: Any = None) -> dtos.TrafficPlanStatusDTO:
     from axrange.o2control.traffic import (
@@ -3083,6 +3092,12 @@ def tfc_apply(settings: ApiSettings, req: dtos.TrafficApplyRequest, *,
             "assignments": [a.model_dump(exclude_none=True) for a in req.assignments],
             "replay": [r.model_dump(exclude_none=True) for r in req.replay],
         }
+        if req.budget is not None:
+            body["budget"] = req.budget.model_dump()
+        if req.emulated:
+            body["emulated"] = [e.model_dump(exclude_none=True) for e in req.emulated]
+        if req.lines:
+            body["lines"] = [ln.model_dump(exclude_none=True, by_alias=True) for ln in req.lines]
         # Forward whichever target key the client used, verbatim, so
         # `parse_traffic_profile` -- not this function -- owns the
         # both-given/malformed rules (one validation implementation, LES-037).
@@ -3101,6 +3116,7 @@ def tfc_apply(settings: ApiSettings, req: dtos.TrafficApplyRequest, *,
     from axrange.personas import registry as persona_registry
 
     overlay = _tfc_twin_overlay(settings, spec.target)
+    twin_dir, manifests = _tfc_lines_context(settings, spec, _tfc_twin_scenario(settings, spec.target))
     try:
         with persona_registry.overlay(overlay):
             status = apply_traffic_profile(
@@ -3108,10 +3124,47 @@ def tfc_apply(settings: ApiSettings, req: dtos.TrafficApplyRequest, *,
                 adapter_config=settings.adapter_config,
                 target_node=req.target_node, persona_backend=persona_backend,
                 allow_revert_host_edits=req.allow_revert_host_edits,
+                manifests=manifests, twin_dir=twin_dir,
             )
     except TrafficPlanError as e:
         raise ApiError(e.status, e.message, detail=e.detail) from e
     return _traffic_status_dto(status)
+
+
+def _tfc_twin_scenario(settings: ApiSettings, target: Optional[str]) -> Optional[str]:
+    """The twin id (scenario) of the te deploy a tfc request targets, or None."""
+    if not target or not Path(settings.db_path).is_file():
+        return None
+    from axrange.o2control.traffic import TrafficPlanError, resolve_traffic_target
+    from axrange.planner import StateStore
+
+    store = StateStore(settings.db_path)
+    try:
+        try:
+            te = store.get_deploy(resolve_traffic_target(store, target))
+        except TrafficPlanError:
+            return None
+    finally:
+        store.close()
+    return te.scenario_id if te is not None else None
+
+
+def _tfc_lines_context(
+    settings: ApiSettings, spec: Any, scenario_id: Optional[str],
+) -> tuple[Optional[Path], Any]:
+    """For a profile with traffic lines: the twin's folder in THIS serve's
+    catalog (the te file the generator plan reads) and the image manifests
+    (the generator's template). `(None, None)` for a profile without lines,
+    which plans exactly as before."""
+    if not getattr(spec, "lines", None):
+        return None, None
+    twin_dir: Optional[Path] = None
+    if scenario_id:
+        try:
+            twin_dir, _flat = _bundle_location(settings, scenario_id)
+        except ApiError:
+            twin_dir = None
+    return twin_dir, _load_manifests(_effective_images_root(settings))
 
 
 def _tfc_twin_overlay(settings: ApiSettings, target: Optional[str]) -> dict:
@@ -3139,11 +3192,41 @@ def _tfc_twin_overlay(settings: ApiSettings, target: Optional[str]) -> dict:
 
 def tfc_status(settings: ApiSettings, *,
                target: Optional[str] = None,
-               deploy_id: Optional[str] = None) -> dtos.TrafficPlanStatusDTO:
+               deploy_id: Optional[str] = None,
+               persona_backend: Any = None) -> dtos.TrafficPlanStatusDTO:
     from axrange.o2control.traffic import traffic_status
 
     status = traffic_status(db_path=settings.db_path, target=target, deploy_id=deploy_id)
-    return _traffic_status_dto(status)
+    dto = _traffic_status_dto(status)
+    if status.deploy_id and status.status not in ("destroyed", "not-applied"):
+        dto.lines = _tfc_lines(settings, status.deploy_id, persona_backend=persona_backend)
+    return dto
+
+
+def _tfc_lines(settings: ApiSettings, deploy_id: str, *, persona_backend: Any = None) -> dict:
+    """Per-line counters (trafficgen B6); a read failure is reported in the
+    line rows, never a 500 for the whole status."""
+    from axrange.o2control.traffic import TrafficPlanError, traffic_line_status
+
+    try:
+        return traffic_line_status(db_path=settings.db_path, tfc_deploy_id=deploy_id,
+                                   adapter_config=settings.adapter_config, persona_backend=persona_backend)
+    except TrafficPlanError:
+        return {}
+
+
+def tfc_update_line(settings: ApiSettings, deploy_id: str, line: str, req: dtos.TrafficLineRateRequest, *,
+                    persona_backend: Any = None) -> dtos.TrafficLineRateResponse:
+    """`update-traffic` (trafficgen T3 §5): one line's rate, live."""
+    from axrange.o2control.traffic import TrafficPlanError, update_traffic_line
+
+    try:
+        r = update_traffic_line(db_path=settings.db_path, tfc_deploy_id=deploy_id, line=line,
+                                rate_cps=req.rate_cps, adapter_config=settings.adapter_config,
+                                persona_backend=persona_backend)
+    except TrafficPlanError as e:
+        raise ApiError(e.status, e.message, detail=e.detail) from e
+    return dtos.TrafficLineRateResponse(**r)
 
 
 def tfc_destroy(settings: ApiSettings, req: dtos.TrafficDestroyRequest, *,
@@ -4917,6 +5000,12 @@ def run_follow_on(
         for t in order:
             rec.mark(te.deploy_id, t, "failed", reason=f"the twin's document: {e.message}")
         return rec.get(te.deploy_id)
+    # trafficgen (canvas task item 6): a profile with traffic lines plans generator VMs, and a
+    # span mirrors only the ports it names (spike A4), so tfc runs BEFORE tap: the tap tier then
+    # selects the generators' legs (`taps._with_generator_legs`). Without lines: tap, tfc as before.
+    gen_lines = _tfc_has_lines(doc.files, edits.tier_file_of(doc.files, "tfc"))
+    if gen_lines and order == ["tap", "tfc"]:
+        order = ["tfc", "tap"]
     for tier in order:
         rel = edits.tier_file_of(doc.files, tier)
         if tier == "tap" and not _tap_bindings_in(doc.files, rel):
@@ -4950,7 +5039,55 @@ def run_follow_on(
             continue
         rec.mark(te.deploy_id, tier, "completed", deploy_id=getattr(dto, "deploy_id", None),
                  reason="; ".join(warnings) or None)
+        if tier == "tfc" and gen_lines and "tap" not in order:
+            _reselect_taps(settings, te, doc.files, folder, target_node=target_node,
+                           tap_adapter=tap_adapter, tap_config_backend=tap_config_backend, rec=rec)
     return rec.get(te.deploy_id)
+
+
+def _tfc_has_lines(files: dict[str, str], rel: Optional[str]) -> bool:
+    """Does the twin's default traffic profile carry traffic lines (generators)?"""
+    from axrange.api import edits
+
+    if rel is None or rel not in files:
+        return False
+    try:
+        raw = edits.parse_yaml(files[rel])
+    except Exception:  # noqa: BLE001 -- the tier itself reports a bad file
+        return False
+    body = raw.get("traffic-profile") if isinstance(raw, dict) else None
+    return isinstance(body, dict) and bool(body.get("lines"))
+
+
+def _reselect_taps(settings: ApiSettings, te: Any, files: dict[str, str], folder: Path, *,
+                   target_node: Optional[str], tap_adapter: Any, tap_config_backend: Any,
+                   rec: Any) -> None:
+    """A tfc started on its own planned generators while a tap deploy already
+    stands: re-apply the twin's tap plan so its spans select the generators'
+    legs (spike A4). Recorded on the tap tier's follow-on row."""
+    from axrange.api import edits
+    from axrange.o2control.cascade import siblings_for_te
+    from axrange.planner.state import DeployStatus
+
+    store = _open_existing_store(settings.db_path)
+    try:
+        standing = [r for r in siblings_for_te(store, te.deploy_id).get("tap", [])
+                    if r.status != DeployStatus.DESTROYED]
+    finally:
+        store.close()
+    rel = edits.tier_file_of(files, "tap")
+    if not standing or not _tap_bindings_in(files, rel):
+        return
+    try:
+        with _hold_te_lease(settings, te):
+            dto = _replay_tap(settings, te, folder / str(rel), target_node=target_node,
+                              adapter=tap_adapter, config_backend=tap_config_backend)
+    except Exception as e:  # noqa: BLE001 -- detached: the record is the only report
+        msg = e.message if isinstance(e, ApiError) else f"{type(e).__name__}: {e}"
+        rec.mark(te.deploy_id, "tap", "failed", reason=f"re-selecting taps for the generators: {msg}")
+        return
+    rec.mark(te.deploy_id, "tap", "completed", deploy_id=getattr(dto, "deploy_id", None),
+             reason="re-applied after tfc so the spans select the generators' legs")
 
 
 def start_tier(
@@ -6504,6 +6641,12 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
     merged: dict[str, tuple[Any, str]] = {pid: (p, "catalog") for pid, p in PERSONAS.items()}
     for pid, p in overlay.items():
         merged[pid] = (p, "twin")
+    apps: dict[str, Any] = {}
+    if any(p.mix for p, _ in merged.values()):
+        from axrange.trafficgen.apps import list_apps
+
+        apps, app_warnings = list_apps()
+        warnings = [*warnings, *app_warnings]
     out = []
     for pid in sorted(merged):
         p, source = merged[pid]
@@ -6511,6 +6654,7 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
             id=p.id, os_family=p.os_family, drive=p.drive, source=source,
             requires=list(p.requires), summary=_persona_summary(p),
             category=p.effective_category(), label=p.label or p.id, blurb=p.blurb,
+            **_persona_mix_fields(p, apps, warnings),
             emits=[
                 dtos.PersonaEmitDTO(
                     proto=e.proto, ports=list(e.ports), peer_role=e.peer_role,
@@ -6521,6 +6665,77 @@ def list_personas(settings: ApiSettings, *, twin: Optional[str] = None) -> dtos.
             ],
         ))
     return dtos.PersonaListDTO(twin=twin, personas=out, warnings=warnings)
+
+
+def _persona_mix_fields(p: Any, apps: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """`mix` / `real_server_ok` for `PersonaDTO` (T1, `trafficgen/SPEC.md`):
+    each app's share and facts; an app the mix names but that is not
+    installed is listed with `installed: false` and a warning."""
+    if not p.mix:
+        return {"mix": [], "real_server_ok": False}
+    total = sum(e.weight for e in p.mix if e.weight > 0) or 1.0
+    rows = []
+    for e in p.mix:
+        a = apps.get(e.app)
+        if a is None:
+            warnings.append(f"persona {p.id!r}: mix app {e.app!r} is not installed")
+        rows.append(dtos.PersonaMixEntryDTO(
+            app=e.app, weight=e.weight, share=round(max(e.weight, 0.0) / total, 4),
+            installed=a is not None,
+            **({"label": a.label, "proto": a.proto, "port": a.port, "transport": a.transport,
+                "real_server_ok": a.real_server_ok} if a is not None else {}),
+        ))
+    return {"mix": rows, "real_server_ok": all(r.installed and r.real_server_ok for r in rows)}
+
+
+def _traffic_app_dto(a: Any, used_by: list[str]) -> dtos.TrafficAppDTO:
+    tun = {}
+    for n, t in a.tunables.items():
+        d: dict[str, Any] = {"default": t.default}
+        if t.choices:
+            d["choices"] = list(t.choices)
+        if t.min is not None:
+            d["min"] = t.min
+        if t.max is not None:
+            d["max"] = t.max
+        tun[n] = d
+    return dtos.TrafficAppDTO(
+        id=a.id, label=a.label, blurb=a.blurb, proto=a.proto, transport=a.transport,
+        port=a.port, real_server_ok=a.real_server_ok, source_kind=a.source_kind,
+        tunables=tun, provenance=a.provenance, used_by=used_by,
+    )
+
+
+def _app_users() -> dict[str, list[str]]:
+    from axrange.personas.registry import PERSONAS
+
+    users: dict[str, list[str]] = {}
+    for pid in sorted(PERSONAS):
+        for e in PERSONAS[pid].mix:
+            users.setdefault(e.app, []).append(pid)
+    return users
+
+
+def list_traffic_apps(settings: ApiSettings) -> dtos.TrafficAppListDTO:
+    """`GET /api/traffic-apps`: every installed traffic app, with the catalog
+    mixes that name it. A file that does not load is a warning, not a 500."""
+    from axrange.trafficgen.apps import list_apps
+
+    apps, warnings = list_apps()
+    users = _app_users()
+    return dtos.TrafficAppListDTO(
+        apps=[_traffic_app_dto(apps[i], users.get(i, [])) for i in sorted(apps)],
+        warnings=warnings,
+    )
+
+
+def get_traffic_app(settings: ApiSettings, app_id: str) -> dtos.TrafficAppDTO:
+    from axrange.trafficgen.apps import list_apps
+
+    apps, _ = list_apps()
+    if app_id not in apps:
+        raise ApiError(404, f"unknown traffic app {app_id!r}", detail={"apps": sorted(apps)})
+    return _traffic_app_dto(apps[app_id], _app_users().get(app_id, []))
 
 
 def _host_assignments(
@@ -6843,7 +7058,12 @@ def _validate_twin_document(
         if image_warnings and target is None:
             result = _with_target_image_warnings(scratch, twin_id, result)
         try:
-            tier_warnings = _check_tier_files(td / twin_id, files)
+            tier_warnings = _check_tier_files(td / twin_id, files, twin_id=twin_id)
+        except _TierRuleError as e:
+            if raise_on_fail:
+                raise
+            for rid, loc, msg in e.all:
+                result = _with_tier_finding(result, msg, rule_id=rid, location=loc)
         except ApiError as e:
             if raise_on_fail:
                 raise
@@ -6856,14 +7076,73 @@ def _validate_twin_document(
     return result
 
 
+class _TierRuleError(ApiError):
+    """A tier file refused by a catalogued rule (its finding keeps the rule
+    id); `more` carries further (rule_id, location, message) refusals found
+    in the same pass, so Check lists every one, not only the first."""
+
+    def __init__(self, rule_id: str, location: str, message: str,
+                 more: Optional[list[tuple[str, str, str]]] = None) -> None:
+        allf = [(rule_id, location, message)] + list(more or [])
+        super().__init__(400, "; ".join(f"{loc}: {rid}: {msg}" for rid, loc, msg in allf))
+        self.rule_id, self.location, self.rule_message = rule_id, location, message
+        self.all = allf
+
+
+def _trafficgen_document_findings(bundle_dir: Path, rel: str, spec: Any) -> list[tuple[str, str, str]]:
+    """The TGN rules (`trafficgen.validate.check_profile_file`) and the
+    generator planner on a document's tfc profile that has emulated[] or
+    lines[]: what `tfc deploy` would refuse, found at Check / Save. TGN-070
+    (the target platform's generator image) is the deploy target's question,
+    asked at apply; a planner refusal (e.g. a group on two generators) is a
+    TIER-LOAD finding naming the lines."""
+    from axrange.trafficgen.plan import TrafficGenPlanError, plan_for_file
+    from axrange.trafficgen.validate import LinesContextError, check_profile_file
+    from axrange.validator.finding import Severity
+
+    if not spec.lines and not spec.emulated:
+        return []
+    try:
+        found = check_profile_file(spec, bundle_dir / rel, platform=None)
+    except LinesContextError as e:
+        return [("TIER-LOAD", rel, str(e))]
+    out = [(f.rule_id, rel, f.message) for f in found
+           if f.severity == Severity.ERROR and f.rule_id not in ("TGN-060", "TGN-070")]
+    if out or not spec.lines:
+        return out
+    try:
+        plan_for_file(spec, bundle_dir / rel)
+    except TrafficGenPlanError as e:
+        out.append(("TIER-LOAD", rel, f"generator plan: {e}"))
+    return out
+
+
+def _refuse_mix_assignments(bundle_dir: Path, rel: str, spec: Any) -> None:
+    """TGN-060 on a tfc profile of the document: an app mix bound to a role
+    or node (real VMs) is refused at Check / Save, not only at apply. The
+    personas are the catalog plus the document's own `personas/`."""
+    from axrange.personas.registry import PERSONAS, PersonaRegistryError, twin_overlay
+    from axrange.trafficgen.validate import mix_assignment_findings
+
+    personas = dict(PERSONAS)
+    if (bundle_dir / "personas").is_dir():
+        try:
+            personas.update(twin_overlay(bundle_dir / "personas"))
+        except PersonaRegistryError:
+            pass  # reported by the personas/ check below
+    for f in mix_assignment_findings(spec, personas):
+        raise _TierRuleError(f.rule_id, rel, f.message)
+
+
 def _with_tier_finding(
     result: dtos.ValidateResultDTO, message: str, *, severity: str = "error",
+    rule_id: str = "TIER-LOAD", location: Optional[str] = None,
 ) -> dtos.ValidateResultDTO:
     """A tier-loader refusal folded into the validate answer as an error (or a
     tier file's soft problem -- taps naming no sensor -- as a warning)."""
     findings = list(result.findings) + [
-        dtos.FindingDTO(rule_id="TIER-LOAD", severity=severity, message=message,
-                        location=message.split(":", 1)[0]),
+        dtos.FindingDTO(rule_id=rule_id, severity=severity, message=message,
+                        location=location or message.split(":", 1)[0]),
     ]
     if severity != "error":
         return result.model_copy(update={"warnings": result.warnings + 1, "findings": findings})
@@ -6919,7 +7198,20 @@ def fabric_conversion(req: dtos.FabricConversionRequest) -> dtos.FabricConversio
     return dtos.FabricConversionDTO(recipe=recipe, **plan.as_dict())
 
 
-def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
+def _tier_target_mismatch(twin_id: str, target: Optional[str]) -> bool:
+    """A tier file of a bundle names the twin it is for: the twin's id, or a
+    deploy of it (`<id>-<8 hex>`). Anything else -- a Save-As copy that kept
+    its source's id -- would apply to another twin."""
+    import re
+
+    if not target or target == twin_id:
+        return False
+    return re.fullmatch(re.escape(twin_id) + r"-[0-9a-f]{8}", target) is None
+
+
+def _check_tier_files(
+    bundle_dir: Path, files: dict[str, str], *, twin_id: Optional[str] = None,
+) -> list[str]:
     """Every `tfc/*.yaml`, `tap/*.yaml` and `personas/*.yaml` of the
     document (and a legacy cast's root-level `tap-cast.yaml` / `tfc-cast.yaml`
     when it has no manifest) must parse as what its playout will load (one
@@ -6933,6 +7225,7 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
     from axrange.personas.registry import PersonaRegistryError, twin_overlay
 
     warnings: list[str] = []
+    refusals: list[tuple[str, str, str]] = []
     legacy = {
         rel: tier for tier, names in edits.LEGACY_TIER_FILES.items() for rel in names
     } if edits.MANIFEST not in files else {}
@@ -6946,9 +7239,22 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
                 raw = edits.parse_yaml(files[rel])
                 if not isinstance(raw, dict) or "traffic-profile" not in raw:
                     continue  # a `roles_from:` fragment (tfc/roles.yaml), not a profile
-                load_traffic_profile(bundle_dir / rel)
+                spec = load_traffic_profile(bundle_dir / rel)
+                if twin_id and _tier_target_mismatch(twin_id, spec.target):
+                    refusals.append(("TIER-TARGET", rel, (
+                        f"names target {spec.target!r}, not this twin {twin_id!r}; "
+                        "it would apply to that twin (a Save-As copy that kept its source's id)")))
+                try:
+                    _refuse_mix_assignments(bundle_dir, rel, spec)
+                except _TierRuleError as e:
+                    refusals.extend(e.all)
+                refusals.extend(_trafficgen_document_findings(bundle_dir, rel, spec))
             else:
                 plan = load_tap_plan(bundle_dir / rel, require_sensors=False)
+                if twin_id and _tier_target_mismatch(twin_id, plan.target):
+                    refusals.append(("TIER-TARGET", rel, (
+                        f"names target {plan.target!r}, not this twin {twin_id!r}; "
+                        "it would apply to that twin (a Save-As copy that kept its source's id)")))
                 bare = sum(1 for b in plan.bindings if not b.sensors)
                 if bare:
                     warnings.append(
@@ -6962,6 +7268,9 @@ def _check_tier_files(bundle_dir: Path, files: dict[str, str]) -> list[str]:
             twin_overlay(bundle_dir / "personas")
         except PersonaRegistryError as e:
             raise ApiError(400, f"personas/: {e}") from e
+    if refusals:
+        (rid, loc, msg), *more = refusals
+        raise _TierRuleError(rid, loc, msg, more)
     return warnings
 
 
@@ -7436,6 +7745,7 @@ def _replay_tfc(
         spec = dataclasses.replace(spec, roles=kept)
     overlay, overlay_warnings, _found = twin_persona_overlay(te.scenario_id, str(roots))
     warnings.extend(overlay_warnings)
+    manifests = _load_manifests(_effective_images_root(settings)) if spec.lines else None
     try:
         with persona_registry.overlay(overlay):
             status = apply_traffic_profile(
@@ -7444,6 +7754,7 @@ def _replay_tfc(
                 persona_backend=persona_backend,
                 allow_revert_host_edits=allow_revert_host_edits,
                 cancel_event=cancel_event,
+                manifests=manifests, twin_dir=profile_path.parent.parent if spec.lines else None,
             )
     except TrafficPlanError as e:
         raise ApiError(e.status, e.message, detail=e.detail) from e

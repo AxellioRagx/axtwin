@@ -311,6 +311,10 @@ class OpDTO(BaseModel):
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     attempts: list[OpAttemptDTO]
+    # The op's scope (`{"host": ...}`, `{"generator": ...}`, ...): which VM or
+    # generator it acts on, so a view can group a tier's ops (trafficgen's
+    # generator ops in the deploy view, canvas task item 6).
+    scope: dict[str, Any] = {}
 
 
 class DeployDetailDTO(BaseModel):
@@ -1153,6 +1157,39 @@ class TrafficReplayBindingDTO(BaseModel):
     iface: str = "eth0"
 
 
+class TrafficBudgetDTO(BaseModel):
+    """tfc `budget` (trafficgen T2): ceilings for the twin's traffic lines."""
+
+    model_config = ConfigDict(extra="forbid")
+    cps: float
+    mbps: float
+
+
+class TrafficEmulatedDTO(BaseModel):
+    """tfc `emulated[]` (trafficgen T2): instances with no VM added to a te
+    node group, or a tfc-only external group (`external`, `segment`, `role`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    group: str
+    count: int
+    external: Optional[bool] = None
+    segment: Optional[str] = None
+    role: Optional[str] = None
+    start: Optional[str] = None
+
+
+class TrafficLineDTO(BaseModel):
+    """tfc `lines[]` (trafficgen T2): `from` group -> `to` group, an app mix, a rate."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    id: Optional[str] = None
+    from_: str = Field(alias="from")
+    to: str
+    mix: str
+    rate_cps: float
+    max_concurrent: Optional[int] = None
+
+
 class TrafficApplyRequest(BaseModel):
     # (Unified Console ruling §3.3) -- required to apply a profile that would
     # revert a per-host persona edit; without it such an apply is a 409.
@@ -1169,6 +1206,11 @@ class TrafficApplyRequest(BaseModel):
     roles: list[TrafficRoleAssignmentDTO] = []
     assignments: list[TrafficAssignmentDTO] = []
     replay: list[TrafficReplayBindingDTO] = []
+    # trafficgen (T2): the same three blocks a tfc file carries, through the
+    # same parser and, at apply, the same TGN checks (`prepare_lines`).
+    budget: Optional[TrafficBudgetDTO] = None
+    emulated: list[TrafficEmulatedDTO] = []
+    lines: list[TrafficLineDTO] = []
     target_node: Optional[str] = None
 
 
@@ -1178,6 +1220,25 @@ class TrafficPlanStatusDTO(BaseModel):
     status: str  # not-applied | running | completed | failed | destroyed | ...
     assignments: list[TrafficAssignmentDTO] = []
     warnings: list[str] = []
+    # trafficgen (trafficgen/SPEC.md, B6): per traffic line, read live from its
+    # generator -- {line_id: {generator, from, to, mix, rate_cps, mult, state,
+    # opened, established, accepted, errors, bytes, open, cps_now, ...}}.
+    # Empty for a profile without lines.
+    lines: dict[str, dict[str, Any]] = {}
+
+
+class TrafficLineRateRequest(BaseModel):
+    """`POST /api/deploys/{id}/traffic-lines/{line}`: the line's new rate."""
+
+    rate_cps: float
+
+
+class TrafficLineRateResponse(BaseModel):
+    line: str
+    generator: str
+    rate_cps: float
+    planned_rate_cps: float
+    mult: float
 
 
 class TrafficDestroyRequest(BaseModel):
@@ -2357,6 +2418,22 @@ class PersonaEmitDTO(BaseModel):
     peer_scope: str = "one"
 
 
+class PersonaMixEntryDTO(BaseModel):
+    """One app of an app mix (`trafficgen/SPEC.md`): the mix's own `app` and
+    `weight`, its normalised `share`, and the app's facts when it is installed
+    (`installed: false` -> the facts are empty and a warning names it)."""
+
+    app: str
+    weight: float
+    share: float
+    installed: bool = True
+    label: str = ""
+    proto: str = ""
+    port: Optional[int] = None
+    transport: str = ""
+    real_server_ok: bool = False
+
+
 class PersonaDTO(BaseModel):
     id: str
     os_family: str
@@ -2371,6 +2448,32 @@ class PersonaDTO(BaseModel):
     category: str = "other"
     label: str = ""
     blurb: str = ""
+    # T1 (trafficgen/SPEC.md): an app mix's apps; empty for every other persona.
+    mix: list[PersonaMixEntryDTO] = []
+    # An app mix: every app is installed and `real_server_ok`. False otherwise.
+    real_server_ok: bool = False
+
+
+class TrafficAppDTO(BaseModel):
+    """`GET /api/traffic-apps[/{id}]` (`trafficgen/SPEC.md`): one installed
+    traffic app (`catalog/traffic/apps/<id>/app.yaml`), read-only."""
+
+    id: str
+    label: str
+    blurb: str = ""
+    proto: str
+    transport: str
+    port: int
+    real_server_ok: bool
+    source_kind: str  # program | pcap
+    tunables: dict[str, dict[str, Any]] = {}
+    provenance: str = ""
+    used_by: list[str] = []  # app-mix persona ids that name it
+
+
+class TrafficAppListDTO(BaseModel):
+    apps: list[TrafficAppDTO]
+    warnings: list[str] = []
 
 
 class TemplateDTO(BaseModel):

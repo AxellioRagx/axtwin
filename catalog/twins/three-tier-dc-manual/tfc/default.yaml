@@ -1,0 +1,11 @@
+# Traffic profile: three-tier-dc-manual / default
+# Role-based: every web-tier / db-tier host, whatever its instance name
+# (rack1-web01, rack1-web02, ...). A node: entry must be a literal host id,
+# so the canvas's node-group names (rack1-web) never matched the instances.
+traffic-profile:
+  target: three-tier-dc-manual
+  assignments:
+    - role: web-tier
+      persona: web-tier
+    - role: db-tier
+      persona: db-tier

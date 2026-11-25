@@ -1,0 +1,35 @@
+manifest_schema_version: 1
+
+image:
+  id: trex-astf
+  description: |
+    Debian 12 (Bookworm) generic-cloud + TRex v3.08 (Cisco trex-core, ASTF),
+    pre-baked for axtwin's `trex-astf` persona driver
+    (engine/src/axrange/personas/drivers/trex_astf.py; twin
+    catalog/twins/trex-test) and for the generator VMs the tfc tier
+    plans (image profile `generator`,
+    engine/src/axrange/trafficgen/SPEC.md). TRex runs in software low_end mode on the VM's
+    virtio NIC through DPDK's af_packet PMD -- no PCI passthrough, no DPDK NIC
+    binding. Hugepages are pre-set (vm.nr_hugepages=256, 512 MiB) because
+    low_end still allocates from them. The release lives at /opt/trex/v3.08
+    with /opt/trex/current pointing at it.
+  os:
+    family: linux
+    distribution: debian
+    version: "12"
+    architecture: x86_64
+  versions:
+    - id: v1
+      released: 2026-11-16
+      status: current
+      provides:
+        - linux
+        - traffic:trex-astf    # the baked TRex + its ASTF python client (probe in the binding)
+      install_support:
+        pkg: [apt]
+        config: true
+        role: false
+        container: false
+        script: true
+      first_boot_budget: 120
+      size_estimate: 8Gi

@@ -194,6 +194,16 @@ class Emit:
 
 
 @dataclass(frozen=True)
+class MixEntry:
+    """One app of an app mix (`engine/src/axrange/trafficgen/SPEC.md`): a
+    traffic-app id (`catalog/traffic/apps/<id>/`) and its weight, normalised
+    per mix into a share of the traffic line's rate."""
+
+    app: str
+    weight: float
+
+
+@dataclass(frozen=True)
 class Persona:
     """One persona catalog entry."""
 
@@ -209,6 +219,10 @@ class Persona:
     category: str = ""
     label: str = ""
     blurb: str = ""
+    # --- 2026-11-24, T1 (engine/src/axrange/trafficgen/SPEC.md): an APP MIX
+    # (`drive: trex-astf`). Empty for every other persona. A mix is played by
+    # a generator for a tfc traffic line, never assigned to a VM.
+    mix: tuple[MixEntry, ...] = ()
 
     def effective_category(self) -> str:
         """The persona's category, with the §4.2 fallback for a file that names
@@ -282,6 +296,7 @@ def load_persona(raw: dict[str, Any]) -> Persona:
     knobs = body.get("knobs") or {}
     if not isinstance(knobs, dict):
         raise PersonaSchemaError(f"persona {pid!r}: knobs must be a mapping, got {knobs!r}")
+    mix = _load_mix(pid, body.get("mix"))
     return Persona(
         id=str(pid),
         os_family=str(body.get("os_family") or ""),
@@ -292,7 +307,37 @@ def load_persona(raw: dict[str, Any]) -> Persona:
         category=_opt_str(body, "category"),
         label=_opt_str(body, "label"),
         blurb=_opt_str(body, "blurb"),
+        mix=mix,
     )
+
+
+def _load_mix(pid: Any, raw: Any) -> tuple[MixEntry, ...]:
+    """`mix: [{app, weight}]` -- shape only (a mapping per entry, a non-empty
+    app id, a numeric weight). Whether the app is installed, the weight is
+    positive and `drive` is `trex-astf` are validator findings."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, (list, tuple)):
+        raise PersonaSchemaError(f"persona {pid!r}: mix must be a list, got {raw!r}")
+    out = []
+    for i, e in enumerate(raw):
+        if not isinstance(e, dict):
+            raise PersonaSchemaError(f"persona {pid!r}: mix[{i}] is not a mapping: {e!r}")
+        unknown = sorted(set(e) - {"app", "weight"})
+        if unknown:
+            raise PersonaSchemaError(f"persona {pid!r}: mix[{i}] has unknown key(s) {unknown}")
+        app = e.get("app")
+        if not app or not isinstance(app, str):
+            raise PersonaSchemaError(f"persona {pid!r}: mix[{i}] is missing an app id")
+        w = e.get("weight", 1)
+        if isinstance(w, bool):
+            raise PersonaSchemaError(f"persona {pid!r}: mix[{i}].weight is not a number: {w!r}")
+        try:
+            weight = float(w)
+        except (TypeError, ValueError) as err:
+            raise PersonaSchemaError(f"persona {pid!r}: mix[{i}].weight is not a number: {w!r}") from err
+        out.append(MixEntry(app=app, weight=weight))
+    return tuple(out)
 
 
 def _opt_str(body: dict[str, Any], key: str) -> str:

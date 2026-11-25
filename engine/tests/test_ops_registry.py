@@ -24,7 +24,7 @@ def test_action_wait_count() -> None:
     # +5 native switches (create-switch, link-switches, set-port-state,
     # attach-vm-to-switch-port, install-span; docs/design/native-switches.md,
     # Authority: user, 2026-11-12)
-    assert len(list_actions_and_waits()) == 39
+    assert len(list_actions_and_waits()) == 44  # +OP-TFC-030..070 (trafficgen, 2026-11-24)
 
 
 def test_barrier_count() -> None:

@@ -111,3 +111,63 @@ export function unwireTierDefault(text: string, tier: "tfc" | "tap"): string {
   } else removeSpan(lines, t.start, t.end, tiers.value.indent);
   return joinLines(lines, doc.trailingNewline);
 }
+
+/** The root key of each tier file and the key under it that names the twin it is for. */
+const TIER_ROOTS: Record<string, readonly string[]> = {
+  "traffic-profile": ["target", "twin"],
+  "tap-plan": ["target"],
+  exercise: ["twin", "target"],
+};
+
+/** Is `path` a tier file of the bundle (tfc / tap / exr profile)? The te file and manifest are not. */
+export function isTierFile(path: string): boolean {
+  return /^(tfc|tap|exr)\/[^/]+\.ya?ml$/.test(path);
+}
+
+/** The twin id a tier file names (`traffic-profile.target`, `tap-plan.target`, `exercise.twin`), or null. */
+export function tierTarget(text: string): string | null {
+  const doc = parseYaml(text);
+  for (const [root, keys] of Object.entries(TIER_ROOTS)) {
+    const body = get(doc.root, root);
+    if (!body) continue;
+    for (const k of keys) {
+      const v = scalarText(get(body, k));
+      if (v !== null) return v;
+    }
+  }
+  return null;
+}
+
+/** A Save-As of a tier file: the twin it names becomes `newId`, and the leading comment block's
+ *  mentions of `oldId` (the header, "Traffic profile: <id> / default") follow. Every other line is
+ *  kept. A file that names no twin is returned as it is. */
+export function retargetTierFile(text: string, newId: string, oldId: string | null): string {
+  const doc = parseYaml(text);
+  const lines = [...doc.lines];
+  let changed = false;
+  for (const [root, keys] of Object.entries(TIER_ROOTS)) {
+    const body = get(doc.root, root);
+    if (!body || body.kind !== "map") continue;
+    for (const k of keys) {
+      const e = entry(body, k);
+      if (!e || e.valueCol === -1) continue;
+      if (scalarText(e.value) !== newId) {
+        if (body.flow) continue; // a one-line flow root: not written by the engine or canvas
+        replaceValueOnLine(lines, e, encodeScalar(newId));
+        changed = true;
+      }
+    }
+  }
+  if (oldId && oldId !== newId) {
+    const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const word = new RegExp("(^|[^A-Za-z0-9_-])" + escaped + "(?![A-Za-z0-9_-])", "g");
+    for (let i = 0; i < lines.length; i++) {
+      const raw = lines[i]!;
+      if (raw.trim() === "") continue;
+      if (!raw.trimStart().startsWith("#")) break;
+      const next = raw.replace(word, `$1${newId}`);
+      if (next !== raw) { lines[i] = next; changed = true; }
+    }
+  }
+  return changed ? joinLines(lines, doc.trailingNewline) : text;
+}

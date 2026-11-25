@@ -1,0 +1,15 @@
+# A TLS 1.3 session replayed from capture.pcap (beside this file): curl to an
+# openssl s_server with SNI portal.corp.example, 27 KB of application data.
+# A sensor sees a well-formed handshake, the SNI and the certificate; nothing
+# is decryptable or verifiable, and every flow carries the same bytes.
+app:
+  id: tls-session
+  label: "TLS session (replayed)"
+  blurb: "A captured TLS 1.3 session to portal.corp.example, replayed byte for byte."
+  proto: tls
+  transport: tcp
+  port: 443
+  real_server_ok: false          # negotiated keys: a replay cannot talk to a real server
+  source:
+    pcap: capture.pcap
+  provenance: "Captured 2026-11-24 in the spike generator VM: curl 7.88 (TLS 1.3, TLS_AES_256_GCM_SHA384) to openssl s_server, self-signed certificate CN=portal.corp.example; the key is not kept."

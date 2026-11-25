@@ -39,3 +39,6 @@ ADAPTER_CONF: Path = CONFIG_DIR / "adapter.conf"
 #: `personas/<id>.yaml` -- the shipped persona library (`axrange.personas.registry`);
 #: `AXRANGE_PERSONAS_DIR` adds colon-separated extra dirs on top, never replaces it.
 PERSONAS_DIR: Path = CATALOG_ROOT / "personas"
+#: `traffic/apps/<id>/app.yaml` -- the traffic-app library (`axrange.trafficgen.apps`);
+#: `AXRANGE_TRAFFIC_APPS_DIR` adds colon-separated extra dirs on top, never replaces it.
+TRAFFIC_APPS_DIR: Path = CATALOG_ROOT / "traffic" / "apps"

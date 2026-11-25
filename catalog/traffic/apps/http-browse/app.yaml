@@ -1,0 +1,23 @@
+# A browser fetching one page: GET, an nginx-shaped 200 with an HTML body of
+# resp_bytes, connection closed. Programmatic (not replayed), so the Host
+# header names the real peer and the sensor sees a plausible request (A4).
+app:
+  id: http-browse
+  label: "HTTP browse"
+  blurb: "GET a page, read the response, close."
+  proto: http
+  transport: tcp
+  port: 80
+  # The client end also works against a real web server, provided the
+  # response length is known (spike A5: 599/599 against nginx).
+  real_server_ok: true
+  source:
+    program:
+      - { send_text: "GET {path} HTTP/1.1\r\nHost: {server_name}\r\nUser-Agent: {user_agent}\r\nAccept: text/html,application/xhtml+xml,*/*;q=0.8\r\nAccept-Language: en-US,en;q=0.5\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n" }
+      - { reply_text: "HTTP/1.1 200 OK\r\nServer: nginx/1.22.1\r\nContent-Type: text/html\r\nContent-Length: {resp_bytes}\r\nConnection: close\r\n\r\n" }
+      - { reply: "3c21444f43545950452068746d6c3e0a3c68746d6c3e3c686561643e3c7469746c653e496e7472616e65743c2f7469746c653e3c2f686561643e3c626f64793e0a", size: "{resp_bytes}", fill: "3c703e4c6f72656d20697073756d20646f6c6f722073697420616d65742e3c2f703e0a" }
+  tunables:
+    path:       { default: "/index.html" }
+    user_agent: { default: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0" }
+    resp_bytes: { default: 8192, min: 128, max: 1048576 }
+  provenance: "Hand-written request and nginx-shaped response; body is an HTML prefix padded with repeated <p> lines."

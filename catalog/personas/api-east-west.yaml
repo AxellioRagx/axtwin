@@ -1,0 +1,14 @@
+# App mix (engine/src/axrange/trafficgen/SPEC.md): service-to-service JSON API
+# calls inside the data centre (POST then GET on one connection).
+persona:
+  id: api-east-west
+  category: traffic
+  label: "API calls, east-west (emulated)"
+  blurb: "Emulated services call another tier's JSON API."
+  os_family: linux
+  drive: trex-astf
+  emits:
+    - { proto: http, ports: [8080], peer_role: web-tier, transport: tcp }
+  requires: [web-tier]
+  mix:
+    - { app: rest-api-call, weight: 1 }

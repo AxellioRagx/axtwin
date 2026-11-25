@@ -1,0 +1,19 @@
+tap-plan:
+  target: three-tier-dc-manual
+  bindings:
+    - selector: { scope: segment, target: internet }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+      source: authored
+    - selector: { scope: segment, target: rack1-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+      source: authored
+    - selector: { scope: segment, target: rack2-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+      source: authored
+    - selector: { scope: segment, target: rack3-lan }
+      sensors: [XPress-SW-A]
+      mode: exclusive
+      source: authored
