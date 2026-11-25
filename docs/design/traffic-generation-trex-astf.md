@@ -527,12 +527,29 @@ model.
     Cost: about ½ day of spike, plus about 1 day for the planner, document and
     tests (golden plan for the gate twin, two-segment group, fallback). If the
     spike fails on point 2, fall back to C or D.
+
+    **S3b outcome (dev45, 2026-11-25; §10.1): B fails on point 2. The split in
+    point 1 can be undone.** Return traffic for an address is delivered only
+    on the leg that answers ARP for it, and TRex resets it there when the flow
+    belongs to another port. Whichever leg owns `rack1-web`, the other role's
+    flows die (R1 0/595, R2 86/599). Widening each profile's range so that
+    pair k's 1/N slice is the group's block made every pair use all its
+    addresses (R3: 20/20, 4/4, 4/4, 2/2), and with that, rule 1 no longer
+    counts against multi-pair. So B as written is not built. What is left:
+    C, which now fits the gate (with widening, each slice is used whole), or D.
+    The diff below is kept for the record; a C build would reuse its grouping,
+    legs, `client_port`, sizing and widening, and replace "one owner leg" with
+    "disjoint slices per leg".
   - **C: split the group by role, no spike.** A group in lines on two pairs
     gives each leg a disjoint slice of its addresses (the proven A3
     mechanics). Cost: about 1 day. Semantic cost: the "both" group's client
     addresses are not its server addresses, and with the 1/N split each slice
     needs more than N addresses. `rack3-db` ×2 and `rack1-web` ×4 do not fit
-    the gate's two pairs.
+    the gate's two pairs. *After S3b:* with widening, each slice is used whole
+    and needs no more than one address, so the gate fits: `rack1-web` ×4 is 2
+    serving and 2 calling. S3b's R0 and R3 ran exactly this layout (both
+    pairs `SF`). The canvas would show the split on the row (e.g. "rack1-web:
+    2 serve Internet users, 2 call rack3-db").
   - **D: no build.** The row's two-generator reason stands, and the twin
     models two emulated groups (e.g. `rack1-web-front` serving Internet users
     and `rack1-web-back` calling `rack3-db`). Cost: none; the canvas shows two
@@ -613,6 +630,7 @@ Scripts and raw output: `~/.axrange/spikes/trex-astf/` (outside the repo).
 | S4 sensor | Each rack span mirrors only packets *from* the te ports present when it was installed: one span alone sees half flows (`SH`/`SHR`, `possible_split_routing`). Both spans merged: HTTP 316 `SF`, `http.log` GET 200; DNS 190 `dns.log` NOERROR; TLS 1.3 replay of a captured session 126 `ssl.log` established, SNI `portal.corp.example`. Replayed bytes show: `Host: 22.0.0.3`, fixed DNS answer `100.100.100.100`. | `out/a4/` |
 | S5 client-only | Programmatic GET to the real nginx on rack1-web01 from 20 emulated rack2 addresses: 599/599, nginx logs 599 × 200. mariadb on rack1-db: 100/100 refused, because it listens on 127.0.0.1 only (Debian default; the twin's `listen: 3306` is not honoured). Its greeting carries a fresh 20-byte scramble per connection, so a replayed login cannot succeed even when reachable. | `out/a5`, nginx access.log |
 | S6 live control | `update` ×1→×2→×1 tracked within 5 s; a second profile started and stopped beside two running ones; 0 drops on 182 long (20 s) flows; daemon PID unchanged. | `out/a6.txt` |
+| S3b shared group (2026-11-25, §9 T11) | Spike VM 9702 (linked clone of 102) on a te-only `three-tier-dc-trex`; one TRex, 4 legs: 0 internet, 1 and 2 on `rack1-lan`, 3 `rack3-lan`; pair 0 Internet users → `rack1-web`, pair 1 `rack1-web` → `rack3-db`, 20 cps each, 60 s per run. **R1** (`rack1-web` /32s on port 1): pair 0 596/596; pair 1 0/595, with all 2,930 SYN-ACKs delivered to port 1 and RST there (Zeek `S0`). **R2** (on port 2): pair 1 556/598 (early drops = stale router ARP); pair 0 86/599. **R0** (disjoint: serving .200–.203 on port 1, calling .210–.213 on port 2): pair 1 594/594; each pair used exactly its 1/N half of every pool (10/20 clients, slice 0 for pair 0, slice 1 for pair 1). **R3** (R0 plus each range widened so slice k is the group's block): 20/20, 4/4, 4/4, 2/2 addresses used; pair 1 597/597; Zeek `SF` on both client legs. Pair 0 alone also shows server retransmits on the internet path (369, 1,063; 0 drops), so that is not caused by multi-pair (the A3 note). VM deleted and twin destroyed afterwards. | `~/.axrange/spikes/trex-astf/s3b/` |
 
 **What this changes beyond §8.4:**
 - **T3 and the tap tier:** a generator added after the tap tier is invisible
